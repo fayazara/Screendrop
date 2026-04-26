@@ -4,149 +4,72 @@
 //
 //  Created by Fayaz Ahmed Aralikatti on 26/04/26.
 //
-//  Single screenshot preview window.
+//  Floating screenshot preview stack.
 //
 
+import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
+private let previewCardSize = CGSize(width: 220, height: 165)
+private let previewTrailingPadding: CGFloat = 28
+private let previewStackAnimation = Animation.smooth(duration: 0.3, extraBounce: 0)
+private let previewCardSlideOffset = previewCardSize.width + previewTrailingPadding + 48
+
 struct PreviewWindowView: View {
-    @Binding var url: URL?
-    @AppStorage(OpenShotPreferences.autoSaveKey) private var autoSave = false
-    @AppStorage(OpenShotPreferences.autoCopyKey) private var autoCopy = false
-    
-    @State private var previewImage: NSImage?
-    @State private var isHovered = false
-    @State private var hideView = false
+    @State private var previewStack = ScreenshotPreviewStack.shared
     @State private var keyMonitor: Any?
     @State private var globalKeyMonitor: Any?
-    @State private var autoSavedURL: URL?
     @Environment(\.dismiss) private var dismissWindow
     
     var body: some View {
-        ZStack {
-            if let previewImage, let url {
-                Image(nsImage: previewImage)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(width: 220, height: 165)
-                    .clipped()
-                    .overlay {
-                        if isHovered {
-                            HoveredContent()
+        VStack(spacing: 20) {
+            ForEach(previewStack.items) { item in
+                PreviewCardView(
+                    item: item,
+                    isHidden: previewStack.draggingItemID == item.id,
+                    isDismissing: previewStack.dismissingItemIDs.contains(item.id),
+                    onHoverChanged: { isHovered in
+                        previewStack.setHovered(item.id, isHovered: isHovered)
+                    },
+                    onClose: {
+                        previewStack.dismiss(id: item.id)
+                    },
+                    onCopy: {
+                        previewStack.copyToClipboard(id: item.id)
+                    },
+                    onSave: {
+                        previewStack.save(id: item.id)
+                    },
+                    onDragBegan: {
+                        previewStack.beginDrag(id: item.id)
+                    },
+                    onDragEnded: {
+                        withAnimation(previewStackAnimation) {
+                            previewStack.finishDrag(id: item.id)
                         }
                     }
-                    .clipShape(.rect(cornerRadius: cornerRadius))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: cornerRadius)
-                            .strokeBorder(.white.opacity(0.25), lineWidth: 1)
-                    }
-                    .shadow(color: .black.opacity(0.5), radius: 30, x: 0, y: 12)
-                    .shadow(color: .black.opacity(0.3), radius: 10, x: 0, y: 4)
-                    .opacity(hideView ? 0 : 1)
-                    .draggable(url) {
-                        Image(nsImage: previewImage)
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .clipShape(.rect(cornerRadius: cornerRadius))
-                    }
-                    .onDragSessionUpdated { session in
-                        switch session.phase {
-                        case .active:
-                            QuickLookPreviewPresenter.dismiss()
-                            hideView = true
-                        case .ended:
-                            dismissWindow()
-                        default:
-                            break
-                        }
-                    }
-                    .onHover { status in
-                        withAnimation(animation) {
-                            isHovered = status
-                        }
-                    }
-                    .transition(.push(from: .trailing))
+                )
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
-        .onAppear(perform: loadPreview)
-        .onDisappear(perform: tearDown)
-        .padding(.trailing, 28)
+        .frame(width: previewCardSize.width)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+        .padding(.trailing, previewTrailingPadding)
         .padding(.bottom, 32)
-    }
-    
-    // MARK: - Hover Overlay
-    
-    @ViewBuilder
-    private func HoveredContent() -> some View {
-        ZStack {
-            Rectangle()
-                .fill(.ultraThinMaterial)
-                .environment(\.colorScheme, .dark)
-            
-            Button {
-                QuickLookPreviewPresenter.dismiss()
+        .animation(previewStackAnimation, value: previewStack.itemIDs)
+        .onAppear(perform: installKeyMonitors)
+        .onDisappear(perform: tearDown)
+        .onChange(of: previewStack.items.count) { _, count in
+            if count == 0 {
                 dismissWindow()
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.title2)
-                    .foregroundStyle(.black, .white)
-            }
-            .buttonStyle(.plain)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-            .padding(10)
-            
-            VStack(spacing: 10) {
-                Button {
-                    copyToClipboard()
-                } label: {
-                    Text("Copy")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(.primary)
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 8)
-                        .background(.background.opacity(0.8), in: .capsule)
-                }
-                .buttonStyle(.plain)
-                
-                Button {
-                    saveScreenshot()
-                } label: {
-                    Text("Save")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(.primary)
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 8)
-                        .background(.background.opacity(0.8), in: .capsule)
-                }
-                .buttonStyle(.plain)
             }
         }
-        .transition(.opacity)
     }
     
-    // MARK: - Lifecycle
+    // MARK: - Keyboard
     
-    private func loadPreview() {
-        guard let url,
-              let image = ScreenshotImageLoader.downsampledImage(at: url, maxPixelSize: 520) else {
-            dismissWindow()
-            return
-        }
-        
-        withAnimation(animation) {
-            previewImage = image
-        }
-        NSSound(named: "Tink")?.play()
-        
-        if autoSave {
-            autoSaveIfNeeded()
-        }
-        
-        if autoCopy {
-            copyToClipboard(shouldDismiss: false)
-        }
+    private func installKeyMonitors() {
+        guard keyMonitor == nil, globalKeyMonitor == nil else { return }
         
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             if handlePreviewKey(event) {
@@ -157,7 +80,7 @@ struct PreviewWindowView: View {
         }
         
         globalKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { event in
-            if isHovered || QuickLookPreviewPresenter.isShown {
+            if previewStack.hoveredItemID != nil || QuickLookPreviewPresenter.isShown {
                 _ = handlePreviewKey(event)
             }
         }
@@ -177,18 +100,267 @@ struct PreviewWindowView: View {
         QuickLookPreviewPresenter.dismiss()
     }
     
-    // MARK: - Actions
-    
-    private func saveScreenshot() {
-        guard let url else { return }
-        
-        if autoSave {
-            autoSaveIfNeeded()
+    private func handlePreviewKey(_ event: NSEvent) -> Bool {
+        if event.keyCode == 53, QuickLookPreviewPresenter.isShown {
             QuickLookPreviewPresenter.dismiss()
-            dismissWindow()
+            return true
+        }
+        
+        if event.keyCode == 49, let hoveredItem = previewStack.hoveredItem {
+            QuickLookPreviewPresenter.show(url: hoveredItem.url)
+            return true
+        }
+        
+        return false
+    }
+}
+
+private struct PreviewCardView: View {
+    let item: ScreenshotPreviewItem
+    let isHidden: Bool
+    let isDismissing: Bool
+    let onHoverChanged: (Bool) -> Void
+    let onClose: () -> Void
+    let onCopy: () -> Void
+    let onSave: () -> Void
+    let onDragBegan: () -> Void
+    let onDragEnded: () -> Void
+    
+    @State private var isHovered = false
+    @State private var isPresented = false
+    
+    var body: some View {
+        Image(nsImage: item.previewImage)
+            .resizable()
+            .aspectRatio(contentMode: .fill)
+            .frame(width: previewCardSize.width, height: previewCardSize.height)
+            .clipped()
+            .overlay {
+                if isHovered {
+                    hoveredContent
+                }
+            }
+            .clipShape(.rect(cornerRadius: cornerRadius))
+            .overlay {
+                RoundedRectangle(cornerRadius: cornerRadius)
+                    .strokeBorder(.white.opacity(0.25), lineWidth: 1)
+            }
+            .shadow(color: .black.opacity(0.5), radius: 30, x: 0, y: 12)
+            .shadow(color: .black.opacity(0.3), radius: 10, x: 0, y: 4)
+            .opacity(isHidden ? 0 : 1)
+            .offset(x: horizontalOffset)
+            .draggable(item.url) {
+                Image(nsImage: item.previewImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .clipShape(.rect(cornerRadius: cornerRadius))
+            }
+            .onDragSessionUpdated { session in
+                switch session.phase {
+                case .active:
+                    onDragBegan()
+                case .ended:
+                    onDragEnded()
+                default:
+                    break
+                }
+            }
+            .onHover { status in
+                withAnimation(previewStackAnimation) {
+                    isHovered = status
+                    onHoverChanged(status)
+                }
+            }
+            .onAppear {
+                isPresented = false
+                
+                DispatchQueue.main.async {
+                    withAnimation(previewStackAnimation) {
+                        isPresented = true
+                    }
+                }
+            }
+            .animation(previewStackAnimation, value: isDismissing)
+    }
+    
+    private var hoveredContent: some View {
+        ZStack {
+            Rectangle()
+                .fill(.ultraThinMaterial)
+                .environment(\.colorScheme, .dark)
+            
+            Button(action: onClose) {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.title2)
+                    .foregroundStyle(.black, .white)
+            }
+            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+            .padding(10)
+            
+            VStack(spacing: 10) {
+                Button(action: onCopy) {
+                    Text("Copy")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.primary)
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 8)
+                        .background(.background.opacity(0.8), in: .capsule)
+                }
+                .buttonStyle(.plain)
+                
+                Button(action: onSave) {
+                    Text("Save")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.primary)
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 8)
+                        .background(.background.opacity(0.8), in: .capsule)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .transition(.opacity)
+    }
+    
+    private var cornerRadius: CGFloat {
+        16
+    }
+    
+    private var horizontalOffset: CGFloat {
+        isPresented && !isDismissing ? 0 : previewCardSlideOffset
+    }
+}
+
+struct ScreenshotPreviewItem: Identifiable, Equatable {
+    let id = UUID()
+    let url: URL
+    let previewImage: NSImage
+    var autoSavedURL: URL?
+    
+    static func == (lhs: ScreenshotPreviewItem, rhs: ScreenshotPreviewItem) -> Bool {
+        lhs.id == rhs.id
+    }
+}
+
+@MainActor
+@Observable
+final class ScreenshotPreviewStack {
+    static let shared = ScreenshotPreviewStack()
+    
+    private(set) var items: [ScreenshotPreviewItem] = []
+    var hoveredItemID: ScreenshotPreviewItem.ID?
+    var draggingItemID: ScreenshotPreviewItem.ID?
+    var dismissingItemIDs: Set<ScreenshotPreviewItem.ID> = []
+    
+    var itemIDs: [ScreenshotPreviewItem.ID] {
+        items.map(\.id)
+    }
+    
+    var hoveredItem: ScreenshotPreviewItem? {
+        guard let hoveredItemID else { return nil }
+        return items.first { $0.id == hoveredItemID }
+    }
+    
+    private init() {}
+    
+    func add(url: URL) {
+        guard let image = ScreenshotImageLoader.downsampledImage(at: url, maxPixelSize: 520) else {
             return
         }
         
+        QuickLookPreviewPresenter.dismiss()
+        
+        var item = ScreenshotPreviewItem(url: url, previewImage: image)
+        
+        if OpenShotPreferences.autoSave {
+            item.autoSavedURL = saveToDefaultLocation(from: url)
+        }
+        
+        if OpenShotPreferences.autoCopy {
+            _ = copyURLToClipboard(url)
+        }
+        
+        items.insert(item, at: 0)
+        NSSound(named: "Tink")?.play()
+    }
+    
+    func setHovered(_ id: ScreenshotPreviewItem.ID, isHovered: Bool) {
+        if isHovered {
+            hoveredItemID = id
+        } else if hoveredItemID == id {
+            hoveredItemID = nil
+        }
+    }
+    
+    func beginDrag(id: ScreenshotPreviewItem.ID) {
+        QuickLookPreviewPresenter.dismiss()
+        draggingItemID = id
+    }
+    
+    func finishDrag(id: ScreenshotPreviewItem.ID) {
+        removeImmediately(id: id)
+    }
+    
+    func dismiss(id: ScreenshotPreviewItem.ID) {
+        guard items.contains(where: { $0.id == id }),
+              !dismissingItemIDs.contains(id) else {
+            return
+        }
+        
+        QuickLookPreviewPresenter.dismiss()
+        
+        withAnimation(previewStackAnimation) {
+            dismissingItemIDs.insert(id)
+            if hoveredItemID == id {
+                hoveredItemID = nil
+            }
+            
+            if draggingItemID == id {
+                draggingItemID = nil
+            }
+        }
+        
+        Task {
+            try? await Task.sleep(for: .milliseconds(320))
+            removeImmediately(id: id)
+        }
+    }
+    
+    private func removeImmediately(id: ScreenshotPreviewItem.ID) {
+        QuickLookPreviewPresenter.dismiss()
+        items.removeAll { $0.id == id }
+        dismissingItemIDs.remove(id)
+        
+        if hoveredItemID == id {
+            hoveredItemID = nil
+        }
+        
+        if draggingItemID == id {
+            draggingItemID = nil
+        }
+    }
+    
+    func copyToClipboard(id: ScreenshotPreviewItem.ID) {
+        guard let item = items.first(where: { $0.id == id }) else { return }
+        
+        guard copyURLToClipboard(item.url) else { return }
+        dismiss(id: id)
+    }
+    
+    func save(id: ScreenshotPreviewItem.ID) {
+        guard let index = items.firstIndex(where: { $0.id == id }) else { return }
+        
+        if OpenShotPreferences.autoSave {
+            if items[index].autoSavedURL == nil {
+                items[index].autoSavedURL = saveToDefaultLocation(from: items[index].url)
+            }
+            
+            dismiss(id: id)
+            return
+        }
+        
+        let url = items[index].url
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.png]
         panel.nameFieldStringValue = url.lastPathComponent
@@ -206,60 +378,22 @@ struct PreviewWindowView: View {
         }
     }
     
-    private func copyToClipboard() {
-        copyToClipboard(shouldDismiss: true)
-    }
-    
-    private func copyToClipboard(shouldDismiss: Bool) {
-        guard let url else { return }
-        
+    private func copyURLToClipboard(_ url: URL) -> Bool {
         do {
             try ScreenshotFileActions.copyPNGToClipboard(from: url)
+            return true
         } catch {
             print("Failed to copy screenshot: \(error)")
-            return
-        }
-        
-        if shouldDismiss {
-            QuickLookPreviewPresenter.dismiss()
-            dismissWindow()
+            return false
         }
     }
     
-    private func autoSaveIfNeeded() {
-        guard autoSavedURL == nil, let url else { return }
-        
+    private func saveToDefaultLocation(from url: URL) -> URL? {
         do {
-            autoSavedURL = try ScreenshotFileActions.saveToDefaultLocation(from: url)
+            return try ScreenshotFileActions.saveToDefaultLocation(from: url)
         } catch {
             print("Failed to auto save: \(error)")
+            return nil
         }
-    }
-    
-    private func openLargePreview() {
-        guard let url else { return }
-        QuickLookPreviewPresenter.show(url: url)
-    }
-    
-    private func handlePreviewKey(_ event: NSEvent) -> Bool {
-        if event.keyCode == 53, QuickLookPreviewPresenter.isShown {
-            QuickLookPreviewPresenter.dismiss()
-            return true
-        }
-        
-        if event.keyCode == 49, isHovered, previewImage != nil {
-            openLargePreview()
-            return true
-        }
-        
-        return false
-    }
-    
-    private var animation: Animation {
-        .smooth(duration: 0.3, extraBounce: 0)
-    }
-    
-    private var cornerRadius: CGFloat {
-        16
     }
 }

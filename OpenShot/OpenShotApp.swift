@@ -19,16 +19,16 @@ struct OpenShotApp: App {
                     // Wire the coordinator to open the preview window.
                     // This runs once when the menu first appears.
                     CaptureCoordinator.shared.onShowPreview = { [openWindow] url in
-                        openWindow(id: "PREVIEWWINDOW", value: url)
+                        ScreenshotPreviewStack.shared.add(url: url)
+                        openWindow(id: "PREVIEWWINDOW")
                     }
                 }
         }
         
-        // Floating preview window — pattern from the premium template
-        WindowGroup(id: "PREVIEWWINDOW", for: URL.self) { value in
-            PreviewWindowView(url: value)
-                .frame(width: previewWindowSize.width, height: previewWindowSize.height)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: previewWindowAnchor)
+        // Single floating preview window. The stack model owns individual cards.
+        Window("OpenShot Preview", id: "PREVIEWWINDOW") {
+            PreviewWindowView()
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
         }
         .windowStyle(.plain)
         .windowLevel(.floating)
@@ -42,14 +42,6 @@ struct OpenShotApp: App {
             SettingsView()
         }
         .windowResizability(.contentSize)
-    }
-    
-    var previewWindowSize: CGSize {
-        .init(width: 260, height: 200)
-    }
-    
-    var previewWindowAnchor: Alignment {
-        .bottomTrailing
     }
 }
 
