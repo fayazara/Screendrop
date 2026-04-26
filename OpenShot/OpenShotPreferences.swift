@@ -6,10 +6,17 @@
 //
 
 import AppKit
+import ImageIO
+import UniformTypeIdentifiers
 
 enum OpenShotPreferences {
     static let autoSaveKey = "autoSaveScreenshots"
     static let autoCopyKey = "autoCopyScreenshotsToClipboard"
+    static let autoCompressKey = "autoCompressScreenshots"
+    static let compressionQualityKey = "compressionQuality"
+    static let exportDirectoryPathKey = "exportDirectoryPath"
+    
+    private static let defaultCompressionQuality = 0.8
     
     static var autoSave: Bool {
         UserDefaults.standard.bool(forKey: autoSaveKey)
@@ -19,7 +26,25 @@ enum OpenShotPreferences {
         UserDefaults.standard.bool(forKey: autoCopyKey)
     }
     
+    static var autoCompress: Bool {
+        UserDefaults.standard.bool(forKey: autoCompressKey)
+    }
+    
+    static var compressionQuality: Double {
+        let value = UserDefaults.standard.object(forKey: compressionQualityKey) as? Double ?? defaultCompressionQuality
+        return min(max(value, 0.1), 1)
+    }
+    
     static var exportDirectory: URL {
+        if let path = UserDefaults.standard.string(forKey: exportDirectoryPathKey),
+           !path.isEmpty {
+            return URL(fileURLWithPath: path, isDirectory: true)
+        }
+        
+        return defaultExportDirectory
+    }
+    
+    static var defaultExportDirectory: URL {
         let picturesDirectory = FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask).first
         return (picturesDirectory ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Pictures"))
             .appendingPathComponent("OpenShot", isDirectory: true)
@@ -43,11 +68,70 @@ enum ScreenshotFileActions {
         )
         
         let destinationURL = uniqueDestinationURL(
-            for: url.lastPathComponent,
+            for: exportFileName(for: url),
             in: destinationDirectory
         )
-        try FileManager.default.copyItem(at: url, to: destinationURL)
+        try save(from: url, to: destinationURL)
         return destinationURL
+    }
+    
+    static func save(from sourceURL: URL, to destinationURL: URL) throws {
+        if OpenShotPreferences.autoCompress {
+            try exportCompressedJPEG(from: sourceURL, to: destinationURL)
+        } else {
+            if FileManager.default.fileExists(atPath: destinationURL.path) {
+                try FileManager.default.removeItem(at: destinationURL)
+            }
+            
+            try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
+        }
+    }
+    
+    static func exportFileName(for sourceURL: URL) -> String {
+        guard OpenShotPreferences.autoCompress else {
+            return sourceURL.lastPathComponent
+        }
+        
+        return sourceURL
+            .deletingPathExtension()
+            .appendingPathExtension("jpg")
+            .lastPathComponent
+    }
+    
+    static var exportContentType: UTType {
+        OpenShotPreferences.autoCompress ? .jpeg : .png
+    }
+    
+    private static func exportCompressedJPEG(from sourceURL: URL, to destinationURL: URL) throws {
+        if FileManager.default.fileExists(atPath: destinationURL.path) {
+            try FileManager.default.removeItem(at: destinationURL)
+        }
+        
+        guard let source = CGImageSourceCreateWithURL(
+            sourceURL as CFURL,
+            [kCGImageSourceShouldCache: false] as CFDictionary
+        ) else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        
+        guard let destination = CGImageDestinationCreateWithURL(
+            destinationURL as CFURL,
+            UTType.jpeg.identifier as CFString,
+            1,
+            nil
+        ) else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        
+        let options: [CFString: Any] = [
+            kCGImageDestinationLossyCompressionQuality: OpenShotPreferences.compressionQuality
+        ]
+        
+        CGImageDestinationAddImageFromSource(destination, source, 0, options as CFDictionary)
+        
+        guard CGImageDestinationFinalize(destination) else {
+            throw CocoaError(.fileWriteUnknown)
+        }
     }
     
     private static func uniqueDestinationURL(for fileName: String, in directory: URL) -> URL {

@@ -22,7 +22,13 @@ final class CaptureCoordinator {
     
     func captureFullscreen() {
         Task {
-            try? await Task.sleep(for: .milliseconds(200))
+            await prepareForCapture()
+            defer {
+                Task { @MainActor in
+                    PreviewWindowCaptureExclusion.shared.restoreAfterCapture()
+                }
+            }
+            
             guard let url = await ScreenshotManager.shared.captureFullscreen() else { return }
             await MainActor.run { self.showPreview(url: url) }
         }
@@ -30,7 +36,13 @@ final class CaptureCoordinator {
     
     func captureWindow() {
         Task {
-            try? await Task.sleep(for: .milliseconds(200))
+            await prepareForCapture()
+            defer {
+                Task { @MainActor in
+                    PreviewWindowCaptureExclusion.shared.restoreAfterCapture()
+                }
+            }
+            
             guard let url = await ScreenshotManager.shared.captureWindow() else { return }
             await MainActor.run { self.showPreview(url: url) }
         }
@@ -38,7 +50,13 @@ final class CaptureCoordinator {
     
     func captureArea() {
         Task {
-            try? await Task.sleep(for: .milliseconds(200))
+            await prepareForCapture()
+            defer {
+                Task { @MainActor in
+                    PreviewWindowCaptureExclusion.shared.restoreAfterCapture()
+                }
+            }
+            
             guard let url = await ScreenshotManager.shared.captureArea() else { return }
             await MainActor.run { self.showPreview(url: url) }
         }
@@ -52,5 +70,13 @@ final class CaptureCoordinator {
             return
         }
         onShowPreview(url)
+    }
+    
+    private func prepareForCapture() async {
+        await MainActor.run {
+            PreviewWindowCaptureExclusion.shared.hideForCapture()
+        }
+        
+        try? await Task.sleep(for: .milliseconds(200))
     }
 }

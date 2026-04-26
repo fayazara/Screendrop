@@ -29,6 +29,7 @@ struct OpenShotApp: App {
         Window("OpenShot Preview", id: "PREVIEWWINDOW") {
             PreviewWindowView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                .background(PreviewWindowCaptureExclusionView())
         }
         .windowStyle(.plain)
         .windowLevel(.floating)

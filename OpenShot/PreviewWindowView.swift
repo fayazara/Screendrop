@@ -389,15 +389,15 @@ final class ScreenshotPreviewStack {
         
         let url = items[index].url
         let panel = NSSavePanel()
-        panel.allowedContentTypes = [.png]
-        panel.nameFieldStringValue = url.lastPathComponent
+        panel.allowedContentTypes = [ScreenshotFileActions.exportContentType]
+        panel.nameFieldStringValue = ScreenshotFileActions.exportFileName(for: url)
         panel.canCreateDirectories = true
         panel.title = "Save Screenshot"
         
         panel.begin { response in
             if response == .OK, let destURL = panel.url {
                 do {
-                    try FileManager.default.copyItem(at: url, to: destURL)
+                    try ScreenshotFileActions.save(from: url, to: destURL)
                 } catch {
                     print("Failed to save: \(error)")
                 }
