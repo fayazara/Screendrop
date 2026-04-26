@@ -18,6 +18,8 @@ struct PreviewWindowView: View {
     @State private var isHovered: Bool = false
     @State private var hideView: Bool = false
     @State private var keyMonitor: Any?
+    @State private var globalKeyMonitor: Any?
+    @State private var popoverAnchorView: NSView?
     @Environment(\.dismiss) private var dismissWindow
     
     var body: some View {
@@ -40,6 +42,7 @@ struct PreviewWindowView: View {
                     }
                     .shadow(color: .black.opacity(0.5), radius: 30, x: 0, y: 12)
                     .shadow(color: .black.opacity(0.3), radius: 10, x: 0, y: 4)
+                    .background(PopoverAnchorView(anchorView: $popoverAnchorView))
                 .opacity(hideView ? 0 : 1)
                 .draggable(url) {
                     Image(nsImage: previewImage)
@@ -51,6 +54,7 @@ struct PreviewWindowView: View {
                     let phase = session.phase
                     
                     if phase == .active {
+                        LargePreviewPopover.dismiss()
                         hideView = true
                     }
                     
@@ -68,7 +72,7 @@ struct PreviewWindowView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
         .onAppear {
-            if let url, let image = NSImage(contentsOf: url) {
+            if let url, let image = ScreenshotImageLoader.downsampledImage(at: url, maxPixelSize: 520) {
                 withAnimation(animation) {
                     previewImage = image
                 }
@@ -78,15 +82,19 @@ struct PreviewWindowView: View {
             }
             
             // Monitor space key globally — .plain windows don't get key focus.
-            // Dispatch panel creation async to avoid blocking the event handler.
+            // Dispatch popover creation async to avoid blocking the event handler.
             keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [self] event in
-                if event.keyCode == 49, previewImage != nil { // 49 = space bar
-                    DispatchQueue.main.async {
-                        self.openLargePreview()
-                    }
+                if handlePreviewKey(event) {
                     return nil
                 }
+                
                 return event
+            }
+            
+            globalKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [self] event in
+                if isHovered || LargePreviewPopover.isShown {
+                    _ = handlePreviewKey(event)
+                }
             }
         }
         .onDisappear {
@@ -94,6 +102,12 @@ struct PreviewWindowView: View {
                 NSEvent.removeMonitor(keyMonitor)
             }
             keyMonitor = nil
+            
+            if let globalKeyMonitor {
+                NSEvent.removeMonitor(globalKeyMonitor)
+            }
+            globalKeyMonitor = nil
+            LargePreviewPopover.dismiss()
         }
         .padding(.trailing, 28)
         .padding(.bottom, 32)
@@ -174,16 +188,33 @@ struct PreviewWindowView: View {
     }
     
     private func copyToClipboard() {
-        guard let previewImage else { return }
+        guard let url, let pngData = try? Data(contentsOf: url, options: .mappedIfSafe) else { return }
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
-        pasteboard.writeObjects([previewImage])
+        pasteboard.setData(pngData, forType: .png)
+        LargePreviewPopover.dismiss()
         dismissWindow()
     }
     
     private func openLargePreview() {
-        guard let previewImage, let url else { return }
-        LargePreviewPanel.show(image: previewImage, url: url)
+        guard let url, let popoverAnchorView else { return }
+        LargePreviewPopover.show(url: url, relativeTo: popoverAnchorView)
+    }
+    
+    private func handlePreviewKey(_ event: NSEvent) -> Bool {
+        if event.keyCode == 53, LargePreviewPopover.isShown { // 53 = escape
+            LargePreviewPopover.dismiss()
+            return true
+        }
+        
+        if event.keyCode == 49, isHovered, previewImage != nil { // 49 = space bar
+            DispatchQueue.main.async {
+                self.openLargePreview()
+            }
+            return true
+        }
+        
+        return false
     }
     
     var animation: Animation {
@@ -192,5 +223,27 @@ struct PreviewWindowView: View {
     
     var cornerRadius: CGFloat {
         16
+    }
+}
+
+private struct PopoverAnchorView: NSViewRepresentable {
+    @Binding var anchorView: NSView?
+    
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async {
+            anchorView = view
+        }
+        return view
+    }
+    
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async {
+            anchorView = nsView
+        }
+    }
+    
+    static func dismantleNSView(_ nsView: NSView, coordinator: ()) {
+        LargePreviewPopover.dismiss()
     }
 }
