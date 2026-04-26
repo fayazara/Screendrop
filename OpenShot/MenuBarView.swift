@@ -8,6 +8,8 @@
 import SwiftUI
 
 struct MenuBarView: View {
+    @Environment(\.openWindow) private var openWindow
+    
     var body: some View {
         Group {
             Button {
@@ -30,6 +32,16 @@ struct MenuBarView: View {
                 Label("Capture Area", systemImage: "rectangle.dashed")
             }
             .keyboardShortcut("3", modifiers: [.option])
+            
+            Divider()
+            
+            Button {
+                openWindow(id: "SETTINGS")
+                NSApp.activate(ignoringOtherApps: true)
+            } label: {
+                Label("Settings", systemImage: "gearshape")
+            }
+            .keyboardShortcut(",", modifiers: [.command])
             
             Divider()
             

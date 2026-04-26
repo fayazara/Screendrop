@@ -37,6 +37,11 @@ struct OpenShotApp: App {
         .defaultWindowPlacement { content, context in
             return .init(size: context.defaultDisplay.visibleRect.size)
         }
+        
+        Window("OpenShot Settings", id: "SETTINGS") {
+            SettingsView()
+        }
+        .windowResizability(.contentSize)
     }
     
     var previewWindowSize: CGSize {

@@ -13,6 +13,8 @@ import UniformTypeIdentifiers
 
 struct PreviewWindowView: View {
     @Binding var url: URL?
+    @AppStorage(OpenShotPreferences.autoSaveKey) private var autoSave = false
+    @AppStorage(OpenShotPreferences.autoCopyKey) private var autoCopy = false
     /// View Properties
     @State private var previewImage: NSImage?
     @State private var isHovered: Bool = false
@@ -20,6 +22,7 @@ struct PreviewWindowView: View {
     @State private var keyMonitor: Any?
     @State private var globalKeyMonitor: Any?
     @State private var popoverAnchorView: NSView?
+    @State private var autoSavedURL: URL?
     @Environment(\.dismiss) private var dismissWindow
     
     var body: some View {
@@ -77,6 +80,14 @@ struct PreviewWindowView: View {
                     previewImage = image
                 }
                 NSSound(named: "Tink")?.play()
+                
+                if autoSave {
+                    autoSaveIfNeeded()
+                }
+                
+                if autoCopy {
+                    copyToClipboard(shouldDismiss: false)
+                }
             } else {
                 dismissWindow()
             }
@@ -150,7 +161,7 @@ struct PreviewWindowView: View {
                 .buttonStyle(.plain)
                 
                 Button {
-                    saveWithPanel()
+                    saveScreenshot()
                 } label: {
                     Text("Save")
                         .font(.system(size: 13, weight: .medium))
@@ -167,8 +178,15 @@ struct PreviewWindowView: View {
     
     // MARK: - Actions
     
-    private func saveWithPanel() {
+    private func saveScreenshot() {
         guard let url else { return }
+        
+        if autoSave {
+            autoSaveIfNeeded()
+            LargePreviewPopover.dismiss()
+            dismissWindow()
+            return
+        }
         
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.png]
@@ -188,12 +206,33 @@ struct PreviewWindowView: View {
     }
     
     private func copyToClipboard() {
-        guard let url, let pngData = try? Data(contentsOf: url, options: .mappedIfSafe) else { return }
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setData(pngData, forType: .png)
-        LargePreviewPopover.dismiss()
-        dismissWindow()
+        copyToClipboard(shouldDismiss: true)
+    }
+    
+    private func copyToClipboard(shouldDismiss: Bool) {
+        guard let url else { return }
+        
+        do {
+            try ScreenshotFileActions.copyPNGToClipboard(from: url)
+        } catch {
+            print("Failed to copy screenshot: \(error)")
+            return
+        }
+        
+        if shouldDismiss {
+            LargePreviewPopover.dismiss()
+            dismissWindow()
+        }
+    }
+    
+    private func autoSaveIfNeeded() {
+        guard autoSavedURL == nil, let url else { return }
+        
+        do {
+            autoSavedURL = try ScreenshotFileActions.saveToDefaultLocation(from: url)
+        } catch {
+            print("Failed to auto save: \(error)")
+        }
     }
     
     private func openLargePreview() {
