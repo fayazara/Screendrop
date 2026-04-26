@@ -4,8 +4,7 @@
 //
 //  Created by Fayaz Ahmed Aralikatti on 26/04/26.
 //
-//  Screenshot preview that slides in from bottom-right.
-//  Pattern adapted from Kavsoft's ScreenshotPreviewAnimation template.
+//  Single screenshot preview window.
 //
 
 import SwiftUI
@@ -15,10 +14,10 @@ struct PreviewWindowView: View {
     @Binding var url: URL?
     @AppStorage(OpenShotPreferences.autoSaveKey) private var autoSave = false
     @AppStorage(OpenShotPreferences.autoCopyKey) private var autoCopy = false
-    /// View Properties
+    
     @State private var previewImage: NSImage?
-    @State private var isHovered: Bool = false
-    @State private var hideView: Bool = false
+    @State private var isHovered = false
+    @State private var hideView = false
     @State private var keyMonitor: Any?
     @State private var globalKeyMonitor: Any?
     @State private var popoverAnchorView: NSView?
@@ -46,80 +45,35 @@ struct PreviewWindowView: View {
                     .shadow(color: .black.opacity(0.5), radius: 30, x: 0, y: 12)
                     .shadow(color: .black.opacity(0.3), radius: 10, x: 0, y: 4)
                     .background(PopoverAnchorView(anchorView: $popoverAnchorView))
-                .opacity(hideView ? 0 : 1)
-                .draggable(url) {
-                    Image(nsImage: previewImage)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .clipShape(.rect(cornerRadius: cornerRadius))
-                }
-                .onDragSessionUpdated { session in
-                    let phase = session.phase
-                    
-                    if phase == .active {
-                        LargePreviewPopover.dismiss()
-                        hideView = true
+                    .opacity(hideView ? 0 : 1)
+                    .draggable(url) {
+                        Image(nsImage: previewImage)
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .clipShape(.rect(cornerRadius: cornerRadius))
                     }
-                    
-                    if case .ended(_) = phase {
-                        dismissWindow()
+                    .onDragSessionUpdated { session in
+                        switch session.phase {
+                        case .active:
+                            QuickLookPreviewPresenter.dismiss()
+                            hideView = true
+                        case .ended:
+                            dismissWindow()
+                        default:
+                            break
+                        }
                     }
-                }
-                .onHover { status in
-                    withAnimation(animation) {
-                        isHovered = status
+                    .onHover { status in
+                        withAnimation(animation) {
+                            isHovered = status
+                        }
                     }
-                }
-                .transition(.push(from: .trailing))
+                    .transition(.push(from: .trailing))
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
-        .onAppear {
-            if let url, let image = ScreenshotImageLoader.downsampledImage(at: url, maxPixelSize: 520) {
-                withAnimation(animation) {
-                    previewImage = image
-                }
-                NSSound(named: "Tink")?.play()
-                
-                if autoSave {
-                    autoSaveIfNeeded()
-                }
-                
-                if autoCopy {
-                    copyToClipboard(shouldDismiss: false)
-                }
-            } else {
-                dismissWindow()
-            }
-            
-            // Monitor space key globally — .plain windows don't get key focus.
-            // Dispatch popover creation async to avoid blocking the event handler.
-            keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [self] event in
-                if handlePreviewKey(event) {
-                    return nil
-                }
-                
-                return event
-            }
-            
-            globalKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [self] event in
-                if isHovered || LargePreviewPopover.isShown {
-                    _ = handlePreviewKey(event)
-                }
-            }
-        }
-        .onDisappear {
-            if let keyMonitor {
-                NSEvent.removeMonitor(keyMonitor)
-            }
-            keyMonitor = nil
-            
-            if let globalKeyMonitor {
-                NSEvent.removeMonitor(globalKeyMonitor)
-            }
-            globalKeyMonitor = nil
-            LargePreviewPopover.dismiss()
-        }
+        .onAppear(perform: loadPreview)
+        .onDisappear(perform: tearDown)
         .padding(.trailing, 28)
         .padding(.bottom, 32)
     }
@@ -127,15 +81,14 @@ struct PreviewWindowView: View {
     // MARK: - Hover Overlay
     
     @ViewBuilder
-    func HoveredContent() -> some View {
+    private func HoveredContent() -> some View {
         ZStack {
-            // Dark frosted glass overlay
             Rectangle()
                 .fill(.ultraThinMaterial)
                 .environment(\.colorScheme, .dark)
             
-            // Close button — original template style
             Button {
+                QuickLookPreviewPresenter.dismiss()
                 dismissWindow()
             } label: {
                 Image(systemName: "xmark.circle.fill")
@@ -146,7 +99,6 @@ struct PreviewWindowView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
             .padding(10)
             
-            // Action buttons — pill shaped
             VStack(spacing: 10) {
                 Button {
                     copyToClipboard()
@@ -176,6 +128,57 @@ struct PreviewWindowView: View {
         .transition(.opacity)
     }
     
+    // MARK: - Lifecycle
+    
+    private func loadPreview() {
+        guard let url,
+              let image = ScreenshotImageLoader.downsampledImage(at: url, maxPixelSize: 520) else {
+            dismissWindow()
+            return
+        }
+        
+        withAnimation(animation) {
+            previewImage = image
+        }
+        NSSound(named: "Tink")?.play()
+        
+        if autoSave {
+            autoSaveIfNeeded()
+        }
+        
+        if autoCopy {
+            copyToClipboard(shouldDismiss: false)
+        }
+        
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            if handlePreviewKey(event) {
+                return nil
+            }
+            
+            return event
+        }
+        
+        globalKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { event in
+            if isHovered || QuickLookPreviewPresenter.isShown {
+                _ = handlePreviewKey(event)
+            }
+        }
+    }
+    
+    private func tearDown() {
+        if let keyMonitor {
+            NSEvent.removeMonitor(keyMonitor)
+        }
+        
+        if let globalKeyMonitor {
+            NSEvent.removeMonitor(globalKeyMonitor)
+        }
+        
+        keyMonitor = nil
+        globalKeyMonitor = nil
+        QuickLookPreviewPresenter.dismiss()
+    }
+    
     // MARK: - Actions
     
     private func saveScreenshot() {
@@ -183,7 +186,7 @@ struct PreviewWindowView: View {
         
         if autoSave {
             autoSaveIfNeeded()
-            LargePreviewPopover.dismiss()
+            QuickLookPreviewPresenter.dismiss()
             dismissWindow()
             return
         }
@@ -220,7 +223,7 @@ struct PreviewWindowView: View {
         }
         
         if shouldDismiss {
-            LargePreviewPopover.dismiss()
+            QuickLookPreviewPresenter.dismiss()
             dismissWindow()
         }
     }
@@ -236,19 +239,23 @@ struct PreviewWindowView: View {
     }
     
     private func openLargePreview() {
-        guard let url, let popoverAnchorView else { return }
-        LargePreviewPopover.show(url: url, relativeTo: popoverAnchorView)
+        guard let url else { return }
+        QuickLookPreviewPresenter.show(
+            url: url,
+            sourceView: popoverAnchorView,
+            sourceImage: previewImage
+        )
     }
     
     private func handlePreviewKey(_ event: NSEvent) -> Bool {
-        if event.keyCode == 53, LargePreviewPopover.isShown { // 53 = escape
-            LargePreviewPopover.dismiss()
+        if event.keyCode == 53, QuickLookPreviewPresenter.isShown {
+            QuickLookPreviewPresenter.dismiss()
             return true
         }
         
-        if event.keyCode == 49, isHovered, previewImage != nil { // 49 = space bar
+        if event.keyCode == 49, isHovered, previewImage != nil {
             DispatchQueue.main.async {
-                self.openLargePreview()
+                openLargePreview()
             }
             return true
         }
@@ -256,11 +263,11 @@ struct PreviewWindowView: View {
         return false
     }
     
-    var animation: Animation {
+    private var animation: Animation {
         .smooth(duration: 0.3, extraBounce: 0)
     }
     
-    var cornerRadius: CGFloat {
+    private var cornerRadius: CGFloat {
         16
     }
 }
@@ -283,6 +290,6 @@ private struct PopoverAnchorView: NSViewRepresentable {
     }
     
     static func dismantleNSView(_ nsView: NSView, coordinator: ()) {
-        LargePreviewPopover.dismiss()
+        QuickLookPreviewPresenter.dismiss()
     }
 }

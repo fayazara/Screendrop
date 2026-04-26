@@ -33,8 +33,10 @@ final class ScreenshotManager {
             
             let filter = SCContentFilter(display: mainDisplay, excludingWindows: [])
             let config = SCStreamConfiguration()
-            config.width = mainDisplay.width
-            config.height = mainDisplay.height
+            // SCDisplay dimensions are points; SCStreamConfiguration expects pixels.
+            let pixelScale = CGFloat(filter.pointPixelScale)
+            config.width = Int(CGFloat(mainDisplay.width) * pixelScale)
+            config.height = Int(CGFloat(mainDisplay.height) * pixelScale)
             config.scalesToFit = false
             config.showsCursor = false
             
