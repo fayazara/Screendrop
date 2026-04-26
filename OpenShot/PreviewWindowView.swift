@@ -11,7 +11,7 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
-private let previewCardSize = CGSize(width: 220, height: 165)
+private let previewCardSize = CGSize(width: 165, height: 124)
 private let previewTrailingPadding: CGFloat = 28
 private let previewStackAnimation = Animation.smooth(duration: 0.3, extraBounce: 0)
 private let previewCardSlideOffset = previewCardSize.width + previewTrailingPadding + 48
@@ -23,7 +23,7 @@ struct PreviewWindowView: View {
     @Environment(\.dismiss) private var dismissWindow
     
     var body: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 15) {
             ForEach(previewStack.items) { item in
                 PreviewCardView(
                     item: item,
@@ -34,6 +34,9 @@ struct PreviewWindowView: View {
                     },
                     onClose: {
                         previewStack.dismiss(id: item.id)
+                    },
+                    onDelete: {
+                        previewStack.deleteScreenshot(id: item.id)
                     },
                     onCopy: {
                         previewStack.copyToClipboard(id: item.id)
@@ -121,6 +124,7 @@ private struct PreviewCardView: View {
     let isDismissing: Bool
     let onHoverChanged: (Bool) -> Void
     let onClose: () -> Void
+    let onDelete: () -> Void
     let onCopy: () -> Void
     let onSave: () -> Void
     let onDragBegan: () -> Void
@@ -195,26 +199,37 @@ private struct PreviewCardView: View {
                     .foregroundStyle(.black, .white)
             }
             .buttonStyle(.plain)
+            .help("Dismiss preview")
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
             .padding(10)
             
-            VStack(spacing: 10) {
+            Button(action: onDelete) {
+                Image(systemName: "trash.circle.fill")
+                    .font(.title2)
+                    .foregroundStyle(.black, .white)
+            }
+            .buttonStyle(.plain)
+            .help("Delete screenshot")
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .padding(10)
+            
+            VStack(spacing: 8) {
                 Button(action: onCopy) {
                     Text("Copy")
-                        .font(.system(size: 13, weight: .medium))
+                        .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(.primary)
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 8)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 5)
                         .background(.background.opacity(0.8), in: .capsule)
                 }
                 .buttonStyle(.plain)
                 
                 Button(action: onSave) {
                     Text("Save")
-                        .font(.system(size: 13, weight: .medium))
+                        .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(.primary)
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 8)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 5)
                         .background(.background.opacity(0.8), in: .capsule)
                 }
                 .buttonStyle(.plain)
@@ -348,6 +363,18 @@ final class ScreenshotPreviewStack {
         dismiss(id: id)
     }
     
+    func deleteScreenshot(id: ScreenshotPreviewItem.ID) {
+        guard let item = items.first(where: { $0.id == id }) else { return }
+        
+        deleteFile(at: item.url)
+        
+        if let autoSavedURL = item.autoSavedURL, autoSavedURL != item.url {
+            deleteFile(at: autoSavedURL)
+        }
+        
+        dismiss(id: id)
+    }
+    
     func save(id: ScreenshotPreviewItem.ID) {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
         
@@ -375,6 +402,16 @@ final class ScreenshotPreviewStack {
                     print("Failed to save: \(error)")
                 }
             }
+        }
+    }
+    
+    private func deleteFile(at url: URL) {
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        
+        do {
+            try FileManager.default.removeItem(at: url)
+        } catch {
+            print("Failed to delete screenshot: \(error)")
         }
     }
     
