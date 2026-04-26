@@ -9,13 +9,44 @@ import SwiftUI
 
 struct ContentView: View {
     var body: some View {
-        VStack {
-            Image(systemName: "globe")
-                .imageScale(.large)
-                .foregroundStyle(.tint)
-            Text("Hello, world!")
+        VStack(spacing: 20) {
+            Image(systemName: "camera.viewfinder")
+                .font(.system(size: 48))
+                .foregroundStyle(.secondary)
+            
+            Text("OpenShot")
+                .font(.title)
+                .fontWeight(.bold)
+            
+            Text("Screenshot tool running in the menu bar.")
+                .foregroundStyle(.secondary)
+            
+            Divider()
+                .frame(width: 200)
+            
+            VStack(alignment: .leading, spacing: 8) {
+                ShortcutRow(label: "Fullscreen", shortcut: "Option+1")
+                ShortcutRow(label: "Window", shortcut: "Option+2")
+                ShortcutRow(label: "Area", shortcut: "Option+3")
+            }
         }
-        .padding()
+        .padding(40)
+        .frame(width: 320, height: 300)
+    }
+}
+
+struct ShortcutRow: View {
+    let label: String
+    let shortcut: String
+    
+    var body: some View {
+        HStack {
+            Text(label)
+                .frame(width: 100, alignment: .leading)
+            Text(shortcut)
+                .font(.system(.body, design: .monospaced))
+                .foregroundStyle(.secondary)
+        }
     }
 }
 
