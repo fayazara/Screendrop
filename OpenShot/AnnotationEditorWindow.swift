@@ -718,7 +718,7 @@ private struct AnnotationItemView: View {
 
             if let arrowHeadPath {
                 arrowHeadPath
-                    .fill(item.swatch.color)
+                    .stroke(item.swatch.color, style: StrokeStyle(lineWidth: item.strokeWidth, lineCap: .round, lineJoin: .round))
             }
 
             if isSelected {
@@ -755,7 +755,7 @@ private struct AnnotationItemView: View {
             }
 
             path.move(to: start)
-            path.addQuadCurve(to: geometry.shaftEnd, control: geometry.shaftControl)
+            path.addQuadCurve(to: geometry.tip, control: geometry.shaftControl)
             return path
         }
     }
@@ -793,10 +793,8 @@ private struct AnnotationItemView: View {
 
         var path = Path()
         path.move(to: geometry.firstWing)
-        path.addLine(to: geometry.firstTipCurvePoint)
-        path.addQuadCurve(to: geometry.secondTipCurvePoint, control: geometry.tipControl)
+        path.addLine(to: geometry.tip)
         path.addLine(to: geometry.secondWing)
-        path.closeSubpath()
         return path
     }
 
@@ -885,53 +883,34 @@ private struct CurveControlHandle: View {
 
 private struct AnnotationArrowGeometry {
     let tip: CGPoint
-    let shaftEnd: CGPoint
     let shaftControl: CGPoint
     let firstWing: CGPoint
     let secondWing: CGPoint
-    let firstTipCurvePoint: CGPoint
-    let secondTipCurvePoint: CGPoint
-    let tipControl: CGPoint
 
     init?(start: CGPoint, control: CGPoint, end: CGPoint, lineWidth: CGFloat) {
         let curveLength = Self.approximateCurveLength(start: start, control: control, end: end)
         guard curveLength > 0.5 else { return nil }
 
-        let desiredHeadLength = max(14, lineWidth * 5.25)
-        let headLength = min(desiredHeadLength, curveLength * 0.48)
-        let trimT = Self.parameter(distanceFromEnd: headLength, start: start, control: control, end: end)
-        let firstLerp = Self.lerp(start, control, trimT)
-        let secondLerp = Self.lerp(control, end, trimT)
-        let shaftEnd = Self.lerp(firstLerp, secondLerp, trimT)
-        let axis = CGPoint(x: end.x - shaftEnd.x, y: end.y - shaftEnd.y)
-        let axisLength = hypot(axis.x, axis.y)
-        guard axisLength > 0.5 else { return nil }
+        let tangent = Self.tangent(start: start, control: control, end: end)
+        let tangentLength = hypot(tangent.x, tangent.y)
+        guard tangentLength > 0.5 else { return nil }
 
-        let unit = CGPoint(x: axis.x / axisLength, y: axis.y / axisLength)
-        let perpendicular = CGPoint(x: -unit.y, y: unit.x)
-        let halfWidth = max(lineWidth * 2.1, headLength * 0.36)
-        let tipRadius = min(max(lineWidth * 0.75, 2), headLength * 0.2)
-        let firstWing = CGPoint(
-            x: shaftEnd.x + perpendicular.x * halfWidth,
-            y: shaftEnd.y + perpendicular.y * halfWidth
-        )
-        let secondWing = CGPoint(
-            x: shaftEnd.x - perpendicular.x * halfWidth,
-            y: shaftEnd.y - perpendicular.y * halfWidth
-        )
-        let firstTipCurvePoint = Self.point(from: end, toward: firstWing, distance: tipRadius)
-        let secondTipCurvePoint = Self.point(from: end, toward: secondWing, distance: tipRadius)
+        let direction = CGPoint(x: tangent.x / tangentLength, y: tangent.y / tangentLength)
+        let backwardDirection = CGPoint(x: -direction.x, y: -direction.y)
+        let headLength = min(max(16, lineWidth * 5.4), curveLength * 0.42)
+        let headAngle = CGFloat.pi * 0.24
+        let firstDirection = Self.rotate(backwardDirection, by: headAngle)
+        let secondDirection = Self.rotate(backwardDirection, by: -headAngle)
 
         tip = end
-        self.shaftEnd = shaftEnd
-        shaftControl = firstLerp
-        self.firstWing = firstWing
-        self.secondWing = secondWing
-        self.firstTipCurvePoint = firstTipCurvePoint
-        self.secondTipCurvePoint = secondTipCurvePoint
-        tipControl = CGPoint(
-            x: 2 * end.x - (firstTipCurvePoint.x + secondTipCurvePoint.x) / 2,
-            y: 2 * end.y - (firstTipCurvePoint.y + secondTipCurvePoint.y) / 2
+        shaftControl = control
+        firstWing = CGPoint(
+            x: end.x + firstDirection.x * headLength,
+            y: end.y + firstDirection.y * headLength
+        )
+        secondWing = CGPoint(
+            x: end.x + secondDirection.x * headLength,
+            y: end.y + secondDirection.y * headLength
         )
     }
 
@@ -948,45 +927,32 @@ private struct AnnotationArrowGeometry {
         return length
     }
 
-    private static func parameter(distanceFromEnd: CGFloat, start: CGPoint, control: CGPoint, end: CGPoint) -> CGFloat {
-        var accumulated: CGFloat = 0
-        var previous = end
-        var previousT: CGFloat = 1
-
-        for step in stride(from: 23, through: 0, by: -1) {
-            let t = CGFloat(step) / 24
-            let point = quadraticPoint(start: start, control: control, end: end, t: t)
-            let segmentLength = hypot(point.x - previous.x, point.y - previous.y)
-
-            if accumulated + segmentLength >= distanceFromEnd {
-                let remaining = distanceFromEnd - accumulated
-                let fraction = segmentLength > 0 ? remaining / segmentLength : 0
-                return min(max(lerp(previousT, t, fraction), 0), 1)
-            }
-
-            accumulated += segmentLength
-            previous = point
-            previousT = t
-        }
-
-        return 0.5
-    }
-
     private static func quadraticPoint(start: CGPoint, control: CGPoint, end: CGPoint, t: CGFloat) -> CGPoint {
         let first = lerp(start, control, t)
         let second = lerp(control, end, t)
         return lerp(first, second, t)
     }
 
-    private static func point(from start: CGPoint, toward end: CGPoint, distance: CGFloat) -> CGPoint {
-        let dx = end.x - start.x
-        let dy = end.y - start.y
-        let length = hypot(dx, dy)
-        guard length > 0 else { return start }
+    private static func tangent(start: CGPoint, control: CGPoint, end: CGPoint) -> CGPoint {
+        let tangent = CGPoint(
+            x: 2 * (end.x - control.x),
+            y: 2 * (end.y - control.y)
+        )
+
+        if hypot(tangent.x, tangent.y) > 0.5 {
+            return tangent
+        }
 
         return CGPoint(
-            x: start.x + dx / length * distance,
-            y: start.y + dy / length * distance
+            x: end.x - start.x,
+            y: end.y - start.y
+        )
+    }
+
+    private static func rotate(_ point: CGPoint, by angle: CGFloat) -> CGPoint {
+        CGPoint(
+            x: point.x * cos(angle) - point.y * sin(angle),
+            y: point.x * sin(angle) + point.y * cos(angle)
         )
     }
 
@@ -995,10 +961,6 @@ private struct AnnotationArrowGeometry {
             x: lhs.x + (rhs.x - lhs.x) * t,
             y: lhs.y + (rhs.y - lhs.y) * t
         )
-    }
-
-    private static func lerp(_ lhs: CGFloat, _ rhs: CGFloat, _ t: CGFloat) -> CGFloat {
-        lhs + (rhs - lhs) * t
     }
 }
 
@@ -1617,7 +1579,7 @@ private enum AnnotationRenderer {
 
                 context.beginPath()
                 context.move(to: renderedPoint(first, width: width, height: height))
-                context.addQuadCurve(to: geometry.shaftEnd, control: geometry.shaftControl)
+                context.addQuadCurve(to: geometry.tip, control: geometry.shaftControl)
                 context.strokePath()
                 drawArrowHead(geometry, context: context)
             }
@@ -1673,11 +1635,9 @@ private enum AnnotationRenderer {
     private static func drawArrowHead(_ geometry: AnnotationArrowGeometry, context: CGContext) {
         context.beginPath()
         context.move(to: geometry.firstWing)
-        context.addLine(to: geometry.firstTipCurvePoint)
-        context.addQuadCurve(to: geometry.secondTipCurvePoint, control: geometry.tipControl)
+        context.addLine(to: geometry.tip)
         context.addLine(to: geometry.secondWing)
-        context.closePath()
-        context.fillPath()
+        context.strokePath()
     }
 
     private static func renderedLineWidth(for item: AnnotationItem, imageWidth: Int, imageHeight: Int) -> CGFloat {
