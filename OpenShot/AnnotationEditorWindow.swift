@@ -223,7 +223,7 @@ private final class AnnotationEditorModel {
             draftItem = AnnotationItem(
                 tool: selectedTool,
                 rect: CGRect(origin: point, size: .zero),
-                points: selectedTool.usesEndpoints ? [point, point] : [],
+                points: initialPoints(for: selectedTool, at: point),
                 swatch: selectedSwatch,
                 strokeWidth: strokeWidth
             )
@@ -349,10 +349,14 @@ private final class AnnotationEditorModel {
     private func updateDraftItem(from startPoint: CGPoint, to point: CGPoint) {
         guard var draftItem else { return }
 
-        if selectedTool.usesEndpoints {
+        switch selectedTool {
+        case .line:
             draftItem.points = [startPoint, point]
             draftItem.rect = boundingRect(for: draftItem.points)
-        } else {
+        case .arrow:
+            draftItem.points = [startPoint, midpoint(startPoint, point), point]
+            draftItem.rect = boundingRect(for: draftItem.points)
+        case .rectangle, .filledRectangle, .ellipse:
             draftItem.rect = rect(from: startPoint, to: point)
         }
 
@@ -379,7 +383,7 @@ private final class AnnotationEditorModel {
         let yTolerance = 12 / max(imageFrame.height, 1)
 
         if item.tool.usesEndpoints {
-            return AnnotationResizeHandle.endpointCases.first { handle in
+            return AnnotationResizeHandle.handles(for: item.tool).first { handle in
                 guard let endpoint = handle.point(in: item) else { return false }
                 return abs(point.x - endpoint.x) <= xTolerance && abs(point.y - endpoint.y) <= yTolerance
             }
@@ -446,6 +450,17 @@ private final class AnnotationEditorModel {
         return originalItem.resized(to: rect(from: anchor, to: constrainedPoint))
     }
 
+    private func initialPoints(for tool: AnnotationTool, at point: CGPoint) -> [CGPoint] {
+        switch tool {
+        case .line:
+            [point, point]
+        case .arrow:
+            [point, point, point]
+        case .rectangle, .filledRectangle, .ellipse:
+            []
+        }
+    }
+
     private func clampedDelta(_ delta: CGPoint, for bounds: CGRect) -> CGPoint {
         CGPoint(
             x: min(max(delta.x, -bounds.minX), 1 - bounds.maxX),
@@ -469,6 +484,10 @@ private final class AnnotationEditorModel {
         return points.dropFirst().reduce(CGRect(origin: first, size: .zero)) { rect, point in
             rect.union(CGRect(origin: point, size: .zero))
         }
+    }
+
+    private func midpoint(_ lhs: CGPoint, _ rhs: CGPoint) -> CGPoint {
+        CGPoint(x: (lhs.x + rhs.x) / 2, y: (lhs.y + rhs.y) / 2)
     }
 
 }
@@ -527,6 +546,7 @@ private enum AnnotationResizeHandle: CaseIterable {
     case bottomLeft
     case bottomRight
     case start
+    case control
     case end
 
     static var boxCases: [AnnotationResizeHandle] {
@@ -535,6 +555,14 @@ private enum AnnotationResizeHandle: CaseIterable {
 
     static var endpointCases: [AnnotationResizeHandle] {
         [.start, .end]
+    }
+
+    static var arrowCases: [AnnotationResizeHandle] {
+        [.control, .start, .end]
+    }
+
+    static func handles(for tool: AnnotationTool) -> [AnnotationResizeHandle] {
+        tool == .arrow ? arrowCases : endpointCases
     }
 
     func corner(in rect: CGRect) -> CGPoint? {
@@ -547,7 +575,7 @@ private enum AnnotationResizeHandle: CaseIterable {
             CGPoint(x: rect.minX, y: rect.maxY)
         case .bottomRight:
             CGPoint(x: rect.maxX, y: rect.maxY)
-        case .start, .end:
+        case .start, .control, .end:
             nil
         }
     }
@@ -562,7 +590,7 @@ private enum AnnotationResizeHandle: CaseIterable {
             CGPoint(x: rect.maxX, y: rect.minY)
         case .bottomRight:
             CGPoint(x: rect.minX, y: rect.minY)
-        case .start, .end:
+        case .start, .control, .end:
             .zero
         }
     }
@@ -577,7 +605,7 @@ private enum AnnotationResizeHandle: CaseIterable {
             CGPoint(x: min(point.x, anchor.x - minimumSize), y: max(point.y, anchor.y + minimumSize))
         case .bottomRight:
             CGPoint(x: max(point.x, anchor.x + minimumSize), y: max(point.y, anchor.y + minimumSize))
-        case .start, .end:
+        case .start, .control, .end:
             point
         }
     }
@@ -586,6 +614,8 @@ private enum AnnotationResizeHandle: CaseIterable {
         switch self {
         case .start:
             item.points.first
+        case .control:
+            item.controlPoint
         case .end:
             item.points.last
         case .topLeft, .topRight, .bottomLeft, .bottomRight:
@@ -725,7 +755,7 @@ private struct AnnotationItemView: View {
             }
 
             path.move(to: start)
-            path.addLine(to: geometry.shaftEnd)
+            path.addQuadCurve(to: geometry.shaftEnd, control: geometry.shaftControl)
             return path
         }
     }
@@ -740,6 +770,11 @@ private struct AnnotationItemView: View {
             ForEach(endpointViewPoints.indices, id: \.self) { index in
                 SelectionHandle()
                     .position(endpointViewPoints[index])
+            }
+
+            if let controlViewPoint {
+                CurveControlHandle()
+                    .position(controlViewPoint)
             }
         } else {
             SelectionFrame()
@@ -757,8 +792,9 @@ private struct AnnotationItemView: View {
         }
 
         var path = Path()
-        path.move(to: geometry.tip)
-        path.addLine(to: geometry.firstWing)
+        path.move(to: geometry.firstWing)
+        path.addLine(to: geometry.firstTipCurvePoint)
+        path.addQuadCurve(to: geometry.secondTipCurvePoint, control: geometry.tipControl)
         path.addLine(to: geometry.secondWing)
         path.closeSubpath()
         return path
@@ -767,11 +803,12 @@ private struct AnnotationItemView: View {
     private var arrowGeometry: AnnotationArrowGeometry? {
         guard item.tool == .arrow,
               let start = endpointViewPoints.first,
+              let control = controlViewPoint,
               let end = endpointViewPoints.last else {
             return nil
         }
 
-        return AnnotationArrowGeometry(start: start, end: end, lineWidth: item.strokeWidth)
+        return AnnotationArrowGeometry(start: start, control: control, end: end, lineWidth: item.strokeWidth)
     }
 
     private var endpointViewPoints: [CGPoint] {
@@ -782,6 +819,11 @@ private struct AnnotationItemView: View {
         }
 
         return [viewPoint(first), viewPoint(last)]
+    }
+
+    private var controlViewPoint: CGPoint? {
+        guard let controlPoint = item.controlPoint else { return nil }
+        return viewPoint(controlPoint)
     }
 
     private var viewBounds: CGRect {
@@ -831,38 +873,132 @@ private struct SelectionHandle: View {
     }
 }
 
+private struct CurveControlHandle: View {
+    var body: some View {
+        Circle()
+            .fill(.white)
+            .frame(width: 10, height: 10)
+            .overlay(Circle().stroke(Color.accentColor, lineWidth: 2))
+            .shadow(color: .black.opacity(0.18), radius: 2, x: 0, y: 1)
+    }
+}
+
 private struct AnnotationArrowGeometry {
     let tip: CGPoint
     let shaftEnd: CGPoint
+    let shaftControl: CGPoint
     let firstWing: CGPoint
     let secondWing: CGPoint
+    let firstTipCurvePoint: CGPoint
+    let secondTipCurvePoint: CGPoint
+    let tipControl: CGPoint
 
-    init?(start: CGPoint, end: CGPoint, lineWidth: CGFloat) {
+    init?(start: CGPoint, control: CGPoint, end: CGPoint, lineWidth: CGFloat) {
+        let curveLength = Self.approximateCurveLength(start: start, control: control, end: end)
+        guard curveLength > 0.5 else { return nil }
+
+        let desiredHeadLength = max(14, lineWidth * 5.25)
+        let headLength = min(desiredHeadLength, curveLength * 0.48)
+        let trimT = Self.parameter(distanceFromEnd: headLength, start: start, control: control, end: end)
+        let firstLerp = Self.lerp(start, control, trimT)
+        let secondLerp = Self.lerp(control, end, trimT)
+        let shaftEnd = Self.lerp(firstLerp, secondLerp, trimT)
+        let axis = CGPoint(x: end.x - shaftEnd.x, y: end.y - shaftEnd.y)
+        let axisLength = hypot(axis.x, axis.y)
+        guard axisLength > 0.5 else { return nil }
+
+        let unit = CGPoint(x: axis.x / axisLength, y: axis.y / axisLength)
+        let perpendicular = CGPoint(x: -unit.y, y: unit.x)
+        let halfWidth = max(lineWidth * 2.1, headLength * 0.36)
+        let tipRadius = min(max(lineWidth * 0.75, 2), headLength * 0.2)
+        let firstWing = CGPoint(
+            x: shaftEnd.x + perpendicular.x * halfWidth,
+            y: shaftEnd.y + perpendicular.y * halfWidth
+        )
+        let secondWing = CGPoint(
+            x: shaftEnd.x - perpendicular.x * halfWidth,
+            y: shaftEnd.y - perpendicular.y * halfWidth
+        )
+        let firstTipCurvePoint = Self.point(from: end, toward: firstWing, distance: tipRadius)
+        let secondTipCurvePoint = Self.point(from: end, toward: secondWing, distance: tipRadius)
+
+        tip = end
+        self.shaftEnd = shaftEnd
+        shaftControl = firstLerp
+        self.firstWing = firstWing
+        self.secondWing = secondWing
+        self.firstTipCurvePoint = firstTipCurvePoint
+        self.secondTipCurvePoint = secondTipCurvePoint
+        tipControl = CGPoint(
+            x: 2 * end.x - (firstTipCurvePoint.x + secondTipCurvePoint.x) / 2,
+            y: 2 * end.y - (firstTipCurvePoint.y + secondTipCurvePoint.y) / 2
+        )
+    }
+
+    private static func approximateCurveLength(start: CGPoint, control: CGPoint, end: CGPoint) -> CGFloat {
+        var length: CGFloat = 0
+        var previous = start
+
+        for step in 1...24 {
+            let point = quadraticPoint(start: start, control: control, end: end, t: CGFloat(step) / 24)
+            length += hypot(point.x - previous.x, point.y - previous.y)
+            previous = point
+        }
+
+        return length
+    }
+
+    private static func parameter(distanceFromEnd: CGFloat, start: CGPoint, control: CGPoint, end: CGPoint) -> CGFloat {
+        var accumulated: CGFloat = 0
+        var previous = end
+        var previousT: CGFloat = 1
+
+        for step in stride(from: 23, through: 0, by: -1) {
+            let t = CGFloat(step) / 24
+            let point = quadraticPoint(start: start, control: control, end: end, t: t)
+            let segmentLength = hypot(point.x - previous.x, point.y - previous.y)
+
+            if accumulated + segmentLength >= distanceFromEnd {
+                let remaining = distanceFromEnd - accumulated
+                let fraction = segmentLength > 0 ? remaining / segmentLength : 0
+                return min(max(lerp(previousT, t, fraction), 0), 1)
+            }
+
+            accumulated += segmentLength
+            previous = point
+            previousT = t
+        }
+
+        return 0.5
+    }
+
+    private static func quadraticPoint(start: CGPoint, control: CGPoint, end: CGPoint, t: CGFloat) -> CGPoint {
+        let first = lerp(start, control, t)
+        let second = lerp(control, end, t)
+        return lerp(first, second, t)
+    }
+
+    private static func point(from start: CGPoint, toward end: CGPoint, distance: CGFloat) -> CGPoint {
         let dx = end.x - start.x
         let dy = end.y - start.y
         let length = hypot(dx, dy)
-        guard length > 0.5 else { return nil }
+        guard length > 0 else { return start }
 
-        let unit = CGPoint(x: dx / length, y: dy / length)
-        let perpendicular = CGPoint(x: -unit.y, y: unit.x)
-        let desiredHeadLength = max(14, lineWidth * 5.25)
-        let headLength = min(desiredHeadLength, length * 0.48)
-        let halfWidth = max(lineWidth * 2.1, headLength * 0.36)
-        let base = CGPoint(
-            x: end.x - unit.x * headLength,
-            y: end.y - unit.y * headLength
+        return CGPoint(
+            x: start.x + dx / length * distance,
+            y: start.y + dy / length * distance
         )
+    }
 
-        tip = end
-        shaftEnd = base
-        firstWing = CGPoint(
-            x: base.x + perpendicular.x * halfWidth,
-            y: base.y + perpendicular.y * halfWidth
+    private static func lerp(_ lhs: CGPoint, _ rhs: CGPoint, _ t: CGFloat) -> CGPoint {
+        CGPoint(
+            x: lhs.x + (rhs.x - lhs.x) * t,
+            y: lhs.y + (rhs.y - lhs.y) * t
         )
-        secondWing = CGPoint(
-            x: base.x - perpendicular.x * halfWidth,
-            y: base.y - perpendicular.y * halfWidth
-        )
+    }
+
+    private static func lerp(_ lhs: CGFloat, _ rhs: CGFloat, _ t: CGFloat) -> CGFloat {
+        lhs + (rhs - lhs) * t
     }
 }
 
@@ -1082,8 +1218,9 @@ private struct AnnotationItem: Identifiable, Equatable {
     var bounds: CGRect {
         switch tool {
         case .line, .arrow:
-            guard let first = points.first else { return rect.standardized }
-            let bounds = points.dropFirst().reduce(CGRect(origin: first, size: .zero)) { rect, point in
+            let boundsPoints = tool == .arrow ? arrowPoints : points
+            guard let first = boundsPoints.first else { return rect.standardized }
+            let bounds = boundsPoints.dropFirst().reduce(CGRect(origin: first, size: .zero)) { rect, point in
                 rect.union(CGRect(origin: point, size: .zero))
             }
             return bounds.standardized
@@ -1092,11 +1229,32 @@ private struct AnnotationItem: Identifiable, Equatable {
         }
     }
 
+    var controlPoint: CGPoint? {
+        guard tool == .arrow,
+              let start = points.first,
+              let end = points.last else {
+            return nil
+        }
+
+        if points.count >= 3 {
+            return points[1]
+        }
+
+        return CGPoint(x: (start.x + end.x) / 2, y: (start.y + end.y) / 2)
+    }
+
     func isRenderable(minimumSize: CGFloat) -> Bool {
         switch tool {
-        case .line, .arrow:
+        case .line:
             guard points.count == 2 else { return false }
             return hypot(points[0].x - points[1].x, points[0].y - points[1].y) >= minimumSize
+        case .arrow:
+            guard let start = points.first,
+                  let end = points.last else {
+                return false
+            }
+
+            return hypot(start.x - end.x, start.y - end.y) >= minimumSize
         case .rectangle, .filledRectangle, .ellipse:
             return bounds.width >= minimumSize && bounds.height >= minimumSize
         }
@@ -1104,13 +1262,22 @@ private struct AnnotationItem: Identifiable, Equatable {
 
     func hitTest(_ point: CGPoint, tolerance: CGFloat) -> Bool {
         switch tool {
-        case .line, .arrow:
+        case .line:
             guard let start = points.first,
                   let end = points.last else {
                 return false
             }
 
             return distance(from: point, toSegmentFrom: start, to: end) <= tolerance
+
+        case .arrow:
+            guard let start = points.first,
+                  let controlPoint,
+                  let end = points.last else {
+                return false
+            }
+
+            return distance(from: point, toQuadraticFrom: start, control: controlPoint, to: end) <= tolerance
 
         case .rectangle, .filledRectangle:
             return bounds.insetBy(dx: -tolerance, dy: -tolerance).contains(point)
@@ -1144,8 +1311,14 @@ private struct AnnotationItem: Identifiable, Equatable {
 
         switch handle {
         case .start:
+            item.ensureArrowPointStorage()
             item.points[0] = point
+        case .control:
+            guard item.tool == .arrow else { return self }
+            item.ensureArrowPointStorage()
+            item.points[1] = point
         case .end:
+            item.ensureArrowPointStorage()
             item.points[item.points.count - 1] = point
         case .topLeft, .topRight, .bottomLeft, .bottomRight:
             return self
@@ -1174,6 +1347,28 @@ private struct AnnotationItem: Identifiable, Equatable {
         return item
     }
 
+    private var arrowPoints: [CGPoint] {
+        guard tool == .arrow,
+              let start = points.first,
+              let controlPoint,
+              let end = points.last else {
+            return points
+        }
+
+        return [start, controlPoint, end]
+    }
+
+    private mutating func ensureArrowPointStorage() {
+        guard tool == .arrow,
+              points.count == 2,
+              let start = points.first,
+              let end = points.last else {
+            return
+        }
+
+        points = [start, CGPoint(x: (start.x + end.x) / 2, y: (start.y + end.y) / 2), end]
+    }
+
     private func distance(from point: CGPoint, toSegmentFrom start: CGPoint, to end: CGPoint) -> CGFloat {
         let dx = end.x - start.x
         let dy = end.y - start.y
@@ -1191,6 +1386,36 @@ private struct AnnotationItem: Identifiable, Equatable {
         )
 
         return hypot(point.x - closest.x, point.y - closest.y)
+    }
+
+    private func distance(from point: CGPoint, toQuadraticFrom start: CGPoint, control: CGPoint, to end: CGPoint) -> CGFloat {
+        var shortestDistance = CGFloat.greatestFiniteMagnitude
+        var previous = start
+
+        for step in 1...32 {
+            let t = CGFloat(step) / 32
+            let current = quadraticPoint(start: start, control: control, end: end, t: t)
+            shortestDistance = min(shortestDistance, distance(from: point, toSegmentFrom: previous, to: current))
+            previous = current
+        }
+
+        return shortestDistance
+    }
+
+    private func quadraticPoint(start: CGPoint, control: CGPoint, end: CGPoint, t: CGFloat) -> CGPoint {
+        let first = CGPoint(
+            x: start.x + (control.x - start.x) * t,
+            y: start.y + (control.y - start.y) * t
+        )
+        let second = CGPoint(
+            x: control.x + (end.x - control.x) * t,
+            y: control.y + (end.y - control.y) * t
+        )
+
+        return CGPoint(
+            x: first.x + (second.x - first.x) * t,
+            y: first.y + (second.y - first.y) * t
+        )
     }
 }
 
@@ -1379,9 +1604,11 @@ private enum AnnotationRenderer {
 
             case .arrow:
                 guard let first = item.points.first,
+                      let control = item.controlPoint,
                       let last = item.points.last,
                       let geometry = AnnotationArrowGeometry(
                         start: renderedPoint(first, width: width, height: height),
+                        control: renderedPoint(control, width: width, height: height),
                         end: renderedPoint(last, width: width, height: height),
                         lineWidth: lineWidth
                       ) else {
@@ -1390,7 +1617,7 @@ private enum AnnotationRenderer {
 
                 context.beginPath()
                 context.move(to: renderedPoint(first, width: width, height: height))
-                context.addLine(to: geometry.shaftEnd)
+                context.addQuadCurve(to: geometry.shaftEnd, control: geometry.shaftControl)
                 context.strokePath()
                 drawArrowHead(geometry, context: context)
             }
@@ -1445,8 +1672,9 @@ private enum AnnotationRenderer {
 
     private static func drawArrowHead(_ geometry: AnnotationArrowGeometry, context: CGContext) {
         context.beginPath()
-        context.move(to: geometry.tip)
-        context.addLine(to: geometry.firstWing)
+        context.move(to: geometry.firstWing)
+        context.addLine(to: geometry.firstTipCurvePoint)
+        context.addQuadCurve(to: geometry.secondTipCurvePoint, control: geometry.tipControl)
         context.addLine(to: geometry.secondWing)
         context.closePath()
         context.fillPath()
