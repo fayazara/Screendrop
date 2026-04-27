@@ -61,17 +61,9 @@ struct AnnotationEditorWindow: View {
 
     private var toolbar: some View {
         HStack(spacing: 10) {
-            Image(systemName: "pencil.and.outline")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .padding(.trailing, 2)
-
             AnnotationToolPicker(selectedTool: model.selectedTool) { tool in
                 model.selectedTool = tool
             }
-
-            Divider()
-                .frame(height: 24)
 
             AnnotationColorMenu(selectedSwatch: model.selectedSwatch) { swatch in
                 model.setSwatch(swatch)
@@ -83,18 +75,24 @@ struct AnnotationEditorWindow: View {
 
             Spacer()
 
-            Button("Save as...") {
+            AnnotationToolbarPillButton(title: "Save as...", help: "Save as") {
                 saveAs()
             }
 
-            Button("Done") {
+            AnnotationToolbarPillButton(title: "Done", help: "Done", isProminent: true) {
                 finishEditing()
             }
-            .buttonStyle(.borderedProminent)
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 12)
-        .background(.bar)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 4)
+        .background {
+            AnnotationToolbarStyle.background
+                .overlay(alignment: .bottom) {
+                    Rectangle()
+                        .fill(AnnotationToolbarStyle.stroke)
+                        .frame(height: 1)
+                }
+        }
     }
 
     private func saveAs() {
@@ -969,15 +967,21 @@ private struct AnnotationToolPicker: View {
     let onSelect: (AnnotationTool) -> Void
 
     var body: some View {
-        HStack(spacing: 4) {
-            ForEach(AnnotationTool.allCases) { tool in
+        HStack(spacing: 0) {
+            ForEach(Array(AnnotationTool.allCases.enumerated()), id: \.element.id) { index, tool in
+                if index > 0 {
+                    Divider()
+                        .frame(height: 17)
+                        .padding(.horizontal, 2)
+                }
+
                 Button {
                     onSelect(tool)
                 } label: {
                     Image(systemName: tool.systemImage)
-                        .font(.system(size: 15, weight: .semibold))
-                        .frame(width: 28, height: 28)
-                        .contentShape(Rectangle())
+                        .font(.system(size: 14, weight: .semibold))
+                        .frame(width: 30, height: 28)
+                        .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(selectedTool == tool ? .white : .primary)
@@ -986,11 +990,14 @@ private struct AnnotationToolPicker: View {
                         Capsule().fill(Color.accentColor)
                     }
                 }
+                .clipShape(Capsule())
+                .contentShape(Capsule())
                 .help(tool.title)
             }
         }
-        .padding(4)
-        .annotationGlass(in: Capsule())
+        .padding(3)
+        .background(AnnotationToolbarStyle.controlBackground, in: Capsule())
+        .overlay(Capsule().stroke(AnnotationToolbarStyle.stroke, lineWidth: 1))
     }
 }
 
@@ -1011,17 +1018,20 @@ private struct AnnotationColorMenu: View {
             HStack(spacing: 5) {
                 Circle()
                     .fill(selectedSwatch.color)
-                    .frame(width: 18, height: 18)
+                    .frame(width: 15, height: 15)
                     .overlay(Circle().stroke(.white.opacity(0.75), lineWidth: 1.5))
                 Image(systemName: "chevron.down")
                     .font(.system(size: 9, weight: .bold))
             }
-            .frame(height: 28)
-            .padding(.horizontal, 10)
-            .annotationGlass(in: Capsule())
+            .frame(width: 50, height: 30)
+            .contentShape(Capsule())
+            .background(AnnotationToolbarStyle.controlBackground, in: Capsule())
+            .overlay(Capsule().stroke(AnnotationToolbarStyle.stroke, lineWidth: 1))
         }
         .menuStyle(.button)
         .buttonStyle(.plain)
+        .frame(width: 50, height: 30)
+        .contentShape(Capsule())
         .help("Color")
     }
 }
@@ -1044,16 +1054,19 @@ private struct AnnotationStrokeMenu: View {
         } label: {
             HStack(spacing: 6) {
                 StrokePreview(width: strokeWidth)
-                    .frame(width: 24, height: 16)
+                    .frame(width: 22, height: 14)
                 Image(systemName: "chevron.down")
                     .font(.system(size: 9, weight: .bold))
             }
-            .frame(height: 28)
-            .padding(.horizontal, 10)
-            .annotationGlass(in: Capsule())
+            .frame(width: 54, height: 30)
+            .contentShape(Capsule())
+            .background(AnnotationToolbarStyle.controlBackground, in: Capsule())
+            .overlay(Capsule().stroke(AnnotationToolbarStyle.stroke, lineWidth: 1))
         }
         .menuStyle(.button)
         .buttonStyle(.plain)
+        .frame(width: 54, height: 30)
+        .contentShape(Capsule())
         .help("Stroke thickness")
     }
 }
@@ -1068,6 +1081,41 @@ private struct StrokePreview: View {
         }
         .stroke(.primary, style: StrokeStyle(lineWidth: min(width, 7), lineCap: .round))
     }
+}
+
+private struct AnnotationToolbarPillButton: View {
+    let title: String
+    let help: String
+    var isProminent = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 12.5, weight: .semibold))
+                .frame(height: 30)
+                .padding(.horizontal, isProminent ? 15 : 16)
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(isProminent ? .white : .primary)
+        .background {
+            if isProminent {
+                Capsule().fill(Color.accentColor)
+            } else {
+                Capsule().fill(AnnotationToolbarStyle.controlBackground)
+            }
+        }
+        .overlay(Capsule().stroke(isProminent ? .clear : AnnotationToolbarStyle.stroke, lineWidth: 1))
+        .contentShape(Capsule())
+        .help(help)
+    }
+}
+
+private enum AnnotationToolbarStyle {
+    static let background = Color(red: 0.105, green: 0.11, blue: 0.15)
+    static let controlBackground = Color(red: 0.075, green: 0.078, blue: 0.105)
+    static let stroke = Color.white.opacity(0.10)
 }
 
 private struct AnnotationKeyCommandHandler: NSViewRepresentable {
@@ -1472,17 +1520,6 @@ enum AnnotationSwatch: String, CaseIterable, Identifiable {
             .white
         case .black:
             .black
-        }
-    }
-}
-
-private extension View {
-    @ViewBuilder
-    func annotationGlass<S: Shape>(in shape: S) -> some View {
-        if #available(macOS 26.0, *) {
-            glassEffect(.regular.interactive(), in: shape)
-        } else {
-            background(.ultraThinMaterial, in: shape)
         }
     }
 }
