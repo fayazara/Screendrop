@@ -708,13 +708,24 @@ private struct AnnotationItemView: View {
         case .ellipse:
             return Path(ellipseIn: rect)
 
-        case .line, .arrow:
+        case .line:
             var path = Path()
             if let start = endpointViewPoints.first,
                let end = endpointViewPoints.last {
                 path.move(to: start)
                 path.addLine(to: end)
             }
+            return path
+
+        case .arrow:
+            var path = Path()
+            guard let start = endpointViewPoints.first,
+                  let geometry = arrowGeometry else {
+                return path
+            }
+
+            path.move(to: start)
+            path.addLine(to: geometry.shaftEnd)
             return path
         }
     }
@@ -741,35 +752,26 @@ private struct AnnotationItemView: View {
     }
 
     private var arrowHeadPath: Path? {
+        guard let geometry = arrowGeometry else {
+            return nil
+        }
+
+        var path = Path()
+        path.move(to: geometry.tip)
+        path.addLine(to: geometry.firstWing)
+        path.addLine(to: geometry.secondWing)
+        path.closeSubpath()
+        return path
+    }
+
+    private var arrowGeometry: AnnotationArrowGeometry? {
         guard item.tool == .arrow,
               let start = endpointViewPoints.first,
               let end = endpointViewPoints.last else {
             return nil
         }
 
-        let dx = end.x - start.x
-        let dy = end.y - start.y
-        let length = hypot(dx, dy)
-        guard length > 0.5 else { return nil }
-
-        let unit = CGPoint(x: dx / length, y: dy / length)
-        let perpendicular = CGPoint(x: -unit.y, y: unit.x)
-        let size = max(12, item.strokeWidth * 4)
-        let halfWidth = size * 0.42
-        let base = CGPoint(x: end.x - unit.x * size, y: end.y - unit.y * size)
-
-        var path = Path()
-        path.move(to: end)
-        path.addLine(to: CGPoint(
-            x: base.x + perpendicular.x * halfWidth,
-            y: base.y + perpendicular.y * halfWidth
-        ))
-        path.addLine(to: CGPoint(
-            x: base.x - perpendicular.x * halfWidth,
-            y: base.y - perpendicular.y * halfWidth
-        ))
-        path.closeSubpath()
-        return path
+        return AnnotationArrowGeometry(start: start, end: end, lineWidth: item.strokeWidth)
     }
 
     private var endpointViewPoints: [CGPoint] {
@@ -826,6 +828,41 @@ private struct SelectionHandle: View {
             .frame(width: 12, height: 12)
             .overlay(Circle().stroke(.white, lineWidth: 2))
             .shadow(color: .black.opacity(0.18), radius: 2, x: 0, y: 1)
+    }
+}
+
+private struct AnnotationArrowGeometry {
+    let tip: CGPoint
+    let shaftEnd: CGPoint
+    let firstWing: CGPoint
+    let secondWing: CGPoint
+
+    init?(start: CGPoint, end: CGPoint, lineWidth: CGFloat) {
+        let dx = end.x - start.x
+        let dy = end.y - start.y
+        let length = hypot(dx, dy)
+        guard length > 0.5 else { return nil }
+
+        let unit = CGPoint(x: dx / length, y: dy / length)
+        let perpendicular = CGPoint(x: -unit.y, y: unit.x)
+        let desiredHeadLength = max(14, lineWidth * 5.25)
+        let headLength = min(desiredHeadLength, length * 0.48)
+        let halfWidth = max(lineWidth * 2.1, headLength * 0.36)
+        let base = CGPoint(
+            x: end.x - unit.x * headLength,
+            y: end.y - unit.y * headLength
+        )
+
+        tip = end
+        shaftEnd = base
+        firstWing = CGPoint(
+            x: base.x + perpendicular.x * halfWidth,
+            y: base.y + perpendicular.y * halfWidth
+        )
+        secondWing = CGPoint(
+            x: base.x - perpendicular.x * halfWidth,
+            y: base.y - perpendicular.y * halfWidth
+        )
     }
 }
 
@@ -1327,7 +1364,7 @@ private enum AnnotationRenderer {
             case .ellipse:
                 context.strokeEllipse(in: renderedRect(item.bounds, width: width, height: height))
 
-            case .line, .arrow:
+            case .line:
                 guard let first = item.points.first,
                       let last = item.points.last else {
                     continue
@@ -1340,9 +1377,22 @@ private enum AnnotationRenderer {
                 context.addLine(to: end)
                 context.strokePath()
 
-                if item.tool == .arrow {
-                    drawArrowHead(from: start, to: end, lineWidth: lineWidth, context: context)
+            case .arrow:
+                guard let first = item.points.first,
+                      let last = item.points.last,
+                      let geometry = AnnotationArrowGeometry(
+                        start: renderedPoint(first, width: width, height: height),
+                        end: renderedPoint(last, width: width, height: height),
+                        lineWidth: lineWidth
+                      ) else {
+                    continue
                 }
+
+                context.beginPath()
+                context.move(to: renderedPoint(first, width: width, height: height))
+                context.addLine(to: geometry.shaftEnd)
+                context.strokePath()
+                drawArrowHead(geometry, context: context)
             }
         }
 
@@ -1393,35 +1443,11 @@ private enum AnnotationRenderer {
         )
     }
 
-    private static func drawArrowHead(
-        from start: CGPoint,
-        to end: CGPoint,
-        lineWidth: CGFloat,
-        context: CGContext
-    ) {
-        let dx = end.x - start.x
-        let dy = end.y - start.y
-        let length = hypot(dx, dy)
-        guard length > 0.5 else { return }
-
-        let unit = CGPoint(x: dx / length, y: dy / length)
-        let perpendicular = CGPoint(x: -unit.y, y: unit.x)
-        let size = max(10, lineWidth * 3.2)
-        let halfWidth = size * 0.42
-        let base = CGPoint(x: end.x - unit.x * size, y: end.y - unit.y * size)
-        let firstWing = CGPoint(
-            x: base.x + perpendicular.x * halfWidth,
-            y: base.y + perpendicular.y * halfWidth
-        )
-        let secondWing = CGPoint(
-            x: base.x - perpendicular.x * halfWidth,
-            y: base.y - perpendicular.y * halfWidth
-        )
-
+    private static func drawArrowHead(_ geometry: AnnotationArrowGeometry, context: CGContext) {
         context.beginPath()
-        context.move(to: end)
-        context.addLine(to: firstWing)
-        context.addLine(to: secondWing)
+        context.move(to: geometry.tip)
+        context.addLine(to: geometry.firstWing)
+        context.addLine(to: geometry.secondWing)
         context.closePath()
         context.fillPath()
     }
