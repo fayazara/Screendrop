@@ -1317,9 +1317,9 @@ private struct AnnotationToolbarPillButton: View {
 }
 
 private enum AnnotationToolbarStyle {
-    static let background = Color(red: 0.105, green: 0.11, blue: 0.15)
-    static let controlBackground = Color(red: 0.075, green: 0.078, blue: 0.105)
-    static let stroke = Color.white.opacity(0.10)
+    static let background = Color(nsColor: .windowBackgroundColor)
+    static let controlBackground = Color(nsColor: .controlBackgroundColor)
+    static let stroke = Color(nsColor: .separatorColor)
 }
 
 private struct AnnotationKeyCommandHandler: NSViewRepresentable {
