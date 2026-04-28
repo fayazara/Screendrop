@@ -85,6 +85,8 @@ struct AnnotationEditorWindow: View {
                 AnnotationTextStyleButton(model: model)
             }
 
+            AnnotationBackgroundButton(model: model)
+
             Spacer()
 
             AnnotationToolbarPillButton(title: "Save as...", help: "Save as") {
@@ -123,6 +125,7 @@ struct AnnotationEditorWindow: View {
                 try AnnotationRenderer.render(
                     sourceURL: sourceURL,
                     items: model.items,
+                    backgroundSettings: model.backgroundSettings,
                     destinationURL: destinationURL,
                     contentType: ScreenshotFileActions.exportContentType
                 )
@@ -138,7 +141,7 @@ struct AnnotationEditorWindow: View {
             return
         }
 
-        guard !model.items.isEmpty else {
+        guard !model.items.isEmpty || model.backgroundSettings.isEnabled else {
             dismissWindow()
             return
         }
@@ -146,7 +149,8 @@ struct AnnotationEditorWindow: View {
         do {
             let annotatedURL = try AnnotationRenderer.renderToTemporaryFile(
                 sourceURL: sourceURL,
-                items: model.items
+                items: model.items,
+                backgroundSettings: model.backgroundSettings
             )
             ScreenshotPreviewStack.shared.replace(originalURL: sourceURL, with: annotatedURL)
             dismissWindow()
@@ -171,6 +175,7 @@ private final class AnnotationEditorModel {
     var selectedSwatch: AnnotationSwatch = .red
     var strokeWidth: CGFloat = 4
     var redactionDensity: CGFloat = 0.55
+    var backgroundSettings = AnnotationBackgroundSettings()
     var errorMessage: String?
     private(set) var statePath = AnnotationToolState.idle.path(for: .rectangle)
 
@@ -200,6 +205,7 @@ private final class AnnotationEditorModel {
         selectedItemID = nil
         editingTextItemID = nil
         isTextPlacementArmed = selectedTool == .text
+        backgroundSettings = AnnotationBackgroundSettings()
         interaction = nil
         history.reset(to: items)
         statePath = AnnotationToolState.idle.path(for: selectedTool)
@@ -900,46 +906,66 @@ private struct AnnotationCanvas: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let imageFrame = aspectFitRect(imageSize: model.imageSize, in: proxy.size)
+            let backgroundLayout = AnnotationBackgroundLayout.make(
+                contentSize: model.imageSize,
+                settings: model.backgroundSettings
+            )
+            let canvasFrame = aspectFitRect(imageSize: backgroundLayout.canvasSize, in: proxy.size)
+            let displayLayout = backgroundLayout.scaled(to: canvasFrame)
+            let imageFrame = displayLayout.imageFrame
+            let localImageFrame = CGRect(origin: .zero, size: imageFrame.size)
+            let cornerRadius = screenshotCornerRadius(for: imageFrame)
 
             ZStack(alignment: .topLeading) {
-                Image(nsImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: imageFrame.width, height: imageFrame.height)
-                    .position(x: imageFrame.midX, y: imageFrame.midY)
-                    .shadow(color: .black.opacity(0.26), radius: 18, x: 0, y: 8)
-
-                ForEach(model.items) { item in
-                    AnnotationItemView(
-                        item: item,
-                        image: image,
-                        imageFrame: imageFrame,
-                        isSelected: item.id == model.selectedItemID,
-                        isEditingText: item.id == model.editingTextItemID,
-                        text: Binding(
-                            get: { item.text },
-                            set: { model.setText($0, for: item.id) }
-                        ),
-                        onCommitText: model.commitTextEditing,
-                        onTextSizeChange: { size in
-                            model.setTextViewContentSize(size, for: item.id, imageFrame: imageFrame)
-                        }
-                    )
+                if model.backgroundSettings.isEnabled {
+                    AnnotationBackgroundStageFill(style: model.backgroundSettings.style)
+                        .frame(width: displayLayout.canvasFrame.width, height: displayLayout.canvasFrame.height)
+                        .position(x: displayLayout.canvasFrame.midX, y: displayLayout.canvasFrame.midY)
                 }
 
-                if let draftItem = model.draftItem {
-                    AnnotationItemView(
-                        item: draftItem,
-                        image: image,
-                        imageFrame: imageFrame,
-                        isSelected: false,
-                        isEditingText: false,
-                        text: .constant(draftItem.text),
-                        onCommitText: {},
-                        onTextSizeChange: { _ in }
-                    )
+                screenshotShadow(imageFrame: imageFrame, cornerRadius: cornerRadius)
+
+                ZStack(alignment: .topLeading) {
+                    Image(nsImage: image)
+                        .resizable()
+                        .frame(width: imageFrame.width, height: imageFrame.height)
+                        .position(x: localImageFrame.midX, y: localImageFrame.midY)
+
+                    ForEach(model.items) { item in
+                        AnnotationItemView(
+                            item: item,
+                            image: image,
+                            imageFrame: localImageFrame,
+                            isSelected: item.id == model.selectedItemID,
+                            isEditingText: item.id == model.editingTextItemID,
+                            text: Binding(
+                                get: { item.text },
+                                set: { model.setText($0, for: item.id) }
+                            ),
+                            onCommitText: model.commitTextEditing,
+                            onTextSizeChange: { size in
+                                model.setTextViewContentSize(size, for: item.id, imageFrame: localImageFrame)
+                            }
+                        )
+                    }
+
+                    if let draftItem = model.draftItem {
+                        AnnotationItemView(
+                            item: draftItem,
+                            image: image,
+                            imageFrame: localImageFrame,
+                            isSelected: false,
+                            isEditingText: false,
+                            text: .constant(draftItem.text),
+                            onCommitText: {},
+                            onTextSizeChange: { _ in }
+                        )
+                    }
                 }
+                .frame(width: imageFrame.width, height: imageFrame.height)
+                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                .contentShape(Rectangle())
+                .position(x: imageFrame.midX, y: imageFrame.midY)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .contentShape(Rectangle())
@@ -955,6 +981,29 @@ private struct AnnotationCanvas: View {
                 popPlacementCursorIfNeeded()
             }
         }
+    }
+
+    @ViewBuilder
+    private func screenshotShadow(imageFrame: CGRect, cornerRadius: CGFloat) -> some View {
+        let settings = model.backgroundSettings
+        let opacity = settings.isEnabled ? Double(settings.shadow) * 0.34 : 0.26
+        if opacity > 0 {
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .fill(Color.black.opacity(0.001))
+                .frame(width: imageFrame.width, height: imageFrame.height)
+                .position(x: imageFrame.midX, y: imageFrame.midY)
+                .shadow(
+                    color: .black.opacity(opacity),
+                    radius: settings.isEnabled ? 12 + settings.shadow * 28 : 18,
+                    x: 0,
+                    y: settings.isEnabled ? 4 + settings.shadow * 16 : 8
+                )
+        }
+    }
+
+    private func screenshotCornerRadius(for imageFrame: CGRect) -> CGFloat {
+        guard model.backgroundSettings.isEnabled else { return 0 }
+        return model.backgroundSettings.cornerRadius * min(imageFrame.width, imageFrame.height)
     }
 
     private func interactionGesture(imageFrame: CGRect) -> some Gesture {
@@ -1005,6 +1054,27 @@ private struct AnnotationCanvas: View {
         guard isPlacementCursorPushed else { return }
         NSCursor.pop()
         isPlacementCursorPushed = false
+    }
+}
+
+private struct AnnotationBackgroundStageFill: View {
+    let style: AnnotationBackgroundStyle
+
+    var body: some View {
+        switch style {
+        case .none:
+            Color.clear
+
+        case .solid(let color):
+            color.color
+
+        case .gradient(let gradient):
+            LinearGradient(
+                colors: gradient.colors.map(\.color),
+                startPoint: gradient.startPoint,
+                endPoint: gradient.endPoint
+            )
+        }
     }
 }
 
@@ -1910,6 +1980,225 @@ private struct AnnotationRedactionDensitySlider: View {
     }
 }
 
+// MARK: - Background Popover
+
+private struct AnnotationBackgroundButton: View {
+    @Bindable var model: AnnotationEditorModel
+    @State private var showPopover = false
+
+    var body: some View {
+        Button {
+            showPopover.toggle()
+        } label: {
+            Image(systemName: "photo.on.rectangle.angled")
+                .font(.system(size: 14, weight: .semibold))
+                .frame(width: 36, height: 30)
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(model.backgroundSettings.isEnabled ? Color.accentColor : .primary)
+        .background(AnnotationToolbarStyle.controlBackground, in: Capsule())
+        .overlay(
+            Capsule().stroke(
+                model.backgroundSettings.isEnabled ? Color.accentColor.opacity(0.75) : AnnotationToolbarStyle.stroke,
+                lineWidth: 1
+            )
+        )
+        .help("Background")
+        .popover(isPresented: $showPopover, arrowEdge: .bottom) {
+            AnnotationBackgroundPopover(settings: Binding(
+                get: { model.backgroundSettings },
+                set: { model.backgroundSettings = $0 }
+            ))
+        }
+    }
+}
+
+private struct AnnotationBackgroundPopover: View {
+    @Binding var settings: AnnotationBackgroundSettings
+
+    private let swatchColumns = Array(repeating: GridItem(.fixed(34), spacing: 8), count: 6)
+    private let alignmentColumns = Array(repeating: GridItem(.fixed(28), spacing: 6), count: 3)
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Button {
+                settings.style = .none
+            } label: {
+                Text("None")
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 30)
+                    .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .background(
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(settings.style == .none ? Color.accentColor.opacity(0.18) : Color(nsColor: .controlBackgroundColor))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .stroke(settings.style == .none ? Color.accentColor : Color(nsColor: .separatorColor), lineWidth: 1)
+            )
+
+            backgroundSectionTitle("Gradients")
+            LazyVGrid(columns: swatchColumns, alignment: .leading, spacing: 8) {
+                ForEach(AnnotationBackgroundGradient.presets) { gradient in
+                    Button {
+                        settings.style = .gradient(gradient)
+                    } label: {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(LinearGradient(
+                                colors: gradient.colors.map(\.color),
+                                startPoint: gradient.startPoint,
+                                endPoint: gradient.endPoint
+                            ))
+                            .frame(width: 34, height: 34)
+                            .overlay(swatchStroke(isSelected: settings.style == .gradient(gradient), cornerRadius: 8))
+                            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .help(gradient.title)
+                }
+            }
+
+            backgroundSectionTitle("Plain color")
+            LazyVGrid(columns: swatchColumns, alignment: .leading, spacing: 8) {
+                ForEach(AnnotationBackgroundColor.plainPresets) { color in
+                    Button {
+                        settings.style = .solid(color)
+                    } label: {
+                        Circle()
+                            .fill(color.color)
+                            .frame(width: 24, height: 24)
+                            .overlay(Circle().stroke(.quaternary, lineWidth: 1))
+                            .overlay(swatchStroke(isSelected: settings.style == .solid(color), cornerRadius: 14))
+                            .frame(width: 34, height: 28)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help(color.title)
+                }
+            }
+
+            Divider()
+
+            AnnotationBackgroundSlider(
+                title: "Padding",
+                value: $settings.padding,
+                range: 0.04...0.45
+            )
+
+            AnnotationBackgroundSlider(
+                title: "Corners",
+                value: $settings.cornerRadius,
+                range: 0...0.12
+            )
+
+            AnnotationBackgroundSlider(
+                title: "Shadow",
+                value: $settings.shadow,
+                range: 0...1
+            )
+
+            HStack(spacing: 10) {
+                Text("Alignment")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 76, alignment: .leading)
+
+                LazyVGrid(columns: alignmentColumns, spacing: 6) {
+                    ForEach(AnnotationBackgroundAlignment.allCases) { alignment in
+                        Button {
+                            settings.alignment = alignment
+                        } label: {
+                            AlignmentGlyph(alignment: alignment, isSelected: settings.alignment == alignment)
+                        }
+                        .buttonStyle(.plain)
+                        .help(alignment.title)
+                    }
+                }
+            }
+
+            HStack(spacing: 10) {
+                Text("Ratio")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 76, alignment: .leading)
+
+                Picker("", selection: $settings.aspectRatio) {
+                    ForEach(AnnotationBackgroundAspectRatio.allCases) { ratio in
+                        Text(ratio.title).tag(ratio)
+                    }
+                }
+                .labelsHidden()
+                .frame(maxWidth: .infinity)
+            }
+        }
+        .padding(14)
+        .frame(width: 292)
+    }
+
+    private func backgroundSectionTitle(_ title: String) -> some View {
+        Text(title)
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(.secondary)
+    }
+
+    private func swatchStroke(isSelected: Bool, cornerRadius: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 3)
+    }
+}
+
+private struct AnnotationBackgroundSlider: View {
+    let title: String
+    @Binding var value: CGFloat
+    let range: ClosedRange<CGFloat>
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Text(title)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 76, alignment: .leading)
+
+            Slider(value: $value, in: range)
+                .controlSize(.small)
+        }
+    }
+}
+
+private struct AlignmentGlyph: View {
+    let alignment: AnnotationBackgroundAlignment
+    let isSelected: Bool
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                .fill(isSelected ? Color.accentColor.opacity(0.20) : Color(nsColor: .controlBackgroundColor))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .stroke(isSelected ? Color.accentColor : Color(nsColor: .separatorColor), lineWidth: 1)
+                )
+
+            RoundedRectangle(cornerRadius: 2, style: .continuous)
+                .stroke(isSelected ? Color.accentColor : Color.secondary.opacity(0.7), lineWidth: 1.4)
+                .frame(width: 11, height: 8)
+                .position(markerPosition)
+        }
+        .frame(width: 28, height: 22)
+        .contentShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+    }
+
+    private var markerPosition: CGPoint {
+        CGPoint(
+            x: 6 + alignment.xFactor * 16,
+            y: 5 + alignment.yFactor * 12
+        )
+    }
+}
+
 // MARK: - Text Style Popover
 
 private struct AnnotationTextStyleButton: View {
@@ -2675,19 +2964,70 @@ enum AnnotationSwatch: String, CaseIterable, Identifiable {
 }
 
 private enum AnnotationRenderer {
-    static func renderToTemporaryFile(sourceURL: URL, items: [AnnotationItem]) throws -> URL {
+    static func renderToTemporaryFile(
+        sourceURL: URL,
+        items: [AnnotationItem],
+        backgroundSettings: AnnotationBackgroundSettings = AnnotationBackgroundSettings()
+    ) throws -> URL {
         let destinationURL = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("OpenShot_Annotated_\(UUID().uuidString.prefix(6)).png")
-        try render(sourceURL: sourceURL, items: items, destinationURL: destinationURL, contentType: .png)
+        try render(
+            sourceURL: sourceURL,
+            items: items,
+            backgroundSettings: backgroundSettings,
+            destinationURL: destinationURL,
+            contentType: .png
+        )
         return destinationURL
     }
 
     static func render(
         sourceURL: URL,
         items: [AnnotationItem],
+        backgroundSettings: AnnotationBackgroundSettings = AnnotationBackgroundSettings(),
         destinationURL: URL,
         contentType: UTType
     ) throws {
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let annotatedImage = try renderAnnotatedImage(sourceURL: sourceURL, items: items, colorSpace: colorSpace)
+        let renderedImage = try AnnotationBackgroundRenderer.compose(
+            annotatedImage: annotatedImage,
+            settings: backgroundSettings,
+            colorSpace: colorSpace
+        )
+
+        if FileManager.default.fileExists(atPath: destinationURL.path) {
+            try FileManager.default.removeItem(at: destinationURL)
+        }
+
+        guard let destination = CGImageDestinationCreateWithURL(
+            destinationURL as CFURL,
+            contentType.identifier as CFString,
+            1,
+            nil
+        ) else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+
+        var options: CFDictionary?
+        if contentType == .jpeg {
+            options = [
+                kCGImageDestinationLossyCompressionQuality: OpenShotPreferences.compressionQuality
+            ] as CFDictionary
+        }
+
+        CGImageDestinationAddImage(destination, renderedImage, options)
+
+        guard CGImageDestinationFinalize(destination) else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+    }
+
+    private static func renderAnnotatedImage(
+        sourceURL: URL,
+        items: [AnnotationItem],
+        colorSpace: CGColorSpace
+    ) throws -> CGImage {
         guard let source = CGImageSourceCreateWithURL(
             sourceURL as CFURL,
             [kCGImageSourceShouldCache: false] as CFDictionary
@@ -2702,7 +3042,6 @@ private enum AnnotationRenderer {
 
         let width = cgImage.width
         let height = cgImage.height
-        let colorSpace = CGColorSpaceCreateDeviceRGB()
 
         guard let context = CGContext(
             data: nil,
@@ -2801,31 +3140,7 @@ private enum AnnotationRenderer {
             throw CocoaError(.fileWriteUnknown)
         }
 
-        if FileManager.default.fileExists(atPath: destinationURL.path) {
-            try FileManager.default.removeItem(at: destinationURL)
-        }
-
-        guard let destination = CGImageDestinationCreateWithURL(
-            destinationURL as CFURL,
-            contentType.identifier as CFString,
-            1,
-            nil
-        ) else {
-            throw CocoaError(.fileWriteUnknown)
-        }
-
-        var options: CFDictionary?
-        if contentType == .jpeg {
-            options = [
-                kCGImageDestinationLossyCompressionQuality: OpenShotPreferences.compressionQuality
-            ] as CFDictionary
-        }
-
-        CGImageDestinationAddImage(destination, renderedImage, options)
-
-        guard CGImageDestinationFinalize(destination) else {
-            throw CocoaError(.fileWriteUnknown)
-        }
+        return renderedImage
     }
 
     private static func renderedRect(_ rect: CGRect, width: Int, height: Int) -> CGRect {
