@@ -81,6 +81,10 @@ struct AnnotationEditorWindow: View {
                 }
             }
 
+            if model.isTextStyleAvailable {
+                AnnotationTextStyleButton(model: model)
+            }
+
             Spacer()
 
             AnnotationToolbarPillButton(title: "Save as...", help: "Save as") {
@@ -170,6 +174,14 @@ private final class AnnotationEditorModel {
     var errorMessage: String?
     private(set) var statePath = AnnotationToolState.idle.path(for: .rectangle)
 
+    // Text style defaults (applied to new text items, updated when selecting existing text)
+    var textFontName: String = AnnotationTextMetrics.defaultFontName
+    var textFontSize: CGFloat = 24
+    var textIsBold: Bool = true
+    var textIsItalic: Bool = false
+    var textIsUnderline: Bool = false
+    var textAlignment: NSTextAlignment = .left
+
     private var interaction: AnnotationInteraction?
     private var history = AnnotationHistory()
     private let minimumItemSize: CGFloat = 0.006
@@ -208,7 +220,8 @@ private final class AnnotationEditorModel {
             return
         }
 
-        if let selectedItem,
+        // Text items don't have resize handles -- skip resize hit-test for them.
+        if let selectedItem, selectedItem.tool != .text,
            let resizeHandle = hitTestResizeHandle(point, in: imageFrame, item: selectedItem) {
             applyStyleFromItem(selectedItem)
             draftItem = nil
@@ -219,9 +232,9 @@ private final class AnnotationEditorModel {
         }
 
         if let item = hitTest(point) {
+            // For text items: first click selects, second click on same item enters editing.
             let shouldBeginTextEditing = item.tool == .text
                 && selectedItemID == item.id
-                && selectedTool == .text
                 && editingTextItemID != item.id
             selectedItemID = item.id
             applyStyleFromItem(item)
@@ -237,7 +250,8 @@ private final class AnnotationEditorModel {
 
             editingTextItemID = nil
 
-            if let resizeHandle = hitTestResizeHandle(point, in: imageFrame, item: item) {
+            if item.tool != .text,
+               let resizeHandle = hitTestResizeHandle(point, in: imageFrame, item: item) {
                 interaction = .resizing(id: item.id, handle: resizeHandle, originalItem: item)
                 statePath = AnnotationToolState.resizing.path(for: selectedTool)
             } else {
@@ -253,14 +267,24 @@ private final class AnnotationEditorModel {
                 return
             }
 
+            let textLineHeight: CGFloat = imageSize.height > 0
+                ? textFontSize / (imageSize.height * AnnotationTextMetrics.fontScale)
+                : AnnotationTextMetrics.defaultNormalizedLineHeight
+
             draftItem = AnnotationItem(
                 tool: selectedTool,
-                rect: selectedTool == .text ? defaultTextRect(at: point) : CGRect(origin: point, size: .zero),
+                rect: selectedTool == .text ? defaultTextRect(at: point, lineHeight: textLineHeight) : CGRect(origin: point, size: .zero),
                 points: initialPoints(for: selectedTool, at: point),
                 swatch: selectedSwatch,
                 strokeWidth: strokeWidth,
                 redactionDensity: redactionDensity,
-                text: ""
+                text: "",
+                textLineHeight: textLineHeight,
+                fontName: textFontName,
+                isBold: textIsBold,
+                isItalic: textIsItalic,
+                isUnderline: textIsUnderline,
+                textAlignment: textAlignment
             )
             interaction = .drawing(startPoint: point)
             statePath = AnnotationToolState.drawing.path(for: selectedTool)
@@ -299,15 +323,11 @@ private final class AnnotationEditorModel {
         case .drawing(let startPoint):
             updateDraftItem(from: startPoint, to: point)
 
-            guard var item = draftItem,
+            guard let item = draftItem,
                   item.isRenderable(minimumSize: minimumItemSize, allowEmptyText: item.tool == .text) else {
                 draftItem = nil
                 statePath = AnnotationToolState.idle.path(for: selectedTool)
                 return
-            }
-
-            if item.tool == .text {
-                item.fitTextBounds(minimumSize: minimumItemSize, imageSize: imageSize)
             }
 
             history.push(items)
@@ -397,7 +417,134 @@ private final class AnnotationEditorModel {
     func setText(_ text: String, for id: AnnotationItem.ID) {
         updateItem(id: id) { item in
             item.text = text
-            item.fitTextBounds(minimumSize: minimumItemSize, imageSize: imageSize)
+        }
+    }
+
+    func setTextViewContentSize(_ size: CGSize, for id: AnnotationItem.ID, imageFrame: CGRect) {
+        // Don't fight with active move/resize drags.
+        guard interaction == nil else { return }
+        guard imageFrame.width > 0, imageFrame.height > 0 else { return }
+        let normalizedWidth = size.width / imageFrame.width
+        let normalizedHeight = size.height / imageFrame.height
+        let minW = AnnotationTextMetrics.minimumNormalizedWidth(lineHeight: items.first(where: { $0.id == id })?.textLineHeight ?? AnnotationTextMetrics.defaultNormalizedLineHeight, imageSize: imageSize)
+        updateItem(id: id) { item in
+            let newWidth = max(normalizedWidth, minW)
+            let newHeight = max(normalizedHeight, item.textLineHeight)
+            item.rect = CGRect(
+                x: min(item.rect.origin.x, 1 - newWidth),
+                y: min(item.rect.origin.y, 1 - newHeight),
+                width: newWidth,
+                height: newHeight
+            )
+        }
+    }
+
+    // MARK: - Text style methods
+
+    /// The effective font size in points for the selected text item (for display in the popover).
+    var selectedTextFontSize: CGFloat {
+        get {
+            guard let item = selectedTextItem else { return textFontSize }
+            return AnnotationTextMetrics.renderedFontSize(
+                lineHeight: item.textLineHeight,
+                imagePixelHeight: imageSize.height
+            ).rounded()
+        }
+        set {
+            setTextFontSize(newValue)
+        }
+    }
+
+    var selectedTextFontName: String {
+        get { selectedTextItem?.fontName ?? textFontName }
+        set { setTextFontName(newValue) }
+    }
+
+    var selectedTextIsBold: Bool {
+        get { selectedTextItem?.isBold ?? textIsBold }
+        set { setTextBold(newValue) }
+    }
+
+    var selectedTextIsItalic: Bool {
+        get { selectedTextItem?.isItalic ?? textIsItalic }
+        set { setTextItalic(newValue) }
+    }
+
+    var selectedTextIsUnderline: Bool {
+        get { selectedTextItem?.isUnderline ?? textIsUnderline }
+        set { setTextUnderline(newValue) }
+    }
+
+    var selectedTextAlignment: NSTextAlignment {
+        get { selectedTextItem?.textAlignment ?? textAlignment }
+        set { setTextAlignment(newValue) }
+    }
+
+    /// Whether the text style popover should be available.
+    var isTextStyleAvailable: Bool {
+        selectedTool == .text || selectedTextItem != nil
+    }
+
+    private var selectedTextItem: AnnotationItem? {
+        guard let selectedItemID else { return nil }
+        return items.first { $0.id == selectedItemID && $0.tool == .text }
+    }
+
+    func setTextFontSize(_ pointSize: CGFloat) {
+        let clamped = max(pointSize, 9)
+        textFontSize = clamped
+
+        guard let selectedItemID, selectedTextItem != nil else { return }
+        guard imageSize.height > 0 else { return }
+        let newLineHeight = clamped / (imageSize.height * AnnotationTextMetrics.fontScale)
+        history.push(items)
+        updateItem(id: selectedItemID) { item in
+            item.textLineHeight = newLineHeight
+        }
+    }
+
+    func setTextFontName(_ name: String) {
+        textFontName = name
+        guard let selectedItemID, selectedTextItem != nil else { return }
+        history.push(items)
+        updateItem(id: selectedItemID) { item in
+            item.fontName = name
+        }
+    }
+
+    func setTextBold(_ bold: Bool) {
+        textIsBold = bold
+        guard let selectedItemID, selectedTextItem != nil else { return }
+        history.push(items)
+        updateItem(id: selectedItemID) { item in
+            item.isBold = bold
+        }
+    }
+
+    func setTextItalic(_ italic: Bool) {
+        textIsItalic = italic
+        guard let selectedItemID, selectedTextItem != nil else { return }
+        history.push(items)
+        updateItem(id: selectedItemID) { item in
+            item.isItalic = italic
+        }
+    }
+
+    func setTextUnderline(_ underline: Bool) {
+        textIsUnderline = underline
+        guard let selectedItemID, selectedTextItem != nil else { return }
+        history.push(items)
+        updateItem(id: selectedItemID) { item in
+            item.isUnderline = underline
+        }
+    }
+
+    func setTextAlignment(_ alignment: NSTextAlignment) {
+        textAlignment = alignment
+        guard let selectedItemID, selectedTextItem != nil else { return }
+        history.push(items)
+        updateItem(id: selectedItemID) { item in
+            item.textAlignment = alignment
         }
     }
 
@@ -448,7 +595,7 @@ private final class AnnotationEditorModel {
         case .rectangle, .filledRectangle, .ellipse, .pixelate, .blur:
             draftItem.rect = rect(from: startPoint, to: point)
         case .text:
-            draftItem.rect = defaultTextRect(at: startPoint)
+            draftItem.rect = defaultTextRect(at: startPoint, lineHeight: draftItem.textLineHeight)
         }
 
         self.draftItem = draftItem
@@ -491,6 +638,13 @@ private final class AnnotationEditorModel {
         selectedSwatch = item.swatch
         strokeWidth = item.strokeWidth
         redactionDensity = item.redactionDensity
+        if item.tool == .text {
+            textFontName = item.fontName
+            textIsBold = item.isBold
+            textIsItalic = item.isItalic
+            textIsUnderline = item.isUnderline
+            textAlignment = item.textAlignment
+        }
     }
 
     private func normalizedPoint(_ location: CGPoint, in imageFrame: CGRect, clamped: Bool) -> CGPoint? {
@@ -539,11 +693,7 @@ private final class AnnotationEditorModel {
             minimumSize: minimumItemSize
         )
 
-        var resizedItem = originalItem.resized(to: rect(from: anchor, to: constrainedPoint))
-        if resizedItem.tool == .text {
-            resizedItem.fitTextBounds(minimumSize: minimumItemSize, imageSize: imageSize)
-        }
-        return resizedItem
+        return originalItem.resized(to: rect(from: anchor, to: constrainedPoint))
     }
 
     private func initialPoints(for tool: AnnotationTool, at point: CGPoint) -> [CGPoint] {
@@ -557,9 +707,9 @@ private final class AnnotationEditorModel {
         }
     }
 
-    private func defaultTextRect(at point: CGPoint) -> CGRect {
-        let height = AnnotationTextMetrics.defaultNormalizedHeight
-        let width = AnnotationTextMetrics.emptyNormalizedWidth(height: height, imageSize: imageSize)
+    private func defaultTextRect(at point: CGPoint, lineHeight: CGFloat = AnnotationTextMetrics.defaultNormalizedLineHeight) -> CGRect {
+        let height = lineHeight
+        let width = AnnotationTextMetrics.minimumNormalizedWidth(lineHeight: height, imageSize: imageSize)
 
         return CGRect(
             x: min(point.x, 1 - width),
@@ -583,7 +733,9 @@ private final class AnnotationEditorModel {
 
     private func updateItem(id: AnnotationItem.ID, mutate: (inout AnnotationItem) -> Void) {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
-        mutate(&items[index])
+        var item = items[index]
+        mutate(&item)
+        items[index] = item
     }
 
     private func boundingRect(for points: [CGPoint]) -> CGRect {
@@ -763,7 +915,10 @@ private struct AnnotationCanvas: View {
                             get: { item.text },
                             set: { model.setText($0, for: item.id) }
                         ),
-                        onCommitText: model.commitTextEditing
+                        onCommitText: model.commitTextEditing,
+                        onTextSizeChange: { size in
+                            model.setTextViewContentSize(size, for: item.id, imageFrame: imageFrame)
+                        }
                     )
                 }
 
@@ -775,7 +930,8 @@ private struct AnnotationCanvas: View {
                         isSelected: false,
                         isEditingText: false,
                         text: .constant(draftItem.text),
-                        onCommitText: {}
+                        onCommitText: {},
+                        onTextSizeChange: { _ in }
                     )
                 }
             }
@@ -854,6 +1010,7 @@ private struct AnnotationItemView: View {
     let isEditingText: Bool
     let text: Binding<String>
     let onCommitText: () -> Void
+    let onTextSizeChange: (CGSize) -> Void
 
     private var selectionOutset: CGFloat {
         item.tool == .text ? 0 : 5
@@ -876,8 +1033,10 @@ private struct AnnotationItemView: View {
                     item: item,
                     text: text,
                     viewBounds: viewBounds,
+                    imageFrameHeight: imageFrame.height,
                     isEditing: isEditingText,
-                    onCommit: onCommitText
+                    onCommit: onCommitText,
+                    onSizeChange: onTextSizeChange
                 )
             } else {
                 itemPath
@@ -950,6 +1109,14 @@ private struct AnnotationItemView: View {
                 CurveControlHandle()
                     .position(controlViewPoint)
             }
+        } else if item.tool == .text {
+            // Text items: simple border, no corner handles (Apple Preview style).
+            TextSelectionFrame()
+                .frame(
+                    width: max(viewBounds.width, 18),
+                    height: max(viewBounds.height, 18)
+                )
+                .position(x: viewBounds.midX, y: viewBounds.midY)
         } else {
             SelectionFrame()
                 .frame(
@@ -1023,47 +1190,203 @@ private struct AnnotationTextItemView: View {
     let item: AnnotationItem
     let text: Binding<String>
     let viewBounds: CGRect
+    let imageFrameHeight: CGFloat
     let isEditing: Bool
     let onCommit: () -> Void
-
-    @FocusState private var isFocused: Bool
+    let onSizeChange: (CGSize) -> Void
 
     var body: some View {
-        Group {
-            if isEditing {
-                TextField("", text: text)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: fontSize, weight: .semibold))
-                    .foregroundStyle(item.swatch.color)
-                    .shadow(color: .black.opacity(0.2), radius: 1.4, x: 0, y: 1)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    .focused($isFocused)
-                    .onSubmit(onCommit)
-                    .onAppear {
-                        isFocused = true
-                    }
-                    .onChange(of: isFocused) { _, focused in
-                        if !focused {
-                            onCommit()
-                        }
-                    }
-            } else {
-                Text(item.text)
-                    .font(.system(size: fontSize, weight: .semibold))
-                    .foregroundStyle(item.swatch.color)
-                    .lineLimit(nil)
-                    .multilineTextAlignment(.leading)
-                    .shadow(color: .black.opacity(0.2), radius: 1.4, x: 0, y: 1)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            }
-        }
+        AnnotationTextBoxView(
+            text: text,
+            font: item.resolvedFont(size: fontSize),
+            textColor: item.swatch.nsColor,
+            shadow: AnnotationTextMetrics.textShadow,
+            isUnderline: item.isUnderline,
+            alignment: item.textAlignment,
+            isEditing: isEditing,
+            onCommit: onCommit,
+            onSizeChange: onSizeChange
+        )
         .frame(width: max(viewBounds.width, 1), height: max(viewBounds.height, 1))
         .position(x: viewBounds.midX, y: viewBounds.midY)
-        .fixedSize(horizontal: false, vertical: false)
     }
 
     private var fontSize: CGFloat {
-        min(max(viewBounds.height * AnnotationTextMetrics.fontHeightRatio, 9), 96)
+        AnnotationTextMetrics.viewFontSize(lineHeight: item.textLineHeight, imageFrameHeight: imageFrameHeight)
+    }
+}
+
+private struct AnnotationTextBoxView: NSViewRepresentable {
+    @Binding var text: String
+
+    let font: NSFont
+    let textColor: NSColor
+    let shadow: NSShadow
+    let isUnderline: Bool
+    let alignment: NSTextAlignment
+    let isEditing: Bool
+    let onCommit: () -> Void
+    let onSizeChange: (CGSize) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text, onCommit: onCommit, onSizeChange: onSizeChange)
+    }
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let textView = NSTextView(frame: .zero)
+        textView.delegate = context.coordinator
+        textView.drawsBackground = false
+        textView.isRichText = false
+        textView.importsGraphics = false
+        textView.allowsUndo = true
+        textView.isEditable = isEditing
+        textView.isSelectable = isEditing
+        textView.isHorizontallyResizable = true
+        textView.isVerticallyResizable = true
+        textView.textContainerInset = .zero
+        textView.textContainer?.lineFragmentPadding = 0
+        textView.textContainer?.widthTracksTextView = false
+        textView.textContainer?.heightTracksTextView = false
+        textView.textContainer?.containerSize = CGSize(
+            width: CGFloat.greatestFiniteMagnitude,
+            height: CGFloat.greatestFiniteMagnitude
+        )
+        textView.textContainer?.lineBreakMode = .byClipping
+        textView.insertionPointColor = NSColor.systemBlue
+        textView.backgroundColor = .clear
+        textView.string = text
+        applyStyle(to: textView)
+
+        let scrollView = NSScrollView(frame: .zero)
+        scrollView.hasVerticalScroller = false
+        scrollView.hasHorizontalScroller = false
+        scrollView.drawsBackground = false
+        scrollView.borderType = .noBorder
+        scrollView.documentView = textView
+        scrollView.autoresizesSubviews = true
+
+        context.coordinator.textView = textView
+
+        if isEditing {
+            DispatchQueue.main.async {
+                textView.window?.makeFirstResponder(textView)
+                self.reportSize(textView)
+            }
+        }
+
+        return scrollView
+    }
+
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        guard let textView = scrollView.documentView as? NSTextView else { return }
+
+        context.coordinator.text = $text
+        context.coordinator.onCommit = onCommit
+        context.coordinator.onSizeChange = onSizeChange
+
+        textView.isEditable = isEditing
+        textView.isSelectable = isEditing
+
+        if textView.string != text {
+            let selectedRanges = textView.selectedRanges
+            textView.string = text
+            textView.selectedRanges = selectedRanges
+        }
+
+        applyStyle(to: textView)
+
+        if isEditing && textView.window?.firstResponder !== textView {
+            DispatchQueue.main.async {
+                textView.window?.makeFirstResponder(textView)
+            }
+        } else if !isEditing && textView.window?.firstResponder === textView {
+            DispatchQueue.main.async {
+                textView.window?.makeFirstResponder(nil)
+            }
+        }
+
+        DispatchQueue.main.async {
+            self.reportSize(textView)
+        }
+    }
+
+    private func reportSize(_ textView: NSTextView) {
+        guard let layoutManager = textView.layoutManager,
+              let textContainer = textView.textContainer else { return }
+        layoutManager.ensureLayout(for: textContainer)
+        let usedRect = layoutManager.usedRect(for: textContainer)
+        let caretWidth: CGFloat = 2
+        let size = CGSize(
+            width: ceil(usedRect.width) + caretWidth,
+            height: ceil(usedRect.height)
+        )
+        onSizeChange(size)
+    }
+
+    private func applyStyle(to textView: NSTextView) {
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.alignment = alignment
+        paragraphStyle.lineBreakMode = .byClipping
+
+        var attributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: textColor,
+            .paragraphStyle: paragraphStyle,
+            .shadow: shadow
+        ]
+        if isUnderline {
+            attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
+        }
+
+        textView.font = font
+        textView.textColor = textColor
+        textView.defaultParagraphStyle = paragraphStyle
+        textView.typingAttributes = attributes
+
+        guard textView.string.isEmpty == false else { return }
+
+        let selectedRanges = textView.selectedRanges
+        textView.textStorage?.setAttributes(
+            attributes,
+            range: NSRange(location: 0, length: (textView.string as NSString).length)
+        )
+        textView.selectedRanges = selectedRanges
+    }
+
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        var text: Binding<String>
+        var onCommit: () -> Void
+        var onSizeChange: (CGSize) -> Void
+        weak var textView: NSTextView?
+
+        init(text: Binding<String>, onCommit: @escaping () -> Void, onSizeChange: @escaping (CGSize) -> Void) {
+            self.text = text
+            self.onCommit = onCommit
+            self.onSizeChange = onSizeChange
+        }
+
+        func textDidChange(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else { return }
+            text.wrappedValue = textView.string
+            reportSize(textView)
+        }
+
+        func textDidEndEditing(_ notification: Notification) {
+            onCommit()
+        }
+
+        private func reportSize(_ textView: NSTextView) {
+            guard let layoutManager = textView.layoutManager,
+                  let textContainer = textView.textContainer else { return }
+            layoutManager.ensureLayout(for: textContainer)
+            let usedRect = layoutManager.usedRect(for: textContainer)
+            let caretWidth: CGFloat = 2
+            let size = CGSize(
+                width: ceil(usedRect.width) + caretWidth,
+                height: ceil(usedRect.height)
+            )
+            onSizeChange(size)
+        }
     }
 }
 
@@ -1100,47 +1423,59 @@ private extension NSCursor {
 }
 
 private enum AnnotationTextMetrics {
-    static let defaultNormalizedHeight: CGFloat = 0.06
-    static let fontHeightRatio: CGFloat = 0.64
-    private static let emptyCaretWidthRatio: CGFloat = 0.48
-    private static let editingTrailingPadding: CGFloat = 4
+    static let defaultNormalizedLineHeight: CGFloat = 0.06
+    static let defaultFontName: String = "SF Pro"
+    /// Maps normalized lineHeight to a screen font size given imageFrame height.
+    static let fontScale: CGFloat = 0.72
 
-    static func emptyNormalizedWidth(height: CGFloat, imageSize: CGSize) -> CGFloat {
-        guard imageSize.width > 0 else { return 0.025 }
-
-        let fontSize = renderedFontSize(height: height, imageSize: imageSize)
-        return max(0.018, fontSize * emptyCaretWidthRatio / imageSize.width)
+    static var textShadow: NSShadow {
+        let shadow = NSShadow()
+        shadow.shadowColor = NSColor.black.withAlphaComponent(0.2)
+        shadow.shadowBlurRadius = 1.4
+        shadow.shadowOffset = NSSize(width: 0, height: -1)
+        return shadow
     }
 
-    static func normalizedWidth(for text: String, height: CGFloat, imageSize: CGSize) -> CGFloat {
-        guard imageSize.width > 0 else { return 0.08 }
+    /// Font size for the on-screen text view.
+    static func viewFontSize(lineHeight: CGFloat, imageFrameHeight: CGFloat) -> CGFloat {
+        max(lineHeight * imageFrameHeight * fontScale, 9)
+    }
 
-        let fontSize = renderedFontSize(height: height, imageSize: imageSize)
-        guard !text.isEmpty else {
-            return emptyNormalizedWidth(height: height, imageSize: imageSize)
+    /// Font size for the final image render (uses pixel height).
+    static func renderedFontSize(lineHeight: CGFloat, imagePixelHeight: CGFloat) -> CGFloat {
+        max(lineHeight * imagePixelHeight * fontScale, 9)
+    }
+
+    static func lineCount(for text: String) -> Int {
+        let lines = text.components(separatedBy: .newlines)
+        return max(lines.count, 1)
+    }
+
+    /// Minimum normalized width for an empty text annotation (caret placeholder).
+    static func minimumNormalizedWidth(lineHeight: CGFloat, imageSize: CGSize) -> CGFloat {
+        guard imageSize.width > 0, imageSize.height > 0 else { return 0.02 }
+        let fontSize = renderedFontSize(lineHeight: lineHeight, imagePixelHeight: imageSize.height)
+        return max(0.02, (fontSize * 0.5 + 4) / imageSize.width)
+    }
+
+    /// Resolve an NSFont from annotation properties.
+    static func resolvedFont(name: String, size: CGFloat, bold: Bool, italic: Bool) -> NSFont {
+        // Try the family name first, fall back to system font.
+        var descriptor: NSFontDescriptor
+        if let family = NSFontManager.shared.availableMembers(ofFontFamily: name), !family.isEmpty {
+            descriptor = NSFontDescriptor(fontAttributes: [.family: name]).withSize(size)
+        } else {
+            descriptor = NSFont.systemFont(ofSize: size).fontDescriptor
         }
 
-        let font = NSFont.systemFont(ofSize: fontSize, weight: .semibold)
-        let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.lineBreakMode = .byClipping
-        let attributedString = NSAttributedString(
-            string: text,
-            attributes: [
-                .font: font,
-                .paragraphStyle: paragraphStyle
-            ]
-        )
-        let measuredSize = attributedString.boundingRect(
-            with: CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude),
-            options: [.usesLineFragmentOrigin, .usesFontLeading]
-        ).integral.size
+        var traits: NSFontDescriptor.SymbolicTraits = []
+        if bold { traits.insert(.bold) }
+        if italic { traits.insert(.italic) }
+        if !traits.isEmpty {
+            descriptor = descriptor.withSymbolicTraits(traits)
+        }
 
-        return max(0.01, (measuredSize.width + editingTrailingPadding) / imageSize.width)
-    }
-
-    static func renderedFontSize(height: CGFloat, imageSize: CGSize) -> CGFloat {
-        guard imageSize.height > 0 else { return 24 }
-        return min(max(height * imageSize.height * fontHeightRatio, 9), 180)
+        return NSFont(descriptor: descriptor, size: size) ?? NSFont.systemFont(ofSize: size)
     }
 }
 
@@ -1294,6 +1629,13 @@ private struct SelectionFrame: View {
                 SelectionHandle().position(x: proxy.size.width, y: proxy.size.height)
             }
         }
+    }
+}
+
+private struct TextSelectionFrame: View {
+    var body: some View {
+        Rectangle()
+            .stroke(Color.accentColor, lineWidth: 1.5)
     }
 }
 
@@ -1536,6 +1878,216 @@ private struct AnnotationRedactionDensitySlider: View {
     }
 }
 
+// MARK: - Text Style Popover
+
+private struct AnnotationTextStyleButton: View {
+    @Bindable var model: AnnotationEditorModel
+    @State private var showPopover = false
+
+    var body: some View {
+        Button {
+            showPopover.toggle()
+        } label: {
+            Text("Aa")
+                .font(.system(size: 13, weight: .semibold, design: .serif))
+                .frame(width: 36, height: 30)
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .background(AnnotationToolbarStyle.controlBackground, in: Capsule())
+        .overlay(Capsule().stroke(AnnotationToolbarStyle.stroke, lineWidth: 1))
+        .help("Text Style")
+        .popover(isPresented: $showPopover, arrowEdge: .bottom) {
+            AnnotationTextStylePopover(model: model)
+        }
+    }
+}
+
+private struct AnnotationTextStylePopover: View {
+    @Bindable var model: AnnotationEditorModel
+
+    private let fontFamilies: [String] = {
+        NSFontManager.shared.availableFontFamilies.sorted()
+    }()
+
+    var body: some View {
+        VStack(spacing: 12) {
+            // Row 1: Font family picker + color
+            HStack(spacing: 8) {
+                Picker("", selection: Binding(
+                    get: { model.selectedTextFontName },
+                    set: { model.selectedTextFontName = $0 }
+                )) {
+                    ForEach(fontFamilies, id: \.self) { family in
+                        Text(family).tag(family)
+                    }
+                }
+                .labelsHidden()
+                .frame(maxWidth: .infinity)
+
+                // Color swatch (re-uses existing color menu)
+                Menu {
+                    ForEach(AnnotationSwatch.allCases) { swatch in
+                        Button {
+                            model.setSwatch(swatch)
+                        } label: {
+                            Label(swatch.title, systemImage: model.selectedSwatch == swatch ? "checkmark.circle.fill" : "circle.fill")
+                        }
+                    }
+                } label: {
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(model.selectedSwatch.color)
+                        .frame(width: 32, height: 22)
+                        .overlay(RoundedRectangle(cornerRadius: 4).stroke(.quaternary, lineWidth: 1))
+                }
+                .menuStyle(.button)
+                .buttonStyle(.plain)
+            }
+
+            // Row 2: Font size stepper + B / I / U
+            HStack(spacing: 8) {
+                HStack(spacing: 2) {
+                    Button {
+                        model.selectedTextFontSize = max(model.selectedTextFontSize - 1, 9)
+                    } label: {
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 9, weight: .bold))
+                            .frame(width: 20, height: 24)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+
+                    TextField(
+                        "",
+                        value: Binding<Double>(
+                            get: { Double(model.selectedTextFontSize) },
+                            set: { model.selectedTextFontSize = CGFloat(max($0, 9)) }
+                        ),
+                        format: .number.precision(.fractionLength(0))
+                    )
+                    .textFieldStyle(.plain)
+                    .multilineTextAlignment(.center)
+                    .frame(width: 40)
+
+                    Text("pt")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+
+                    Button {
+                        model.selectedTextFontSize = model.selectedTextFontSize + 1
+                    } label: {
+                        Image(systemName: "chevron.up")
+                            .font(.system(size: 9, weight: .bold))
+                            .frame(width: 20, height: 24)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, 4)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Color(nsColor: .controlBackgroundColor))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+                )
+
+                Spacer()
+
+                HStack(spacing: 0) {
+                    styleToggle(
+                        label: "B",
+                        font: .system(size: 13, weight: .bold),
+                        isActive: model.selectedTextIsBold
+                    ) {
+                        model.selectedTextIsBold.toggle()
+                    }
+
+                    Divider().frame(height: 16)
+
+                    styleToggle(
+                        label: "I",
+                        font: .system(size: 13, weight: .regular, design: .serif).italic(),
+                        isActive: model.selectedTextIsItalic
+                    ) {
+                        model.selectedTextIsItalic.toggle()
+                    }
+
+                    Divider().frame(height: 16)
+
+                    styleToggle(
+                        label: "U",
+                        font: .system(size: 13, weight: .regular),
+                        isActive: model.selectedTextIsUnderline,
+                        underline: true
+                    ) {
+                        model.selectedTextIsUnderline.toggle()
+                    }
+                }
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Color(nsColor: .controlBackgroundColor))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+                )
+            }
+
+            // Row 3: Alignment
+            HStack(spacing: 0) {
+                alignmentButton(.left, icon: "text.alignleft")
+                alignmentButton(.center, icon: "text.aligncenter")
+                alignmentButton(.right, icon: "text.alignright")
+                alignmentButton(.justified, icon: "text.justify.leading")
+            }
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color(nsColor: .controlBackgroundColor))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+            )
+        }
+        .padding(14)
+        .frame(width: 280)
+    }
+
+    private func styleToggle(
+        label: String,
+        font: Font,
+        isActive: Bool,
+        underline: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Text(label)
+                .font(font)
+                .underline(underline)
+                .frame(width: 32, height: 26)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(isActive ? Color.accentColor.opacity(0.2) : .clear)
+    }
+
+    private func alignmentButton(_ alignment: NSTextAlignment, icon: String) -> some View {
+        Button {
+            model.selectedTextAlignment = alignment
+        } label: {
+            Image(systemName: icon)
+                .font(.system(size: 13))
+                .frame(maxWidth: .infinity)
+                .frame(height: 26)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(model.selectedTextAlignment == alignment ? Color.accentColor.opacity(0.2) : .clear)
+    }
+}
+
 private struct StrokePreview: View {
     let width: CGFloat
 
@@ -1683,6 +2235,12 @@ private struct AnnotationItem: Identifiable, Equatable {
     var strokeWidth: CGFloat
     var redactionDensity: CGFloat
     var text: String
+    var textLineHeight: CGFloat
+    var fontName: String
+    var isBold: Bool
+    var isItalic: Bool
+    var isUnderline: Bool
+    var textAlignment: NSTextAlignment
 
     init(
         id: UUID = UUID(),
@@ -1692,7 +2250,13 @@ private struct AnnotationItem: Identifiable, Equatable {
         swatch: AnnotationSwatch,
         strokeWidth: CGFloat,
         redactionDensity: CGFloat = 0.55,
-        text: String = ""
+        text: String = "",
+        textLineHeight: CGFloat = AnnotationTextMetrics.defaultNormalizedLineHeight,
+        fontName: String = AnnotationTextMetrics.defaultFontName,
+        isBold: Bool = true,
+        isItalic: Bool = false,
+        isUnderline: Bool = false,
+        textAlignment: NSTextAlignment = .left
     ) {
         self.id = id
         self.tool = tool
@@ -1702,6 +2266,19 @@ private struct AnnotationItem: Identifiable, Equatable {
         self.strokeWidth = strokeWidth
         self.redactionDensity = redactionDensity
         self.text = text
+        self.textLineHeight = textLineHeight
+        self.fontName = fontName
+        self.isBold = isBold
+        self.isItalic = isItalic
+        self.isUnderline = isUnderline
+        self.textAlignment = textAlignment
+    }
+
+    /// Build the NSFont for this text annotation at the given point size.
+    func resolvedFont(size: CGFloat) -> NSFont {
+        AnnotationTextMetrics.resolvedFont(
+            name: fontName, size: size, bold: isBold, italic: isItalic
+        )
     }
 
     var bounds: CGRect {
@@ -1840,28 +2417,7 @@ private struct AnnotationItem: Identifiable, Equatable {
         return item
     }
 
-    mutating func fitTextBounds(minimumSize: CGFloat, imageSize: CGSize) {
-        guard tool == .text else { return }
 
-        let standardizedRect = rect.standardized
-        let fittedWidth = max(
-            minimumSize,
-            AnnotationTextMetrics.normalizedWidth(
-                for: text,
-                height: standardizedRect.height,
-                imageSize: imageSize
-            )
-        )
-        let originX = max(0, min(standardizedRect.minX, 1 - minimumSize))
-        let availableWidth = max(minimumSize, 1 - originX)
-
-        rect = CGRect(
-            x: originX,
-            y: standardizedRect.minY,
-            width: min(fittedWidth, availableWidth),
-            height: max(standardizedRect.height, minimumSize)
-        )
-    }
 
     private var arrowPoints: [CGPoint] {
         guard tool == .arrow,
@@ -2134,6 +2690,7 @@ private enum AnnotationRenderer {
                 drawText(
                     item,
                     in: renderedRect(item.bounds, width: width, height: height),
+                    canvasSize: CGSize(width: width, height: height),
                     context: context
                 )
 
@@ -2226,7 +2783,12 @@ private enum AnnotationRenderer {
         context.strokePath()
     }
 
-    private static func drawText(_ item: AnnotationItem, in rect: CGRect, context: CGContext) {
+    private static func drawText(
+        _ item: AnnotationItem,
+        in rect: CGRect,
+        canvasSize: CGSize,
+        context: CGContext
+    ) {
         let text = item.text.trimmingCharacters(in: .newlines)
         guard !text.isEmpty,
               rect.width > 1,
@@ -2234,28 +2796,30 @@ private enum AnnotationRenderer {
             return
         }
 
-        let fontSize = min(max(rect.height * AnnotationTextMetrics.fontHeightRatio, 9), 140)
-        let drawingRect = rect
+        let fontSize = AnnotationTextMetrics.renderedFontSize(
+            lineHeight: item.textLineHeight,
+            imagePixelHeight: canvasSize.height
+        )
+        let font = item.resolvedFont(size: fontSize)
         let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.alignment = .left
+        paragraphStyle.alignment = item.textAlignment
         paragraphStyle.lineBreakMode = .byClipping
-        let shadow = NSShadow()
-        shadow.shadowColor = NSColor.black.withAlphaComponent(0.22)
-        shadow.shadowBlurRadius = 2
-        shadow.shadowOffset = NSSize(width: 0, height: -1)
 
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: fontSize, weight: .semibold),
+        var attributes: [NSAttributedString.Key: Any] = [
+            .font: font,
             .foregroundColor: item.swatch.nsColor,
             .paragraphStyle: paragraphStyle,
-            .shadow: shadow
+            .shadow: AnnotationTextMetrics.textShadow
         ]
+        if item.isUnderline {
+            attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
+        }
         let attributedText = NSAttributedString(string: text, attributes: attributes)
 
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
         attributedText.draw(
-            with: drawingRect,
+            with: rect,
             options: [.usesLineFragmentOrigin, .usesFontLeading]
         )
         NSGraphicsContext.restoreGraphicsState()
