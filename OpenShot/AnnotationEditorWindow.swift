@@ -1921,7 +1921,7 @@ private struct AnnotationTextStyleButton: View {
             showPopover.toggle()
         } label: {
             Text("Aa")
-                .font(.system(size: 13, weight: .semibold, design: .serif))
+                .font(.system(size: 14, weight: .semibold))
                 .frame(width: 36, height: 30)
                 .contentShape(Capsule())
         }
