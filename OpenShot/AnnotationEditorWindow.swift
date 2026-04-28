@@ -64,7 +64,7 @@ struct AnnotationEditorWindow: View {
     private var toolbar: some View {
         HStack(spacing: 10) {
             AnnotationToolPicker(selectedTool: model.selectedTool) { tool in
-                model.selectedTool = tool
+                model.selectTool(tool)
             }
 
             AnnotationColorMenu(selectedSwatch: model.selectedSwatch) { swatch in
@@ -161,6 +161,8 @@ private final class AnnotationEditorModel {
     var items: [AnnotationItem] = []
     var draftItem: AnnotationItem?
     var selectedItemID: AnnotationItem.ID?
+    var editingTextItemID: AnnotationItem.ID?
+    var isTextPlacementArmed = false
     var selectedTool: AnnotationTool = .rectangle
     var selectedSwatch: AnnotationSwatch = .red
     var strokeWidth: CGFloat = 4
@@ -184,6 +186,8 @@ private final class AnnotationEditorModel {
         items = []
         draftItem = nil
         selectedItemID = nil
+        editingTextItemID = nil
+        isTextPlacementArmed = selectedTool == .text
         interaction = nil
         history.reset(to: items)
         statePath = AnnotationToolState.idle.path(for: selectedTool)
@@ -197,6 +201,8 @@ private final class AnnotationEditorModel {
     func beginInteraction(at location: CGPoint, in imageFrame: CGRect) {
         guard let point = normalizedPoint(location, in: imageFrame, clamped: false) else {
             selectedItemID = nil
+            editingTextItemID = nil
+            isTextPlacementArmed = false
             interaction = nil
             statePath = AnnotationToolState.idle.path(for: selectedTool)
             return
@@ -213,10 +219,23 @@ private final class AnnotationEditorModel {
         }
 
         if let item = hitTest(point) {
+            let shouldBeginTextEditing = item.tool == .text
+                && selectedItemID == item.id
+                && selectedTool == .text
+                && editingTextItemID != item.id
             selectedItemID = item.id
             applyStyleFromItem(item)
             draftItem = nil
             history.push(items)
+
+            if shouldBeginTextEditing {
+                editingTextItemID = item.id
+                interaction = nil
+                statePath = AnnotationToolState.idle.path(for: selectedTool)
+                return
+            }
+
+            editingTextItemID = nil
 
             if let resizeHandle = hitTestResizeHandle(point, in: imageFrame, item: item) {
                 interaction = .resizing(id: item.id, handle: resizeHandle, originalItem: item)
@@ -227,13 +246,21 @@ private final class AnnotationEditorModel {
             }
         } else {
             selectedItemID = nil
+            editingTextItemID = nil
+            guard selectedTool != .text || isTextPlacementArmed else {
+                interaction = nil
+                statePath = AnnotationToolState.idle.path(for: selectedTool)
+                return
+            }
+
             draftItem = AnnotationItem(
                 tool: selectedTool,
-                rect: CGRect(origin: point, size: .zero),
+                rect: selectedTool == .text ? defaultTextRect(at: point) : CGRect(origin: point, size: .zero),
                 points: initialPoints(for: selectedTool, at: point),
                 swatch: selectedSwatch,
                 strokeWidth: strokeWidth,
-                redactionDensity: redactionDensity
+                redactionDensity: redactionDensity,
+                text: ""
             )
             interaction = .drawing(startPoint: point)
             statePath = AnnotationToolState.drawing.path(for: selectedTool)
@@ -273,7 +300,7 @@ private final class AnnotationEditorModel {
             updateDraftItem(from: startPoint, to: point)
 
             guard let item = draftItem,
-                  item.isRenderable(minimumSize: minimumItemSize) else {
+                  item.isRenderable(minimumSize: minimumItemSize, allowEmptyText: item.tool == .text) else {
                 draftItem = nil
                 statePath = AnnotationToolState.idle.path(for: selectedTool)
                 return
@@ -282,6 +309,10 @@ private final class AnnotationEditorModel {
             history.push(items)
             items.append(item)
             selectedItemID = item.id
+            editingTextItemID = item.tool == .text ? item.id : nil
+            if item.tool == .text {
+                isTextPlacementArmed = false
+            }
             draftItem = nil
 
         case .moving, .resizing:
@@ -339,15 +370,42 @@ private final class AnnotationEditorModel {
         }
     }
 
+    func selectTool(_ tool: AnnotationTool) {
+        selectedTool = tool
+        editingTextItemID = nil
+        isTextPlacementArmed = tool == .text
+        statePath = AnnotationToolState.idle.path(for: tool)
+    }
+
     func deleteSelectedAnnotation() {
         guard let selectedItemID else { return }
 
         history.push(items)
         items.removeAll { $0.id == selectedItemID }
         self.selectedItemID = nil
+        editingTextItemID = nil
+        isTextPlacementArmed = false
         interaction = nil
         draftItem = nil
         statePath = AnnotationToolState.idle.path(for: selectedTool)
+    }
+
+    func setText(_ text: String, for id: AnnotationItem.ID) {
+        updateItem(id: id) { item in
+            item.text = text
+        }
+    }
+
+    func commitTextEditing() {
+        guard let editingTextItemID else { return }
+
+        if let item = items.first(where: { $0.id == editingTextItemID }),
+           item.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            items.removeAll { $0.id == editingTextItemID }
+            selectedItemID = nil
+        }
+
+        self.editingTextItemID = nil
     }
 
     func undo() {
@@ -355,6 +413,7 @@ private final class AnnotationEditorModel {
 
         items = restoredItems
         selectedItemID = nil
+        editingTextItemID = nil
         draftItem = nil
         interaction = nil
         statePath = AnnotationToolState.idle.path(for: selectedTool)
@@ -365,6 +424,7 @@ private final class AnnotationEditorModel {
 
         items = restoredItems
         selectedItemID = nil
+        editingTextItemID = nil
         draftItem = nil
         interaction = nil
         statePath = AnnotationToolState.idle.path(for: selectedTool)
@@ -382,6 +442,11 @@ private final class AnnotationEditorModel {
             draftItem.rect = boundingRect(for: draftItem.points)
         case .rectangle, .filledRectangle, .ellipse, .pixelate, .blur:
             draftItem.rect = rect(from: startPoint, to: point)
+        case .text:
+            let drawnRect = rect(from: startPoint, to: point)
+            draftItem.rect = drawnRect.width >= minimumItemSize && drawnRect.height >= minimumItemSize
+                ? drawnRect
+                : defaultTextRect(at: startPoint)
         }
 
         self.draftItem = draftItem
@@ -481,9 +546,18 @@ private final class AnnotationEditorModel {
             [point, point]
         case .arrow:
             [point, point, point]
-        case .rectangle, .filledRectangle, .ellipse, .pixelate, .blur:
+        case .rectangle, .filledRectangle, .ellipse, .pixelate, .blur, .text:
             []
         }
+    }
+
+    private func defaultTextRect(at point: CGPoint) -> CGRect {
+        CGRect(
+            x: min(point.x, 0.78),
+            y: min(point.y, 0.92),
+            width: 0.22,
+            height: 0.08
+        )
     }
 
     private func clampedDelta(_ delta: CGPoint, for bounds: CGRect) -> CGPoint {
@@ -654,6 +728,8 @@ private struct AnnotationCanvas: View {
     let image: NSImage
 
     @State private var hasActiveInteraction = false
+    @State private var isHoveringCanvas = false
+    @State private var isPlacementCursorPushed = false
 
     var body: some View {
         GeometryReader { proxy in
@@ -672,7 +748,13 @@ private struct AnnotationCanvas: View {
                         item: item,
                         image: image,
                         imageFrame: imageFrame,
-                        isSelected: item.id == model.selectedItemID
+                        isSelected: item.id == model.selectedItemID,
+                        isEditingText: item.id == model.editingTextItemID,
+                        text: Binding(
+                            get: { item.text },
+                            set: { model.setText($0, for: item.id) }
+                        ),
+                        onCommitText: model.commitTextEditing
                     )
                 }
 
@@ -681,13 +763,26 @@ private struct AnnotationCanvas: View {
                         item: draftItem,
                         image: image,
                         imageFrame: imageFrame,
-                        isSelected: false
+                        isSelected: false,
+                        isEditingText: false,
+                        text: .constant(draftItem.text),
+                        onCommitText: {}
                     )
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .contentShape(Rectangle())
             .gesture(interactionGesture(imageFrame: imageFrame))
+            .onHover { hovering in
+                isHoveringCanvas = hovering
+                updatePlacementCursor()
+            }
+            .onChange(of: model.isTextPlacementArmed) { _, _ in
+                updatePlacementCursor()
+            }
+            .onDisappear {
+                popPlacementCursorIfNeeded()
+            }
         }
     }
 
@@ -724,6 +819,22 @@ private struct AnnotationCanvas: View {
             height: size.height
         )
     }
+
+    private func updatePlacementCursor() {
+        if model.isTextPlacementArmed && isHoveringCanvas {
+            guard !isPlacementCursorPushed else { return }
+            NSCursor.annotationPlus.push()
+            isPlacementCursorPushed = true
+        } else {
+            popPlacementCursorIfNeeded()
+        }
+    }
+
+    private func popPlacementCursorIfNeeded() {
+        guard isPlacementCursorPushed else { return }
+        NSCursor.pop()
+        isPlacementCursorPushed = false
+    }
 }
 
 private struct AnnotationItemView: View {
@@ -731,6 +842,9 @@ private struct AnnotationItemView: View {
     let image: NSImage
     let imageFrame: CGRect
     let isSelected: Bool
+    let isEditingText: Bool
+    let text: Binding<String>
+    let onCommitText: () -> Void
 
     private let selectionOutset: CGFloat = 5
 
@@ -746,6 +860,14 @@ private struct AnnotationItemView: View {
             } else if item.tool.isFilledShape {
                 itemPath
                     .fill(fillStyle)
+            } else if item.tool == .text {
+                AnnotationTextItemView(
+                    item: item,
+                    text: text,
+                    viewBounds: viewBounds,
+                    isEditing: isEditingText,
+                    onCommit: onCommitText
+                )
             } else {
                 itemPath
                     .stroke(item.swatch.color, style: StrokeStyle(lineWidth: item.strokeWidth, lineCap: .round, lineJoin: .round))
@@ -760,7 +882,7 @@ private struct AnnotationItemView: View {
                 selectionOverlay
             }
         }
-        .allowsHitTesting(false)
+        .allowsHitTesting(item.tool == .text && isEditingText)
     }
 
     private var itemPath: Path {
@@ -772,6 +894,9 @@ private struct AnnotationItemView: View {
 
         case .pixelate, .blur:
             return Path(rect)
+
+        case .text:
+            return Path()
 
         case .ellipse:
             return Path(ellipseIn: rect)
@@ -881,6 +1006,92 @@ private struct AnnotationItemView: View {
             y: imageFrame.minY + point.y * imageFrame.height
         )
     }
+}
+
+private struct AnnotationTextItemView: View {
+    let item: AnnotationItem
+    let text: Binding<String>
+    let viewBounds: CGRect
+    let isEditing: Bool
+    let onCommit: () -> Void
+
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        Group {
+            if isEditing {
+                TextField("", text: text)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: fontSize, weight: .semibold))
+                    .foregroundStyle(item.swatch.color)
+                    .padding(.horizontal, textInset)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .focused($isFocused)
+                    .onSubmit(onCommit)
+                    .onAppear {
+                        isFocused = true
+                    }
+                    .onChange(of: isFocused) { _, focused in
+                        if !focused {
+                            onCommit()
+                        }
+                    }
+            } else {
+                Text(item.text)
+                    .font(.system(size: fontSize, weight: .semibold))
+                    .foregroundStyle(item.swatch.color)
+                    .lineLimit(nil)
+                    .multilineTextAlignment(.leading)
+                    .padding(.horizontal, textInset)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            }
+        }
+        .frame(width: max(viewBounds.width, 1), height: max(viewBounds.height, 1))
+        .position(x: viewBounds.midX, y: viewBounds.midY)
+        .fixedSize(horizontal: false, vertical: false)
+    }
+
+    private var fontSize: CGFloat {
+        let textWidth = max(1, CGFloat((item.text.isEmpty ? text.wrappedValue : item.text).count))
+        let widthLimitedSize = viewBounds.width / max(textWidth * 0.62, 1)
+        return min(max(min(viewBounds.height * 0.64, widthLimitedSize), 9), 96)
+    }
+
+    private var textInset: CGFloat {
+        min(max(fontSize * 0.18, 3), 12)
+    }
+}
+
+private extension NSCursor {
+    static let annotationPlus: NSCursor = {
+        let size = NSSize(width: 22, height: 22)
+        let image = NSImage(size: size)
+        image.lockFocus()
+
+        let center = CGPoint(x: size.width / 2, y: size.height / 2)
+        let outline = NSBezierPath()
+        outline.move(to: CGPoint(x: center.x - 6, y: center.y))
+        outline.line(to: CGPoint(x: center.x + 6, y: center.y))
+        outline.move(to: CGPoint(x: center.x, y: center.y - 6))
+        outline.line(to: CGPoint(x: center.x, y: center.y + 6))
+        NSColor.white.setStroke()
+        outline.lineWidth = 5
+        outline.lineCapStyle = .round
+        outline.stroke()
+
+        let plus = NSBezierPath()
+        plus.move(to: CGPoint(x: center.x - 6, y: center.y))
+        plus.line(to: CGPoint(x: center.x + 6, y: center.y))
+        plus.move(to: CGPoint(x: center.x, y: center.y - 6))
+        plus.line(to: CGPoint(x: center.x, y: center.y + 6))
+        NSColor.black.setStroke()
+        plus.lineWidth = 2
+        plus.lineCapStyle = .round
+        plus.stroke()
+
+        image.unlockFocus()
+        return NSCursor(image: image, hotSpot: center)
+    }()
 }
 
 private struct RedactionPreview: View {
@@ -1368,6 +1579,10 @@ private final class AnnotationKeyCommandHandlerView: NSView {
                 return event
             }
 
+            if Self.isEditingText(in: self.window) {
+                return event
+            }
+
             if Self.isPlainDelete(event) {
                 self.onDelete?()
                 return nil
@@ -1392,6 +1607,10 @@ private final class AnnotationKeyCommandHandlerView: NSView {
             && (event.keyCode == 51 || event.keyCode == 117)
     }
 
+    private static func isEditingText(in window: NSWindow?) -> Bool {
+        window?.firstResponder is NSTextView
+    }
+
     private static func isUndo(_ event: NSEvent) -> Bool {
         event.modifierFlags.contains(.command)
             && !event.modifierFlags.contains(.shift)
@@ -1413,6 +1632,7 @@ private struct AnnotationItem: Identifiable, Equatable {
     var swatch: AnnotationSwatch
     var strokeWidth: CGFloat
     var redactionDensity: CGFloat
+    var text: String
 
     init(
         id: UUID = UUID(),
@@ -1421,7 +1641,8 @@ private struct AnnotationItem: Identifiable, Equatable {
         points: [CGPoint] = [],
         swatch: AnnotationSwatch,
         strokeWidth: CGFloat,
-        redactionDensity: CGFloat = 0.55
+        redactionDensity: CGFloat = 0.55,
+        text: String = ""
     ) {
         self.id = id
         self.tool = tool
@@ -1430,6 +1651,7 @@ private struct AnnotationItem: Identifiable, Equatable {
         self.swatch = swatch
         self.strokeWidth = strokeWidth
         self.redactionDensity = redactionDensity
+        self.text = text
     }
 
     var bounds: CGRect {
@@ -1441,7 +1663,7 @@ private struct AnnotationItem: Identifiable, Equatable {
                 rect.union(CGRect(origin: point, size: .zero))
             }
             return bounds.standardized
-        case .rectangle, .filledRectangle, .ellipse, .pixelate, .blur:
+        case .rectangle, .filledRectangle, .ellipse, .pixelate, .blur, .text:
             return rect.standardized
         }
     }
@@ -1460,7 +1682,7 @@ private struct AnnotationItem: Identifiable, Equatable {
         return CGPoint(x: (start.x + end.x) / 2, y: (start.y + end.y) / 2)
     }
 
-    func isRenderable(minimumSize: CGFloat) -> Bool {
+    func isRenderable(minimumSize: CGFloat, allowEmptyText: Bool = false) -> Bool {
         switch tool {
         case .line:
             guard points.count == 2 else { return false }
@@ -1474,6 +1696,10 @@ private struct AnnotationItem: Identifiable, Equatable {
             return hypot(start.x - end.x, start.y - end.y) >= minimumSize
         case .rectangle, .filledRectangle, .ellipse, .pixelate, .blur:
             return bounds.width >= minimumSize && bounds.height >= minimumSize
+        case .text:
+            return bounds.width >= minimumSize
+                && bounds.height >= minimumSize
+                && (allowEmptyText || !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
     }
 
@@ -1496,7 +1722,7 @@ private struct AnnotationItem: Identifiable, Equatable {
 
             return distance(from: point, toQuadraticFrom: start, control: controlPoint, to: end) <= tolerance
 
-        case .rectangle, .filledRectangle, .pixelate, .blur:
+        case .rectangle, .filledRectangle, .pixelate, .blur, .text:
             return bounds.insetBy(dx: -tolerance, dy: -tolerance).contains(point)
 
         case .ellipse:
@@ -1644,6 +1870,7 @@ private enum AnnotationTool: String, CaseIterable, Identifiable {
     case arrow
     case pixelate
     case blur
+    case text
 
     var id: String { rawValue }
 
@@ -1663,6 +1890,8 @@ private enum AnnotationTool: String, CaseIterable, Identifiable {
             "Pixelate"
         case .blur:
             "Blur"
+        case .text:
+            "Text"
         }
     }
 
@@ -1682,6 +1911,8 @@ private enum AnnotationTool: String, CaseIterable, Identifiable {
             "square.grid.3x3.fill"
         case .blur:
             "drop.fill"
+        case .text:
+            "textformat"
         }
     }
 
@@ -1826,6 +2057,13 @@ private enum AnnotationRenderer {
                     density: item.redactionDensity
                 )
 
+            case .text:
+                drawText(
+                    item,
+                    in: renderedRect(item.bounds, width: width, height: height),
+                    context: context
+                )
+
             case .line:
                 guard let first = item.points.first,
                       let last = item.points.last else {
@@ -1913,6 +2151,38 @@ private enum AnnotationRenderer {
         context.addLine(to: geometry.tip)
         context.addLine(to: geometry.secondWing)
         context.strokePath()
+    }
+
+    private static func drawText(_ item: AnnotationItem, in rect: CGRect, context: CGContext) {
+        let text = item.text.trimmingCharacters(in: .newlines)
+        guard !text.isEmpty,
+              rect.width > 1,
+              rect.height > 1 else {
+            return
+        }
+
+        let widthLimitedSize = rect.width / max(CGFloat(text.count) * 0.62, 1)
+        let fontSize = min(max(min(rect.height * 0.64, widthLimitedSize), 9), 140)
+        let inset = min(max(fontSize * 0.18, 3), 18)
+        let drawingRect = rect.insetBy(dx: inset, dy: 0)
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.alignment = .left
+        paragraphStyle.lineBreakMode = .byWordWrapping
+
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: fontSize, weight: .semibold),
+            .foregroundColor: item.swatch.nsColor,
+            .paragraphStyle: paragraphStyle
+        ]
+        let attributedText = NSAttributedString(string: text, attributes: attributes)
+
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+        attributedText.draw(
+            with: drawingRect,
+            options: [.usesLineFragmentOrigin, .usesFontLeading]
+        )
+        NSGraphicsContext.restoreGraphicsState()
     }
 
     private static func applyPixelation(
