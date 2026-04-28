@@ -6,6 +6,8 @@
 //
 
 import AppKit
+import CoreImage
+import CoreImage.CIFilterBuiltins
 import ImageIO
 import Observation
 import SwiftUI
@@ -71,6 +73,12 @@ struct AnnotationEditorWindow: View {
 
             AnnotationStrokeMenu(strokeWidth: model.strokeWidth) { strokeWidth in
                 model.setStrokeWidth(strokeWidth)
+            }
+
+            if model.selectedTool.isRedactionTool {
+                AnnotationRedactionDensitySlider(value: model.redactionDensity) { density in
+                    model.setRedactionDensity(density)
+                }
             }
 
             Spacer()
@@ -156,6 +164,7 @@ private final class AnnotationEditorModel {
     var selectedTool: AnnotationTool = .rectangle
     var selectedSwatch: AnnotationSwatch = .red
     var strokeWidth: CGFloat = 4
+    var redactionDensity: CGFloat = 0.55
     var errorMessage: String?
     private(set) var statePath = AnnotationToolState.idle.path(for: .rectangle)
 
@@ -223,7 +232,8 @@ private final class AnnotationEditorModel {
                 rect: CGRect(origin: point, size: .zero),
                 points: initialPoints(for: selectedTool, at: point),
                 swatch: selectedSwatch,
-                strokeWidth: strokeWidth
+                strokeWidth: strokeWidth,
+                redactionDensity: redactionDensity
             )
             interaction = .drawing(startPoint: point)
             statePath = AnnotationToolState.drawing.path(for: selectedTool)
@@ -313,6 +323,22 @@ private final class AnnotationEditorModel {
         }
     }
 
+    func setRedactionDensity(_ redactionDensity: CGFloat) {
+        self.redactionDensity = redactionDensity
+
+        if let selectedItemID {
+            history.push(items)
+            updateItem(id: selectedItemID) { item in
+                item.redactionDensity = redactionDensity
+            }
+        }
+
+        if var draftItem {
+            draftItem.redactionDensity = redactionDensity
+            self.draftItem = draftItem
+        }
+    }
+
     func deleteSelectedAnnotation() {
         guard let selectedItemID else { return }
 
@@ -354,7 +380,7 @@ private final class AnnotationEditorModel {
         case .arrow:
             draftItem.points = [startPoint, midpoint(startPoint, point), point]
             draftItem.rect = boundingRect(for: draftItem.points)
-        case .rectangle, .filledRectangle, .ellipse:
+        case .rectangle, .filledRectangle, .ellipse, .pixelate, .blur:
             draftItem.rect = rect(from: startPoint, to: point)
         }
 
@@ -397,6 +423,7 @@ private final class AnnotationEditorModel {
         selectedTool = item.tool
         selectedSwatch = item.swatch
         strokeWidth = item.strokeWidth
+        redactionDensity = item.redactionDensity
     }
 
     private func normalizedPoint(_ location: CGPoint, in imageFrame: CGRect, clamped: Bool) -> CGPoint? {
@@ -454,7 +481,7 @@ private final class AnnotationEditorModel {
             [point, point]
         case .arrow:
             [point, point, point]
-        case .rectangle, .filledRectangle, .ellipse:
+        case .rectangle, .filledRectangle, .ellipse, .pixelate, .blur:
             []
         }
     }
@@ -643,6 +670,7 @@ private struct AnnotationCanvas: View {
                 ForEach(model.items) { item in
                     AnnotationItemView(
                         item: item,
+                        image: image,
                         imageFrame: imageFrame,
                         isSelected: item.id == model.selectedItemID
                     )
@@ -651,6 +679,7 @@ private struct AnnotationCanvas: View {
                 if let draftItem = model.draftItem {
                     AnnotationItemView(
                         item: draftItem,
+                        image: image,
                         imageFrame: imageFrame,
                         isSelected: false
                     )
@@ -699,6 +728,7 @@ private struct AnnotationCanvas: View {
 
 private struct AnnotationItemView: View {
     let item: AnnotationItem
+    let image: NSImage
     let imageFrame: CGRect
     let isSelected: Bool
 
@@ -706,7 +736,14 @@ private struct AnnotationItemView: View {
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            if item.tool.isFilledShape {
+            if item.tool.isRedactionTool {
+                RedactionPreview(
+                    image: image,
+                    item: item,
+                    imageFrame: imageFrame,
+                    viewBounds: viewBounds
+                )
+            } else if item.tool.isFilledShape {
                 itemPath
                     .fill(fillStyle)
             } else {
@@ -731,6 +768,9 @@ private struct AnnotationItemView: View {
 
         switch item.tool {
         case .rectangle, .filledRectangle:
+            return Path(rect)
+
+        case .pixelate, .blur:
             return Path(rect)
 
         case .ellipse:
@@ -840,6 +880,143 @@ private struct AnnotationItemView: View {
             x: imageFrame.minX + point.x * imageFrame.width,
             y: imageFrame.minY + point.y * imageFrame.height
         )
+    }
+}
+
+private struct RedactionPreview: View {
+    let image: NSImage
+    let item: AnnotationItem
+    let imageFrame: CGRect
+    let viewBounds: CGRect
+
+    var body: some View {
+        if let redactedImage = RedactionImageProcessor.previewImage(
+            source: image,
+            tool: item.tool,
+            density: item.redactionDensity
+        ) {
+            Image(nsImage: redactedImage)
+                .interpolation(item.tool == .pixelate ? .none : .medium)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: imageFrame.width, height: imageFrame.height)
+                .position(x: imageFrame.midX, y: imageFrame.midY)
+                .mask {
+                    Rectangle()
+                        .frame(width: max(viewBounds.width, 1), height: max(viewBounds.height, 1))
+                        .position(x: viewBounds.midX, y: viewBounds.midY)
+                }
+        }
+    }
+}
+
+private enum RedactionImageProcessor {
+    private static let cache = NSCache<NSString, NSImage>()
+    private static let ciContext = CIContext(options: [.cacheIntermediates: false])
+
+    static func previewImage(source: NSImage, tool: AnnotationTool, density: CGFloat) -> NSImage? {
+        guard tool.isRedactionTool else { return nil }
+
+        let quantizedDensity = Int((density * 100).rounded())
+        let cacheKey = "\(ObjectIdentifier(source).hashValue)-\(tool.rawValue)-\(quantizedDensity)" as NSString
+        if let cachedImage = cache.object(forKey: cacheKey) {
+            return cachedImage
+        }
+
+        let image: NSImage?
+        switch tool {
+        case .pixelate:
+            image = makePixelatedImage(source: source, density: density)
+        case .blur:
+            image = makeBlurredImage(source: source, density: density)
+        default:
+            image = nil
+        }
+
+        if let image {
+            cache.setObject(image, forKey: cacheKey)
+        }
+
+        return image
+    }
+
+    static func makePixelatedImage(source: NSImage, density: CGFloat) -> NSImage? {
+        guard let cgImage = source.bestCGImage() else { return nil }
+
+        let pixelWidth = cgImage.width
+        let pixelHeight = cgImage.height
+        let blockSize = max(1, Int(round(pixelBlockSize(for: density))))
+        let smallWidth = max(1, pixelWidth / blockSize)
+        let smallHeight = max(1, pixelHeight / blockSize)
+        let colorSpace = cgImage.colorSpace ?? CGColorSpaceCreateDeviceRGB()
+        let bitmapInfo = cgImage.bitmapInfo
+
+        guard let downsampleContext = CGContext(
+            data: nil,
+            width: smallWidth,
+            height: smallHeight,
+            bitsPerComponent: cgImage.bitsPerComponent,
+            bytesPerRow: 0,
+            space: colorSpace,
+            bitmapInfo: bitmapInfo.rawValue
+        ) else {
+            return nil
+        }
+
+        downsampleContext.interpolationQuality = .medium
+        downsampleContext.draw(cgImage, in: CGRect(x: 0, y: 0, width: smallWidth, height: smallHeight))
+        guard let downsampledImage = downsampleContext.makeImage() else { return nil }
+
+        guard let upsampleContext = CGContext(
+            data: nil,
+            width: pixelWidth,
+            height: pixelHeight,
+            bitsPerComponent: cgImage.bitsPerComponent,
+            bytesPerRow: 0,
+            space: colorSpace,
+            bitmapInfo: bitmapInfo.rawValue
+        ) else {
+            return nil
+        }
+
+        upsampleContext.interpolationQuality = .none
+        upsampleContext.draw(downsampledImage, in: CGRect(x: 0, y: 0, width: pixelWidth, height: pixelHeight))
+        guard let output = upsampleContext.makeImage() else { return nil }
+
+        return NSImage(cgImage: output, size: source.size)
+    }
+
+    static func makeBlurredImage(source: NSImage, density: CGFloat) -> NSImage? {
+        guard let cgImage = source.bestCGImage() else { return nil }
+
+        let inputImage = CIImage(cgImage: cgImage)
+        let filter = CIFilter.gaussianBlur()
+        filter.inputImage = inputImage.clampedToExtent()
+        filter.radius = Float(blurRadius(for: density))
+
+        guard let outputImage = filter.outputImage?.cropped(to: inputImage.extent),
+              let blurredImage = ciContext.createCGImage(outputImage, from: inputImage.extent) else {
+            return nil
+        }
+
+        return NSImage(cgImage: blurredImage, size: source.size)
+    }
+
+    static func pixelBlockSize(for density: CGFloat) -> CGFloat {
+        let normalized = min(max(density, 0), 1)
+        return 4 + normalized * 36
+    }
+
+    static func blurRadius(for density: CGFloat) -> CGFloat {
+        let normalized = min(max(density, 0), 1)
+        return 2 + normalized * 28
+    }
+}
+
+private extension NSImage {
+    func bestCGImage() -> CGImage? {
+        var proposedRect = CGRect(origin: .zero, size: size)
+        return cgImage(forProposedRect: &proposedRect, context: nil, hints: nil)
     }
 }
 
@@ -1071,6 +1248,33 @@ private struct AnnotationStrokeMenu: View {
     }
 }
 
+private struct AnnotationRedactionDensitySlider: View {
+    let value: CGFloat
+    let onChange: (CGFloat) -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "slider.horizontal.3")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.secondary)
+
+            Slider(
+                value: Binding<Double>(
+                    get: { Double(value) },
+                    set: { onChange(CGFloat($0)) }
+                ),
+                in: 0.15...1
+            )
+            .controlSize(.small)
+        }
+        .frame(width: 150, height: 30)
+        .padding(.horizontal, 9)
+        .background(AnnotationToolbarStyle.controlBackground, in: Capsule())
+        .overlay(Capsule().stroke(AnnotationToolbarStyle.stroke, lineWidth: 1))
+        .help("Redaction density")
+    }
+}
+
 private struct StrokePreview: View {
     let width: CGFloat
 
@@ -1208,6 +1412,7 @@ private struct AnnotationItem: Identifiable, Equatable {
     var points: [CGPoint]
     var swatch: AnnotationSwatch
     var strokeWidth: CGFloat
+    var redactionDensity: CGFloat
 
     init(
         id: UUID = UUID(),
@@ -1215,7 +1420,8 @@ private struct AnnotationItem: Identifiable, Equatable {
         rect: CGRect,
         points: [CGPoint] = [],
         swatch: AnnotationSwatch,
-        strokeWidth: CGFloat
+        strokeWidth: CGFloat,
+        redactionDensity: CGFloat = 0.55
     ) {
         self.id = id
         self.tool = tool
@@ -1223,6 +1429,7 @@ private struct AnnotationItem: Identifiable, Equatable {
         self.points = points
         self.swatch = swatch
         self.strokeWidth = strokeWidth
+        self.redactionDensity = redactionDensity
     }
 
     var bounds: CGRect {
@@ -1234,7 +1441,7 @@ private struct AnnotationItem: Identifiable, Equatable {
                 rect.union(CGRect(origin: point, size: .zero))
             }
             return bounds.standardized
-        case .rectangle, .filledRectangle, .ellipse:
+        case .rectangle, .filledRectangle, .ellipse, .pixelate, .blur:
             return rect.standardized
         }
     }
@@ -1265,7 +1472,7 @@ private struct AnnotationItem: Identifiable, Equatable {
             }
 
             return hypot(start.x - end.x, start.y - end.y) >= minimumSize
-        case .rectangle, .filledRectangle, .ellipse:
+        case .rectangle, .filledRectangle, .ellipse, .pixelate, .blur:
             return bounds.width >= minimumSize && bounds.height >= minimumSize
         }
     }
@@ -1289,7 +1496,7 @@ private struct AnnotationItem: Identifiable, Equatable {
 
             return distance(from: point, toQuadraticFrom: start, control: controlPoint, to: end) <= tolerance
 
-        case .rectangle, .filledRectangle:
+        case .rectangle, .filledRectangle, .pixelate, .blur:
             return bounds.insetBy(dx: -tolerance, dy: -tolerance).contains(point)
 
         case .ellipse:
@@ -1435,6 +1642,8 @@ private enum AnnotationTool: String, CaseIterable, Identifiable {
     case ellipse
     case line
     case arrow
+    case pixelate
+    case blur
 
     var id: String { rawValue }
 
@@ -1450,6 +1659,10 @@ private enum AnnotationTool: String, CaseIterable, Identifiable {
             "Straight line"
         case .arrow:
             "Arrow"
+        case .pixelate:
+            "Pixelate"
+        case .blur:
+            "Blur"
         }
     }
 
@@ -1465,6 +1678,10 @@ private enum AnnotationTool: String, CaseIterable, Identifiable {
             "line.diagonal"
         case .arrow:
             "arrow.up.right"
+        case .pixelate:
+            "square.grid.3x3.fill"
+        case .blur:
+            "drop.fill"
         }
     }
 
@@ -1474,6 +1691,10 @@ private enum AnnotationTool: String, CaseIterable, Identifiable {
 
     var usesEndpoints: Bool {
         self == .line || self == .arrow
+    }
+
+    var isRedactionTool: Bool {
+        self == .pixelate || self == .blur
     }
 }
 
@@ -1588,6 +1809,23 @@ private enum AnnotationRenderer {
             case .ellipse:
                 context.strokeEllipse(in: renderedRect(item.bounds, width: width, height: height))
 
+            case .pixelate:
+                applyPixelation(
+                    in: renderedRect(item.bounds, width: width, height: height),
+                    context: context,
+                    canvasSize: CGSize(width: width, height: height),
+                    colorSpace: colorSpace,
+                    density: item.redactionDensity
+                )
+
+            case .blur:
+                applyBlur(
+                    in: renderedRect(item.bounds, width: width, height: height),
+                    context: context,
+                    canvasSize: CGSize(width: width, height: height),
+                    density: item.redactionDensity
+                )
+
             case .line:
                 guard let first = item.points.first,
                       let last = item.points.last else {
@@ -1675,6 +1913,80 @@ private enum AnnotationRenderer {
         context.addLine(to: geometry.tip)
         context.addLine(to: geometry.secondWing)
         context.strokePath()
+    }
+
+    private static func applyPixelation(
+        in rect: CGRect,
+        context: CGContext,
+        canvasSize: CGSize,
+        colorSpace: CGColorSpace,
+        density: CGFloat
+    ) {
+        let targetRect = rect.integral.intersection(CGRect(origin: .zero, size: canvasSize))
+        guard targetRect.width >= 1,
+              targetRect.height >= 1,
+              let currentImage = context.makeImage(),
+              let croppedImage = currentImage.cropping(to: targetRect) else {
+            return
+        }
+
+        let pixelSize = RedactionImageProcessor.pixelBlockSize(for: density)
+        let lowWidth = max(1, Int(targetRect.width / pixelSize))
+        let lowHeight = max(1, Int(targetRect.height / pixelSize))
+
+        guard let lowContext = CGContext(
+            data: nil,
+            width: lowWidth,
+            height: lowHeight,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            return
+        }
+
+        lowContext.interpolationQuality = .low
+        lowContext.draw(croppedImage, in: CGRect(x: 0, y: 0, width: lowWidth, height: lowHeight))
+
+        guard let pixelatedImage = lowContext.makeImage() else { return }
+
+        context.saveGState()
+        context.clip(to: targetRect)
+        context.interpolationQuality = .none
+        context.draw(pixelatedImage, in: targetRect)
+        context.restoreGState()
+    }
+
+    private static func applyBlur(
+        in rect: CGRect,
+        context: CGContext,
+        canvasSize: CGSize,
+        density: CGFloat
+    ) {
+        let targetRect = rect.integral.intersection(CGRect(origin: .zero, size: canvasSize))
+        guard targetRect.width >= 1,
+              targetRect.height >= 1,
+              let currentImage = context.makeImage(),
+              let croppedImage = currentImage.cropping(to: targetRect) else {
+            return
+        }
+
+        let inputImage = CIImage(cgImage: croppedImage)
+        let filter = CIFilter.gaussianBlur()
+        filter.inputImage = inputImage.clampedToExtent()
+        filter.radius = Float(RedactionImageProcessor.blurRadius(for: density))
+
+        let ciContext = CIContext()
+        guard let outputImage = filter.outputImage,
+              let blurredImage = ciContext.createCGImage(outputImage, from: inputImage.extent) else {
+            return
+        }
+
+        context.saveGState()
+        context.clip(to: targetRect)
+        context.draw(blurredImage, in: targetRect)
+        context.restoreGState()
     }
 
     private static func renderedLineWidth(for item: AnnotationItem, imageWidth: Int, imageHeight: Int) -> CGFloat {
