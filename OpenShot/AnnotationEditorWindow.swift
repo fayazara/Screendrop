@@ -428,11 +428,13 @@ private final class AnnotationEditorModel {
         let normalizedHeight = size.height / imageFrame.height
         let minW = AnnotationTextMetrics.minimumNormalizedWidth(lineHeight: items.first(where: { $0.id == id })?.textLineHeight ?? AnnotationTextMetrics.defaultNormalizedLineHeight, imageSize: imageSize)
         updateItem(id: id) { item in
-            let newWidth = max(normalizedWidth, minW)
-            let newHeight = max(normalizedHeight, item.textLineHeight)
+            let newWidth = min(max(normalizedWidth, minW), 1)
+            let newHeight = min(max(normalizedHeight, item.textLineHeight), 1)
+            let maxX = max(0, 1 - newWidth)
+            let maxY = max(0, 1 - newHeight)
             item.rect = CGRect(
-                x: min(item.rect.origin.x, 1 - newWidth),
-                y: min(item.rect.origin.y, 1 - newHeight),
+                x: min(max(item.rect.origin.x, 0), maxX),
+                y: min(max(item.rect.origin.y, 0), maxY),
                 width: newWidth,
                 height: newHeight
             )
@@ -491,7 +493,7 @@ private final class AnnotationEditorModel {
     }
 
     func setTextFontSize(_ pointSize: CGFloat) {
-        let clamped = max(pointSize, 9)
+        let clamped = max(pointSize, AnnotationTextMetrics.minimumFontSize)
         textFontSize = clamped
 
         guard let selectedItemID, selectedTextItem != nil else { return }
@@ -640,6 +642,10 @@ private final class AnnotationEditorModel {
         redactionDensity = item.redactionDensity
         if item.tool == .text {
             textFontName = item.fontName
+            textFontSize = AnnotationTextMetrics.renderedFontSize(
+                lineHeight: item.textLineHeight,
+                imagePixelHeight: imageSize.height
+            ).rounded()
             textIsBold = item.isBold
             textIsItalic = item.isItalic
             textIsUnderline = item.isUnderline
@@ -1241,17 +1247,18 @@ private struct AnnotationTextBoxView: NSViewRepresentable {
         textView.allowsUndo = true
         textView.isEditable = isEditing
         textView.isSelectable = isEditing
-        textView.isHorizontallyResizable = true
+        textView.isHorizontallyResizable = false
         textView.isVerticallyResizable = true
         textView.textContainerInset = .zero
         textView.textContainer?.lineFragmentPadding = 0
-        textView.textContainer?.widthTracksTextView = false
+        textView.textContainer?.widthTracksTextView = true
         textView.textContainer?.heightTracksTextView = false
         textView.textContainer?.containerSize = CGSize(
-            width: CGFloat.greatestFiniteMagnitude,
+            width: 1,
             height: CGFloat.greatestFiniteMagnitude
         )
         textView.textContainer?.lineBreakMode = .byClipping
+        textView.autoresizingMask = [.width, .height]
         textView.insertionPointColor = NSColor.systemBlue
         textView.backgroundColor = .clear
         textView.string = text
@@ -1269,6 +1276,7 @@ private struct AnnotationTextBoxView: NSViewRepresentable {
 
         if isEditing {
             DispatchQueue.main.async {
+                self.updateTextViewFrame(textView, in: scrollView)
                 textView.window?.makeFirstResponder(textView)
                 self.reportSize(textView)
             }
@@ -1286,6 +1294,7 @@ private struct AnnotationTextBoxView: NSViewRepresentable {
 
         textView.isEditable = isEditing
         textView.isSelectable = isEditing
+        updateTextViewFrame(textView, in: scrollView)
 
         if textView.string != text {
             let selectedRanges = textView.selectedRanges
@@ -1311,16 +1320,44 @@ private struct AnnotationTextBoxView: NSViewRepresentable {
     }
 
     private func reportSize(_ textView: NSTextView) {
-        guard let layoutManager = textView.layoutManager,
-              let textContainer = textView.textContainer else { return }
-        layoutManager.ensureLayout(for: textContainer)
-        let usedRect = layoutManager.usedRect(for: textContainer)
-        let caretWidth: CGFloat = 2
+        onSizeChange(Self.measuredTextSize(for: textView))
+    }
+
+    private func updateTextViewFrame(_ textView: NSTextView, in scrollView: NSScrollView) {
         let size = CGSize(
-            width: ceil(usedRect.width) + caretWidth,
-            height: ceil(usedRect.height)
+            width: max(scrollView.bounds.width, 1),
+            height: max(scrollView.bounds.height, 1)
         )
-        onSizeChange(size)
+        if textView.frame.size != size {
+            textView.frame = CGRect(origin: .zero, size: size)
+        }
+        textView.textContainer?.containerSize = CGSize(
+            width: size.width,
+            height: CGFloat.greatestFiniteMagnitude
+        )
+    }
+
+    private static func measuredTextSize(for textView: NSTextView) -> CGSize {
+        let font = textView.font ?? NSFont.systemFont(ofSize: AnnotationTextMetrics.minimumFontSize)
+        let lineHeight = ceil(font.ascender - font.descender + font.leading)
+        let lineCount = CGFloat(AnnotationTextMetrics.lineCount(for: textView.string))
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.alignment = .left
+        paragraphStyle.lineBreakMode = .byClipping
+
+        var attributes = textView.typingAttributes
+        attributes[.font] = font
+        attributes[.paragraphStyle] = paragraphStyle
+
+        let measuredString = textView.string.isEmpty ? " " : textView.string
+        let rect = NSAttributedString(string: measuredString, attributes: attributes).boundingRect(
+            with: CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading]
+        )
+        return CGSize(
+            width: ceil(rect.width) + 2,
+            height: max(ceil(rect.height), lineHeight * lineCount)
+        )
     }
 
     private func applyStyle(to textView: NSTextView) {
@@ -1340,8 +1377,10 @@ private struct AnnotationTextBoxView: NSViewRepresentable {
 
         textView.font = font
         textView.textColor = textColor
+        textView.alignment = alignment
         textView.defaultParagraphStyle = paragraphStyle
         textView.typingAttributes = attributes
+        textView.textContainer?.lineBreakMode = .byClipping
 
         guard textView.string.isEmpty == false else { return }
 
@@ -1351,6 +1390,7 @@ private struct AnnotationTextBoxView: NSViewRepresentable {
             range: NSRange(location: 0, length: (textView.string as NSString).length)
         )
         textView.selectedRanges = selectedRanges
+        textView.needsDisplay = true
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate {
@@ -1376,16 +1416,7 @@ private struct AnnotationTextBoxView: NSViewRepresentable {
         }
 
         private func reportSize(_ textView: NSTextView) {
-            guard let layoutManager = textView.layoutManager,
-                  let textContainer = textView.textContainer else { return }
-            layoutManager.ensureLayout(for: textContainer)
-            let usedRect = layoutManager.usedRect(for: textContainer)
-            let caretWidth: CGFloat = 2
-            let size = CGSize(
-                width: ceil(usedRect.width) + caretWidth,
-                height: ceil(usedRect.height)
-            )
-            onSizeChange(size)
+            onSizeChange(AnnotationTextBoxView.measuredTextSize(for: textView))
         }
     }
 }
@@ -1423,6 +1454,7 @@ private extension NSCursor {
 }
 
 private enum AnnotationTextMetrics {
+    static let minimumFontSize: CGFloat = 9
     static let defaultNormalizedLineHeight: CGFloat = 0.06
     static let defaultFontName: String = "SF Pro"
     /// Maps normalized lineHeight to a screen font size given imageFrame height.
@@ -1438,12 +1470,12 @@ private enum AnnotationTextMetrics {
 
     /// Font size for the on-screen text view.
     static func viewFontSize(lineHeight: CGFloat, imageFrameHeight: CGFloat) -> CGFloat {
-        max(lineHeight * imageFrameHeight * fontScale, 9)
+        max(lineHeight * imageFrameHeight * fontScale, minimumFontSize)
     }
 
     /// Font size for the final image render (uses pixel height).
     static func renderedFontSize(lineHeight: CGFloat, imagePixelHeight: CGFloat) -> CGFloat {
-        max(lineHeight * imagePixelHeight * fontScale, 9)
+        max(lineHeight * imagePixelHeight * fontScale, minimumFontSize)
     }
 
     static func lineCount(for text: String) -> Int {
@@ -1905,6 +1937,8 @@ private struct AnnotationTextStyleButton: View {
 
 private struct AnnotationTextStylePopover: View {
     @Bindable var model: AnnotationEditorModel
+    @State private var fontSizeText = ""
+    @FocusState private var isFontSizeFieldFocused: Bool
 
     private let fontFamilies: [String] = {
         NSFontManager.shared.availableFontFamilies.sorted()
@@ -1948,7 +1982,7 @@ private struct AnnotationTextStylePopover: View {
             HStack(spacing: 8) {
                 HStack(spacing: 2) {
                     Button {
-                        model.selectedTextFontSize = max(model.selectedTextFontSize - 1, 9)
+                        adjustFontSize(by: -1)
                     } label: {
                         Image(systemName: "chevron.down")
                             .font(.system(size: 9, weight: .bold))
@@ -1957,24 +1991,19 @@ private struct AnnotationTextStylePopover: View {
                     }
                     .buttonStyle(.plain)
 
-                    TextField(
-                        "",
-                        value: Binding<Double>(
-                            get: { Double(model.selectedTextFontSize) },
-                            set: { model.selectedTextFontSize = CGFloat(max($0, 9)) }
-                        ),
-                        format: .number.precision(.fractionLength(0))
-                    )
-                    .textFieldStyle(.plain)
-                    .multilineTextAlignment(.center)
-                    .frame(width: 40)
+                    TextField("", text: $fontSizeText)
+                        .focused($isFontSizeFieldFocused)
+                        .onSubmit(commitFontSizeText)
+                        .textFieldStyle(.plain)
+                        .multilineTextAlignment(.center)
+                        .frame(width: 40)
 
                     Text("pt")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
 
                     Button {
-                        model.selectedTextFontSize = model.selectedTextFontSize + 1
+                        adjustFontSize(by: 1)
                     } label: {
                         Image(systemName: "chevron.up")
                             .font(.system(size: 9, weight: .bold))
@@ -2053,6 +2082,46 @@ private struct AnnotationTextStylePopover: View {
         }
         .padding(14)
         .frame(width: 280)
+        .onAppear(perform: syncFontSizeText)
+        .onDisappear(perform: commitFontSizeText)
+        .onChange(of: model.selectedTextFontSize) { _, _ in
+            guard !isFontSizeFieldFocused else { return }
+            syncFontSizeText()
+        }
+        .onChange(of: model.selectedItemID) { _, _ in
+            guard !isFontSizeFieldFocused else { return }
+            syncFontSizeText()
+        }
+        .onChange(of: isFontSizeFieldFocused) { _, isFocused in
+            if isFocused {
+                syncFontSizeText()
+            } else {
+                commitFontSizeText()
+            }
+        }
+    }
+
+    private func syncFontSizeText() {
+        fontSizeText = String(Int(model.selectedTextFontSize.rounded()))
+    }
+
+    private func commitFontSizeText() {
+        let trimmedText = fontSizeText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let size = Double(trimmedText) else {
+            syncFontSizeText()
+            return
+        }
+
+        let clampedSize = max(size.rounded(), Double(AnnotationTextMetrics.minimumFontSize))
+        model.selectedTextFontSize = CGFloat(clampedSize)
+        fontSizeText = String(Int(clampedSize))
+    }
+
+    private func adjustFontSize(by delta: CGFloat) {
+        commitFontSizeText()
+        let size = max(model.selectedTextFontSize + delta, AnnotationTextMetrics.minimumFontSize)
+        model.selectedTextFontSize = size
+        syncFontSizeText()
     }
 
     private func styleToggle(
