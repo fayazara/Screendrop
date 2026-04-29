@@ -17,27 +17,68 @@ struct AnnotationEditorWindow: View {
     @Binding var url: URL?
 
     @State private var model = AnnotationEditorModel()
+    @State private var isInspectorPresented = true
+    @State private var isFinishing = false
     @Environment(\.dismiss) private var dismissWindow
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        VStack(spacing: 0) {
-            toolbar
-
-            ZStack {
-                Rectangle()
-                    .fill(.regularMaterial)
-
-                if let previewImage = model.previewImage, model.imageSize != .zero {
-                    AnnotationCanvas(model: model, image: previewImage)
-                        .padding(.horizontal, 34)
-                        .padding(.vertical, 28)
-                } else {
-                    ProgressView()
-                        .controlSize(.large)
+        mainContent
+            .navigationTitle("OpenShot Annotate")
+            .toolbarBackgroundVisibility(.visible, for: .windowToolbar)
+            .toolbar {
+                ToolbarItem(placement: .automatic) {
+                    Button {
+                        isInspectorPresented.toggle()
+                    } label: {
+                        Image(systemName: "sidebar.right")
+                    }
+                    .help(isInspectorPresented ? "Hide Inspector" : "Show Inspector")
                 }
             }
-            .frame(minWidth: 920, minHeight: 580)
+            .task(id: url) {
+                model.load(url: url, dismiss: dismissWindow)
+            }
+            .onAppear {
+                AnnotationEditorActivationPolicy.enter()
+            }
+            .onDisappear {
+                AnnotationEditorActivationPolicy.leave()
+            }
+            .onDeleteCommand {
+                model.deleteSelectedAnnotation()
+            }
+            .background(AnnotationKeyCommandHandler(
+                onDelete: model.deleteSelectedAnnotation,
+                onUndo: model.undo,
+                onRedo: model.redo
+            ))
+            .inspector(isPresented: $isInspectorPresented) {
+                AnnotationEditorInspector(
+                    model: model,
+                    onPickWallpaper: pickCustomWallpaper,
+                    onSaveAs: saveAs,
+                    onDone: finishEditing
+                )
+            }
+    }
 
+    private var mainContent: some View {
+        ZStack {
+            Rectangle()
+                .fill(.regularMaterial)
+
+            if let previewImage = model.previewImage, model.imageSize != .zero {
+                AnnotationCanvas(model: model, image: previewImage)
+                    .padding(.horizontal, 34)
+                    .padding(.vertical, 28)
+            } else {
+                ProgressView()
+                    .controlSize(.large)
+            }
+        }
+        .frame(minWidth: 760, minHeight: 580)
+        .overlay(alignment: .bottomLeading) {
             if let errorMessage = model.errorMessage {
                 Text(errorMessage)
                     .font(.footnote)
@@ -47,65 +88,6 @@ struct AnnotationEditorWindow: View {
                     .padding(.vertical, 10)
                     .background(.bar)
             }
-        }
-        .task(id: url) {
-            model.load(url: url, dismiss: dismissWindow)
-        }
-        .onDeleteCommand {
-            model.deleteSelectedAnnotation()
-        }
-        .background(AnnotationKeyCommandHandler(
-            onDelete: model.deleteSelectedAnnotation,
-            onUndo: model.undo,
-            onRedo: model.redo
-        ))
-    }
-
-    private var toolbar: some View {
-        HStack(spacing: 10) {
-            AnnotationToolPicker(selectedTool: model.selectedTool) { tool in
-                model.selectTool(tool)
-            }
-
-            AnnotationColorMenu(selectedSwatch: model.selectedSwatch) { swatch in
-                model.setSwatch(swatch)
-            }
-
-            AnnotationStrokeMenu(strokeWidth: model.strokeWidth) { strokeWidth in
-                model.setStrokeWidth(strokeWidth)
-            }
-
-            if model.selectedTool.isRedactionTool {
-                AnnotationRedactionDensitySlider(value: model.redactionDensity) { density in
-                    model.setRedactionDensity(density)
-                }
-            }
-
-            if model.isTextStyleAvailable {
-                AnnotationTextStyleButton(model: model)
-            }
-
-            AnnotationBackgroundButton(model: model)
-
-            Spacer()
-
-            AnnotationToolbarPillButton(title: "Save as...", help: "Save as") {
-                saveAs()
-            }
-
-            AnnotationToolbarPillButton(title: "Done", help: "Done", isProminent: true) {
-                finishEditing()
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 4)
-        .background {
-            AnnotationToolbarStyle.background
-                .overlay(alignment: .bottom) {
-                    Rectangle()
-                        .fill(AnnotationToolbarStyle.stroke)
-                        .frame(height: 1)
-                }
         }
     }
 
@@ -135,27 +117,74 @@ struct AnnotationEditorWindow: View {
         }
     }
 
+    private func pickCustomWallpaper() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.image]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.title = "Choose Background Wallpaper"
+
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            let wallpaper = AnnotationCustomWallpaper(url: url)
+            model.backgroundSettings.customWallpaper = wallpaper
+            model.backgroundSettings.style = .customWallpaper(wallpaper)
+        }
+    }
+
     private func finishEditing() {
         guard let sourceURL = model.sourceURL else {
             dismissWindow()
             return
         }
 
+        guard !isFinishing else { return }
+
         guard !model.items.isEmpty || model.backgroundSettings.isEnabled else {
             dismissWindow()
             return
         }
 
+        isFinishing = true
         do {
             let annotatedURL = try AnnotationRenderer.renderToTemporaryFile(
                 sourceURL: sourceURL,
                 items: model.items,
                 backgroundSettings: model.backgroundSettings
             )
-            ScreenshotPreviewStack.shared.replace(originalURL: sourceURL, with: annotatedURL)
+            let updatedExistingPreview = ScreenshotPreviewStack.shared.replace(originalURL: sourceURL, with: annotatedURL)
+            if !updatedExistingPreview {
+                openWindow(id: "PREVIEWWINDOW")
+            }
             dismissWindow()
         } catch {
+            isFinishing = false
             model.errorMessage = "Failed to finish annotation: \(error.localizedDescription)"
+        }
+    }
+}
+
+@MainActor
+private enum AnnotationEditorActivationPolicy {
+    private static var activeWindowCount = 0
+
+    static func enter() {
+        activeWindowCount += 1
+        PreviewWindowCaptureExclusion.shared.hideForAnnotation()
+        NSApp.setActivationPolicy(.regular)
+        NSApp.unhide(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    static func leave() {
+        activeWindowCount = max(0, activeWindowCount - 1)
+        PreviewWindowCaptureExclusion.shared.restoreAfterAnnotation()
+        guard activeWindowCount == 0 else { return }
+
+        Task { @MainActor in
+            guard activeWindowCount == 0 else { return }
+            NSApp.setActivationPolicy(.accessory)
         }
     }
 }
@@ -178,6 +207,19 @@ private final class AnnotationEditorModel {
     var backgroundSettings = AnnotationBackgroundSettings()
     var errorMessage: String?
     private(set) var statePath = AnnotationToolState.idle.path(for: .rectangle)
+
+    var itemIDs: [AnnotationItem.ID] {
+        items.map(\.id)
+    }
+
+    var isTransformingExistingAnnotation: Bool {
+        switch interaction {
+        case .moving, .resizing:
+            true
+        case .drawing, .none:
+            false
+        }
+    }
 
     // Text style defaults (applied to new text items, updated when selecting existing text)
     var textFontName: String = AnnotationTextMetrics.defaultFontName
@@ -418,6 +460,18 @@ private final class AnnotationEditorModel {
         interaction = nil
         draftItem = nil
         statePath = AnnotationToolState.idle.path(for: selectedTool)
+    }
+
+    func hoveredAnnotation(at location: CGPoint, in imageFrame: CGRect) -> AnnotationItem? {
+        guard let point = normalizedPoint(location, in: imageFrame, clamped: false) else {
+            return nil
+        }
+
+        return hitTest(point)
+    }
+
+    func containsImagePoint(_ location: CGPoint, in imageFrame: CGRect) -> Bool {
+        normalizedPoint(location, in: imageFrame, clamped: false) != nil
     }
 
     func setText(_ text: String, for id: AnnotationItem.ID) {
@@ -770,6 +824,26 @@ private enum AnnotationInteraction {
     case resizing(id: AnnotationItem.ID, handle: AnnotationResizeHandle, originalItem: AnnotationItem)
 }
 
+private enum AnnotationCanvasCursor: Equatable {
+    case arrow
+    case placement
+    case openHand
+    case closedHand
+
+    var nsCursor: NSCursor {
+        switch self {
+        case .arrow:
+            .arrow
+        case .placement:
+            .annotationPlus
+        case .openHand:
+            .openHand
+        case .closedHand:
+            .closedHand
+        }
+    }
+}
+
 private enum AnnotationToolState: String {
     case idle
     case drawing
@@ -901,8 +975,8 @@ private struct AnnotationCanvas: View {
     let image: NSImage
 
     @State private var hasActiveInteraction = false
-    @State private var isHoveringCanvas = false
-    @State private var isPlacementCursorPushed = false
+    @State private var hoveredLocation: CGPoint?
+    @State private var currentCursor: AnnotationCanvasCursor = .arrow
 
     var body: some View {
         GeometryReader { proxy in
@@ -970,15 +1044,27 @@ private struct AnnotationCanvas: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .contentShape(Rectangle())
             .gesture(interactionGesture(imageFrame: imageFrame))
-            .onHover { hovering in
-                isHoveringCanvas = hovering
-                updatePlacementCursor()
+            .onContinuousHover { phase in
+                switch phase {
+                case .active(let location):
+                    hoveredLocation = location
+                    updateCursor(at: location, in: imageFrame)
+                case .ended:
+                    hoveredLocation = nil
+                    setCursor(.arrow)
+                }
             }
-            .onChange(of: model.isTextPlacementArmed) { _, _ in
-                updatePlacementCursor()
+            .onChange(of: model.selectedTool) { _, _ in
+                refreshCursor(in: imageFrame)
+            }
+            .onChange(of: model.itemIDs) { _, _ in
+                refreshCursor(in: imageFrame)
+            }
+            .onChange(of: model.selectedItemID) { _, _ in
+                refreshCursor(in: imageFrame)
             }
             .onDisappear {
-                popPlacementCursorIfNeeded()
+                setCursor(.arrow)
             }
         }
     }
@@ -986,17 +1072,17 @@ private struct AnnotationCanvas: View {
     @ViewBuilder
     private func screenshotShadow(imageFrame: CGRect, cornerRadius: CGFloat) -> some View {
         let settings = model.backgroundSettings
-        let opacity = settings.isEnabled ? Double(settings.shadow) * 0.34 : 0.26
+        let opacity = settings.isEnabled ? Double(settings.shadow) * 0.50 : 0.26
         if opacity > 0 {
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .fill(Color.black.opacity(0.001))
+                .fill(Color.black.opacity(0.18))
                 .frame(width: imageFrame.width, height: imageFrame.height)
                 .position(x: imageFrame.midX, y: imageFrame.midY)
                 .shadow(
                     color: .black.opacity(opacity),
-                    radius: settings.isEnabled ? 12 + settings.shadow * 28 : 18,
+                    radius: settings.isEnabled ? 16 + settings.shadow * 40 : 18,
                     x: 0,
-                    y: settings.isEnabled ? 4 + settings.shadow * 16 : 8
+                    y: settings.isEnabled ? 8 + settings.shadow * 26 : 8
                 )
         }
     }
@@ -1015,10 +1101,12 @@ private struct AnnotationCanvas: View {
                 }
 
                 model.updateInteraction(to: value.location, in: imageFrame)
+                updateCursor(at: value.location, in: imageFrame)
             }
             .onEnded { value in
                 model.endInteraction(at: value.location, in: imageFrame)
                 hasActiveInteraction = false
+                updateCursor(at: value.location, in: imageFrame)
             }
     }
 
@@ -1040,20 +1128,30 @@ private struct AnnotationCanvas: View {
         )
     }
 
-    private func updatePlacementCursor() {
-        if model.isTextPlacementArmed && isHoveringCanvas {
-            guard !isPlacementCursorPushed else { return }
-            NSCursor.annotationPlus.push()
-            isPlacementCursorPushed = true
+    private func refreshCursor(in imageFrame: CGRect) {
+        guard let hoveredLocation else { return }
+        updateCursor(at: hoveredLocation, in: imageFrame)
+    }
+
+    private func updateCursor(at location: CGPoint, in imageFrame: CGRect) {
+        guard model.containsImagePoint(location, in: imageFrame) else {
+            setCursor(.arrow)
+            return
+        }
+
+        if hasActiveInteraction {
+            setCursor(model.isTransformingExistingAnnotation ? .closedHand : .placement)
+        } else if model.hoveredAnnotation(at: location, in: imageFrame) != nil {
+            setCursor(.openHand)
         } else {
-            popPlacementCursorIfNeeded()
+            setCursor(.placement)
         }
     }
 
-    private func popPlacementCursorIfNeeded() {
-        guard isPlacementCursorPushed else { return }
-        NSCursor.pop()
-        isPlacementCursorPushed = false
+    private func setCursor(_ cursor: AnnotationCanvasCursor) {
+        guard currentCursor != cursor else { return }
+        currentCursor = cursor
+        cursor.nsCursor.set()
     }
 }
 
@@ -1074,6 +1172,31 @@ private struct AnnotationBackgroundStageFill: View {
                 startPoint: gradient.startPoint,
                 endPoint: gradient.endPoint
             )
+
+        case .customWallpaper(let wallpaper):
+            AnnotationCustomWallpaperPreview(wallpaper: wallpaper)
+        }
+    }
+}
+
+private struct AnnotationCustomWallpaperPreview: View {
+    let wallpaper: AnnotationCustomWallpaper
+
+    var body: some View {
+        GeometryReader { proxy in
+            if let image = ScreenshotImageLoader.downsampledImage(at: wallpaper.url, maxPixelSize: 900) {
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: proxy.size.width, height: proxy.size.height)
+                    .clipped()
+            } else {
+                Color.black
+                    .overlay {
+                        Image(systemName: "exclamationmark.triangle")
+                            .foregroundStyle(.secondary)
+                    }
+            }
         }
     }
 }
@@ -1897,23 +2020,36 @@ private struct AnnotationColorMenu: View {
                 }
             }
         } label: {
-            HStack(spacing: 5) {
+            HStack(spacing: 6) {
                 Circle()
                     .fill(selectedSwatch.color)
-                    .frame(width: 15, height: 15)
-                    .overlay(Circle().stroke(.white.opacity(0.75), lineWidth: 1.5))
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .bold))
+                    .frame(width: 16, height: 16)
+                    .overlay(Circle().stroke(.white.opacity(0.15), lineWidth: 0.5))
+
+                Text(selectedSwatch.title)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.primary.opacity(0.8))
+
+                Spacer()
+
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 8, weight: .semibold))
+                    .foregroundStyle(.tertiary)
             }
-            .frame(width: 50, height: 30)
-            .contentShape(Capsule())
-            .background(AnnotationToolbarStyle.controlBackground, in: Capsule())
-            .overlay(Capsule().stroke(AnnotationToolbarStyle.stroke, lineWidth: 1))
+            .padding(.horizontal, 8)
+            .frame(height: 26)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .stroke(Color(nsColor: .separatorColor).opacity(0.5), lineWidth: 0.5)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         }
         .menuStyle(.button)
         .buttonStyle(.plain)
-        .frame(width: 50, height: 30)
-        .contentShape(Capsule())
         .help("Color")
     }
 }
@@ -1936,19 +2072,32 @@ private struct AnnotationStrokeMenu: View {
         } label: {
             HStack(spacing: 6) {
                 StrokePreview(width: strokeWidth)
-                    .frame(width: 22, height: 14)
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .bold))
+                    .frame(width: 18, height: 12)
+
+                Text("\(Int(strokeWidth))px")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.primary.opacity(0.8))
+
+                Spacer()
+
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 8, weight: .semibold))
+                    .foregroundStyle(.tertiary)
             }
-            .frame(width: 54, height: 30)
-            .contentShape(Capsule())
-            .background(AnnotationToolbarStyle.controlBackground, in: Capsule())
-            .overlay(Capsule().stroke(AnnotationToolbarStyle.stroke, lineWidth: 1))
+            .padding(.horizontal, 8)
+            .frame(height: 26)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .stroke(Color(nsColor: .separatorColor).opacity(0.5), lineWidth: 0.5)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         }
         .menuStyle(.button)
         .buttonStyle(.plain)
-        .frame(width: 54, height: 30)
-        .contentShape(Capsule())
         .help("Stroke thickness")
     }
 }
@@ -1980,174 +2129,409 @@ private struct AnnotationRedactionDensitySlider: View {
     }
 }
 
-// MARK: - Background Popover
+// MARK: - Inspector
 
-private struct AnnotationBackgroundButton: View {
+private struct AnnotationEditorInspector: View {
     @Bindable var model: AnnotationEditorModel
-    @State private var showPopover = false
+    let onPickWallpaper: () -> Void
+    let onSaveAs: () -> Void
+    let onDone: () -> Void
 
     var body: some View {
-        Button {
-            showPopover.toggle()
-        } label: {
-            Image(systemName: "photo.on.rectangle.angled")
-                .font(.system(size: 14, weight: .semibold))
-                .frame(width: 36, height: 30)
-                .contentShape(Capsule())
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    // MARK: Tools
+                    VStack(alignment: .leading, spacing: 10) {
+                        AnnotationInspectorSectionHeader("TOOLS")
+                        AnnotationInspectorToolGrid(selectedTool: model.selectedTool) { tool in
+                            model.selectTool(tool)
+                        }
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.top, 14)
+                    .padding(.bottom, 16)
+
+                    AnnotationInspectorDivider()
+
+                    // MARK: Style
+                    VStack(alignment: .leading, spacing: 10) {
+                        AnnotationInspectorSectionHeader("STYLE")
+
+                        AnnotationInspectorRow(title: "Color") {
+                            AnnotationColorMenu(selectedSwatch: model.selectedSwatch) { swatch in
+                                model.setSwatch(swatch)
+                            }
+                        }
+
+                        AnnotationInspectorRow(title: "Stroke") {
+                            AnnotationStrokeMenu(strokeWidth: model.strokeWidth) { strokeWidth in
+                                model.setStrokeWidth(strokeWidth)
+                            }
+                        }
+
+                        if model.selectedTool.isRedactionTool {
+                            AnnotationBackgroundSlider(
+                                title: "Density",
+                                value: Binding(
+                                    get: { model.redactionDensity },
+                                    set: { model.setRedactionDensity($0) }
+                                ),
+                                range: 0.15...1
+                            )
+                        }
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 14)
+
+                    if model.isTextStyleAvailable {
+                        AnnotationInspectorDivider()
+
+                        // MARK: Text
+                        VStack(alignment: .leading, spacing: 10) {
+                            AnnotationInspectorSectionHeader("TEXT")
+                            AnnotationTextStyleControls(model: model)
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 14)
+                    }
+
+                    AnnotationInspectorDivider()
+
+                    // MARK: Background
+                    AnnotationBackgroundInspector(
+                        settings: Binding(
+                            get: { model.backgroundSettings },
+                            set: { model.backgroundSettings = $0 }
+                        ),
+                        onPickWallpaper: onPickWallpaper
+                    )
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 14)
+                }
+            }
+            .scrollContentBackground(.hidden)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            Divider()
+
+            HStack(spacing: 10) {
+                Button(action: onSaveAs) {
+                    Text("Save as...")
+                        .font(.system(size: 13, weight: .medium))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 28)
+                }
+                .controlSize(.large)
+
+                Button(action: onDone) {
+                    Text("Done")
+                        .font(.system(size: 13, weight: .semibold))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 28)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(.bar)
         }
-        .buttonStyle(.plain)
-        .foregroundStyle(model.backgroundSettings.isEnabled ? Color.accentColor : .primary)
-        .background(AnnotationToolbarStyle.controlBackground, in: Capsule())
-        .overlay(
-            Capsule().stroke(
-                model.backgroundSettings.isEnabled ? Color.accentColor.opacity(0.75) : AnnotationToolbarStyle.stroke,
-                lineWidth: 1
-            )
-        )
-        .help("Background")
-        .popover(isPresented: $showPopover, arrowEdge: .bottom) {
-            AnnotationBackgroundPopover(settings: Binding(
-                get: { model.backgroundSettings },
-                set: { model.backgroundSettings = $0 }
-            ))
+        .inspectorColumnWidth(280)
+        .frame(width: 280)
+        .frame(maxHeight: .infinity, alignment: .topLeading)
+    }
+}
+
+private struct AnnotationInspectorSectionHeader: View {
+    let title: String
+
+    init(_ title: String) {
+        self.title = title
+    }
+
+    var body: some View {
+        Text(title)
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(.tertiary)
+            .tracking(0.5)
+    }
+}
+
+private struct AnnotationInspectorDivider: View {
+    var body: some View {
+        Divider()
+            .padding(.horizontal, 14)
+    }
+}
+
+private struct AnnotationInspectorRow<Content: View>: View {
+    let title: String
+    @ViewBuilder let content: () -> Content
+
+    init(title: String, @ViewBuilder content: @escaping () -> Content) {
+        self.title = title
+        self.content = content
+    }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Text(title)
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .frame(width: 52, alignment: .leading)
+
+            content()
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }
 
-private struct AnnotationBackgroundPopover: View {
-    @Binding var settings: AnnotationBackgroundSettings
+private struct AnnotationInspectorToolGrid: View {
+    let selectedTool: AnnotationTool
+    let onSelect: (AnnotationTool) -> Void
 
-    private let swatchColumns = Array(repeating: GridItem(.fixed(34), spacing: 8), count: 6)
-    private let alignmentColumns = Array(repeating: GridItem(.fixed(28), spacing: 6), count: 3)
+    private let columns: [GridItem] = Array(
+        repeating: GridItem(.flexible(), spacing: 2), count: 5
+    )
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        LazyVGrid(columns: columns, spacing: 2) {
+            ForEach(AnnotationTool.allCases) { tool in
+                Button {
+                    onSelect(tool)
+                } label: {
+                    Image(systemName: tool.systemImage)
+                        .font(.system(size: 14, weight: .medium))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 32)
+                        .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(selectedTool == tool ? Color.accentColor : .primary.opacity(0.7))
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(selectedTool == tool ? Color.accentColor.opacity(0.15) : .clear)
+                )
+                .help(tool.title)
+            }
+        }
+        .padding(4)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+        )
+    }
+}
+
+private struct AnnotationBackgroundInspector: View {
+    @Binding var settings: AnnotationBackgroundSettings
+    let onPickWallpaper: () -> Void
+
+    private let gradientColumns = Array(repeating: GridItem(.flexible(), spacing: 8), count: 4)
+    private let wallpaperColumns = Array(repeating: GridItem(.flexible(), spacing: 8), count: 4)
+    private let colorColumns = Array(repeating: GridItem(.flexible(), spacing: 4), count: 8)
+    private let alignmentColumns = Array(repeating: GridItem(.fixed(28), spacing: 4), count: 3)
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // None button
             Button {
                 settings.style = .none
             } label: {
                 Text("None")
-                    .font(.system(size: 12.5, weight: .semibold))
+                    .font(.system(size: 12, weight: .medium))
                     .frame(maxWidth: .infinity)
-                    .frame(height: 30)
+                    .frame(height: 28)
                     .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
             }
             .buttonStyle(.plain)
+            .foregroundStyle(settings.style == .none ? .white : .primary.opacity(0.7))
             .background(
                 RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .fill(settings.style == .none ? Color.accentColor.opacity(0.18) : Color(nsColor: .controlBackgroundColor))
+                    .fill(settings.style == .none ? Color.accentColor : Color(nsColor: .controlBackgroundColor))
             )
-            .overlay(
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .stroke(settings.style == .none ? Color.accentColor : Color(nsColor: .separatorColor), lineWidth: 1)
-            )
+            .padding(.bottom, 16)
 
+            // Gradients
             backgroundSectionTitle("Gradients")
-            LazyVGrid(columns: swatchColumns, alignment: .leading, spacing: 8) {
+                .padding(.bottom, 8)
+            LazyVGrid(columns: gradientColumns, spacing: 8) {
                 ForEach(AnnotationBackgroundGradient.presets) { gradient in
                     Button {
                         settings.style = .gradient(gradient)
                     } label: {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
                             .fill(LinearGradient(
                                 colors: gradient.colors.map(\.color),
                                 startPoint: gradient.startPoint,
                                 endPoint: gradient.endPoint
                             ))
-                            .frame(width: 34, height: 34)
-                            .overlay(swatchStroke(isSelected: settings.style == .gradient(gradient), cornerRadius: 8))
-                            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                            .aspectRatio(1, contentMode: .fit)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .stroke(settings.style == .gradient(gradient) ? Color.white.opacity(0.8) : Color.white.opacity(0.08), lineWidth: settings.style == .gradient(gradient) ? 2 : 0.5)
+                            )
+                            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                     }
                     .buttonStyle(.plain)
                     .help(gradient.title)
                 }
             }
+            .padding(.bottom, 16)
 
+            // Wallpapers
+            backgroundSectionTitle("Wallpapers")
+                .padding(.bottom, 8)
+            LazyVGrid(columns: wallpaperColumns, spacing: 8) {
+                if let customWallpaper {
+                    wallpaperButton(
+                        style: .customWallpaper(AnnotationCustomWallpaper(url: customWallpaper.url)),
+                        title: customWallpaper.title
+                    ) {
+                        AnnotationCustomWallpaperPreview(wallpaper: AnnotationCustomWallpaper(url: customWallpaper.url))
+                    }
+                }
+
+                Button(action: onPickWallpaper) {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(style: StrokeStyle(lineWidth: 1.5, dash: [5, 4]))
+                        .foregroundStyle(.quaternary)
+                        .aspectRatio(1, contentMode: .fit)
+                        .overlay {
+                            Image(systemName: "plus")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundStyle(.tertiary)
+                        }
+                        .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .help("Choose wallpaper")
+            }
+            .padding(.bottom, 16)
+
+            // Plain color
             backgroundSectionTitle("Plain color")
-            LazyVGrid(columns: swatchColumns, alignment: .leading, spacing: 8) {
+                .padding(.bottom, 8)
+            LazyVGrid(columns: colorColumns, spacing: 8) {
                 ForEach(AnnotationBackgroundColor.plainPresets) { color in
                     Button {
                         settings.style = .solid(color)
                     } label: {
                         Circle()
                             .fill(color.color)
-                            .frame(width: 24, height: 24)
-                            .overlay(Circle().stroke(.quaternary, lineWidth: 1))
-                            .overlay(swatchStroke(isSelected: settings.style == .solid(color), cornerRadius: 14))
-                            .frame(width: 34, height: 28)
-                            .contentShape(Rectangle())
+                            .aspectRatio(1, contentMode: .fit)
+                            .overlay(
+                                Circle()
+                                    .stroke(settings.style == .solid(color) ? Color.white.opacity(0.9) : Color.white.opacity(0.1), lineWidth: settings.style == .solid(color) ? 2 : 0.5)
+                            )
+                            .contentShape(Circle())
                     }
                     .buttonStyle(.plain)
                     .help(color.title)
                 }
             }
+            .padding(.bottom, 18)
 
-            Divider()
-
+            // Padding - full width
             AnnotationBackgroundSlider(
                 title: "Padding",
                 value: $settings.padding,
                 range: 0.04...0.45
             )
+            .padding(.bottom, 14)
 
-            AnnotationBackgroundSlider(
-                title: "Corners",
-                value: $settings.cornerRadius,
-                range: 0...0.12
-            )
+            // Shadow + Corners side by side
+            HStack(spacing: 12) {
+                AnnotationBackgroundSlider(
+                    title: "Shadow",
+                    value: $settings.shadow,
+                    range: 0...1,
+                    compact: true
+                )
 
-            AnnotationBackgroundSlider(
-                title: "Shadow",
-                value: $settings.shadow,
-                range: 0...1
-            )
-
-            HStack(spacing: 10) {
-                Text("Alignment")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 76, alignment: .leading)
-
-                LazyVGrid(columns: alignmentColumns, spacing: 6) {
-                    ForEach(AnnotationBackgroundAlignment.allCases) { alignment in
-                        Button {
-                            settings.alignment = alignment
-                        } label: {
-                            AlignmentGlyph(alignment: alignment, isSelected: settings.alignment == alignment)
-                        }
-                        .buttonStyle(.plain)
-                        .help(alignment.title)
-                    }
-                }
+                AnnotationBackgroundSlider(
+                    title: "Corners",
+                    value: $settings.cornerRadius,
+                    range: 0...0.12,
+                    compact: true
+                )
             }
+            .padding(.bottom, 14)
 
-            HStack(spacing: 10) {
-                Text("Ratio")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 76, alignment: .leading)
+            // Alignment + Ratio side by side
+            HStack(alignment: .top, spacing: 12) {
+                // Alignment
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Alignment")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
 
-                Picker("", selection: $settings.aspectRatio) {
-                    ForEach(AnnotationBackgroundAspectRatio.allCases) { ratio in
-                        Text(ratio.title).tag(ratio)
+                    LazyVGrid(columns: alignmentColumns, spacing: 4) {
+                        ForEach(AnnotationBackgroundAlignment.allCases) { alignment in
+                            Button {
+                                settings.alignment = alignment
+                            } label: {
+                                AlignmentGlyph(alignment: alignment, isSelected: settings.alignment == alignment)
+                            }
+                            .buttonStyle(.plain)
+                            .help(alignment.title)
+                        }
                     }
                 }
-                .labelsHidden()
-                .frame(maxWidth: .infinity)
+
+                Spacer()
+
+                // Ratio
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Ratio")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+
+                    Picker("", selection: $settings.aspectRatio) {
+                        ForEach(AnnotationBackgroundAspectRatio.allCases) { ratio in
+                            Text(ratio.title).tag(ratio)
+                        }
+                    }
+                    .labelsHidden()
+                    .controlSize(.small)
+                }
             }
         }
-        .padding(14)
-        .frame(width: 292)
+    }
+
+    private var customWallpaper: AnnotationCustomWallpaper? {
+        settings.customWallpaper
+    }
+
+    private func wallpaperButton<Content: View>(
+        style: AnnotationBackgroundStyle,
+        title: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        Button {
+            if case .customWallpaper(let wallpaper) = style {
+                settings.customWallpaper = wallpaper
+            }
+            settings.style = style
+        } label: {
+            content()
+                .aspectRatio(1, contentMode: .fit)
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(settings.style == style ? Color.white.opacity(0.8) : Color.white.opacity(0.08), lineWidth: settings.style == style ? 2 : 0.5)
+                )
+                .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .help(title)
     }
 
     private func backgroundSectionTitle(_ title: String) -> some View {
         Text(title)
-            .font(.system(size: 12, weight: .semibold))
+            .font(.system(size: 11, weight: .medium))
             .foregroundStyle(.secondary)
-    }
-
-    private func swatchStroke(isSelected: Bool, cornerRadius: CGFloat) -> some View {
-        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-            .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 3)
     }
 }
 
@@ -2155,16 +2539,29 @@ private struct AnnotationBackgroundSlider: View {
     let title: String
     @Binding var value: CGFloat
     let range: ClosedRange<CGFloat>
+    var compact: Bool = false
 
     var body: some View {
-        HStack(spacing: 10) {
-            Text(title)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .frame(width: 76, alignment: .leading)
+        if compact {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
 
-            Slider(value: $value, in: range)
-                .controlSize(.small)
+                Slider(value: $value, in: range)
+                    .controlSize(.small)
+                    .tint(.accentColor)
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+
+                Slider(value: $value, in: range)
+                    .controlSize(.small)
+                    .tint(.accentColor)
+            }
         }
     }
 }
@@ -2175,20 +2572,20 @@ private struct AlignmentGlyph: View {
 
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 4, style: .continuous)
-                .fill(isSelected ? Color.accentColor.opacity(0.20) : Color(nsColor: .controlBackgroundColor))
+            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                .fill(isSelected ? Color.accentColor.opacity(0.2) : Color(nsColor: .controlBackgroundColor))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 4, style: .continuous)
-                        .stroke(isSelected ? Color.accentColor : Color(nsColor: .separatorColor), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .stroke(isSelected ? Color.accentColor.opacity(0.6) : Color(nsColor: .separatorColor).opacity(0.4), lineWidth: 0.5)
                 )
 
             RoundedRectangle(cornerRadius: 2, style: .continuous)
-                .stroke(isSelected ? Color.accentColor : Color.secondary.opacity(0.7), lineWidth: 1.4)
-                .frame(width: 11, height: 8)
+                .fill(isSelected ? Color.accentColor : Color.secondary.opacity(0.4))
+                .frame(width: 10, height: 7)
                 .position(markerPosition)
         }
         .frame(width: 28, height: 22)
-        .contentShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
     }
 
     private var markerPosition: CGPoint {
@@ -2199,32 +2596,9 @@ private struct AlignmentGlyph: View {
     }
 }
 
-// MARK: - Text Style Popover
+// MARK: - Text Style Controls
 
-private struct AnnotationTextStyleButton: View {
-    @Bindable var model: AnnotationEditorModel
-    @State private var showPopover = false
-
-    var body: some View {
-        Button {
-            showPopover.toggle()
-        } label: {
-            Text("Aa")
-                .font(.system(size: 14, weight: .semibold))
-                .frame(width: 36, height: 30)
-                .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .background(AnnotationToolbarStyle.controlBackground, in: Capsule())
-        .overlay(Capsule().stroke(AnnotationToolbarStyle.stroke, lineWidth: 1))
-        .help("Text Style")
-        .popover(isPresented: $showPopover, arrowEdge: .bottom) {
-            AnnotationTextStylePopover(model: model)
-        }
-    }
-}
-
-private struct AnnotationTextStylePopover: View {
+private struct AnnotationTextStyleControls: View {
     @Bindable var model: AnnotationEditorModel
     @State private var fontSizeText = ""
     @FocusState private var isFontSizeFieldFocused: Bool
@@ -2234,9 +2608,9 @@ private struct AnnotationTextStylePopover: View {
     }()
 
     var body: some View {
-        VStack(spacing: 12) {
-            // Row 1: Font family picker + color
-            HStack(spacing: 8) {
+        VStack(spacing: 10) {
+            // Font family + color swatch
+            HStack(spacing: 6) {
                 Picker("", selection: Binding(
                     get: { model.selectedTextFontName },
                     set: { model.selectedTextFontName = $0 }
@@ -2246,9 +2620,9 @@ private struct AnnotationTextStylePopover: View {
                     }
                 }
                 .labelsHidden()
+                .controlSize(.small)
                 .frame(maxWidth: .infinity)
 
-                // Color swatch (re-uses existing color menu)
                 Menu {
                     ForEach(AnnotationSwatch.allCases) { swatch in
                         Button {
@@ -2258,57 +2632,60 @@ private struct AnnotationTextStylePopover: View {
                         }
                     }
                 } label: {
-                    RoundedRectangle(cornerRadius: 4)
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
                         .fill(model.selectedSwatch.color)
-                        .frame(width: 32, height: 22)
-                        .overlay(RoundedRectangle(cornerRadius: 4).stroke(.quaternary, lineWidth: 1))
+                        .frame(width: 28, height: 20)
+                        .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous).stroke(.white.opacity(0.15), lineWidth: 0.5))
                 }
                 .menuStyle(.button)
                 .buttonStyle(.plain)
             }
 
-            // Row 2: Font size stepper + B / I / U
-            HStack(spacing: 8) {
-                HStack(spacing: 2) {
+            // Font size + style toggles
+            HStack(spacing: 6) {
+                HStack(spacing: 0) {
                     Button {
                         adjustFontSize(by: -1)
                     } label: {
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 9, weight: .bold))
-                            .frame(width: 20, height: 24)
+                        Image(systemName: "minus")
+                            .font(.system(size: 10, weight: .medium))
+                            .frame(width: 22, height: 24)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+
+                    Divider().frame(height: 14)
 
                     TextField("", text: $fontSizeText)
                         .focused($isFontSizeFieldFocused)
                         .onSubmit(commitFontSizeText)
                         .textFieldStyle(.plain)
                         .multilineTextAlignment(.center)
-                        .frame(width: 40)
+                        .font(.system(size: 12, weight: .medium, design: .monospaced))
+                        .frame(width: 32)
 
-                    Text("pt")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
+                    Divider().frame(height: 14)
 
                     Button {
                         adjustFontSize(by: 1)
                     } label: {
-                        Image(systemName: "chevron.up")
-                            .font(.system(size: 9, weight: .bold))
-                            .frame(width: 20, height: 24)
+                        Image(systemName: "plus")
+                            .font(.system(size: 10, weight: .medium))
+                            .frame(width: 22, height: 24)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
                 }
-                .padding(.horizontal, 4)
+                .frame(height: 26)
                 .background(
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(Color(nsColor: .controlBackgroundColor))
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(Color(nsColor: .controlBackgroundColor).opacity(0.5))
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .stroke(Color(nsColor: .separatorColor).opacity(0.5), lineWidth: 0.5)
                 )
 
                 Spacer()
@@ -2316,61 +2693,62 @@ private struct AnnotationTextStylePopover: View {
                 HStack(spacing: 0) {
                     styleToggle(
                         label: "B",
-                        font: .system(size: 13, weight: .bold),
+                        font: .system(size: 12, weight: .bold),
                         isActive: model.selectedTextIsBold
                     ) {
                         model.selectedTextIsBold.toggle()
                     }
 
-                    Divider().frame(height: 16)
+                    Divider().frame(height: 14)
 
                     styleToggle(
                         label: "I",
-                        font: .system(size: 13, weight: .regular, design: .serif).italic(),
+                        font: .system(size: 12, weight: .regular, design: .serif).italic(),
                         isActive: model.selectedTextIsItalic
                     ) {
                         model.selectedTextIsItalic.toggle()
                     }
 
-                    Divider().frame(height: 16)
+                    Divider().frame(height: 14)
 
                     styleToggle(
                         label: "U",
-                        font: .system(size: 13, weight: .regular),
+                        font: .system(size: 12, weight: .regular),
                         isActive: model.selectedTextIsUnderline,
                         underline: true
                     ) {
                         model.selectedTextIsUnderline.toggle()
                     }
                 }
+                .frame(height: 26)
                 .background(
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(Color(nsColor: .controlBackgroundColor))
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(Color(nsColor: .controlBackgroundColor).opacity(0.5))
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .stroke(Color(nsColor: .separatorColor).opacity(0.5), lineWidth: 0.5)
                 )
             }
 
-            // Row 3: Alignment
+            // Text alignment
             HStack(spacing: 0) {
                 alignmentButton(.left, icon: "text.alignleft")
                 alignmentButton(.center, icon: "text.aligncenter")
                 alignmentButton(.right, icon: "text.alignright")
                 alignmentButton(.justified, icon: "text.justify.leading")
             }
+            .frame(height: 26)
             .background(
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(Color(nsColor: .controlBackgroundColor))
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color(nsColor: .controlBackgroundColor).opacity(0.5))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 6)
-                    .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .stroke(Color(nsColor: .separatorColor).opacity(0.5), lineWidth: 0.5)
             )
         }
-        .padding(14)
-        .frame(width: 280)
+        .frame(maxWidth: .infinity)
         .onAppear(perform: syncFontSizeText)
         .onDisappear(perform: commitFontSizeText)
         .onChange(of: model.selectedTextFontSize) { _, _ in
@@ -2424,11 +2802,12 @@ private struct AnnotationTextStylePopover: View {
             Text(label)
                 .font(font)
                 .underline(underline)
-                .frame(width: 32, height: 26)
+                .frame(width: 28, height: 26)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .background(isActive ? Color.accentColor.opacity(0.2) : .clear)
+        .foregroundStyle(isActive ? Color.accentColor : .primary.opacity(0.7))
+        .background(isActive ? Color.accentColor.opacity(0.12) : .clear)
     }
 
     private func alignmentButton(_ alignment: NSTextAlignment, icon: String) -> some View {
@@ -2436,13 +2815,14 @@ private struct AnnotationTextStylePopover: View {
             model.selectedTextAlignment = alignment
         } label: {
             Image(systemName: icon)
-                .font(.system(size: 13))
+                .font(.system(size: 12))
                 .frame(maxWidth: .infinity)
                 .frame(height: 26)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .background(model.selectedTextAlignment == alignment ? Color.accentColor.opacity(0.2) : .clear)
+        .foregroundStyle(model.selectedTextAlignment == alignment ? Color.accentColor : .primary.opacity(0.5))
+        .background(model.selectedTextAlignment == alignment ? Color.accentColor.opacity(0.12) : .clear)
     }
 }
 

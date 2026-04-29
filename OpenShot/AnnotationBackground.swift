@@ -7,6 +7,7 @@
 
 import AppKit
 import CoreGraphics
+import ImageIO
 import SwiftUI
 
 struct AnnotationBackgroundSettings: Equatable {
@@ -16,6 +17,7 @@ struct AnnotationBackgroundSettings: Equatable {
     var shadow: CGFloat = 0.36
     var aspectRatio: AnnotationBackgroundAspectRatio = .auto
     var alignment: AnnotationBackgroundAlignment = .center
+    var customWallpaper: AnnotationCustomWallpaper?
 
     var isEnabled: Bool {
         style != .none
@@ -26,6 +28,7 @@ enum AnnotationBackgroundStyle: Equatable {
     case none
     case solid(AnnotationBackgroundColor)
     case gradient(AnnotationBackgroundGradient)
+    case customWallpaper(AnnotationCustomWallpaper)
 }
 
 struct AnnotationBackgroundColor: Identifiable, Equatable, Hashable {
@@ -169,6 +172,18 @@ struct AnnotationBackgroundGradient: Identifiable, Equatable, Hashable {
             endPoint: .topTrailing
         )
     ]
+}
+
+struct AnnotationCustomWallpaper: Identifiable, Equatable, Hashable {
+    let url: URL
+
+    var id: String {
+        url.path
+    }
+
+    var title: String {
+        url.deletingPathExtension().lastPathComponent
+    }
 }
 
 enum AnnotationBackgroundAspectRatio: String, CaseIterable, Identifiable {
@@ -410,7 +425,69 @@ enum AnnotationBackgroundRenderer {
                 end: cgPoint(for: gradient.endPoint, in: rect),
                 options: [.drawsBeforeStartLocation, .drawsAfterEndLocation]
             )
+
+        case .customWallpaper(let wallpaper):
+            drawCustomWallpaper(
+                wallpaper,
+                in: rect,
+                context: context
+            )
         }
+    }
+
+    private static func drawCustomWallpaper(
+        _ wallpaper: AnnotationCustomWallpaper,
+        in rect: CGRect,
+        context: CGContext
+    ) {
+        guard let image = loadCGImage(at: wallpaper.url, maxPixelSize: max(rect.width, rect.height)) else {
+            drawMissingWallpaperFallback(in: rect, context: context)
+            return
+        }
+
+        context.draw(image, in: aspectFillRect(
+            imageSize: CGSize(width: image.width, height: image.height),
+            fillRect: rect
+        ))
+    }
+
+    private static func loadCGImage(at url: URL, maxPixelSize: CGFloat) -> CGImage? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, [
+            kCGImageSourceShouldCache: false
+        ] as CFDictionary) else {
+            return nil
+        }
+
+        let options: [CFString: Any] = [
+            kCGImageSourceShouldCache: false,
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: max(1, Int(maxPixelSize.rounded(.up)))
+        ]
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+    }
+
+    private static func aspectFillRect(imageSize: CGSize, fillRect: CGRect) -> CGRect {
+        guard imageSize.width > 0, imageSize.height > 0, fillRect.width > 0, fillRect.height > 0 else {
+            return fillRect
+        }
+
+        let scale = max(fillRect.width / imageSize.width, fillRect.height / imageSize.height)
+        let size = CGSize(width: imageSize.width * scale, height: imageSize.height * scale)
+        return CGRect(
+            x: fillRect.midX - size.width / 2,
+            y: fillRect.midY - size.height / 2,
+            width: size.width,
+            height: size.height
+        )
+    }
+
+    private static func drawMissingWallpaperFallback(in rect: CGRect, context: CGContext) {
+        context.setFillColor(NSColor.black.cgColor)
+        context.fill(rect)
+        context.setStrokeColor(NSColor.white.withAlphaComponent(0.16).cgColor)
+        context.setLineWidth(2)
+        context.stroke(rect.insetBy(dx: 8, dy: 8))
     }
 
     private static func drawShadow(
@@ -428,7 +505,7 @@ enum AnnotationBackgroundRenderer {
 
         context.saveGState()
         context.setShadow(offset: offset, blur: radius, color: NSColor.black.withAlphaComponent(alpha).cgColor)
-        context.setFillColor(NSColor.black.withAlphaComponent(0.02).cgColor)
+        context.setFillColor(NSColor.black.cgColor)
         context.addPath(CGPath(
             roundedRect: rect,
             cornerWidth: cornerRadius,
@@ -454,4 +531,5 @@ enum AnnotationBackgroundRenderer {
             y: rect.minY + (1 - unitPoint.y) * rect.height
         )
     }
+
 }

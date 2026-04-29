@@ -421,9 +421,10 @@ final class ScreenshotPreviewStack {
         }
     }
     
-    func replace(originalURL: URL, with annotatedURL: URL) {
+    @discardableResult
+    func replace(originalURL: URL, with annotatedURL: URL) -> Bool {
         guard let image = ScreenshotImageLoader.downsampledImage(at: annotatedURL, maxPixelSize: 520) else {
-            return
+            return false
         }
         
         QuickLookPreviewPresenter.dismiss()
@@ -432,8 +433,10 @@ final class ScreenshotPreviewStack {
             items[index].url = annotatedURL
             items[index].previewImage = image
             items[index].autoSavedURL = nil
+            return true
         } else {
             items.insert(ScreenshotPreviewItem(url: annotatedURL, previewImage: image), at: 0)
+            return false
         }
     }
     
