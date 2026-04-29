@@ -264,6 +264,63 @@ enum AnnotationBackgroundAlignment: String, CaseIterable, Identifiable {
             1
         }
     }
+
+    /// Whether the image sticks to the top edge (zero top padding).
+    var sticksToTop: Bool {
+        switch self {
+        case .topLeading, .top, .topTrailing: true
+        default: false
+        }
+    }
+
+    /// Whether the image sticks to the bottom edge (zero bottom padding).
+    var sticksToBottom: Bool {
+        switch self {
+        case .bottomLeading, .bottom, .bottomTrailing: true
+        default: false
+        }
+    }
+
+    /// Whether the image sticks to the leading (left) edge (zero left padding).
+    var sticksToLeading: Bool {
+        switch self {
+        case .topLeading, .leading, .bottomLeading: true
+        default: false
+        }
+    }
+
+    /// Whether the image sticks to the trailing (right) edge (zero right padding).
+    var sticksToTrailing: Bool {
+        switch self {
+        case .topTrailing, .trailing, .bottomTrailing: true
+        default: false
+        }
+    }
+
+    /// Per-corner radius multipliers. A corner that touches a stuck edge gets 0.
+    /// Returns (topLeft, topRight, bottomLeft, bottomRight) multipliers (0 or 1).
+    var cornerRadiusMultipliers: (topLeft: CGFloat, topRight: CGFloat, bottomLeft: CGFloat, bottomRight: CGFloat) {
+        switch self {
+        case .center:
+            (1, 1, 1, 1)
+        case .top:
+            (0, 0, 1, 1)
+        case .bottom:
+            (1, 1, 0, 0)
+        case .leading:
+            (0, 1, 0, 1)
+        case .trailing:
+            (1, 0, 1, 0)
+        case .topLeading:
+            (0, 0, 0, 1)
+        case .topTrailing:
+            (0, 0, 1, 0)
+        case .bottomLeading:
+            (0, 1, 0, 0)
+        case .bottomTrailing:
+            (1, 0, 0, 0)
+        }
+    }
 }
 
 struct AnnotationBackgroundLayout {
@@ -284,17 +341,32 @@ struct AnnotationBackgroundLayout {
             )
         }
 
+        let alignment = settings.alignment
         let shortestEdge = min(contentSize.width, contentSize.height)
         let padding = max(0, shortestEdge * settings.padding)
+
+        // Per-edge padding: stuck edges get zero padding
+        let paddingTop: CGFloat = alignment.sticksToTop ? 0 : padding
+        let paddingBottom: CGFloat = alignment.sticksToBottom ? 0 : padding
+        let paddingLeading: CGFloat = alignment.sticksToLeading ? 0 : padding
+        let paddingTrailing: CGFloat = alignment.sticksToTrailing ? 0 : padding
+
         let minimumSize = CGSize(
-            width: contentSize.width + padding * 2,
-            height: contentSize.height + padding * 2
+            width: contentSize.width + paddingLeading + paddingTrailing,
+            height: contentSize.height + paddingTop + paddingBottom
         )
         let canvasSize = expandedSize(minimumSize, aspectRatio: settings.aspectRatio.value)
-        let availableRect = CGRect(origin: .zero, size: canvasSize).insetBy(dx: padding, dy: padding)
+
+        // Available rect accounts for per-edge padding
+        let availableRect = CGRect(
+            x: paddingLeading,
+            y: paddingTop,
+            width: canvasSize.width - paddingLeading - paddingTrailing,
+            height: canvasSize.height - paddingTop - paddingBottom
+        )
         let origin = CGPoint(
-            x: availableRect.minX + max(0, availableRect.width - contentSize.width) * settings.alignment.xFactor,
-            y: availableRect.minY + max(0, availableRect.height - contentSize.height) * settings.alignment.yFactor
+            x: availableRect.minX + max(0, availableRect.width - contentSize.width) * alignment.xFactor,
+            y: availableRect.minY + max(0, availableRect.height - contentSize.height) * alignment.yFactor
         )
 
         return AnnotationBackgroundLayout(
@@ -372,16 +444,20 @@ enum AnnotationBackgroundRenderer {
         drawBackground(settings.style, in: canvasRect, context: context)
 
         let imageRect = flipped(layout.imageRect, canvasHeight: CGFloat(height)).integral
-        let cornerRadius = settings.cornerRadius * min(imageRect.width, imageRect.height)
-        drawShadow(in: imageRect, cornerRadius: cornerRadius, strength: settings.shadow, context: context)
+        let baseCornerRadius = settings.cornerRadius * min(imageRect.width, imageRect.height)
+        let m = settings.alignment.cornerRadiusMultipliers
+        // Note: CGContext uses flipped coordinates, so top/bottom are swapped
+        let cornerRadii = PerCornerRadii(
+            topLeft: baseCornerRadius * m.bottomLeft,
+            topRight: baseCornerRadius * m.bottomRight,
+            bottomLeft: baseCornerRadius * m.topLeft,
+            bottomRight: baseCornerRadius * m.topRight
+        )
+        let clipPath = PerCornerRadii.path(in: imageRect, radii: cornerRadii)
+        drawShadow(path: clipPath, strength: settings.shadow, context: context)
 
         context.saveGState()
-        context.addPath(CGPath(
-            roundedRect: imageRect,
-            cornerWidth: cornerRadius,
-            cornerHeight: cornerRadius,
-            transform: nil
-        ))
+        context.addPath(clipPath)
         context.clip()
         context.draw(annotatedImage, in: imageRect)
         context.restoreGState()
@@ -491,13 +567,13 @@ enum AnnotationBackgroundRenderer {
     }
 
     private static func drawShadow(
-        in rect: CGRect,
-        cornerRadius: CGFloat,
+        path: CGPath,
         strength: CGFloat,
         context: CGContext
     ) {
         guard strength > 0 else { return }
 
+        let rect = path.boundingBoxOfPath
         let shortestEdge = min(rect.width, rect.height)
         let radius = max(2, shortestEdge * (0.035 + strength * 0.035))
         let offset = CGSize(width: 0, height: -shortestEdge * (0.012 + strength * 0.018))
@@ -506,12 +582,7 @@ enum AnnotationBackgroundRenderer {
         context.saveGState()
         context.setShadow(offset: offset, blur: radius, color: NSColor.black.withAlphaComponent(alpha).cgColor)
         context.setFillColor(NSColor.black.cgColor)
-        context.addPath(CGPath(
-            roundedRect: rect,
-            cornerWidth: cornerRadius,
-            cornerHeight: cornerRadius,
-            transform: nil
-        ))
+        context.addPath(path)
         context.fillPath()
         context.restoreGState()
     }
@@ -532,4 +603,82 @@ enum AnnotationBackgroundRenderer {
         )
     }
 
+}
+
+// MARK: - Per-Corner Radius Helpers
+
+/// Holds per-corner radius values for a rounded rectangle.
+struct PerCornerRadii: Equatable {
+    let topLeft: CGFloat
+    let topRight: CGFloat
+    let bottomLeft: CGFloat
+    let bottomRight: CGFloat
+
+    var isUniform: Bool {
+        topLeft == topRight && topRight == bottomLeft && bottomLeft == bottomRight
+    }
+
+    /// Creates a `CGPath` rounded rectangle with individual corner radii.
+    static func path(in rect: CGRect, radii: PerCornerRadii) -> CGPath {
+        let tl = min(radii.topLeft, min(rect.width, rect.height) / 2)
+        let tr = min(radii.topRight, min(rect.width, rect.height) / 2)
+        let bl = min(radii.bottomLeft, min(rect.width, rect.height) / 2)
+        let br = min(radii.bottomRight, min(rect.width, rect.height) / 2)
+
+        let path = CGMutablePath()
+
+        // Start at top-left, after the top-left corner arc
+        path.move(to: CGPoint(x: rect.minX + tl, y: rect.maxY))
+
+        // Top edge -> top-right corner
+        path.addLine(to: CGPoint(x: rect.maxX - tr, y: rect.maxY))
+        if tr > 0 {
+            path.addArc(
+                center: CGPoint(x: rect.maxX - tr, y: rect.maxY - tr),
+                radius: tr,
+                startAngle: .pi / 2,
+                endAngle: 0,
+                clockwise: true
+            )
+        }
+
+        // Right edge -> bottom-right corner
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY + br))
+        if br > 0 {
+            path.addArc(
+                center: CGPoint(x: rect.maxX - br, y: rect.minY + br),
+                radius: br,
+                startAngle: 0,
+                endAngle: -.pi / 2,
+                clockwise: true
+            )
+        }
+
+        // Bottom edge -> bottom-left corner
+        path.addLine(to: CGPoint(x: rect.minX + bl, y: rect.minY))
+        if bl > 0 {
+            path.addArc(
+                center: CGPoint(x: rect.minX + bl, y: rect.minY + bl),
+                radius: bl,
+                startAngle: -.pi / 2,
+                endAngle: .pi,
+                clockwise: true
+            )
+        }
+
+        // Left edge -> top-left corner
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY - tl))
+        if tl > 0 {
+            path.addArc(
+                center: CGPoint(x: rect.minX + tl, y: rect.maxY - tl),
+                radius: tl,
+                startAngle: .pi,
+                endAngle: .pi / 2,
+                clockwise: true
+            )
+        }
+
+        path.closeSubpath()
+        return path
+    }
 }

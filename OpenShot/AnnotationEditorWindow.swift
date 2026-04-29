@@ -988,7 +988,13 @@ private struct AnnotationCanvas: View {
             let displayLayout = backgroundLayout.scaled(to: canvasFrame)
             let imageFrame = displayLayout.imageFrame
             let localImageFrame = CGRect(origin: .zero, size: imageFrame.size)
-            let cornerRadius = screenshotCornerRadius(for: imageFrame)
+            let cornerRadii = screenshotCornerRadii(for: imageFrame)
+            let clipCorners = RectangleCornerRadii(
+                topLeading: cornerRadii.topLeft,
+                bottomLeading: cornerRadii.bottomLeft,
+                bottomTrailing: cornerRadii.bottomRight,
+                topTrailing: cornerRadii.topRight
+            )
 
             ZStack(alignment: .topLeading) {
                 if model.backgroundSettings.isEnabled {
@@ -997,7 +1003,7 @@ private struct AnnotationCanvas: View {
                         .position(x: displayLayout.canvasFrame.midX, y: displayLayout.canvasFrame.midY)
                 }
 
-                screenshotShadow(imageFrame: imageFrame, cornerRadius: cornerRadius)
+                screenshotShadow(imageFrame: imageFrame, cornerRadii: clipCorners)
 
                 ZStack(alignment: .topLeading) {
                     Image(nsImage: image)
@@ -1037,7 +1043,7 @@ private struct AnnotationCanvas: View {
                     }
                 }
                 .frame(width: imageFrame.width, height: imageFrame.height)
-                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                .clipShape(UnevenRoundedRectangle(cornerRadii: clipCorners, style: .continuous))
                 .contentShape(Rectangle())
                 .position(x: imageFrame.midX, y: imageFrame.midY)
             }
@@ -1070,11 +1076,11 @@ private struct AnnotationCanvas: View {
     }
 
     @ViewBuilder
-    private func screenshotShadow(imageFrame: CGRect, cornerRadius: CGFloat) -> some View {
+    private func screenshotShadow(imageFrame: CGRect, cornerRadii: RectangleCornerRadii) -> some View {
         let settings = model.backgroundSettings
         let opacity = settings.isEnabled ? Double(settings.shadow) * 0.50 : 0.26
         if opacity > 0 {
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            UnevenRoundedRectangle(cornerRadii: cornerRadii, style: .continuous)
                 .fill(Color.black.opacity(0.18))
                 .frame(width: imageFrame.width, height: imageFrame.height)
                 .position(x: imageFrame.midX, y: imageFrame.midY)
@@ -1087,9 +1093,11 @@ private struct AnnotationCanvas: View {
         }
     }
 
-    private func screenshotCornerRadius(for imageFrame: CGRect) -> CGFloat {
-        guard model.backgroundSettings.isEnabled else { return 0 }
-        return model.backgroundSettings.cornerRadius * min(imageFrame.width, imageFrame.height)
+    private func screenshotCornerRadii(for imageFrame: CGRect) -> (topLeft: CGFloat, topRight: CGFloat, bottomLeft: CGFloat, bottomRight: CGFloat) {
+        guard model.backgroundSettings.isEnabled else { return (0, 0, 0, 0) }
+        let base = model.backgroundSettings.cornerRadius * min(imageFrame.width, imageFrame.height)
+        let m = model.backgroundSettings.alignment.cornerRadiusMultipliers
+        return (base * m.topLeft, base * m.topRight, base * m.bottomLeft, base * m.bottomRight)
     }
 
     private func interactionGesture(imageFrame: CGRect) -> some Gesture {
