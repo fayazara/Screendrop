@@ -313,7 +313,6 @@ final class ScreenshotPreviewStack {
         }
         
         items.insert(item, at: 0)
-        NSSound(named: "Tink")?.play()
     }
     
     func setHovered(_ id: ScreenshotPreviewItem.ID, isHovered: Bool) {

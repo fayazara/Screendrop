@@ -2407,6 +2407,7 @@ private struct AnnotationEditorInspector: View {
     let onPickWallpaper: () -> Void
     let onSaveAs: () -> Void
     let onDone: () -> Void
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         VStack(spacing: 0) {
@@ -2487,6 +2488,7 @@ private struct AnnotationEditorInspector: View {
                 .frame(maxWidth: .infinity, alignment: .topLeading)
             }
             .scrollContentBackground(.hidden)
+            .background(sidebarBackground)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             Divider()
@@ -2511,8 +2513,9 @@ private struct AnnotationEditorInspector: View {
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
-            .background(.bar)
+            .background(sidebarBackground)
         }
+        .background(sidebarBackground)
         .inspectorColumnWidth(
             min: Self.minimumColumnWidth,
             ideal: Self.idealColumnWidth,
@@ -2524,6 +2527,10 @@ private struct AnnotationEditorInspector: View {
             maxHeight: .infinity,
             alignment: .topLeading
         )
+    }
+
+    private var sidebarBackground: Color {
+        colorScheme == .dark ? Color(nsColor: .windowBackgroundColor) : .white
     }
 }
 

@@ -5,6 +5,7 @@
 //  Created by Fayaz Ahmed Aralikatti on 26/04/26.
 //
 
+import AppKit
 import SwiftUI
 
 /// Single long-lived coordinator that manages the capture → preview flow.
@@ -30,7 +31,7 @@ final class CaptureCoordinator {
             }
             
             guard let url = await ScreenshotManager.shared.captureFullscreen() else { return }
-            await MainActor.run { self.showPreview(url: url) }
+            await MainActor.run { self.finishCapture(url: url) }
         }
     }
     
@@ -44,7 +45,7 @@ final class CaptureCoordinator {
             }
             
             guard let url = await ScreenshotManager.shared.captureWindow() else { return }
-            await MainActor.run { self.showPreview(url: url) }
+            await MainActor.run { self.finishCapture(url: url) }
         }
     }
     
@@ -58,11 +59,17 @@ final class CaptureCoordinator {
             }
             
             guard let url = await ScreenshotManager.shared.captureArea() else { return }
-            await MainActor.run { self.showPreview(url: url) }
+            await MainActor.run { self.finishCapture(url: url) }
         }
     }
     
     // MARK: - Preview
+
+    @MainActor
+    private func finishCapture(url: URL) {
+        CaptureFeedbackSound.play()
+        showPreview(url: url)
+    }
     
     private func showPreview(url: URL) {
         guard let onShowPreview else {
@@ -78,5 +85,21 @@ final class CaptureCoordinator {
         }
         
         try? await Task.sleep(for: .milliseconds(200))
+    }
+}
+
+@MainActor
+private enum CaptureFeedbackSound {
+    private static let sound: NSSound? = {
+        let url = URL(fileURLWithPath: "/System/Library/Components/CoreAudio.component/Contents/SharedSupport/SystemSounds/system/Screen Capture.aif")
+        return NSSound(contentsOf: url, byReference: true)
+    }()
+
+    static func play() {
+        guard let sound else { return }
+
+        sound.stop()
+        sound.currentTime = 0
+        sound.play()
     }
 }

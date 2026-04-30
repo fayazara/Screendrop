@@ -63,14 +63,14 @@ final class ScreenshotManager {
     // MARK: - Area Capture
     
     /// Uses the native macOS screencapture tool for interactive area drag selection.
-    /// `-s` = drag to select area, `-o` = no shadow, `-t png` = lossless PNG.
+    /// `-s` = drag to select area, `-t png` = lossless PNG.
     func captureArea() async -> URL? {
         return await runScreencapture(args: ["-s"])
     }
     
     // MARK: - screencapture CLI runner
     
-    /// Runs `/usr/sbin/screencapture` off the main thread and returns the file URL on success.
+    /// Runs `/usr/sbin/screencapture` silently off the main thread and returns the file URL on success.
     private func runScreencapture(args: [String]) async -> URL? {
         let filePath = generateTempPath(extension: "png")
         
@@ -78,7 +78,7 @@ final class ScreenshotManager {
             DispatchQueue.global(qos: .userInitiated).async {
                 let process = Process()
                 process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
-                process.arguments = args + ["-t", "png", filePath]
+                process.arguments = args + ["-x", "-t", "png", filePath]
                 
                 do {
                     try process.run()
