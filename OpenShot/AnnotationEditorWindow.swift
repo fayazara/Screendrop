@@ -206,6 +206,7 @@ private final class AnnotationEditorModel {
     var redactionDensity: CGFloat = 0.55
     var backgroundSettings = AnnotationBackgroundSettings()
     var errorMessage: String?
+    private var nextNumberedCircleValue = 1
     private(set) var statePath = AnnotationToolState.idle.path(for: .rectangle)
 
     var itemIDs: [AnnotationItem.ID] {
@@ -249,6 +250,7 @@ private final class AnnotationEditorModel {
         isTextPlacementArmed = selectedTool == .text
         backgroundSettings = AnnotationBackgroundSettings()
         interaction = nil
+        nextNumberedCircleValue = 1
         history.reset(to: items)
         statePath = AnnotationToolState.idle.path(for: selectedTool)
         errorMessage = nil
@@ -265,6 +267,41 @@ private final class AnnotationEditorModel {
             isTextPlacementArmed = false
             interaction = nil
             statePath = AnnotationToolState.idle.path(for: selectedTool)
+            return
+        }
+
+        if selectedTool == .numberedCircle {
+            if let selectedItem,
+               selectedItem.tool == .numberedCircle,
+               let resizeHandle = hitTestResizeHandle(point, in: imageFrame, item: selectedItem) {
+                applyStyleFromItem(selectedItem)
+                draftItem = nil
+                history.push(items)
+                interaction = .resizing(id: selectedItem.id, handle: resizeHandle, originalItem: selectedItem)
+                statePath = AnnotationToolState.resizing.path(for: selectedTool)
+                return
+            }
+
+            if let item = hitTest(point), item.tool == .numberedCircle {
+                selectedItemID = item.id
+                applyStyleFromItem(item)
+                draftItem = nil
+                history.push(items)
+
+                if let resizeHandle = hitTestResizeHandle(point, in: imageFrame, item: item) {
+                    interaction = .resizing(id: item.id, handle: resizeHandle, originalItem: item)
+                    statePath = AnnotationToolState.resizing.path(for: selectedTool)
+                } else {
+                    interaction = .moving(id: item.id, startPoint: point, originalItem: item)
+                    statePath = AnnotationToolState.translating.path(for: selectedTool)
+                }
+                return
+            }
+
+            selectedItemID = nil
+            editingTextItemID = nil
+            isTextPlacementArmed = false
+            beginDraftItem(at: point)
             return
         }
 
@@ -315,27 +352,7 @@ private final class AnnotationEditorModel {
                 return
             }
 
-            let textLineHeight: CGFloat = imageSize.height > 0
-                ? textFontSize / (imageSize.height * AnnotationTextMetrics.fontScale)
-                : AnnotationTextMetrics.defaultNormalizedLineHeight
-
-            draftItem = AnnotationItem(
-                tool: selectedTool,
-                rect: selectedTool == .text ? defaultTextRect(at: point, lineHeight: textLineHeight) : CGRect(origin: point, size: .zero),
-                points: initialPoints(for: selectedTool, at: point),
-                swatch: selectedSwatch,
-                strokeWidth: strokeWidth,
-                redactionDensity: redactionDensity,
-                text: "",
-                textLineHeight: textLineHeight,
-                fontName: textFontName,
-                isBold: textIsBold,
-                isItalic: textIsItalic,
-                isUnderline: textIsUnderline,
-                textAlignment: textAlignment
-            )
-            interaction = .drawing(startPoint: point)
-            statePath = AnnotationToolState.drawing.path(for: selectedTool)
+            beginDraftItem(at: point)
         }
     }
 
@@ -384,6 +401,8 @@ private final class AnnotationEditorModel {
             editingTextItemID = item.tool == .text ? item.id : nil
             if item.tool == .text {
                 isTextPlacementArmed = false
+            } else if item.tool == .numberedCircle {
+                nextNumberedCircleValue += 1
             }
             draftItem = nil
 
@@ -392,6 +411,40 @@ private final class AnnotationEditorModel {
         }
 
         statePath = AnnotationToolState.idle.path(for: selectedTool)
+    }
+
+    private func beginDraftItem(at point: CGPoint) {
+        let textLineHeight: CGFloat = imageSize.height > 0
+            ? textFontSize / (imageSize.height * AnnotationTextMetrics.fontScale)
+            : AnnotationTextMetrics.defaultNormalizedLineHeight
+        let itemRect: CGRect
+        switch selectedTool {
+        case .text:
+            itemRect = defaultTextRect(at: point, lineHeight: textLineHeight)
+        case .numberedCircle:
+            itemRect = AnnotationNumberedCircleMetrics.defaultRect(centeredAt: point, imageSize: imageSize)
+        case .rectangle, .filledRectangle, .ellipse, .line, .arrow, .freehand, .pixelate, .blur:
+            itemRect = CGRect(origin: point, size: .zero)
+        }
+        let itemText = selectedTool == .numberedCircle ? "\(nextNumberedCircleValue)" : ""
+
+        draftItem = AnnotationItem(
+            tool: selectedTool,
+            rect: itemRect,
+            points: initialPoints(for: selectedTool, at: point),
+            swatch: selectedSwatch,
+            strokeWidth: strokeWidth,
+            redactionDensity: redactionDensity,
+            text: itemText,
+            textLineHeight: textLineHeight,
+            fontName: textFontName,
+            isBold: textIsBold,
+            isItalic: textIsItalic,
+            isUnderline: textIsUnderline,
+            textAlignment: textAlignment
+        )
+        interaction = .drawing(startPoint: point)
+        statePath = AnnotationToolState.drawing.path(for: selectedTool)
     }
 
     func setSwatch(_ swatch: AnnotationSwatch) {
@@ -459,6 +512,7 @@ private final class AnnotationEditorModel {
         isTextPlacementArmed = false
         interaction = nil
         draftItem = nil
+        syncNextNumberedCircleValue()
         statePath = AnnotationToolState.idle.path(for: selectedTool)
     }
 
@@ -630,6 +684,7 @@ private final class AnnotationEditorModel {
         editingTextItemID = nil
         draftItem = nil
         interaction = nil
+        syncNextNumberedCircleValue()
         statePath = AnnotationToolState.idle.path(for: selectedTool)
     }
 
@@ -641,6 +696,7 @@ private final class AnnotationEditorModel {
         editingTextItemID = nil
         draftItem = nil
         interaction = nil
+        syncNextNumberedCircleValue()
         statePath = AnnotationToolState.idle.path(for: selectedTool)
     }
 
@@ -654,6 +710,11 @@ private final class AnnotationEditorModel {
         case .arrow:
             draftItem.points = [startPoint, midpoint(startPoint, point), point]
             draftItem.rect = boundingRect(for: draftItem.points)
+        case .freehand:
+            draftItem.points = freehandPoints(adding: point, to: draftItem.points)
+            draftItem.rect = boundingRect(for: draftItem.points)
+        case .numberedCircle:
+            draftItem.rect = AnnotationNumberedCircleMetrics.defaultRect(centeredAt: startPoint, imageSize: imageSize)
         case .rectangle, .filledRectangle, .ellipse, .pixelate, .blur:
             draftItem.rect = rect(from: startPoint, to: point)
         case .text:
@@ -768,7 +829,9 @@ private final class AnnotationEditorModel {
             [point, point]
         case .arrow:
             [point, point, point]
-        case .rectangle, .filledRectangle, .ellipse, .pixelate, .blur, .text:
+        case .freehand:
+            [point]
+        case .rectangle, .filledRectangle, .ellipse, .numberedCircle, .pixelate, .blur, .text:
             []
         }
     }
@@ -810,6 +873,27 @@ private final class AnnotationEditorModel {
         return points.dropFirst().reduce(CGRect(origin: first, size: .zero)) { rect, point in
             rect.union(CGRect(origin: point, size: .zero))
         }
+    }
+
+    private func freehandPoints(adding point: CGPoint, to points: [CGPoint]) -> [CGPoint] {
+        guard let last = points.last else { return [point] }
+
+        let minimumSpacing: CGFloat = 0.0015
+        guard hypot(point.x - last.x, point.y - last.y) >= minimumSpacing else {
+            return points
+        }
+
+        var updatedPoints = points
+        updatedPoints.append(point)
+        return updatedPoints
+    }
+
+    private func syncNextNumberedCircleValue() {
+        let currentMaximum = items
+            .filter { $0.tool == .numberedCircle }
+            .compactMap { Int($0.text) }
+            .max() ?? 0
+        nextNumberedCircleValue = currentMaximum + 1
     }
 
     private func midpoint(_ lhs: CGPoint, _ rhs: CGPoint) -> CGPoint {
@@ -1235,6 +1319,8 @@ private struct AnnotationItemView: View {
             } else if item.tool.isFilledShape {
                 itemPath
                     .fill(fillStyle)
+            } else if item.tool == .numberedCircle {
+                NumberedCircleAnnotationView(item: item, viewBounds: viewBounds)
             } else if item.tool == .text {
                 AnnotationTextItemView(
                     item: item,
@@ -1272,6 +1358,9 @@ private struct AnnotationItemView: View {
         case .pixelate, .blur:
             return Path(rect)
 
+        case .numberedCircle:
+            return Path(ellipseIn: rect)
+
         case .text:
             return Path()
 
@@ -1286,6 +1375,9 @@ private struct AnnotationItemView: View {
                 path.addLine(to: end)
             }
             return path
+
+        case .freehand:
+            return freehandPath(points: item.points.map(viewPoint))
 
         case .arrow:
             var path = Path()
@@ -1390,6 +1482,66 @@ private struct AnnotationItemView: View {
             x: imageFrame.minX + point.x * imageFrame.width,
             y: imageFrame.minY + point.y * imageFrame.height
         )
+    }
+
+    private func freehandPath(points: [CGPoint]) -> Path {
+        var path = Path()
+        guard let first = points.first else { return path }
+
+        path.move(to: first)
+        guard points.count > 1 else { return path }
+
+        if points.count == 2 {
+            path.addLine(to: points[1])
+            return path
+        }
+
+        for index in 1..<points.count {
+            let previous = points[index - 1]
+            let current = points[index]
+            path.addQuadCurve(to: midpoint(previous, current), control: previous)
+        }
+
+        path.addLine(to: points[points.count - 1])
+        return path
+    }
+
+    private func midpoint(_ lhs: CGPoint, _ rhs: CGPoint) -> CGPoint {
+        CGPoint(x: (lhs.x + rhs.x) / 2, y: (lhs.y + rhs.y) / 2)
+    }
+}
+
+private struct NumberedCircleAnnotationView: View {
+    let item: AnnotationItem
+    let viewBounds: CGRect
+
+    var body: some View {
+        let diameter = min(max(viewBounds.width, 1), max(viewBounds.height, 1))
+
+        ZStack {
+            Circle()
+                .fill(item.swatch.color)
+                .overlay {
+                    Circle()
+                        .stroke(
+                            item.swatch.numberedCircleOutlineColor,
+                            lineWidth: AnnotationNumberedCircleMetrics.outlineWidth(for: diameter)
+                        )
+                }
+
+            Text(item.text)
+                .font(.system(
+                    size: AnnotationNumberedCircleMetrics.fontSize(for: diameter, text: item.text),
+                    weight: .bold,
+                    design: .rounded
+                ))
+                .foregroundStyle(item.swatch.numberedCircleTextColor)
+                .lineLimit(1)
+                .minimumScaleFactor(0.5)
+                .monospacedDigit()
+        }
+        .frame(width: max(viewBounds.width, 1), height: max(viewBounds.height, 1))
+        .position(x: viewBounds.midX, y: viewBounds.midY)
     }
 }
 
@@ -1709,6 +1861,44 @@ private enum AnnotationTextMetrics {
         }
 
         return NSFont(descriptor: descriptor, size: size) ?? NSFont.systemFont(ofSize: size)
+    }
+}
+
+private enum AnnotationNumberedCircleMetrics {
+    static let normalizedDiameter: CGFloat = 0.039
+
+    static func defaultRect(centeredAt point: CGPoint, imageSize: CGSize) -> CGRect {
+        let height = normalizedDiameter
+        let width = imageSize.width > 0
+            ? height * max(imageSize.height, 1) / imageSize.width
+            : height
+        let maxX = max(0, 1 - width)
+        let maxY = max(0, 1 - height)
+
+        return CGRect(
+            x: min(max(point.x - width / 2, 0), maxX),
+            y: min(max(point.y - height / 2, 0), maxY),
+            width: width,
+            height: height
+        )
+    }
+
+    static func fontSize(for diameter: CGFloat, text: String) -> CGFloat {
+        let digitCount = max(text.count, 1)
+        let scale: CGFloat
+        if digitCount <= 2 {
+            scale = 0.54
+        } else if digitCount == 3 {
+            scale = 0.44
+        } else {
+            scale = 0.34
+        }
+
+        return max(8, diameter * scale)
+    }
+
+    static func outlineWidth(for diameter: CGFloat) -> CGFloat {
+        max(1, diameter * 0.055)
     }
 }
 
@@ -2140,6 +2330,10 @@ private struct AnnotationRedactionDensitySlider: View {
 // MARK: - Inspector
 
 private struct AnnotationEditorInspector: View {
+    private static let minimumColumnWidth: CGFloat = 260
+    private static let idealColumnWidth: CGFloat = 280
+    private static let maximumColumnWidth: CGFloat = 440
+
     @Bindable var model: AnnotationEditorModel
     let onPickWallpaper: () -> Void
     let onSaveAs: () -> Void
@@ -2172,9 +2366,11 @@ private struct AnnotationEditorInspector: View {
                             }
                         }
 
-                        AnnotationInspectorRow(title: "Stroke") {
-                            AnnotationStrokeMenu(strokeWidth: model.strokeWidth) { strokeWidth in
-                                model.setStrokeWidth(strokeWidth)
+                        if model.selectedTool != .numberedCircle {
+                            AnnotationInspectorRow(title: "Stroke") {
+                                AnnotationStrokeMenu(strokeWidth: model.strokeWidth) { strokeWidth in
+                                    model.setStrokeWidth(strokeWidth)
+                                }
                             }
                         }
 
@@ -2245,9 +2441,17 @@ private struct AnnotationEditorInspector: View {
             .padding(.vertical, 10)
             .background(.bar)
         }
-        .inspectorColumnWidth(280)
-        .frame(width: 280)
-        .frame(maxHeight: .infinity, alignment: .topLeading)
+        .inspectorColumnWidth(
+            min: Self.minimumColumnWidth,
+            ideal: Self.idealColumnWidth,
+            max: Self.maximumColumnWidth
+        )
+        .frame(
+            minWidth: Self.minimumColumnWidth,
+            maxWidth: .infinity,
+            maxHeight: .infinity,
+            alignment: .topLeading
+        )
     }
 }
 
@@ -3029,14 +3233,14 @@ private struct AnnotationItem: Identifiable, Equatable {
 
     var bounds: CGRect {
         switch tool {
-        case .line, .arrow:
+        case .line, .arrow, .freehand:
             let boundsPoints = tool == .arrow ? arrowPoints : points
             guard let first = boundsPoints.first else { return rect.standardized }
             let bounds = boundsPoints.dropFirst().reduce(CGRect(origin: first, size: .zero)) { rect, point in
                 rect.union(CGRect(origin: point, size: .zero))
             }
             return bounds.standardized
-        case .rectangle, .filledRectangle, .ellipse, .pixelate, .blur, .text:
+        case .rectangle, .filledRectangle, .ellipse, .numberedCircle, .pixelate, .blur, .text:
             return rect.standardized
         }
     }
@@ -3067,7 +3271,10 @@ private struct AnnotationItem: Identifiable, Equatable {
             }
 
             return hypot(start.x - end.x, start.y - end.y) >= minimumSize
-        case .rectangle, .filledRectangle, .ellipse, .pixelate, .blur:
+        case .freehand:
+            guard points.count >= 2 else { return false }
+            return pathLength(points) >= minimumSize
+        case .rectangle, .filledRectangle, .ellipse, .numberedCircle, .pixelate, .blur:
             return bounds.width >= minimumSize && bounds.height >= minimumSize
         case .text:
             return bounds.width >= minimumSize
@@ -3086,6 +3293,15 @@ private struct AnnotationItem: Identifiable, Equatable {
 
             return distance(from: point, toSegmentFrom: start, to: end) <= tolerance
 
+        case .freehand:
+            guard points.count >= 2 else { return false }
+            for index in 1..<points.count {
+                if distance(from: point, toSegmentFrom: points[index - 1], to: points[index]) <= tolerance {
+                    return true
+                }
+            }
+            return false
+
         case .arrow:
             guard let start = points.first,
                   let controlPoint,
@@ -3098,7 +3314,7 @@ private struct AnnotationItem: Identifiable, Equatable {
         case .rectangle, .filledRectangle, .pixelate, .blur, .text:
             return bounds.insetBy(dx: -tolerance, dy: -tolerance).contains(point)
 
-        case .ellipse:
+        case .ellipse, .numberedCircle:
             let expandedBounds = bounds.insetBy(dx: -tolerance, dy: -tolerance)
             guard expandedBounds.width > 0, expandedBounds.height > 0 else { return false }
 
@@ -3187,6 +3403,18 @@ private struct AnnotationItem: Identifiable, Equatable {
         points = [start, CGPoint(x: (start.x + end.x) / 2, y: (start.y + end.y) / 2), end]
     }
 
+    private func pathLength(_ points: [CGPoint]) -> CGFloat {
+        guard points.count >= 2 else { return 0 }
+
+        var length: CGFloat = 0
+        for index in 1..<points.count {
+            let previous = points[index - 1]
+            let current = points[index]
+            length += hypot(current.x - previous.x, current.y - previous.y)
+        }
+        return length
+    }
+
     private func distance(from point: CGPoint, toSegmentFrom start: CGPoint, to end: CGPoint) -> CGFloat {
         let dx = end.x - start.x
         let dy = end.y - start.y
@@ -3243,6 +3471,8 @@ private enum AnnotationTool: String, CaseIterable, Identifiable {
     case ellipse
     case line
     case arrow
+    case freehand
+    case numberedCircle
     case pixelate
     case blur
     case text
@@ -3261,6 +3491,10 @@ private enum AnnotationTool: String, CaseIterable, Identifiable {
             "Straight line"
         case .arrow:
             "Arrow"
+        case .freehand:
+            "Freehand"
+        case .numberedCircle:
+            "Numbered circle"
         case .pixelate:
             "Pixelate"
         case .blur:
@@ -3282,8 +3516,12 @@ private enum AnnotationTool: String, CaseIterable, Identifiable {
             "line.diagonal"
         case .arrow:
             "arrow.up.right"
+        case .freehand:
+            "scribble"
+        case .numberedCircle:
+            "1.circle.fill"
         case .pixelate:
-            "square.grid.3x3.fill"
+            "app.background.dotted"
         case .blur:
             "drop.fill"
         case .text:
@@ -3347,6 +3585,42 @@ enum AnnotationSwatch: String, CaseIterable, Identifiable {
             .white
         case .black:
             .black
+        }
+    }
+
+    var numberedCircleTextColor: Color {
+        switch self {
+        case .yellow, .white:
+            .black
+        case .red, .blue, .green, .black:
+            .white
+        }
+    }
+
+    var numberedCircleTextNSColor: NSColor {
+        switch self {
+        case .yellow, .white:
+            .black
+        case .red, .blue, .green, .black:
+            .white
+        }
+    }
+
+    var numberedCircleOutlineColor: Color {
+        switch self {
+        case .white, .yellow:
+            Color.black.opacity(0.22)
+        case .red, .blue, .green, .black:
+            Color.white.opacity(0.42)
+        }
+    }
+
+    var numberedCircleOutlineNSColor: NSColor {
+        switch self {
+        case .white, .yellow:
+            NSColor.black.withAlphaComponent(0.22)
+        case .red, .blue, .green, .black:
+            NSColor.white.withAlphaComponent(0.42)
         }
     }
 }
@@ -3465,6 +3739,13 @@ private enum AnnotationRenderer {
             case .ellipse:
                 context.strokeEllipse(in: renderedRect(item.bounds, width: width, height: height))
 
+            case .numberedCircle:
+                drawNumberedCircle(
+                    item,
+                    in: renderedRect(item.bounds, width: width, height: height),
+                    context: context
+                )
+
             case .pixelate:
                 applyPixelation(
                     in: renderedRect(item.bounds, width: width, height: height),
@@ -3502,6 +3783,14 @@ private enum AnnotationRenderer {
                 context.move(to: start)
                 context.addLine(to: end)
                 context.strokePath()
+
+            case .freehand:
+                drawFreehand(
+                    points: item.points,
+                    width: width,
+                    height: height,
+                    context: context
+                )
 
             case .arrow:
                 guard let first = item.points.first,
@@ -3553,6 +3842,79 @@ private enum AnnotationRenderer {
         context.addLine(to: geometry.tip)
         context.addLine(to: geometry.secondWing)
         context.strokePath()
+    }
+
+    private static func drawNumberedCircle(_ item: AnnotationItem, in rect: CGRect, context: CGContext) {
+        let diameter = min(rect.width, rect.height)
+        guard diameter > 1 else { return }
+
+        let outlineWidth = AnnotationNumberedCircleMetrics.outlineWidth(for: diameter)
+        context.saveGState()
+        context.setFillColor(item.swatch.nsColor.cgColor)
+        context.fillEllipse(in: rect)
+        context.setStrokeColor(item.swatch.numberedCircleOutlineNSColor.cgColor)
+        context.setLineWidth(outlineWidth)
+        context.strokeEllipse(in: rect.insetBy(dx: outlineWidth / 2, dy: outlineWidth / 2))
+        context.restoreGState()
+
+        let fontSize = AnnotationNumberedCircleMetrics.fontSize(for: diameter, text: item.text)
+        let font = NSFont.monospacedDigitSystemFont(ofSize: fontSize, weight: .bold)
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.alignment = .center
+        paragraphStyle.lineBreakMode = .byClipping
+
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: item.swatch.numberedCircleTextNSColor,
+            .paragraphStyle: paragraphStyle
+        ]
+        let attributedText = NSAttributedString(string: item.text, attributes: attributes)
+        let measuredRect = attributedText.boundingRect(
+            with: CGSize(width: rect.width, height: rect.height),
+            options: [.usesLineFragmentOrigin, .usesFontLeading]
+        )
+        let textRect = CGRect(
+            x: rect.minX,
+            y: rect.midY - measuredRect.height / 2 - fontSize * 0.04,
+            width: rect.width,
+            height: measuredRect.height + 2
+        )
+
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+        attributedText.draw(
+            with: textRect,
+            options: [.usesLineFragmentOrigin, .usesFontLeading]
+        )
+        NSGraphicsContext.restoreGraphicsState()
+    }
+
+    private static func drawFreehand(points: [CGPoint], width: Int, height: Int, context: CGContext) {
+        let renderedPoints = points.map { renderedPoint($0, width: width, height: height) }
+        guard let first = renderedPoints.first else { return }
+
+        context.beginPath()
+        context.move(to: first)
+        guard renderedPoints.count > 1 else { return }
+
+        if renderedPoints.count == 2 {
+            context.addLine(to: renderedPoints[1])
+            context.strokePath()
+            return
+        }
+
+        for index in 1..<renderedPoints.count {
+            let previous = renderedPoints[index - 1]
+            let current = renderedPoints[index]
+            context.addQuadCurve(to: midpoint(previous, current), control: previous)
+        }
+
+        context.addLine(to: renderedPoints[renderedPoints.count - 1])
+        context.strokePath()
+    }
+
+    private static func midpoint(_ lhs: CGPoint, _ rhs: CGPoint) -> CGPoint {
+        CGPoint(x: (lhs.x + rhs.x) / 2, y: (lhs.y + rhs.y) / 2)
     }
 
     private static func drawText(
