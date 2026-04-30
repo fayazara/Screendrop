@@ -300,12 +300,18 @@ struct AnnotationEditorInspector: View {
                     .padding(.top, 14)
                     .padding(.bottom, 16)
 
-                    if let inspectedTool = model.inspectedTool {
+                    if model.inspectedTool != nil {
                         AnnotationInspectorDivider()
 
                         // MARK: Style
                         VStack(alignment: .leading, spacing: 10) {
                             AnnotationInspectorSectionHeader("STYLE")
+
+                            if model.selectionCount > 1 {
+                                Text("\(model.selectionCount) annotations selected")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
 
                             AnnotationInspectorRow(title: "Color") {
                                 AnnotationColorMenu(selectedSwatch: model.selectedSwatch) { swatch in
@@ -313,7 +319,7 @@ struct AnnotationEditorInspector: View {
                                 }
                             }
 
-                            if inspectedTool != .numberedCircle {
+                            if model.isStrokeStyleAvailable {
                                 AnnotationInspectorRow(title: "Stroke") {
                                     AnnotationStrokeMenu(strokeWidth: model.strokeWidth) { strokeWidth in
                                         model.setStrokeWidth(strokeWidth)
@@ -321,7 +327,7 @@ struct AnnotationEditorInspector: View {
                                 }
                             }
 
-                            if inspectedTool.isRedactionTool {
+                            if model.isRedactionStyleAvailable {
                                 AnnotationBackgroundSlider(
                                     title: "Density",
                                     value: Binding(

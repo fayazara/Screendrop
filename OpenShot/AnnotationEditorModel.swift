@@ -15,9 +15,22 @@ final class AnnotationEditorModel {
     var imageSize: CGSize = .zero
     var items: [AnnotationItem] = []
     var draftItem: AnnotationItem?
-    var selectedItemID: AnnotationItem.ID?
+    var selectedItemIDs: Set<AnnotationItem.ID> = []
+    var selectedItemID: AnnotationItem.ID? {
+        get {
+            selectedItemIDs.count == 1 ? selectedItemIDs.first : nil
+        }
+        set {
+            if let newValue {
+                selectedItemIDs = [newValue]
+            } else {
+                selectedItemIDs = []
+            }
+        }
+    }
     var editingTextItemID: AnnotationItem.ID?
     var isTextPlacementArmed = false
+    var selectionRect: CGRect?
     var selectedTool: AnnotationTool = .rectangle
     var selectedSwatch: AnnotationSwatch = .red
     var strokeWidth: CGFloat = 4
@@ -31,17 +44,37 @@ final class AnnotationEditorModel {
         items.map(\.id)
     }
 
+    var selectionCount: Int {
+        selectedItemIDs.count
+    }
+
     var isTransformingExistingAnnotation: Bool {
         switch interaction {
-        case .moving, .resizing:
+        case .moving, .movingSelection, .resizing:
             true
-        case .drawing, .none:
+        case .drawing, .selecting, .none:
             false
         }
     }
 
     var inspectedTool: AnnotationTool? {
-        selectedItem?.tool ?? (selectedTool.createsAnnotation ? selectedTool : nil)
+        selectedItem?.tool ?? selectedItems.first?.tool ?? (selectedTool.createsAnnotation ? selectedTool : nil)
+    }
+
+    var isStrokeStyleAvailable: Bool {
+        if selectedItems.isEmpty {
+            return inspectedTool != .numberedCircle
+        }
+
+        return selectedItems.contains { $0.tool != .numberedCircle }
+    }
+
+    var isRedactionStyleAvailable: Bool {
+        if selectedItems.isEmpty {
+            return inspectedTool?.isRedactionTool == true
+        }
+
+        return selectedItems.contains { $0.tool.isRedactionTool }
     }
 
     // Text style defaults (applied to new text items, updated when selecting existing text)
@@ -67,9 +100,10 @@ final class AnnotationEditorModel {
         previewImage = ScreenshotImageLoader.downsampledImage(at: url, maxPixelSize: 2400)
         items = []
         draftItem = nil
-        selectedItemID = nil
+        selectedItemIDs = []
         editingTextItemID = nil
         isTextPlacementArmed = selectedTool == .text
+        selectionRect = nil
         backgroundSettings = AnnotationBackgroundSettings()
         interaction = nil
         nextNumberedCircleValue = 1
@@ -84,30 +118,41 @@ final class AnnotationEditorModel {
     }
 
     func beginInteraction(at location: CGPoint, imageFrame: CGRect, boundaryFrame: CGRect) {
+        let isExtendingSelection = isMultiSelectionModifierPressed
+
         guard let point = normalizedPoint(location, in: imageFrame, boundedBy: boundaryFrame, clamped: false) else {
-            selectedItemID = nil
-            editingTextItemID = nil
-            isTextPlacementArmed = false
-            interaction = nil
-            statePath = AnnotationToolState.idle.path(for: selectedTool)
+            if !isExtendingSelection {
+                clearSelection()
+            }
             return
         }
 
         if selectedTool == .select {
-            if beginSelectionInteraction(at: point, in: imageFrame, preservingSelectedTool: true) {
+            if beginSelectionInteraction(
+                at: point,
+                in: imageFrame,
+                preservingSelectedTool: true,
+                extendingSelection: isExtendingSelection
+            ) {
                 return
             }
 
-            clearSelection()
+            beginMarqueeSelection(at: point, extendingSelection: isExtendingSelection)
             return
         }
 
-        if beginSelectionInteraction(at: point, in: imageFrame, preservingSelectedTool: false) {
+        if beginSelectionInteraction(
+            at: point,
+            in: imageFrame,
+            preservingSelectedTool: false,
+            extendingSelection: isExtendingSelection
+        ) {
             return
         }
 
-        selectedItemID = nil
+        selectedItemIDs = []
         editingTextItemID = nil
+        selectionRect = nil
         guard selectedTool != .text || isTextPlacementArmed else {
             interaction = nil
             statePath = AnnotationToolState.idle.path(for: selectedTool)
@@ -137,6 +182,14 @@ final class AnnotationEditorModel {
             let delta = CGPoint(x: point.x - startPoint.x, y: point.y - startPoint.y)
             updateItem(id: id, item: originalItem.offsetBy(clampedDelta(delta, for: originalItem.bounds, within: allowedBounds)))
 
+        case .movingSelection(let ids, let startPoint, let originalItems):
+            let delta = CGPoint(x: point.x - startPoint.x, y: point.y - startPoint.y)
+            let clampedDelta = clampedDelta(delta, for: groupBounds(for: originalItems), within: allowedBounds)
+
+            for item in originalItems where ids.contains(item.id) {
+                updateItem(id: item.id, item: item.offsetBy(clampedDelta))
+            }
+
         case .resizing(let id, let handle, let originalItem):
             updateItem(id: id, item: resizedItem(
                 originalItem,
@@ -144,6 +197,14 @@ final class AnnotationEditorModel {
                 to: point,
                 lockAspectRatio: isAspectRatioLocked
             ))
+
+        case .selecting(let startPoint, let originalSelection, let extendsSelection):
+            updateMarqueeSelection(
+                from: startPoint,
+                to: point,
+                originalSelection: originalSelection,
+                extendsSelection: extendsSelection
+            )
         }
     }
 
@@ -184,8 +245,17 @@ final class AnnotationEditorModel {
             }
             draftItem = nil
 
-        case .moving, .resizing:
+        case .moving, .movingSelection, .resizing:
             break
+
+        case .selecting(let startPoint, let originalSelection, let extendsSelection):
+            updateMarqueeSelection(
+                from: startPoint,
+                to: point,
+                originalSelection: originalSelection,
+                extendsSelection: extendsSelection
+            )
+            selectionRect = nil
         }
 
         statePath = AnnotationToolState.idle.path(for: selectedTool)
@@ -194,10 +264,13 @@ final class AnnotationEditorModel {
     private func beginSelectionInteraction(
         at point: CGPoint,
         in imageFrame: CGRect,
-        preservingSelectedTool: Bool
+        preservingSelectedTool: Bool,
+        extendingSelection: Bool
     ) -> Bool {
         // Text items don't have resize handles -- skip resize hit-test for them.
-        if let selectedItem, selectedItem.tool != .text,
+        if !extendingSelection,
+           let selectedItem,
+           selectedItem.tool != .text,
            let resizeHandle = hitTestResizeHandle(point, in: imageFrame, item: selectedItem) {
             applyStyleFromItem(selectedItem, updateSelectedTool: !preservingSelectedTool)
             draftItem = nil
@@ -209,11 +282,25 @@ final class AnnotationEditorModel {
 
         guard let item = hitTest(point) else { return false }
 
+        if extendingSelection {
+            toggleSelection(of: item, preservingSelectedTool: preservingSelectedTool)
+            draftItem = nil
+            interaction = nil
+            statePath = AnnotationToolState.idle.path(for: selectedTool)
+            return true
+        }
+
+        let shouldPreserveMultipleSelection = selectedItemIDs.count > 1 && selectedItemIDs.contains(item.id)
+
         // For text items: first click selects, second click on same item enters editing.
         let shouldBeginTextEditing = item.tool == .text
             && selectedItemID == item.id
             && editingTextItemID != item.id
-        selectedItemID = item.id
+
+        if !shouldPreserveMultipleSelection {
+            selectedItemID = item.id
+        }
+
         applyStyleFromItem(item, updateSelectedTool: !preservingSelectedTool)
         draftItem = nil
         history.push(items)
@@ -227,7 +314,14 @@ final class AnnotationEditorModel {
 
         editingTextItemID = nil
 
-        if item.tool != .text,
+        if shouldPreserveMultipleSelection {
+            interaction = .movingSelection(
+                ids: selectedItemIDs,
+                startPoint: point,
+                originalItems: selectedItems
+            )
+            statePath = AnnotationToolState.translating.path(for: selectedTool)
+        } else if item.tool != .text,
            let resizeHandle = hitTestResizeHandle(point, in: imageFrame, item: item) {
             interaction = .resizing(id: item.id, handle: resizeHandle, originalItem: item)
             statePath = AnnotationToolState.resizing.path(for: selectedTool)
@@ -239,12 +333,26 @@ final class AnnotationEditorModel {
         return true
     }
 
+    private func beginMarqueeSelection(at point: CGPoint, extendingSelection: Bool) {
+        editingTextItemID = nil
+        isTextPlacementArmed = false
+        draftItem = nil
+        selectionRect = CGRect(origin: point, size: .zero)
+        interaction = .selecting(
+            startPoint: point,
+            originalSelection: extendingSelection ? selectedItemIDs : [],
+            extendsSelection: extendingSelection
+        )
+        statePath = AnnotationToolState.drawing.path(for: selectedTool)
+    }
+
     private func clearSelection() {
-        selectedItemID = nil
+        selectedItemIDs = []
         editingTextItemID = nil
         isTextPlacementArmed = false
         interaction = nil
         draftItem = nil
+        selectionRect = nil
         statePath = AnnotationToolState.idle.path(for: selectedTool)
     }
 
@@ -287,9 +395,9 @@ final class AnnotationEditorModel {
     func setSwatch(_ swatch: AnnotationSwatch) {
         selectedSwatch = swatch
 
-        if let selectedItemID {
+        if !selectedItemIDs.isEmpty {
             history.push(items)
-            updateItem(id: selectedItemID) { item in
+            updateSelectedItems { item in
                 item.swatch = swatch
             }
         }
@@ -303,9 +411,9 @@ final class AnnotationEditorModel {
     func setStrokeWidth(_ strokeWidth: CGFloat) {
         self.strokeWidth = strokeWidth
 
-        if let selectedItemID {
+        if !selectedItemIDs.isEmpty {
             history.push(items)
-            updateItem(id: selectedItemID) { item in
+            updateSelectedItems { item in
                 item.strokeWidth = strokeWidth
             }
         }
@@ -319,9 +427,9 @@ final class AnnotationEditorModel {
     func setRedactionDensity(_ redactionDensity: CGFloat) {
         self.redactionDensity = redactionDensity
 
-        if let selectedItemID {
+        if !selectedItemIDs.isEmpty {
             history.push(items)
-            updateItem(id: selectedItemID) { item in
+            updateSelectedItems { item in
                 item.redactionDensity = redactionDensity
             }
         }
@@ -340,16 +448,30 @@ final class AnnotationEditorModel {
     }
 
     func deleteSelectedAnnotation() {
-        guard let selectedItemID else { return }
+        guard !selectedItemIDs.isEmpty else { return }
 
         history.push(items)
-        items.removeAll { $0.id == selectedItemID }
-        self.selectedItemID = nil
+        items.removeAll { selectedItemIDs.contains($0.id) }
+        selectedItemIDs = []
         editingTextItemID = nil
         isTextPlacementArmed = false
         interaction = nil
         draftItem = nil
+        selectionRect = nil
         syncNextNumberedCircleValue()
+        statePath = AnnotationToolState.idle.path(for: selectedTool)
+    }
+
+    func selectAllAnnotations() {
+        guard !items.isEmpty else { return }
+
+        selectedItemIDs = Set(items.map(\.id))
+        editingTextItemID = nil
+        isTextPlacementArmed = false
+        interaction = nil
+        draftItem = nil
+        selectionRect = nil
+        selectedTool = .select
         statePath = AnnotationToolState.idle.path(for: selectedTool)
     }
 
@@ -507,7 +629,7 @@ final class AnnotationEditorModel {
         if let item = items.first(where: { $0.id == editingTextItemID }),
            item.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             items.removeAll { $0.id == editingTextItemID }
-            selectedItemID = nil
+            selectedItemIDs.remove(editingTextItemID)
         }
 
         self.editingTextItemID = nil
@@ -517,10 +639,11 @@ final class AnnotationEditorModel {
         guard let restoredItems = history.undo(current: items) else { return }
 
         items = restoredItems
-        selectedItemID = nil
+        selectedItemIDs = []
         editingTextItemID = nil
         draftItem = nil
         interaction = nil
+        selectionRect = nil
         syncNextNumberedCircleValue()
         statePath = AnnotationToolState.idle.path(for: selectedTool)
     }
@@ -529,10 +652,11 @@ final class AnnotationEditorModel {
         guard let restoredItems = history.redo(current: items) else { return }
 
         items = restoredItems
-        selectedItemID = nil
+        selectedItemIDs = []
         editingTextItemID = nil
         draftItem = nil
         interaction = nil
+        selectionRect = nil
         syncNextNumberedCircleValue()
         statePath = AnnotationToolState.idle.path(for: selectedTool)
     }
@@ -578,6 +702,52 @@ final class AnnotationEditorModel {
     private var selectedItem: AnnotationItem? {
         guard let selectedItemID else { return nil }
         return items.first { $0.id == selectedItemID }
+    }
+
+    private var selectedItems: [AnnotationItem] {
+        items.filter { selectedItemIDs.contains($0.id) }
+    }
+
+    private func toggleSelection(of item: AnnotationItem, preservingSelectedTool: Bool) {
+        editingTextItemID = nil
+        isTextPlacementArmed = false
+        selectionRect = nil
+
+        if selectedItemIDs.contains(item.id) {
+            selectedItemIDs.remove(item.id)
+        } else {
+            selectedItemIDs.insert(item.id)
+        }
+
+        if let selectedItem {
+            applyStyleFromItem(selectedItem, updateSelectedTool: !preservingSelectedTool)
+        } else if !selectedItemIDs.isEmpty {
+            selectedSwatch = item.swatch
+            strokeWidth = item.strokeWidth
+            redactionDensity = item.redactionDensity
+        }
+    }
+
+    private func updateMarqueeSelection(
+        from startPoint: CGPoint,
+        to point: CGPoint,
+        originalSelection: Set<AnnotationItem.ID>,
+        extendsSelection: Bool
+    ) {
+        let rect = rect(from: startPoint, to: point).standardized
+        selectionRect = rect
+
+        let selectedByMarquee = Set(items.compactMap { item in
+            item.bounds.intersects(rect) ? item.id : nil
+        })
+
+        selectedItemIDs = extendsSelection
+            ? originalSelection.union(selectedByMarquee)
+            : selectedByMarquee
+
+        if let selectedItem {
+            applyStyleFromItem(selectedItem, updateSelectedTool: false)
+        }
     }
 
     private func hitTestResizeHandle(
@@ -662,6 +832,11 @@ final class AnnotationEditorModel {
 
     private var isAspectRatioLocked: Bool {
         NSEvent.modifierFlags.contains(.shift)
+    }
+
+    private var isMultiSelectionModifierPressed: Bool {
+        let flags = NSEvent.modifierFlags
+        return flags.contains(.shift) || flags.contains(.command)
     }
 
     private var squareAspectRatio: CGFloat {
@@ -773,6 +948,14 @@ final class AnnotationEditorModel {
         )
     }
 
+    private func groupBounds(for items: [AnnotationItem]) -> CGRect {
+        guard let first = items.first else { return .zero }
+
+        return items.dropFirst().reduce(first.bounds) { bounds, item in
+            bounds.union(item.bounds)
+        }
+    }
+
     private func updateItem(id: AnnotationItem.ID, item: AnnotationItem) {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
         items[index] = item
@@ -783,6 +966,12 @@ final class AnnotationEditorModel {
         var item = items[index]
         mutate(&item)
         items[index] = item
+    }
+
+    private func updateSelectedItems(mutate: (inout AnnotationItem) -> Void) {
+        for index in items.indices where selectedItemIDs.contains(items[index].id) {
+            mutate(&items[index])
+        }
     }
 
     private func boundingRect(for points: [CGPoint]) -> CGRect {
@@ -823,7 +1012,9 @@ final class AnnotationEditorModel {
 private enum AnnotationInteraction {
     case drawing(startPoint: CGPoint)
     case moving(id: AnnotationItem.ID, startPoint: CGPoint, originalItem: AnnotationItem)
+    case movingSelection(ids: Set<AnnotationItem.ID>, startPoint: CGPoint, originalItems: [AnnotationItem])
     case resizing(id: AnnotationItem.ID, handle: AnnotationResizeHandle, originalItem: AnnotationItem)
+    case selecting(startPoint: CGPoint, originalSelection: Set<AnnotationItem.ID>, extendsSelection: Bool)
 }
 
 private enum AnnotationToolState: String {

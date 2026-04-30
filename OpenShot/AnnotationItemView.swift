@@ -12,6 +12,7 @@ struct AnnotationItemView: View {
     let originalImageSize: CGSize
     let imageFrame: CGRect
     let isSelected: Bool
+    let showsResizeHandles: Bool
     let isEditingText: Bool
     let text: Binding<String>
     let onCommitText: () -> Void
@@ -122,7 +123,14 @@ struct AnnotationItemView: View {
 
     @ViewBuilder
     private var selectionOverlay: some View {
-        if item.tool.usesEndpoints {
+        if !showsResizeHandles {
+            SelectionOutlineFrame()
+                .frame(
+                    width: max(viewBounds.width + selectionOutset * 2, 18),
+                    height: max(viewBounds.height + selectionOutset * 2, 18)
+                )
+                .position(x: viewBounds.midX, y: viewBounds.midY)
+        } else if item.tool.usesEndpoints {
             ForEach(endpointViewPoints.indices, id: \.self) { index in
                 SelectionHandle()
                     .position(endpointViewPoints[index])
@@ -571,6 +579,13 @@ private struct SelectionFrame: View {
 }
 
 private struct TextSelectionFrame: View {
+    var body: some View {
+        Rectangle()
+            .stroke(AnnotationSelectionStyle.color, lineWidth: 1.5)
+    }
+}
+
+private struct SelectionOutlineFrame: View {
     var body: some View {
         Rectangle()
             .stroke(AnnotationSelectionStyle.color, lineWidth: 1.5)

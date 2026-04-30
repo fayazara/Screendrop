@@ -48,6 +48,7 @@ struct AnnotationEditorWindow: View {
                 onDelete: model.deleteSelectedAnnotation,
                 onUndo: model.undo,
                 onRedo: model.redo,
+                onSelectAll: model.selectAllAnnotations,
                 onSelectTool: model.selectTool
             ))
             .inspector(isPresented: $isInspectorPresented) {

@@ -10,6 +10,7 @@ struct AnnotationKeyCommandHandler: NSViewRepresentable {
     let onDelete: () -> Void
     let onUndo: () -> Void
     let onRedo: () -> Void
+    let onSelectAll: () -> Void
     let onSelectTool: (AnnotationTool) -> Void
 
     func makeNSView(context: Context) -> AnnotationKeyCommandHandlerView {
@@ -17,6 +18,7 @@ struct AnnotationKeyCommandHandler: NSViewRepresentable {
         view.onDelete = onDelete
         view.onUndo = onUndo
         view.onRedo = onRedo
+        view.onSelectAll = onSelectAll
         view.onSelectTool = onSelectTool
         return view
     }
@@ -25,6 +27,7 @@ struct AnnotationKeyCommandHandler: NSViewRepresentable {
         nsView.onDelete = onDelete
         nsView.onUndo = onUndo
         nsView.onRedo = onRedo
+        nsView.onSelectAll = onSelectAll
         nsView.onSelectTool = onSelectTool
     }
 }
@@ -33,6 +36,7 @@ final class AnnotationKeyCommandHandlerView: NSView {
     var onDelete: (() -> Void)?
     var onUndo: (() -> Void)?
     var onRedo: (() -> Void)?
+    var onSelectAll: (() -> Void)?
     var onSelectTool: ((AnnotationTool) -> Void)?
 
     private var localKeyMonitor: Any?
@@ -75,6 +79,11 @@ final class AnnotationKeyCommandHandlerView: NSView {
                 return nil
             }
 
+            if Self.isSelectAll(event) {
+                self.onSelectAll?()
+                return nil
+            }
+
             if let tool = Self.toolShortcut(for: event) {
                 self.onSelectTool?(tool)
                 return nil
@@ -103,6 +112,12 @@ final class AnnotationKeyCommandHandlerView: NSView {
         event.modifierFlags.contains(.command)
             && event.modifierFlags.contains(.shift)
             && event.charactersIgnoringModifiers?.lowercased() == "z"
+    }
+
+    private static func isSelectAll(_ event: NSEvent) -> Bool {
+        event.modifierFlags.contains(.command)
+            && !event.modifierFlags.contains(.shift)
+            && event.charactersIgnoringModifiers?.lowercased() == "a"
     }
 
     private static func toolShortcut(for event: NSEvent) -> AnnotationTool? {

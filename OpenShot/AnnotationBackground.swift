@@ -578,12 +578,11 @@ enum AnnotationBackgroundRenderer {
         let imageRect = flipped(layout.imageRect, canvasHeight: CGFloat(height)).integral
         let baseCornerRadius = settings.cornerRadius * min(imageRect.width, imageRect.height)
         let m = settings.alignment.cornerRadiusMultipliers
-        // Note: CGContext uses flipped coordinates, so top/bottom are swapped
         let cornerRadii = PerCornerRadii(
-            topLeft: baseCornerRadius * m.bottomLeft,
-            topRight: baseCornerRadius * m.bottomRight,
-            bottomLeft: baseCornerRadius * m.topLeft,
-            bottomRight: baseCornerRadius * m.topRight
+            topLeft: baseCornerRadius * m.topLeft,
+            topRight: baseCornerRadius * m.topRight,
+            bottomLeft: baseCornerRadius * m.bottomLeft,
+            bottomRight: baseCornerRadius * m.bottomRight
         )
         let clipPath = PerCornerRadii.path(in: imageRect, radii: cornerRadii)
         drawShadow(path: clipPath, strength: settings.shadow, context: context)

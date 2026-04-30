@@ -74,7 +74,8 @@ struct AnnotationCanvas: View {
                         image: image,
                         originalImageSize: model.imageSize,
                         imageFrame: imageFrame,
-                        isSelected: item.id == model.selectedItemID,
+                        isSelected: model.selectedItemIDs.contains(item.id),
+                        showsResizeHandles: model.selectionCount == 1,
                         isEditingText: item.id == model.editingTextItemID,
                         text: Binding(
                             get: { item.text },
@@ -94,11 +95,24 @@ struct AnnotationCanvas: View {
                         originalImageSize: model.imageSize,
                         imageFrame: imageFrame,
                         isSelected: false,
+                        showsResizeHandles: false,
                         isEditingText: false,
                         text: .constant(draftItem.text),
                         onCommitText: {},
                         onTextSizeChange: { _ in }
                     )
+                }
+
+                if let selectionRect = model.selectionRect {
+                    AnnotationMarqueeSelectionView()
+                        .frame(
+                            width: max(viewRect(selectionRect, in: imageFrame).width, 1),
+                            height: max(viewRect(selectionRect, in: imageFrame).height, 1)
+                        )
+                        .position(
+                            x: viewRect(selectionRect, in: imageFrame).midX,
+                            y: viewRect(selectionRect, in: imageFrame).midY
+                        )
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -120,7 +134,7 @@ struct AnnotationCanvas: View {
             .onChange(of: model.itemIDs) { _, _ in
                 refreshCursor(imageFrame: imageFrame, boundaryFrame: boundaryFrame)
             }
-            .onChange(of: model.selectedItemID) { _, _ in
+            .onChange(of: model.selectedItemIDs) { _, _ in
                 refreshCursor(imageFrame: imageFrame, boundaryFrame: boundaryFrame)
             }
             .onDisappear {
@@ -190,6 +204,15 @@ struct AnnotationCanvas: View {
         )
     }
 
+    private func viewRect(_ rect: CGRect, in imageFrame: CGRect) -> CGRect {
+        CGRect(
+            x: imageFrame.minX + rect.minX * imageFrame.width,
+            y: imageFrame.minY + rect.minY * imageFrame.height,
+            width: rect.width * imageFrame.width,
+            height: rect.height * imageFrame.height
+        )
+    }
+
     private func refreshCursor(imageFrame: CGRect, boundaryFrame: CGRect) {
         guard let hoveredLocation else { return }
         updateCursor(at: hoveredLocation, imageFrame: imageFrame, boundaryFrame: boundaryFrame)
@@ -216,6 +239,20 @@ struct AnnotationCanvas: View {
         guard currentCursor != cursor else { return }
         currentCursor = cursor
         cursor.nsCursor.set()
+    }
+}
+
+private struct AnnotationMarqueeSelectionView: View {
+    var body: some View {
+        Rectangle()
+            .fill(Color.accentColor.opacity(0.08))
+            .overlay {
+                Rectangle()
+                    .stroke(
+                        Color.accentColor.opacity(0.65),
+                        style: StrokeStyle(lineWidth: 1.5, dash: [5, 4])
+                    )
+            }
     }
 }
 
