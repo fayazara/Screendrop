@@ -337,14 +337,24 @@ private final class AnnotationEditorModel {
 
         switch interaction {
         case .drawing(let startPoint):
-            updateDraftItem(from: startPoint, to: point, within: allowedBounds)
+            updateDraftItem(
+                from: startPoint,
+                to: point,
+                within: allowedBounds,
+                lockAspectRatio: isAspectRatioLocked
+            )
 
         case .moving(let id, let startPoint, let originalItem):
             let delta = CGPoint(x: point.x - startPoint.x, y: point.y - startPoint.y)
             updateItem(id: id, item: originalItem.offsetBy(clampedDelta(delta, for: originalItem.bounds, within: allowedBounds)))
 
         case .resizing(let id, let handle, let originalItem):
-            updateItem(id: id, item: resizedItem(originalItem, handle: handle, to: point))
+            updateItem(id: id, item: resizedItem(
+                originalItem,
+                handle: handle,
+                to: point,
+                lockAspectRatio: isAspectRatioLocked
+            ))
         }
     }
 
@@ -360,7 +370,12 @@ private final class AnnotationEditorModel {
 
         switch interaction {
         case .drawing(let startPoint):
-            updateDraftItem(from: startPoint, to: point, within: allowedBounds)
+            updateDraftItem(
+                from: startPoint,
+                to: point,
+                within: allowedBounds,
+                lockAspectRatio: isAspectRatioLocked
+            )
 
             guard let item = draftItem,
                   item.isRenderable(minimumSize: minimumItemSize, allowEmptyText: item.tool == .text) else {
@@ -733,7 +748,12 @@ private final class AnnotationEditorModel {
         statePath = AnnotationToolState.idle.path(for: selectedTool)
     }
 
-    private func updateDraftItem(from startPoint: CGPoint, to point: CGPoint, within allowedBounds: CGRect) {
+    private func updateDraftItem(
+        from startPoint: CGPoint,
+        to point: CGPoint,
+        within allowedBounds: CGRect,
+        lockAspectRatio: Bool
+    ) {
         guard var draftItem else { return }
 
         switch selectedTool {
@@ -751,7 +771,8 @@ private final class AnnotationEditorModel {
         case .numberedCircle:
             draftItem.rect = AnnotationNumberedCircleMetrics.defaultRect(centeredAt: startPoint, imageSize: imageSize, within: allowedBounds)
         case .rectangle, .filledRectangle, .ellipse, .pixelate, .blur:
-            draftItem.rect = rect(from: startPoint, to: point)
+            let aspectRatio = selectedTool.supportsAspectLock && lockAspectRatio ? squareAspectRatio : nil
+            draftItem.rect = rect(from: startPoint, to: point, aspectRatio: aspectRatio)
         case .text:
             draftItem.rect = defaultTextRect(at: startPoint, lineHeight: draftItem.textLineHeight, within: allowedBounds)
         }
@@ -850,19 +871,60 @@ private final class AnnotationEditorModel {
         )
     }
 
-    private func rect(from startPoint: CGPoint, to endPoint: CGPoint) -> CGRect {
-        CGRect(
-            x: min(startPoint.x, endPoint.x),
-            y: min(startPoint.y, endPoint.y),
-            width: abs(endPoint.x - startPoint.x),
-            height: abs(endPoint.y - startPoint.y)
+    private var isAspectRatioLocked: Bool {
+        NSEvent.modifierFlags.contains(.shift)
+    }
+
+    private var squareAspectRatio: CGFloat {
+        guard imageSize.width > 0, imageSize.height > 0 else { return 1 }
+        return imageSize.height / imageSize.width
+    }
+
+    private func rect(from startPoint: CGPoint, to endPoint: CGPoint, aspectRatio: CGFloat? = nil) -> CGRect {
+        let adjustedEndPoint: CGPoint
+        if let aspectRatio, aspectRatio > 0 {
+            adjustedEndPoint = aspectLockedPoint(from: startPoint, to: endPoint, aspectRatio: aspectRatio)
+        } else {
+            adjustedEndPoint = endPoint
+        }
+
+        return CGRect(
+            x: min(startPoint.x, adjustedEndPoint.x),
+            y: min(startPoint.y, adjustedEndPoint.y),
+            width: abs(adjustedEndPoint.x - startPoint.x),
+            height: abs(adjustedEndPoint.y - startPoint.y)
         ).standardized
+    }
+
+    private func aspectLockedPoint(from anchor: CGPoint, to point: CGPoint, aspectRatio: CGFloat) -> CGPoint {
+        let deltaX = point.x - anchor.x
+        let deltaY = point.y - anchor.y
+        let proposedWidth = abs(deltaX)
+        let proposedHeight = abs(deltaY)
+
+        guard proposedWidth > 0, proposedHeight > 0 else { return point }
+
+        let width: CGFloat
+        let height: CGFloat
+        if proposedWidth / aspectRatio <= proposedHeight {
+            width = proposedWidth
+            height = proposedWidth / aspectRatio
+        } else {
+            height = proposedHeight
+            width = proposedHeight * aspectRatio
+        }
+
+        return CGPoint(
+            x: anchor.x + width * (deltaX < 0 ? -1 : 1),
+            y: anchor.y + height * (deltaY < 0 ? -1 : 1)
+        )
     }
 
     private func resizedItem(
         _ originalItem: AnnotationItem,
         handle: AnnotationResizeHandle,
-        to point: CGPoint
+        to point: CGPoint,
+        lockAspectRatio: Bool
     ) -> AnnotationItem {
         if originalItem.tool.usesEndpoints {
             return originalItem.withEndpoint(handle, movedTo: point)
@@ -875,8 +937,11 @@ private final class AnnotationEditorModel {
             from: anchor,
             minimumSize: minimumItemSize
         )
+        let aspectRatio: CGFloat? = originalItem.tool.supportsAspectLock && lockAspectRatio && originalRect.height > 0
+            ? originalRect.width / originalRect.height
+            : nil
 
-        return originalItem.resized(to: rect(from: anchor, to: constrainedPoint))
+        return originalItem.resized(to: rect(from: anchor, to: constrainedPoint, aspectRatio: aspectRatio))
     }
 
     private func initialPoints(for tool: AnnotationTool, at point: CGPoint) -> [CGPoint] {
@@ -1417,8 +1482,14 @@ private struct AnnotationItemView: View {
         case .select:
             return Path()
 
-        case .rectangle, .filledRectangle:
+        case .rectangle:
             return Path(rect)
+
+        case .filledRectangle:
+            return Path(
+                roundedRect: rect,
+                cornerRadius: AnnotationFilledRectangleMetrics.cornerRadius(for: rect)
+            )
 
         case .pixelate, .blur:
             return Path(rect)
@@ -1971,6 +2042,12 @@ private enum AnnotationNumberedCircleMetrics {
     }
 }
 
+private enum AnnotationFilledRectangleMetrics {
+    static func cornerRadius(for rect: CGRect) -> CGFloat {
+        min(12, max(3, min(rect.width, rect.height) * 0.08))
+    }
+}
+
 private struct RedactionPreview: View {
     let image: NSImage
     let item: AnnotationItem
@@ -2113,7 +2190,7 @@ private struct SelectionFrame: View {
         GeometryReader { proxy in
             ZStack {
                 Rectangle()
-                    .stroke(Color.accentColor, lineWidth: 2)
+                    .stroke(AnnotationSelectionStyle.color, lineWidth: 2)
 
                 SelectionHandle().position(x: 0, y: 0)
                 SelectionHandle().position(x: proxy.size.width, y: 0)
@@ -2127,14 +2204,14 @@ private struct SelectionFrame: View {
 private struct TextSelectionFrame: View {
     var body: some View {
         Rectangle()
-            .stroke(Color.accentColor, lineWidth: 1.5)
+            .stroke(AnnotationSelectionStyle.color, lineWidth: 1.5)
     }
 }
 
 private struct SelectionHandle: View {
     var body: some View {
         Circle()
-            .fill(Color.accentColor)
+            .fill(AnnotationSelectionStyle.color)
             .frame(width: 12, height: 12)
             .overlay(Circle().stroke(.white, lineWidth: 2))
             .shadow(color: .black.opacity(0.18), radius: 2, x: 0, y: 1)
@@ -2146,9 +2223,13 @@ private struct CurveControlHandle: View {
         Circle()
             .fill(.white)
             .frame(width: 10, height: 10)
-            .overlay(Circle().stroke(Color.accentColor, lineWidth: 2))
+            .overlay(Circle().stroke(AnnotationSelectionStyle.color, lineWidth: 2))
             .shadow(color: .black.opacity(0.18), radius: 2, x: 0, y: 1)
     }
+}
+
+private enum AnnotationSelectionStyle {
+    static let color = Color.accentColor.opacity(0.5)
 }
 
 private struct AnnotationArrowGeometry {
@@ -2277,15 +2358,11 @@ private struct AnnotationColorMenu: View {
     let selectedSwatch: AnnotationSwatch
     let onSelect: (AnnotationSwatch) -> Void
 
+    @State private var isPresented = false
+
     var body: some View {
-        Menu {
-            ForEach(AnnotationSwatch.allCases) { swatch in
-                Button {
-                    onSelect(swatch)
-                } label: {
-                    Label(swatch.title, systemImage: selectedSwatch == swatch ? "checkmark.circle.fill" : "circle.fill")
-                }
-            }
+        Button {
+            isPresented.toggle()
         } label: {
             HStack(spacing: 6) {
                 Circle()
@@ -2315,8 +2392,17 @@ private struct AnnotationColorMenu: View {
             )
             .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         }
-        .menuStyle(.button)
         .buttonStyle(.plain)
+        .popover(isPresented: $isPresented, arrowEdge: .trailing) {
+            AnnotationColorPopover(
+                selectedSwatch: selectedSwatch,
+                onSelect: { swatch in
+                    onSelect(swatch)
+                    isPresented = false
+                },
+                onCustomSelect: onSelect
+            )
+        }
         .help("Color")
     }
 }
@@ -2326,30 +2412,27 @@ private struct AnnotationStrokeMenu: View {
     let onSelect: (CGFloat) -> Void
 
     private let widths: [CGFloat] = [2, 4, 6, 8, 12]
+    @State private var isPresented = false
 
     var body: some View {
-        Menu {
-            ForEach(widths, id: \.self) { width in
-                Button {
-                    onSelect(width)
-                } label: {
-                    Label("\(Int(width)) px", systemImage: strokeWidth == width ? "checkmark" : "line.diagonal")
-                }
-            }
+        Button {
+            isPresented.toggle()
         } label: {
-            HStack(spacing: 6) {
+            HStack(spacing: 10) {
                 StrokePreview(width: strokeWidth)
-                    .frame(width: 18, height: 12)
+                    .frame(width: 30, height: 16)
 
                 Text("\(Int(strokeWidth))px")
                     .font(.system(size: 12))
                     .foregroundStyle(.primary.opacity(0.8))
+                    .frame(minWidth: 28, alignment: .leading)
 
-                Spacer()
+                Spacer(minLength: 10)
 
                 Image(systemName: "chevron.up.chevron.down")
                     .font(.system(size: 8, weight: .semibold))
                     .foregroundStyle(.tertiary)
+                    .padding(.leading, 2)
             }
             .padding(.horizontal, 8)
             .frame(height: 26)
@@ -2363,9 +2446,177 @@ private struct AnnotationStrokeMenu: View {
             )
             .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         }
-        .menuStyle(.button)
         .buttonStyle(.plain)
+        .popover(isPresented: $isPresented, arrowEdge: .trailing) {
+            AnnotationStrokePopover(
+                strokeWidth: strokeWidth,
+                widths: widths,
+                onSelect: { width in
+                    onSelect(width)
+                    isPresented = false
+                }
+            )
+        }
         .help("Stroke thickness")
+    }
+}
+
+private struct AnnotationColorPopover: View {
+    let selectedSwatch: AnnotationSwatch
+    let onSelect: (AnnotationSwatch) -> Void
+    let onCustomSelect: (AnnotationSwatch) -> Void
+
+    private var customColor: Binding<Color> {
+        Binding(
+            get: { selectedSwatch.color },
+            set: { onCustomSelect(.custom(from: $0)) }
+        )
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            ForEach(AnnotationSwatch.allCases) { swatch in
+                Button {
+                    onSelect(swatch)
+                } label: {
+                    AnnotationColorOptionRow(
+                        swatch: swatch,
+                        isSelected: selectedSwatch == swatch
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+
+            Divider()
+                .padding(.vertical, 4)
+
+            ColorPicker(selection: customColor, supportsOpacity: false) {
+                HStack(spacing: 12) {
+                    Circle()
+                        .fill(AngularGradient(
+                            colors: [.red, .yellow, .green, .cyan, .blue, .purple, .red],
+                            center: .center
+                        ))
+                        .frame(width: 22, height: 22)
+                        .overlay(Circle().stroke(.white.opacity(0.18), lineWidth: 0.5))
+
+                    Text("Custom")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.primary)
+                }
+            }
+            .padding(.horizontal, 7)
+            .padding(.vertical, 5)
+        }
+        .padding(8)
+        .frame(width: 172)
+    }
+}
+
+private struct AnnotationColorOptionRow: View {
+    let swatch: AnnotationSwatch
+    let isSelected: Bool
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Circle()
+                .fill(swatch.color)
+                .frame(width: 24, height: 24)
+                .overlay(Circle().stroke(.white.opacity(0.16), lineWidth: 0.5))
+                .overlay {
+                    if isSelected {
+                        Circle()
+                            .stroke(Color.accentColor.opacity(0.38), lineWidth: 6)
+                            .frame(width: 32, height: 32)
+                    }
+                }
+
+            Text(swatch.title)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.primary)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 7)
+        .frame(height: 34)
+        .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .background {
+            if isSelected {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color.accentColor.opacity(0.10))
+            }
+        }
+    }
+}
+
+private struct AnnotationColorWellMenu: View {
+    let selectedSwatch: AnnotationSwatch
+    let onSelect: (AnnotationSwatch) -> Void
+
+    @State private var isPresented = false
+
+    var body: some View {
+        Button {
+            isPresented.toggle()
+        } label: {
+            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                .fill(selectedSwatch.color)
+                .frame(width: 28, height: 20)
+                .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous).stroke(.white.opacity(0.15), lineWidth: 0.5))
+        }
+        .buttonStyle(.plain)
+        .popover(isPresented: $isPresented, arrowEdge: .trailing) {
+            AnnotationColorPopover(
+                selectedSwatch: selectedSwatch,
+                onSelect: { swatch in
+                    onSelect(swatch)
+                    isPresented = false
+                },
+                onCustomSelect: onSelect
+            )
+        }
+        .help("Text color")
+    }
+}
+
+private struct AnnotationStrokePopover: View {
+    let strokeWidth: CGFloat
+    let widths: [CGFloat]
+    let onSelect: (CGFloat) -> Void
+
+    var body: some View {
+        VStack(spacing: 7) {
+            ForEach(widths, id: \.self) { width in
+                Button {
+                    onSelect(width)
+                } label: {
+                    StrokeOptionRow(width: width, isSelected: strokeWidth == width)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(9)
+        .frame(width: 92)
+    }
+}
+
+private struct StrokeOptionRow: View {
+    let width: CGFloat
+    let isSelected: Bool
+
+    var body: some View {
+        ZStack {
+            if isSelected {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.accentColor.opacity(0.12))
+            }
+
+            StrokePreview(width: width, color: isSelected ? Color.accentColor : Color.primary.opacity(0.58))
+                .frame(width: 48, height: 32)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 42)
+        .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }
 
@@ -2905,22 +3156,9 @@ private struct AnnotationTextStyleControls: View {
                 fontFamilyMenu
                     .frame(minWidth: 0, maxWidth: .infinity)
 
-                Menu {
-                    ForEach(AnnotationSwatch.allCases) { swatch in
-                        Button {
-                            model.setSwatch(swatch)
-                        } label: {
-                            Label(swatch.title, systemImage: model.selectedSwatch == swatch ? "checkmark.circle.fill" : "circle.fill")
-                        }
-                    }
-                } label: {
-                    RoundedRectangle(cornerRadius: 4, style: .continuous)
-                        .fill(model.selectedSwatch.color)
-                        .frame(width: 28, height: 20)
-                        .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous).stroke(.white.opacity(0.15), lineWidth: 0.5))
+                AnnotationColorWellMenu(selectedSwatch: model.selectedSwatch) { swatch in
+                    model.setSwatch(swatch)
                 }
-                .menuStyle(.button)
-                .buttonStyle(.plain)
             }
 
             // Font size + style toggles
@@ -3153,13 +3391,16 @@ private struct AnnotationTextStyleControls: View {
 
 private struct StrokePreview: View {
     let width: CGFloat
+    var color: Color = .primary
 
     var body: some View {
-        Path { path in
-            path.move(to: CGPoint(x: 3, y: 13))
-            path.addLine(to: CGPoint(x: 21, y: 3))
+        GeometryReader { proxy in
+            Path { path in
+                path.move(to: CGPoint(x: proxy.size.width * 0.24, y: proxy.size.height * 0.68))
+                path.addLine(to: CGPoint(x: proxy.size.width * 0.76, y: proxy.size.height * 0.32))
+            }
+            .stroke(color, style: StrokeStyle(lineWidth: min(width, 7), lineCap: .round))
         }
-        .stroke(.primary, style: StrokeStyle(lineWidth: min(width, 7), lineCap: .round))
     }
 }
 
@@ -3668,91 +3909,98 @@ private enum AnnotationTool: String, CaseIterable, Identifiable {
         self == .pixelate || self == .blur
     }
 
+    var supportsAspectLock: Bool {
+        switch self {
+        case .rectangle, .filledRectangle, .ellipse:
+            true
+        case .select, .line, .arrow, .freehand, .numberedCircle, .pixelate, .blur, .text:
+            false
+        }
+    }
+
     var createsAnnotation: Bool {
         self != .select
     }
 }
 
-enum AnnotationSwatch: String, CaseIterable, Identifiable {
-    case red
-    case blue
-    case yellow
-    case green
-    case white
-    case black
+struct AnnotationSwatch: Identifiable, Equatable, Hashable {
+    let id: String
+    let title: String
+    let red: CGFloat
+    let green: CGFloat
+    let blue: CGFloat
+    let alpha: CGFloat
 
-    var id: String { rawValue }
-
-    var title: String { rawValue.capitalized }
+    init(_ id: String, title: String, red: CGFloat, green: CGFloat, blue: CGFloat, alpha: CGFloat = 1) {
+        self.id = id
+        self.title = title
+        self.red = red
+        self.green = green
+        self.blue = blue
+        self.alpha = alpha
+    }
 
     var color: Color {
-        switch self {
-        case .red:
-            Color(red: 0.97, green: 0.22, blue: 0.2)
-        case .blue:
-            Color(red: 0.18, green: 0.48, blue: 1)
-        case .yellow:
-            Color(red: 1, green: 0.82, blue: 0.18)
-        case .green:
-            Color(red: 0.18, green: 0.72, blue: 0.36)
-        case .white:
-            .white
-        case .black:
-            .black
-        }
+        Color(.sRGB, red: red, green: green, blue: blue, opacity: alpha)
     }
 
     var nsColor: NSColor {
-        switch self {
-        case .red:
-            NSColor(red: 0.97, green: 0.22, blue: 0.2, alpha: 1)
-        case .blue:
-            NSColor(red: 0.18, green: 0.48, blue: 1, alpha: 1)
-        case .yellow:
-            NSColor(red: 1, green: 0.82, blue: 0.18, alpha: 1)
-        case .green:
-            NSColor(red: 0.18, green: 0.72, blue: 0.36, alpha: 1)
-        case .white:
-            .white
-        case .black:
-            .black
-        }
+        NSColor(srgbRed: red, green: green, blue: blue, alpha: alpha)
     }
 
     var numberedCircleTextColor: Color {
-        switch self {
-        case .yellow, .white:
-            .black
-        case .red, .blue, .green, .black:
-            .white
-        }
+        isLight ? .black : .white
     }
 
     var numberedCircleTextNSColor: NSColor {
-        switch self {
-        case .yellow, .white:
-            .black
-        case .red, .blue, .green, .black:
-            .white
-        }
+        isLight ? .black : .white
     }
 
     var numberedCircleOutlineColor: Color {
-        switch self {
-        case .white, .yellow:
-            Color.black.opacity(0.22)
-        case .red, .blue, .green, .black:
-            Color.white.opacity(0.42)
-        }
+        isLight ? Color.black.opacity(0.22) : Color.white.opacity(0.42)
     }
 
     var numberedCircleOutlineNSColor: NSColor {
-        switch self {
-        case .white, .yellow:
-            NSColor.black.withAlphaComponent(0.22)
-        case .red, .blue, .green, .black:
-            NSColor.white.withAlphaComponent(0.42)
-        }
+        isLight ? NSColor.black.withAlphaComponent(0.22) : NSColor.white.withAlphaComponent(0.42)
+    }
+
+    private var isLight: Bool {
+        (0.299 * red + 0.587 * green + 0.114 * blue) > 0.68
+    }
+
+    static let black = AnnotationSwatch("black", title: "Black", red: 0.02, green: 0.02, blue: 0.024)
+    static let red = AnnotationSwatch("red", title: "Red", red: 0.97, green: 0.22, blue: 0.2)
+    static let orange = AnnotationSwatch("orange", title: "Orange", red: 1.0, green: 0.53, blue: 0.08)
+    static let yellow = AnnotationSwatch("yellow", title: "Yellow", red: 1, green: 0.82, blue: 0.18)
+    static let green = AnnotationSwatch("green", title: "Green", red: 0.18, green: 0.72, blue: 0.36)
+    static let turquoise = AnnotationSwatch("turquoise", title: "Turquoise", red: 0.20, green: 0.77, blue: 0.72)
+    static let blue = AnnotationSwatch("blue", title: "Blue", red: 0.18, green: 0.48, blue: 1)
+    static let purple = AnnotationSwatch("purple", title: "Purple", red: 0.55, green: 0.30, blue: 0.95)
+    static let pink = AnnotationSwatch("pink", title: "Pink", red: 1.0, green: 0.18, blue: 0.43)
+    static let white = AnnotationSwatch("white", title: "White", red: 0.96, green: 0.96, blue: 0.96)
+
+    static let allCases: [AnnotationSwatch] = [
+        .black, .red, .orange, .yellow, .green, .turquoise, .blue, .purple, .pink, .white
+    ]
+
+    static func custom(from color: Color) -> AnnotationSwatch {
+        custom(from: NSColor(color))
+    }
+
+    static func custom(from nsColor: NSColor) -> AnnotationSwatch {
+        let converted = nsColor.usingColorSpace(.sRGB) ?? nsColor
+        let red = converted.redComponent
+        let green = converted.greenComponent
+        let blue = converted.blueComponent
+        let alpha = converted.alphaComponent
+        return AnnotationSwatch(
+            "custom-\(Int(red * 255))-\(Int(green * 255))-\(Int(blue * 255))-\(Int(alpha * 255))",
+            title: "Custom",
+            red: red,
+            green: green,
+            blue: blue,
+            alpha: alpha
+        )
     }
 }
 
@@ -3908,7 +4156,14 @@ private enum AnnotationRenderer {
                 context.stroke(renderedRect(item.bounds, in: imageRect))
 
             case .filledRectangle:
-                context.fill(renderedRect(item.bounds, in: imageRect))
+                let rect = renderedRect(item.bounds, in: imageRect)
+                context.addPath(CGPath(
+                    roundedRect: rect,
+                    cornerWidth: AnnotationFilledRectangleMetrics.cornerRadius(for: rect),
+                    cornerHeight: AnnotationFilledRectangleMetrics.cornerRadius(for: rect),
+                    transform: nil
+                ))
+                context.fillPath()
 
             case .ellipse:
                 context.strokeEllipse(in: renderedRect(item.bounds, in: imageRect))
