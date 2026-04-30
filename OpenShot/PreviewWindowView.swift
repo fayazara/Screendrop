@@ -17,11 +17,19 @@ private let previewStackAnimation = Animation.smooth(duration: 0.3, extraBounce:
 private let previewCardSlideOffset = previewCardSize.width + previewTrailingPadding + 48
 
 struct PreviewWindowView: View {
+    private let onRequestClose: (() -> Void)?
+    private let onAnnotate: ((URL) -> Void)?
+
     @State private var previewStack = ScreenshotPreviewStack.shared
     @State private var keyMonitor: Any?
     @State private var globalKeyMonitor: Any?
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismiss) private var dismissWindow
+
+    init(onRequestClose: (() -> Void)? = nil, onAnnotate: ((URL) -> Void)? = nil) {
+        self.onRequestClose = onRequestClose
+        self.onAnnotate = onAnnotate
+    }
     
     var body: some View {
         VStack(spacing: 15) {
@@ -47,7 +55,11 @@ struct PreviewWindowView: View {
                     },
                     onAnnotate: {
                         QuickLookPreviewPresenter.dismiss()
-                        openWindow(id: "ANNOTATION_EDITOR", value: item.url)
+                        if let onAnnotate {
+                            onAnnotate(item.url)
+                        } else {
+                            openWindow(id: "ANNOTATION_EDITOR", value: item.url)
+                        }
                     },
                     onDragBegan: {
                         previewStack.beginDrag(id: item.id)
@@ -69,7 +81,11 @@ struct PreviewWindowView: View {
         .onDisappear(perform: tearDown)
         .onChange(of: previewStack.items.count) { _, count in
             if count == 0 {
-                dismissWindow()
+                if let onRequestClose {
+                    onRequestClose()
+                } else {
+                    dismissWindow()
+                }
             }
         }
     }

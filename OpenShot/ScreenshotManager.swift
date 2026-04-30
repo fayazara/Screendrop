@@ -20,23 +20,23 @@ final class ScreenshotManager {
     
     // MARK: - Fullscreen Capture
     
-    /// Captures the entire main display at full native (Retina) resolution
+    /// Captures the requested display at full native (Retina) resolution
     /// using ScreenCaptureKit.
-    func captureFullscreen() async -> URL? {
+    func captureFullscreen(displayID: CGDirectDisplayID?) async -> URL? {
         do {
             let availableContent = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
             
-            guard let mainDisplay = availableContent.displays.first else {
+            guard let display = availableContent.displays.first(where: { $0.displayID == displayID }) ?? availableContent.displays.first else {
                 print("No display found")
                 return nil
             }
             
-            let filter = SCContentFilter(display: mainDisplay, excludingWindows: [])
+            let filter = SCContentFilter(display: display, excludingWindows: [])
             let config = SCStreamConfiguration()
             // SCDisplay dimensions are points; SCStreamConfiguration expects pixels.
             let pixelScale = CGFloat(filter.pointPixelScale)
-            config.width = Int(CGFloat(mainDisplay.width) * pixelScale)
-            config.height = Int(CGFloat(mainDisplay.height) * pixelScale)
+            config.width = Int(CGFloat(display.width) * pixelScale)
+            config.height = Int(CGFloat(display.height) * pixelScale)
             config.scalesToFit = false
             config.showsCursor = false
             

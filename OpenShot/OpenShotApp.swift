@@ -13,30 +13,10 @@ struct OpenShotApp: App {
     @Environment(\.openWindow) var openWindow
     
     var body: some Scene {
+        let _ = configurePreviewPresentation()
+
         MenuBarExtra("OpenShot", image: "MenuBarIcon") {
             MenuBarView()
-                .onAppear {
-                    // Wire the coordinator to open the preview window.
-                    // This runs once when the menu first appears.
-                    CaptureCoordinator.shared.onShowPreview = { [openWindow] url in
-                        ScreenshotPreviewStack.shared.add(url: url)
-                        openWindow(id: "PREVIEWWINDOW")
-                    }
-                }
-        }
-        
-        // Single floating preview window. The stack model owns individual cards.
-        Window("OpenShot Preview", id: "PREVIEWWINDOW") {
-            PreviewWindowView()
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                .background(PreviewWindowCaptureExclusionView())
-        }
-        .windowStyle(.plain)
-        .windowLevel(.floating)
-        .restorationBehavior(.disabled)
-        .windowResizability(.contentSize)
-        .defaultWindowPlacement { content, context in
-            return .init(size: context.defaultDisplay.visibleRect.size)
         }
         
         Window("OpenShot Settings", id: "SETTINGS") {
@@ -49,6 +29,21 @@ struct OpenShotApp: App {
         }
         .windowResizability(.contentSize)
         .defaultSize(width: 1100, height: 760)
+    }
+
+    @MainActor
+    private func configurePreviewPresentation() {
+        PreviewPanelPresenter.shared.onAnnotate = { [openWindow] url in
+            openWindow(id: "ANNOTATION_EDITOR", value: url)
+        }
+
+        CaptureCoordinator.shared.onShowPreview = { [openWindow] url, displayID in
+            ScreenshotPreviewStack.shared.add(url: url)
+            PreviewPanelPresenter.shared.onAnnotate = { url in
+                openWindow(id: "ANNOTATION_EDITOR", value: url)
+            }
+            PreviewPanelPresenter.shared.show(displayID: displayID)
+        }
     }
 }
 

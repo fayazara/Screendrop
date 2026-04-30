@@ -24,6 +24,7 @@ final class PreviewWindowCaptureExclusion {
         
         previewWindow = window
         window.sharingType = .none
+        PreviewWindowPlacement.shared.attach(window: window)
     }
     
     func hideForCapture() {
@@ -44,7 +45,8 @@ final class PreviewWindowCaptureExclusion {
         }
         
         captureHiddenWindow.sharingType = .none
-        captureHiddenWindow.orderFront(nil)
+        PreviewWindowPlacement.shared.applyPlacement()
+        PreviewWindowPlacement.shared.showAboveActiveSpace()
         self.captureHiddenWindow = nil
     }
 
@@ -69,7 +71,8 @@ final class PreviewWindowCaptureExclusion {
         }
 
         annotationHiddenWindow.sharingType = .none
-        annotationHiddenWindow.orderFront(nil)
+        PreviewWindowPlacement.shared.applyPlacement()
+        PreviewWindowPlacement.shared.showAboveActiveSpace()
         self.annotationHiddenWindow = nil
     }
 }

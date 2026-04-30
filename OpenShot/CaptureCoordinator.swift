@@ -15,13 +15,16 @@ final class CaptureCoordinator {
     static let shared = CaptureCoordinator()
     
     /// Set by the App to open the preview window.
-    var onShowPreview: ((URL) -> Void)?
+    var onShowPreview: ((URL, CGDirectDisplayID?) -> Void)?
     
     private init() {}
     
     // MARK: - Capture Actions
     
     func captureFullscreen() {
+        let displayID = ActiveDisplayResolver.activeDisplayID(preferPointer: false)
+        PreviewWindowPlacement.shared.setTargetDisplayID(displayID)
+
         Task {
             await prepareForCapture()
             defer {
@@ -30,8 +33,8 @@ final class CaptureCoordinator {
                 }
             }
             
-            guard let url = await ScreenshotManager.shared.captureFullscreen() else { return }
-            await MainActor.run { self.finishCapture(url: url) }
+            guard let url = await ScreenshotManager.shared.captureFullscreen(displayID: displayID) else { return }
+            await MainActor.run { self.finishCapture(url: url, displayID: displayID) }
         }
     }
     
@@ -45,7 +48,10 @@ final class CaptureCoordinator {
             }
             
             guard let url = await ScreenshotManager.shared.captureWindow() else { return }
-            await MainActor.run { self.finishCapture(url: url) }
+            let displayID = await MainActor.run {
+                ActiveDisplayResolver.activeDisplayID(preferPointer: true)
+            }
+            await MainActor.run { self.finishCapture(url: url, displayID: displayID) }
         }
     }
     
@@ -59,24 +65,29 @@ final class CaptureCoordinator {
             }
             
             guard let url = await ScreenshotManager.shared.captureArea() else { return }
-            await MainActor.run { self.finishCapture(url: url) }
+            let displayID = await MainActor.run {
+                ActiveDisplayResolver.activeDisplayID(preferPointer: true)
+            }
+            await MainActor.run { self.finishCapture(url: url, displayID: displayID) }
         }
     }
     
     // MARK: - Preview
 
     @MainActor
-    private func finishCapture(url: URL) {
+    private func finishCapture(url: URL, displayID: CGDirectDisplayID?) {
         CaptureFeedbackSound.play()
-        showPreview(url: url)
+        showPreview(url: url, displayID: displayID)
     }
     
-    private func showPreview(url: URL) {
+    private func showPreview(url: URL, displayID: CGDirectDisplayID?) {
         guard let onShowPreview else {
-            print("CaptureCoordinator: onShowPreview not set")
+            ScreenshotPreviewStack.shared.add(url: url)
+            PreviewPanelPresenter.shared.show(displayID: displayID)
             return
         }
-        onShowPreview(url)
+
+        onShowPreview(url, displayID)
     }
     
     private func prepareForCapture() async {
