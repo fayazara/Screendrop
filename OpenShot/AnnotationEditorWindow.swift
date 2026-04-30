@@ -2249,8 +2249,8 @@ private struct AnnotationArrowGeometry {
 
         let direction = CGPoint(x: tangent.x / tangentLength, y: tangent.y / tangentLength)
         let backwardDirection = CGPoint(x: -direction.x, y: -direction.y)
-        let headLength = min(max(16, lineWidth * 5.4), curveLength * 0.42)
-        let headAngle = CGFloat.pi * 0.24
+        let headLength = min(max(13, lineWidth * 4.4), curveLength * 0.34)
+        let headAngle = CGFloat.pi * 0.2
         let firstDirection = Self.rotate(backwardDirection, by: headAngle)
         let secondDirection = Self.rotate(backwardDirection, by: -headAngle)
 
