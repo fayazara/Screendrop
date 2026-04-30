@@ -252,6 +252,10 @@ private final class AnnotationEditorModel {
         }
     }
 
+    var inspectedTool: AnnotationTool? {
+        selectedItem?.tool ?? (selectedTool.createsAnnotation ? selectedTool : nil)
+    }
+
     // Text style defaults (applied to new text items, updated when selecting existing text)
     var textFontName: String = AnnotationTextMetrics.defaultFontName
     var textFontSize: CGFloat = 24
@@ -290,8 +294,8 @@ private final class AnnotationEditorModel {
         }
     }
 
-    func beginInteraction(at location: CGPoint, in imageFrame: CGRect) {
-        guard let point = normalizedPoint(location, in: imageFrame, clamped: false) else {
+    func beginInteraction(at location: CGPoint, imageFrame: CGRect, boundaryFrame: CGRect) {
+        guard let point = normalizedPoint(location, in: imageFrame, boundedBy: boundaryFrame, clamped: false) else {
             selectedItemID = nil
             editingTextItemID = nil
             isTextPlacementArmed = false
@@ -300,123 +304,63 @@ private final class AnnotationEditorModel {
             return
         }
 
-        if selectedTool == .numberedCircle {
-            if let selectedItem,
-               selectedItem.tool == .numberedCircle,
-               let resizeHandle = hitTestResizeHandle(point, in: imageFrame, item: selectedItem) {
-                applyStyleFromItem(selectedItem)
-                draftItem = nil
-                history.push(items)
-                interaction = .resizing(id: selectedItem.id, handle: resizeHandle, originalItem: selectedItem)
-                statePath = AnnotationToolState.resizing.path(for: selectedTool)
+        if selectedTool == .select {
+            if beginSelectionInteraction(at: point, in: imageFrame, preservingSelectedTool: true) {
                 return
             }
 
-            if let item = hitTest(point), item.tool == .numberedCircle {
-                selectedItemID = item.id
-                applyStyleFromItem(item)
-                draftItem = nil
-                history.push(items)
-
-                if let resizeHandle = hitTestResizeHandle(point, in: imageFrame, item: item) {
-                    interaction = .resizing(id: item.id, handle: resizeHandle, originalItem: item)
-                    statePath = AnnotationToolState.resizing.path(for: selectedTool)
-                } else {
-                    interaction = .moving(id: item.id, startPoint: point, originalItem: item)
-                    statePath = AnnotationToolState.translating.path(for: selectedTool)
-                }
-                return
-            }
-
-            selectedItemID = nil
-            editingTextItemID = nil
-            isTextPlacementArmed = false
-            beginDraftItem(at: point)
+            clearSelection()
             return
         }
 
-        // Text items don't have resize handles -- skip resize hit-test for them.
-        if let selectedItem, selectedItem.tool != .text,
-           let resizeHandle = hitTestResizeHandle(point, in: imageFrame, item: selectedItem) {
-            applyStyleFromItem(selectedItem)
-            draftItem = nil
-            history.push(items)
-            interaction = .resizing(id: selectedItem.id, handle: resizeHandle, originalItem: selectedItem)
-            statePath = AnnotationToolState.resizing.path(for: selectedTool)
+        if beginSelectionInteraction(at: point, in: imageFrame, preservingSelectedTool: false) {
             return
         }
 
-        if let item = hitTest(point) {
-            // For text items: first click selects, second click on same item enters editing.
-            let shouldBeginTextEditing = item.tool == .text
-                && selectedItemID == item.id
-                && editingTextItemID != item.id
-            selectedItemID = item.id
-            applyStyleFromItem(item)
-            draftItem = nil
-            history.push(items)
-
-            if shouldBeginTextEditing {
-                editingTextItemID = item.id
-                interaction = nil
-                statePath = AnnotationToolState.idle.path(for: selectedTool)
-                return
-            }
-
-            editingTextItemID = nil
-
-            if item.tool != .text,
-               let resizeHandle = hitTestResizeHandle(point, in: imageFrame, item: item) {
-                interaction = .resizing(id: item.id, handle: resizeHandle, originalItem: item)
-                statePath = AnnotationToolState.resizing.path(for: selectedTool)
-            } else {
-                interaction = .moving(id: item.id, startPoint: point, originalItem: item)
-                statePath = AnnotationToolState.translating.path(for: selectedTool)
-            }
-        } else {
-            selectedItemID = nil
-            editingTextItemID = nil
-            guard selectedTool != .text || isTextPlacementArmed else {
-                interaction = nil
-                statePath = AnnotationToolState.idle.path(for: selectedTool)
-                return
-            }
-
-            beginDraftItem(at: point)
+        selectedItemID = nil
+        editingTextItemID = nil
+        guard selectedTool != .text || isTextPlacementArmed else {
+            interaction = nil
+            statePath = AnnotationToolState.idle.path(for: selectedTool)
+            return
         }
+
+        beginDraftItem(at: point, within: annotationBounds(for: imageFrame, boundaryFrame: boundaryFrame))
     }
 
-    func updateInteraction(to location: CGPoint, in imageFrame: CGRect) {
+    func updateInteraction(to location: CGPoint, imageFrame: CGRect, boundaryFrame: CGRect) {
         guard let interaction,
-              let point = normalizedPoint(location, in: imageFrame, clamped: true) else {
+              let point = normalizedPoint(location, in: imageFrame, boundedBy: boundaryFrame, clamped: true) else {
             return
         }
+        let allowedBounds = annotationBounds(for: imageFrame, boundaryFrame: boundaryFrame)
 
         switch interaction {
         case .drawing(let startPoint):
-            updateDraftItem(from: startPoint, to: point)
+            updateDraftItem(from: startPoint, to: point, within: allowedBounds)
 
         case .moving(let id, let startPoint, let originalItem):
             let delta = CGPoint(x: point.x - startPoint.x, y: point.y - startPoint.y)
-            updateItem(id: id, item: originalItem.offsetBy(clampedDelta(delta, for: originalItem.bounds)))
+            updateItem(id: id, item: originalItem.offsetBy(clampedDelta(delta, for: originalItem.bounds, within: allowedBounds)))
 
         case .resizing(let id, let handle, let originalItem):
             updateItem(id: id, item: resizedItem(originalItem, handle: handle, to: point))
         }
     }
 
-    func endInteraction(at location: CGPoint, in imageFrame: CGRect) {
+    func endInteraction(at location: CGPoint, imageFrame: CGRect, boundaryFrame: CGRect) {
         defer { interaction = nil }
 
         guard let interaction,
-              let point = normalizedPoint(location, in: imageFrame, clamped: true) else {
+              let point = normalizedPoint(location, in: imageFrame, boundedBy: boundaryFrame, clamped: true) else {
             draftItem = nil
             return
         }
+        let allowedBounds = annotationBounds(for: imageFrame, boundaryFrame: boundaryFrame)
 
         switch interaction {
         case .drawing(let startPoint):
-            updateDraftItem(from: startPoint, to: point)
+            updateDraftItem(from: startPoint, to: point, within: allowedBounds)
 
             guard let item = draftItem,
                   item.isRenderable(minimumSize: minimumItemSize, allowEmptyText: item.tool == .text) else {
@@ -443,16 +387,75 @@ private final class AnnotationEditorModel {
         statePath = AnnotationToolState.idle.path(for: selectedTool)
     }
 
-    private func beginDraftItem(at point: CGPoint) {
+    private func beginSelectionInteraction(
+        at point: CGPoint,
+        in imageFrame: CGRect,
+        preservingSelectedTool: Bool
+    ) -> Bool {
+        // Text items don't have resize handles -- skip resize hit-test for them.
+        if let selectedItem, selectedItem.tool != .text,
+           let resizeHandle = hitTestResizeHandle(point, in: imageFrame, item: selectedItem) {
+            applyStyleFromItem(selectedItem, updateSelectedTool: !preservingSelectedTool)
+            draftItem = nil
+            history.push(items)
+            interaction = .resizing(id: selectedItem.id, handle: resizeHandle, originalItem: selectedItem)
+            statePath = AnnotationToolState.resizing.path(for: selectedTool)
+            return true
+        }
+
+        guard let item = hitTest(point) else { return false }
+
+        // For text items: first click selects, second click on same item enters editing.
+        let shouldBeginTextEditing = item.tool == .text
+            && selectedItemID == item.id
+            && editingTextItemID != item.id
+        selectedItemID = item.id
+        applyStyleFromItem(item, updateSelectedTool: !preservingSelectedTool)
+        draftItem = nil
+        history.push(items)
+
+        if shouldBeginTextEditing {
+            editingTextItemID = item.id
+            interaction = nil
+            statePath = AnnotationToolState.idle.path(for: selectedTool)
+            return true
+        }
+
+        editingTextItemID = nil
+
+        if item.tool != .text,
+           let resizeHandle = hitTestResizeHandle(point, in: imageFrame, item: item) {
+            interaction = .resizing(id: item.id, handle: resizeHandle, originalItem: item)
+            statePath = AnnotationToolState.resizing.path(for: selectedTool)
+        } else {
+            interaction = .moving(id: item.id, startPoint: point, originalItem: item)
+            statePath = AnnotationToolState.translating.path(for: selectedTool)
+        }
+
+        return true
+    }
+
+    private func clearSelection() {
+        selectedItemID = nil
+        editingTextItemID = nil
+        isTextPlacementArmed = false
+        interaction = nil
+        draftItem = nil
+        statePath = AnnotationToolState.idle.path(for: selectedTool)
+    }
+
+    private func beginDraftItem(at point: CGPoint, within allowedBounds: CGRect) {
         let textLineHeight: CGFloat = imageSize.height > 0
             ? textFontSize / (imageSize.height * AnnotationTextMetrics.fontScale)
             : AnnotationTextMetrics.defaultNormalizedLineHeight
         let itemRect: CGRect
         switch selectedTool {
+        case .select:
+            return
         case .text:
-            itemRect = defaultTextRect(at: point, lineHeight: textLineHeight)
+            itemRect = defaultTextRect(at: point, lineHeight: textLineHeight, within: allowedBounds)
         case .numberedCircle:
-            itemRect = AnnotationNumberedCircleMetrics.defaultRect(centeredAt: point, imageSize: imageSize)
+            itemRect = AnnotationNumberedCircleMetrics.defaultRect(centeredAt: point, imageSize: imageSize, within: allowedBounds)
         case .rectangle, .filledRectangle, .ellipse, .line, .arrow, .freehand, .pixelate, .blur:
             itemRect = CGRect(origin: point, size: .zero)
         }
@@ -546,16 +549,16 @@ private final class AnnotationEditorModel {
         statePath = AnnotationToolState.idle.path(for: selectedTool)
     }
 
-    func hoveredAnnotation(at location: CGPoint, in imageFrame: CGRect) -> AnnotationItem? {
-        guard let point = normalizedPoint(location, in: imageFrame, clamped: false) else {
+    func hoveredAnnotation(at location: CGPoint, imageFrame: CGRect, boundaryFrame: CGRect) -> AnnotationItem? {
+        guard let point = normalizedPoint(location, in: imageFrame, boundedBy: boundaryFrame, clamped: false) else {
             return nil
         }
 
         return hitTest(point)
     }
 
-    func containsImagePoint(_ location: CGPoint, in imageFrame: CGRect) -> Bool {
-        normalizedPoint(location, in: imageFrame, clamped: false) != nil
+    func containsInteractionPoint(_ location: CGPoint, imageFrame: CGRect, boundaryFrame: CGRect) -> Bool {
+        normalizedPoint(location, in: imageFrame, boundedBy: boundaryFrame, clamped: false) != nil
     }
 
     func setText(_ text: String, for id: AnnotationItem.ID) {
@@ -564,7 +567,7 @@ private final class AnnotationEditorModel {
         }
     }
 
-    func setTextViewContentSize(_ size: CGSize, for id: AnnotationItem.ID, imageFrame: CGRect) {
+    func setTextViewContentSize(_ size: CGSize, for id: AnnotationItem.ID, imageFrame: CGRect, allowedBounds: CGRect) {
         // Don't fight with active move/resize drags.
         guard interaction == nil else { return }
         guard imageFrame.width > 0, imageFrame.height > 0 else { return }
@@ -572,13 +575,13 @@ private final class AnnotationEditorModel {
         let normalizedHeight = size.height / imageFrame.height
         let minW = AnnotationTextMetrics.minimumNormalizedWidth(lineHeight: items.first(where: { $0.id == id })?.textLineHeight ?? AnnotationTextMetrics.defaultNormalizedLineHeight, imageSize: imageSize)
         updateItem(id: id) { item in
-            let newWidth = min(max(normalizedWidth, minW), 1)
-            let newHeight = min(max(normalizedHeight, item.textLineHeight), 1)
-            let maxX = max(0, 1 - newWidth)
-            let maxY = max(0, 1 - newHeight)
+            let newWidth = min(max(normalizedWidth, minW), allowedBounds.width)
+            let newHeight = min(max(normalizedHeight, item.textLineHeight), allowedBounds.height)
+            let maxX = max(allowedBounds.minX, allowedBounds.maxX - newWidth)
+            let maxY = max(allowedBounds.minY, allowedBounds.maxY - newHeight)
             item.rect = CGRect(
-                x: min(max(item.rect.origin.x, 0), maxX),
-                y: min(max(item.rect.origin.y, 0), maxY),
+                x: min(max(item.rect.origin.x, allowedBounds.minX), maxX),
+                y: min(max(item.rect.origin.y, allowedBounds.minY), maxY),
                 width: newWidth,
                 height: newHeight
             )
@@ -730,10 +733,12 @@ private final class AnnotationEditorModel {
         statePath = AnnotationToolState.idle.path(for: selectedTool)
     }
 
-    private func updateDraftItem(from startPoint: CGPoint, to point: CGPoint) {
+    private func updateDraftItem(from startPoint: CGPoint, to point: CGPoint, within allowedBounds: CGRect) {
         guard var draftItem else { return }
 
         switch selectedTool {
+        case .select:
+            break
         case .line:
             draftItem.points = [startPoint, point]
             draftItem.rect = boundingRect(for: draftItem.points)
@@ -744,11 +749,11 @@ private final class AnnotationEditorModel {
             draftItem.points = freehandPoints(adding: point, to: draftItem.points)
             draftItem.rect = boundingRect(for: draftItem.points)
         case .numberedCircle:
-            draftItem.rect = AnnotationNumberedCircleMetrics.defaultRect(centeredAt: startPoint, imageSize: imageSize)
+            draftItem.rect = AnnotationNumberedCircleMetrics.defaultRect(centeredAt: startPoint, imageSize: imageSize, within: allowedBounds)
         case .rectangle, .filledRectangle, .ellipse, .pixelate, .blur:
             draftItem.rect = rect(from: startPoint, to: point)
         case .text:
-            draftItem.rect = defaultTextRect(at: startPoint, lineHeight: draftItem.textLineHeight)
+            draftItem.rect = defaultTextRect(at: startPoint, lineHeight: draftItem.textLineHeight, within: allowedBounds)
         }
 
         self.draftItem = draftItem
@@ -786,8 +791,10 @@ private final class AnnotationEditorModel {
         }
     }
 
-    private func applyStyleFromItem(_ item: AnnotationItem) {
-        selectedTool = item.tool
+    private func applyStyleFromItem(_ item: AnnotationItem, updateSelectedTool: Bool = true) {
+        if updateSelectedTool {
+            selectedTool = item.tool
+        }
         selectedSwatch = item.swatch
         strokeWidth = item.strokeWidth
         redactionDensity = item.redactionDensity
@@ -804,23 +811,42 @@ private final class AnnotationEditorModel {
         }
     }
 
-    private func normalizedPoint(_ location: CGPoint, in imageFrame: CGRect, clamped: Bool) -> CGPoint? {
+    private func normalizedPoint(
+        _ location: CGPoint,
+        in imageFrame: CGRect,
+        boundedBy boundaryFrame: CGRect,
+        clamped: Bool
+    ) -> CGPoint? {
         guard imageFrame.width > 0, imageFrame.height > 0 else { return nil }
+        guard boundaryFrame.width > 0, boundaryFrame.height > 0 else { return nil }
 
         let point: CGPoint
         if clamped {
             point = CGPoint(
-                x: min(max(location.x, imageFrame.minX), imageFrame.maxX),
-                y: min(max(location.y, imageFrame.minY), imageFrame.maxY)
+                x: min(max(location.x, boundaryFrame.minX), boundaryFrame.maxX),
+                y: min(max(location.y, boundaryFrame.minY), boundaryFrame.maxY)
             )
         } else {
-            guard imageFrame.contains(location) else { return nil }
+            guard boundaryFrame.contains(location) else { return nil }
             point = location
         }
 
         return CGPoint(
             x: (point.x - imageFrame.minX) / imageFrame.width,
             y: (point.y - imageFrame.minY) / imageFrame.height
+        )
+    }
+
+    func annotationBounds(for imageFrame: CGRect, boundaryFrame: CGRect) -> CGRect {
+        guard imageFrame.width > 0, imageFrame.height > 0 else {
+            return CGRect(x: 0, y: 0, width: 1, height: 1)
+        }
+
+        return CGRect(
+            x: (boundaryFrame.minX - imageFrame.minX) / imageFrame.width,
+            y: (boundaryFrame.minY - imageFrame.minY) / imageFrame.height,
+            width: boundaryFrame.width / imageFrame.width,
+            height: boundaryFrame.height / imageFrame.height
         )
     }
 
@@ -855,6 +881,8 @@ private final class AnnotationEditorModel {
 
     private func initialPoints(for tool: AnnotationTool, at point: CGPoint) -> [CGPoint] {
         switch tool {
+        case .select:
+            []
         case .line:
             [point, point]
         case .arrow:
@@ -866,22 +894,28 @@ private final class AnnotationEditorModel {
         }
     }
 
-    private func defaultTextRect(at point: CGPoint, lineHeight: CGFloat = AnnotationTextMetrics.defaultNormalizedLineHeight) -> CGRect {
+    private func defaultTextRect(
+        at point: CGPoint,
+        lineHeight: CGFloat = AnnotationTextMetrics.defaultNormalizedLineHeight,
+        within allowedBounds: CGRect
+    ) -> CGRect {
         let height = lineHeight
         let width = AnnotationTextMetrics.minimumNormalizedWidth(lineHeight: height, imageSize: imageSize)
+        let maxX = max(allowedBounds.minX, allowedBounds.maxX - width)
+        let maxY = max(allowedBounds.minY, allowedBounds.maxY - height)
 
         return CGRect(
-            x: min(point.x, 1 - width),
-            y: min(point.y, 1 - height),
+            x: min(max(point.x, allowedBounds.minX), maxX),
+            y: min(max(point.y, allowedBounds.minY), maxY),
             width: width,
             height: height
         )
     }
 
-    private func clampedDelta(_ delta: CGPoint, for bounds: CGRect) -> CGPoint {
+    private func clampedDelta(_ delta: CGPoint, for bounds: CGRect, within allowedBounds: CGRect) -> CGPoint {
         CGPoint(
-            x: min(max(delta.x, -bounds.minX), 1 - bounds.maxX),
-            y: min(max(delta.y, -bounds.minY), 1 - bounds.maxY)
+            x: min(max(delta.x, allowedBounds.minX - bounds.minX), allowedBounds.maxX - bounds.maxX),
+            y: min(max(delta.y, allowedBounds.minY - bounds.minY), allowedBounds.maxY - bounds.maxY)
         )
     }
 
@@ -1101,7 +1135,8 @@ private struct AnnotationCanvas: View {
             let canvasFrame = aspectFitRect(imageSize: backgroundLayout.canvasSize, in: proxy.size)
             let displayLayout = backgroundLayout.scaled(to: canvasFrame)
             let imageFrame = displayLayout.imageFrame
-            let localImageFrame = CGRect(origin: .zero, size: imageFrame.size)
+            let boundaryFrame = model.backgroundSettings.isEnabled ? displayLayout.canvasFrame : imageFrame
+            let allowedBounds = model.annotationBounds(for: imageFrame, boundaryFrame: boundaryFrame)
             let cornerRadii = screenshotCornerRadii(for: imageFrame)
             let clipCorners = RectangleCornerRadii(
                 topLeading: cornerRadii.topLeft,
@@ -1119,69 +1154,64 @@ private struct AnnotationCanvas: View {
 
                 screenshotShadow(imageFrame: imageFrame, cornerRadii: clipCorners)
 
-                ZStack(alignment: .topLeading) {
-                    Image(nsImage: image)
-                        .resizable()
-                        .frame(width: imageFrame.width, height: imageFrame.height)
-                        .position(x: localImageFrame.midX, y: localImageFrame.midY)
+                Image(nsImage: image)
+                    .resizable()
+                    .frame(width: imageFrame.width, height: imageFrame.height)
+                    .clipShape(UnevenRoundedRectangle(cornerRadii: clipCorners, style: .continuous))
+                    .position(x: imageFrame.midX, y: imageFrame.midY)
 
-                    ForEach(model.items) { item in
-                        AnnotationItemView(
-                            item: item,
-                            image: image,
-                            imageFrame: localImageFrame,
-                            isSelected: item.id == model.selectedItemID,
-                            isEditingText: item.id == model.editingTextItemID,
-                            text: Binding(
-                                get: { item.text },
-                                set: { model.setText($0, for: item.id) }
-                            ),
-                            onCommitText: model.commitTextEditing,
-                            onTextSizeChange: { size in
-                                model.setTextViewContentSize(size, for: item.id, imageFrame: localImageFrame)
-                            }
-                        )
-                    }
-
-                    if let draftItem = model.draftItem {
-                        AnnotationItemView(
-                            item: draftItem,
-                            image: image,
-                            imageFrame: localImageFrame,
-                            isSelected: false,
-                            isEditingText: false,
-                            text: .constant(draftItem.text),
-                            onCommitText: {},
-                            onTextSizeChange: { _ in }
-                        )
-                    }
+                ForEach(model.items) { item in
+                    AnnotationItemView(
+                        item: item,
+                        image: image,
+                        imageFrame: imageFrame,
+                        isSelected: item.id == model.selectedItemID,
+                        isEditingText: item.id == model.editingTextItemID,
+                        text: Binding(
+                            get: { item.text },
+                            set: { model.setText($0, for: item.id) }
+                        ),
+                        onCommitText: model.commitTextEditing,
+                        onTextSizeChange: { size in
+                            model.setTextViewContentSize(size, for: item.id, imageFrame: imageFrame, allowedBounds: allowedBounds)
+                        }
+                    )
                 }
-                .frame(width: imageFrame.width, height: imageFrame.height)
-                .clipShape(UnevenRoundedRectangle(cornerRadii: clipCorners, style: .continuous))
-                .contentShape(Rectangle())
-                .position(x: imageFrame.midX, y: imageFrame.midY)
+
+                if let draftItem = model.draftItem {
+                    AnnotationItemView(
+                        item: draftItem,
+                        image: image,
+                        imageFrame: imageFrame,
+                        isSelected: false,
+                        isEditingText: false,
+                        text: .constant(draftItem.text),
+                        onCommitText: {},
+                        onTextSizeChange: { _ in }
+                    )
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .contentShape(Rectangle())
-            .gesture(interactionGesture(imageFrame: imageFrame))
+            .gesture(interactionGesture(imageFrame: imageFrame, boundaryFrame: boundaryFrame))
             .onContinuousHover { phase in
                 switch phase {
                 case .active(let location):
                     hoveredLocation = location
-                    updateCursor(at: location, in: imageFrame)
+                    updateCursor(at: location, imageFrame: imageFrame, boundaryFrame: boundaryFrame)
                 case .ended:
                     hoveredLocation = nil
                     setCursor(.arrow)
                 }
             }
             .onChange(of: model.selectedTool) { _, _ in
-                refreshCursor(in: imageFrame)
+                refreshCursor(imageFrame: imageFrame, boundaryFrame: boundaryFrame)
             }
             .onChange(of: model.itemIDs) { _, _ in
-                refreshCursor(in: imageFrame)
+                refreshCursor(imageFrame: imageFrame, boundaryFrame: boundaryFrame)
             }
             .onChange(of: model.selectedItemID) { _, _ in
-                refreshCursor(in: imageFrame)
+                refreshCursor(imageFrame: imageFrame, boundaryFrame: boundaryFrame)
             }
             .onDisappear {
                 setCursor(.arrow)
@@ -1214,21 +1244,21 @@ private struct AnnotationCanvas: View {
         return (base * m.topLeft, base * m.topRight, base * m.bottomLeft, base * m.bottomRight)
     }
 
-    private func interactionGesture(imageFrame: CGRect) -> some Gesture {
+    private func interactionGesture(imageFrame: CGRect, boundaryFrame: CGRect) -> some Gesture {
         DragGesture(minimumDistance: 0, coordinateSpace: .local)
             .onChanged { value in
                 if !hasActiveInteraction {
                     hasActiveInteraction = true
-                    model.beginInteraction(at: value.startLocation, in: imageFrame)
+                    model.beginInteraction(at: value.startLocation, imageFrame: imageFrame, boundaryFrame: boundaryFrame)
                 }
 
-                model.updateInteraction(to: value.location, in: imageFrame)
-                updateCursor(at: value.location, in: imageFrame)
+                model.updateInteraction(to: value.location, imageFrame: imageFrame, boundaryFrame: boundaryFrame)
+                updateCursor(at: value.location, imageFrame: imageFrame, boundaryFrame: boundaryFrame)
             }
             .onEnded { value in
-                model.endInteraction(at: value.location, in: imageFrame)
+                model.endInteraction(at: value.location, imageFrame: imageFrame, boundaryFrame: boundaryFrame)
                 hasActiveInteraction = false
-                updateCursor(at: value.location, in: imageFrame)
+                updateCursor(at: value.location, imageFrame: imageFrame, boundaryFrame: boundaryFrame)
             }
     }
 
@@ -1250,21 +1280,23 @@ private struct AnnotationCanvas: View {
         )
     }
 
-    private func refreshCursor(in imageFrame: CGRect) {
+    private func refreshCursor(imageFrame: CGRect, boundaryFrame: CGRect) {
         guard let hoveredLocation else { return }
-        updateCursor(at: hoveredLocation, in: imageFrame)
+        updateCursor(at: hoveredLocation, imageFrame: imageFrame, boundaryFrame: boundaryFrame)
     }
 
-    private func updateCursor(at location: CGPoint, in imageFrame: CGRect) {
-        guard model.containsImagePoint(location, in: imageFrame) else {
+    private func updateCursor(at location: CGPoint, imageFrame: CGRect, boundaryFrame: CGRect) {
+        guard model.containsInteractionPoint(location, imageFrame: imageFrame, boundaryFrame: boundaryFrame) else {
             setCursor(.arrow)
             return
         }
 
         if hasActiveInteraction {
             setCursor(model.isTransformingExistingAnnotation ? .closedHand : .placement)
-        } else if model.hoveredAnnotation(at: location, in: imageFrame) != nil {
+        } else if model.hoveredAnnotation(at: location, imageFrame: imageFrame, boundaryFrame: boundaryFrame) != nil {
             setCursor(.openHand)
+        } else if model.selectedTool == .select {
+            setCursor(.arrow)
         } else {
             setCursor(.placement)
         }
@@ -1382,6 +1414,9 @@ private struct AnnotationItemView: View {
         let rect = viewRect(item.bounds)
 
         switch item.tool {
+        case .select:
+            return Path()
+
         case .rectangle, .filledRectangle:
             return Path(rect)
 
@@ -1897,17 +1932,21 @@ private enum AnnotationTextMetrics {
 private enum AnnotationNumberedCircleMetrics {
     static let normalizedDiameter: CGFloat = 0.039
 
-    static func defaultRect(centeredAt point: CGPoint, imageSize: CGSize) -> CGRect {
+    static func defaultRect(
+        centeredAt point: CGPoint,
+        imageSize: CGSize,
+        within allowedBounds: CGRect
+    ) -> CGRect {
         let height = normalizedDiameter
         let width = imageSize.width > 0
             ? height * max(imageSize.height, 1) / imageSize.width
             : height
-        let maxX = max(0, 1 - width)
-        let maxY = max(0, 1 - height)
+        let maxX = max(allowedBounds.minX, allowedBounds.maxX - width)
+        let maxY = max(allowedBounds.minY, allowedBounds.maxY - height)
 
         return CGRect(
-            x: min(max(point.x - width / 2, 0), maxX),
-            y: min(max(point.y - height / 2, 0), maxY),
+            x: min(max(point.x - width / 2, allowedBounds.minX), maxX),
+            y: min(max(point.y - height / 2, allowedBounds.minY), maxY),
             width: width,
             height: height
         )
@@ -2384,39 +2423,41 @@ private struct AnnotationEditorInspector: View {
                     .padding(.top, 14)
                     .padding(.bottom, 16)
 
-                    AnnotationInspectorDivider()
+                    if let inspectedTool = model.inspectedTool {
+                        AnnotationInspectorDivider()
 
-                    // MARK: Style
-                    VStack(alignment: .leading, spacing: 10) {
-                        AnnotationInspectorSectionHeader("STYLE")
+                        // MARK: Style
+                        VStack(alignment: .leading, spacing: 10) {
+                            AnnotationInspectorSectionHeader("STYLE")
 
-                        AnnotationInspectorRow(title: "Color") {
-                            AnnotationColorMenu(selectedSwatch: model.selectedSwatch) { swatch in
-                                model.setSwatch(swatch)
-                            }
-                        }
-
-                        if model.selectedTool != .numberedCircle {
-                            AnnotationInspectorRow(title: "Stroke") {
-                                AnnotationStrokeMenu(strokeWidth: model.strokeWidth) { strokeWidth in
-                                    model.setStrokeWidth(strokeWidth)
+                            AnnotationInspectorRow(title: "Color") {
+                                AnnotationColorMenu(selectedSwatch: model.selectedSwatch) { swatch in
+                                    model.setSwatch(swatch)
                                 }
                             }
-                        }
 
-                        if model.selectedTool.isRedactionTool {
-                            AnnotationBackgroundSlider(
-                                title: "Density",
-                                value: Binding(
-                                    get: { model.redactionDensity },
-                                    set: { model.setRedactionDensity($0) }
-                                ),
-                                range: 0.15...1
-                            )
+                            if inspectedTool != .numberedCircle {
+                                AnnotationInspectorRow(title: "Stroke") {
+                                    AnnotationStrokeMenu(strokeWidth: model.strokeWidth) { strokeWidth in
+                                        model.setStrokeWidth(strokeWidth)
+                                    }
+                                }
+                            }
+
+                            if inspectedTool.isRedactionTool {
+                                AnnotationBackgroundSlider(
+                                    title: "Density",
+                                    value: Binding(
+                                        get: { model.redactionDensity },
+                                        set: { model.setRedactionDensity($0) }
+                                    ),
+                                    range: 0.15...1
+                                )
+                            }
                         }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 14)
                     }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 14)
 
                     if model.isTextStyleAvailable {
                         AnnotationInspectorDivider()
@@ -2535,7 +2576,7 @@ private struct AnnotationInspectorToolGrid: View {
     let onSelect: (AnnotationTool) -> Void
 
     private let columns: [GridItem] = Array(
-        repeating: GridItem(.flexible(), spacing: 2), count: 5
+        repeating: GridItem(.flexible(), spacing: 2), count: 6
     )
 
     var body: some View {
@@ -3298,6 +3339,9 @@ private struct AnnotationItem: Identifiable, Equatable {
 
     var bounds: CGRect {
         switch tool {
+        case .select:
+            return rect.standardized
+
         case .line, .arrow, .freehand:
             let boundsPoints = tool == .arrow ? arrowPoints : points
             guard let first = boundsPoints.first else { return rect.standardized }
@@ -3326,6 +3370,9 @@ private struct AnnotationItem: Identifiable, Equatable {
 
     func isRenderable(minimumSize: CGFloat, allowEmptyText: Bool = false) -> Bool {
         switch tool {
+        case .select:
+            return false
+
         case .line:
             guard points.count == 2 else { return false }
             return hypot(points[0].x - points[1].x, points[0].y - points[1].y) >= minimumSize
@@ -3350,6 +3397,9 @@ private struct AnnotationItem: Identifiable, Equatable {
 
     func hitTest(_ point: CGPoint, tolerance: CGFloat) -> Bool {
         switch tool {
+        case .select:
+            return false
+
         case .line:
             guard let start = points.first,
                   let end = points.last else {
@@ -3531,6 +3581,7 @@ private struct AnnotationItem: Identifiable, Equatable {
 }
 
 private enum AnnotationTool: String, CaseIterable, Identifiable {
+    case select
     case rectangle
     case filledRectangle
     case ellipse
@@ -3546,6 +3597,8 @@ private enum AnnotationTool: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
+        case .select:
+            "Select"
         case .rectangle:
             "Rectangle"
         case .filledRectangle:
@@ -3571,6 +3624,8 @@ private enum AnnotationTool: String, CaseIterable, Identifiable {
 
     var systemImage: String {
         switch self {
+        case .select:
+            "hand.point.up.left"
         case .rectangle:
             "rectangle"
         case .filledRectangle:
@@ -3604,6 +3659,10 @@ private enum AnnotationTool: String, CaseIterable, Identifiable {
 
     var isRedactionTool: Bool {
         self == .pixelate || self == .blur
+    }
+
+    var createsAnnotation: Bool {
+        self != .select
     }
 }
 
@@ -3716,12 +3775,25 @@ private enum AnnotationRenderer {
         contentType: UTType
     ) throws {
         let colorSpace = CGColorSpaceCreateDeviceRGB()
-        let annotatedImage = try renderAnnotatedImage(sourceURL: sourceURL, items: items, colorSpace: colorSpace)
-        let renderedImage = try AnnotationBackgroundRenderer.compose(
-            annotatedImage: annotatedImage,
-            settings: backgroundSettings,
-            colorSpace: colorSpace
-        )
+        let renderedImage: CGImage
+        if backgroundSettings.isEnabled {
+            let sourceImage = try loadSourceImage(sourceURL: sourceURL)
+            renderedImage = try AnnotationBackgroundRenderer.compose(
+                contentImage: sourceImage,
+                settings: backgroundSettings,
+                colorSpace: colorSpace
+            ) { context, layout, imageRect in
+                drawAnnotations(
+                    items,
+                    in: imageRect,
+                    canvasSize: layout.canvasSize,
+                    context: context,
+                    colorSpace: colorSpace
+                )
+            }
+        } else {
+            renderedImage = try renderAnnotatedImage(sourceURL: sourceURL, items: items, colorSpace: colorSpace)
+        }
 
         if FileManager.default.fileExists(atPath: destinationURL.path) {
             try FileManager.default.removeItem(at: destinationURL)
@@ -3750,11 +3822,7 @@ private enum AnnotationRenderer {
         }
     }
 
-    private static func renderAnnotatedImage(
-        sourceURL: URL,
-        items: [AnnotationItem],
-        colorSpace: CGColorSpace
-    ) throws -> CGImage {
+    private static func loadSourceImage(sourceURL: URL) throws -> CGImage {
         guard let source = CGImageSourceCreateWithURL(
             sourceURL as CFURL,
             [kCGImageSourceShouldCache: false] as CFDictionary
@@ -3766,6 +3834,16 @@ private enum AnnotationRenderer {
               ) else {
             throw CocoaError(.fileReadCorruptFile)
         }
+
+        return cgImage
+    }
+
+    private static func renderAnnotatedImage(
+        sourceURL: URL,
+        items: [AnnotationItem],
+        colorSpace: CGColorSpace
+    ) throws -> CGImage {
+        let cgImage = try loadSourceImage(sourceURL: sourceURL)
 
         let width = cgImage.width
         let height = cgImage.height
@@ -3784,55 +3862,79 @@ private enum AnnotationRenderer {
 
         let fullRect = CGRect(x: 0, y: 0, width: width, height: height)
         context.draw(cgImage, in: fullRect)
+        drawAnnotations(
+            items,
+            in: fullRect,
+            canvasSize: fullRect.size,
+            context: context,
+            colorSpace: colorSpace
+        )
+
+        guard let renderedImage = context.makeImage() else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+
+        return renderedImage
+    }
+
+    private static func drawAnnotations(
+        _ items: [AnnotationItem],
+        in imageRect: CGRect,
+        canvasSize: CGSize,
+        context: CGContext,
+        colorSpace: CGColorSpace
+    ) {
         context.setLineCap(.round)
         context.setLineJoin(.round)
-
         for item in items {
             context.setStrokeColor(item.swatch.nsColor.cgColor)
             context.setFillColor(item.swatch.nsColor.cgColor)
 
-            let lineWidth = renderedLineWidth(for: item, imageWidth: width, imageHeight: height)
+            let lineWidth = renderedLineWidth(for: item, imageSize: imageRect.size)
             context.setLineWidth(lineWidth)
 
             switch item.tool {
+            case .select:
+                continue
+
             case .rectangle:
-                context.stroke(renderedRect(item.bounds, width: width, height: height))
+                context.stroke(renderedRect(item.bounds, in: imageRect))
 
             case .filledRectangle:
-                context.fill(renderedRect(item.bounds, width: width, height: height))
+                context.fill(renderedRect(item.bounds, in: imageRect))
 
             case .ellipse:
-                context.strokeEllipse(in: renderedRect(item.bounds, width: width, height: height))
+                context.strokeEllipse(in: renderedRect(item.bounds, in: imageRect))
 
             case .numberedCircle:
                 drawNumberedCircle(
                     item,
-                    in: renderedRect(item.bounds, width: width, height: height),
+                    in: renderedRect(item.bounds, in: imageRect),
                     context: context
                 )
 
             case .pixelate:
                 applyPixelation(
-                    in: renderedRect(item.bounds, width: width, height: height),
+                    in: renderedRect(item.bounds, in: imageRect),
                     context: context,
-                    canvasSize: CGSize(width: width, height: height),
+                    canvasSize: canvasSize,
                     colorSpace: colorSpace,
                     density: item.redactionDensity
                 )
 
             case .blur:
                 applyBlur(
-                    in: renderedRect(item.bounds, width: width, height: height),
+                    in: renderedRect(item.bounds, in: imageRect),
                     context: context,
-                    canvasSize: CGSize(width: width, height: height),
+                    canvasSize: canvasSize,
                     density: item.redactionDensity
                 )
 
             case .text:
                 drawText(
                     item,
-                    in: renderedRect(item.bounds, width: width, height: height),
-                    canvasSize: CGSize(width: width, height: height),
+                    in: renderedRect(item.bounds, in: imageRect),
+                    imageHeight: imageRect.height,
                     context: context
                 )
 
@@ -3842,8 +3944,8 @@ private enum AnnotationRenderer {
                     continue
                 }
 
-                let start = renderedPoint(first, width: width, height: height)
-                let end = renderedPoint(last, width: width, height: height)
+                let start = renderedPoint(first, in: imageRect)
+                let end = renderedPoint(last, in: imageRect)
                 context.beginPath()
                 context.move(to: start)
                 context.addLine(to: end)
@@ -3852,8 +3954,7 @@ private enum AnnotationRenderer {
             case .freehand:
                 drawFreehand(
                     points: item.points,
-                    width: width,
-                    height: height,
+                    imageRect: imageRect,
                     context: context
                 )
 
@@ -3862,42 +3963,36 @@ private enum AnnotationRenderer {
                       let control = item.controlPoint,
                       let last = item.points.last,
                       let geometry = AnnotationArrowGeometry(
-                        start: renderedPoint(first, width: width, height: height),
-                        control: renderedPoint(control, width: width, height: height),
-                        end: renderedPoint(last, width: width, height: height),
+                        start: renderedPoint(first, in: imageRect),
+                        control: renderedPoint(control, in: imageRect),
+                        end: renderedPoint(last, in: imageRect),
                         lineWidth: lineWidth
                       ) else {
                     continue
                 }
 
                 context.beginPath()
-                context.move(to: renderedPoint(first, width: width, height: height))
+                context.move(to: renderedPoint(first, in: imageRect))
                 context.addQuadCurve(to: geometry.tip, control: geometry.shaftControl)
                 context.strokePath()
                 drawArrowHead(geometry, context: context)
             }
         }
-
-        guard let renderedImage = context.makeImage() else {
-            throw CocoaError(.fileWriteUnknown)
-        }
-
-        return renderedImage
     }
 
-    private static func renderedRect(_ rect: CGRect, width: Int, height: Int) -> CGRect {
+    private static func renderedRect(_ rect: CGRect, in imageRect: CGRect) -> CGRect {
         CGRect(
-            x: rect.minX * CGFloat(width),
-            y: (1 - rect.maxY) * CGFloat(height),
-            width: rect.width * CGFloat(width),
-            height: rect.height * CGFloat(height)
+            x: imageRect.minX + rect.minX * imageRect.width,
+            y: imageRect.minY + (1 - rect.maxY) * imageRect.height,
+            width: rect.width * imageRect.width,
+            height: rect.height * imageRect.height
         )
     }
 
-    private static func renderedPoint(_ point: CGPoint, width: Int, height: Int) -> CGPoint {
+    private static func renderedPoint(_ point: CGPoint, in imageRect: CGRect) -> CGPoint {
         CGPoint(
-            x: point.x * CGFloat(width),
-            y: (1 - point.y) * CGFloat(height)
+            x: imageRect.minX + point.x * imageRect.width,
+            y: imageRect.minY + (1 - point.y) * imageRect.height
         )
     }
 
@@ -3954,8 +4049,8 @@ private enum AnnotationRenderer {
         NSGraphicsContext.restoreGraphicsState()
     }
 
-    private static func drawFreehand(points: [CGPoint], width: Int, height: Int, context: CGContext) {
-        let renderedPoints = points.map { renderedPoint($0, width: width, height: height) }
+    private static func drawFreehand(points: [CGPoint], imageRect: CGRect, context: CGContext) {
+        let renderedPoints = points.map { renderedPoint($0, in: imageRect) }
         guard let first = renderedPoints.first else { return }
 
         context.beginPath()
@@ -3985,7 +4080,7 @@ private enum AnnotationRenderer {
     private static func drawText(
         _ item: AnnotationItem,
         in rect: CGRect,
-        canvasSize: CGSize,
+        imageHeight: CGFloat,
         context: CGContext
     ) {
         let text = item.text.trimmingCharacters(in: .newlines)
@@ -3997,7 +4092,7 @@ private enum AnnotationRenderer {
 
         let fontSize = AnnotationTextMetrics.renderedFontSize(
             lineHeight: item.textLineHeight,
-            imagePixelHeight: canvasSize.height
+            imagePixelHeight: imageHeight
         )
         let font = item.resolvedFont(size: fontSize)
         let paragraphStyle = NSMutableParagraphStyle()
@@ -4098,7 +4193,7 @@ private enum AnnotationRenderer {
         context.restoreGState()
     }
 
-    private static func renderedLineWidth(for item: AnnotationItem, imageWidth: Int, imageHeight: Int) -> CGFloat {
-        max(1.5, item.strokeWidth * max(CGFloat(imageWidth), CGFloat(imageHeight)) / 900)
+    private static func renderedLineWidth(for item: AnnotationItem, imageSize: CGSize) -> CGFloat {
+        max(1.5, item.strokeWidth * max(imageSize.width, imageSize.height) / 900)
     }
 }

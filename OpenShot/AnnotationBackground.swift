@@ -504,14 +504,58 @@ struct AnnotationBackgroundDisplayLayout {
 }
 
 enum AnnotationBackgroundRenderer {
+    typealias CanvasOverlay = (_ context: CGContext, _ layout: AnnotationBackgroundLayout, _ imageRect: CGRect) -> Void
+
     static func compose(
         annotatedImage: CGImage,
         settings: AnnotationBackgroundSettings,
         colorSpace: CGColorSpace
     ) throws -> CGImage {
-        guard settings.isEnabled else { return annotatedImage }
+        try compose(
+            contentImage: annotatedImage,
+            settings: settings,
+            colorSpace: colorSpace
+        )
+    }
 
-        let contentSize = CGSize(width: annotatedImage.width, height: annotatedImage.height)
+    static func compose(
+        contentImage: CGImage,
+        settings: AnnotationBackgroundSettings,
+        colorSpace: CGColorSpace,
+        canvasOverlay: CanvasOverlay? = nil
+    ) throws -> CGImage {
+        guard settings.isEnabled else {
+            guard let canvasOverlay else { return contentImage }
+
+            let width = contentImage.width
+            let height = contentImage.height
+            guard let context = CGContext(
+                data: nil,
+                width: width,
+                height: height,
+                bitsPerComponent: 8,
+                bytesPerRow: 0,
+                space: colorSpace,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ) else {
+                throw CocoaError(.fileWriteUnknown)
+            }
+
+            let fullRect = CGRect(x: 0, y: 0, width: width, height: height)
+            context.draw(contentImage, in: fullRect)
+            canvasOverlay(
+                context,
+                AnnotationBackgroundLayout(canvasSize: fullRect.size, imageRect: fullRect, padding: 0),
+                fullRect
+            )
+
+            guard let renderedImage = context.makeImage() else {
+                throw CocoaError(.fileWriteUnknown)
+            }
+            return renderedImage
+        }
+
+        let contentSize = CGSize(width: contentImage.width, height: contentImage.height)
         let layout = AnnotationBackgroundLayout.make(contentSize: contentSize, settings: settings)
         let width = max(1, Int(ceil(layout.canvasSize.width)))
         let height = max(1, Int(ceil(layout.canvasSize.height)))
@@ -547,8 +591,9 @@ enum AnnotationBackgroundRenderer {
         context.saveGState()
         context.addPath(clipPath)
         context.clip()
-        context.draw(annotatedImage, in: imageRect)
+        context.draw(contentImage, in: imageRect)
         context.restoreGState()
+        canvasOverlay?(context, layout, imageRect)
 
         guard let renderedImage = context.makeImage() else {
             throw CocoaError(.fileWriteUnknown)
