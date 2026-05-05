@@ -6,6 +6,7 @@
 //
 
 import AppKit
+import ScreenCaptureKit
 import SwiftUI
 
 /// Single long-lived coordinator that manages the capture → preview flow.
@@ -69,6 +70,36 @@ final class CaptureCoordinator {
                 ActiveDisplayResolver.activeDisplayID(preferPointer: true)
             }
             await MainActor.run { self.finishCapture(url: url, displayID: displayID) }
+        }
+    }
+
+    func recordScreen() {
+        let displayID = ActiveDisplayResolver.activeDisplayID(preferPointer: false)
+        Task {
+            do {
+                let content = try await ScreenRecordingCapture.availableContent()
+                guard let display = content.displays.first(where: { $0.displayID == displayID }) ?? content.displays.first else { return }
+                await MainActor.run {
+                    self.recordFullscreen(display)
+                }
+            } catch {
+                print("Failed to load recording display: \(error)")
+            }
+        }
+    }
+
+    func recordFullscreen(_ display: SCDisplay) {
+        ScreenRecordingManager.shared.startRecording(source: ScreenRecordingSource(kind: .fullscreen(display)))
+    }
+
+    func recordWindow(_ window: SCWindow) {
+        ScreenRecordingManager.shared.startRecording(source: ScreenRecordingSource(kind: .window(window)))
+    }
+
+    func recordArea(_ display: SCDisplay) {
+        RecordingAreaSelectionPresenter.shared.selectArea(on: display) { rect in
+            guard let rect else { return }
+            ScreenRecordingManager.shared.startRecording(source: ScreenRecordingSource(kind: .area(display: display, rect: rect)))
         }
     }
     

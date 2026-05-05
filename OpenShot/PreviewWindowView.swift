@@ -54,6 +54,7 @@ struct PreviewWindowView: View {
                         previewStack.save(id: item.id)
                     },
                     onAnnotate: {
+                        guard item.kind == .image else { return }
                         QuickLookPreviewPresenter.dismiss()
                         if let onAnnotate {
                             onAnnotate(item.url)
@@ -244,6 +245,15 @@ private struct PreviewCardView: View {
             .help("Annotate screenshot")
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
             .padding(10)
+            .opacity(item.kind == .image ? 1 : 0)
+            .disabled(item.kind != .image)
+
+            if item.kind == .video {
+                Image(systemName: "play.circle.fill")
+                    .font(.system(size: 34, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.92), .black.opacity(0.35))
+                    .shadow(color: .black.opacity(0.28), radius: 8, x: 0, y: 2)
+            }
             
             VStack(spacing: 8) {
                 Button(action: onCopy) {
@@ -279,10 +289,16 @@ private struct PreviewCardView: View {
     }
 }
 
+enum PreviewMediaKind: Equatable {
+    case image
+    case video
+}
+
 struct ScreenshotPreviewItem: Identifiable, Equatable {
     let id = UUID()
     var url: URL
     var previewImage: NSImage
+    var kind: PreviewMediaKind = .image
     var autoSavedURL: URL?
     
     static func == (lhs: ScreenshotPreviewItem, rhs: ScreenshotPreviewItem) -> Bool {
@@ -329,6 +345,36 @@ final class ScreenshotPreviewStack {
         }
         
         items.insert(item, at: 0)
+    }
+
+    func addVideo(url: URL) {
+        QuickLookPreviewPresenter.dismiss()
+
+        var item = ScreenshotPreviewItem(
+            url: url,
+            previewImage: VideoPreviewImageLoader.placeholderImage(),
+            kind: .video
+        )
+        let itemID = item.id
+
+        if OpenShotPreferences.autoSave {
+            item.autoSavedURL = saveVideoToDefaultLocation(from: url)
+        }
+
+        if OpenShotPreferences.autoCopy {
+            _ = copyVideoURLToClipboard(url)
+        }
+
+        items.insert(item, at: 0)
+
+        Task {
+            guard let thumbnail = await VideoPreviewImageLoader.thumbnail(at: url, maxPixelSize: 520),
+                  let index = items.firstIndex(where: { $0.id == itemID }) else {
+                return
+            }
+
+            items[index].previewImage = thumbnail
+        }
     }
     
     func setHovered(_ id: ScreenshotPreviewItem.ID, isHovered: Bool) {
@@ -389,8 +435,15 @@ final class ScreenshotPreviewStack {
     
     func copyToClipboard(id: ScreenshotPreviewItem.ID) {
         guard let item = items.first(where: { $0.id == id }) else { return }
-        
-        guard copyURLToClipboard(item.url) else { return }
+
+        let didCopy: Bool
+        switch item.kind {
+        case .image:
+            didCopy = copyURLToClipboard(item.url)
+        case .video:
+            didCopy = copyVideoURLToClipboard(item.url)
+        }
+        guard didCopy else { return }
         dismiss(id: id)
     }
     
@@ -408,10 +461,11 @@ final class ScreenshotPreviewStack {
     
     func save(id: ScreenshotPreviewItem.ID) {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
+        let kind = items[index].kind
         
         if OpenShotPreferences.autoSave {
             if items[index].autoSavedURL == nil {
-                items[index].autoSavedURL = saveToDefaultLocation(from: items[index].url)
+                items[index].autoSavedURL = kind == .video ? saveVideoToDefaultLocation(from: items[index].url) : saveToDefaultLocation(from: items[index].url)
             }
             
             dismiss(id: id)
@@ -420,17 +474,21 @@ final class ScreenshotPreviewStack {
         
         let url = items[index].url
         let panel = NSSavePanel()
-        panel.allowedContentTypes = [ScreenshotFileActions.exportContentType]
-        panel.nameFieldStringValue = ScreenshotFileActions.exportFileName(for: url)
+        panel.allowedContentTypes = [kind == .video ? VideoFileActions.exportContentType : ScreenshotFileActions.exportContentType]
+        panel.nameFieldStringValue = kind == .video ? VideoFileActions.exportFileName(for: url) : ScreenshotFileActions.exportFileName(for: url)
         panel.canCreateDirectories = true
-        panel.title = "Save Screenshot"
+        panel.title = kind == .video ? "Save Recording" : "Save Screenshot"
         
         panel.begin { response in
             if response == .OK, let destURL = panel.url {
                 do {
-                    try ScreenshotFileActions.save(from: url, to: destURL)
+                    if kind == .video {
+                        try VideoFileActions.save(from: url, to: destURL)
+                    } else {
+                        try ScreenshotFileActions.save(from: url, to: destURL)
+                    }
                 } catch {
-                    print("Failed to save: \(error)")
+                    print("Failed to save preview: \(error)")
                 }
             }
         }
@@ -482,6 +540,25 @@ final class ScreenshotPreviewStack {
             return try ScreenshotFileActions.saveToDefaultLocation(from: url)
         } catch {
             print("Failed to auto save: \(error)")
+            return nil
+        }
+    }
+
+    private func copyVideoURLToClipboard(_ url: URL) -> Bool {
+        do {
+            try VideoFileActions.copyToClipboard(from: url)
+            return true
+        } catch {
+            print("Failed to copy recording: \(error)")
+            return false
+        }
+    }
+
+    private func saveVideoToDefaultLocation(from url: URL) -> URL? {
+        do {
+            return try VideoFileActions.saveToDefaultLocation(from: url)
+        } catch {
+            print("Failed to auto save recording: \(error)")
             return nil
         }
     }

@@ -50,6 +50,11 @@ struct OpenShotApp: App {
             }
             PreviewPanelPresenter.shared.show(displayID: displayID)
         }
+
+        ScreenRecordingManager.shared.onFinishRecording = { url, displayID in
+            ScreenshotPreviewStack.shared.addVideo(url: url)
+            PreviewPanelPresenter.shared.show(displayID: displayID)
+        }
     }
 }
 

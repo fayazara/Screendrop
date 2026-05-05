@@ -9,9 +9,10 @@ import AppKit
 import Carbon.HIToolbox
 
 /// Registers system-wide global keyboard shortcuts.
-///   - Option+1 → Fullscreen
-///   - Option+2 → Window
-///   - Option+3 → Area
+///   - Option+1: Fullscreen
+///   - Option+2: Window
+///   - Option+3: Area
+///   - Option+4: Screen Recording
 final class HotkeyManager {
     
     static let shared = HotkeyManager()
@@ -38,10 +39,11 @@ final class HotkeyManager {
         registerHotKey(id: 1, keyCode: UInt32(kVK_ANSI_1), modifiers: UInt32(optionKey))
         registerHotKey(id: 2, keyCode: UInt32(kVK_ANSI_2), modifiers: UInt32(optionKey))
         registerHotKey(id: 3, keyCode: UInt32(kVK_ANSI_3), modifiers: UInt32(optionKey))
+        registerHotKey(id: 4, keyCode: UInt32(kVK_ANSI_4), modifiers: UInt32(optionKey))
     }
     
     private func registerHotKey(id: UInt32, keyCode: UInt32, modifiers: UInt32) {
-        var hotKeyID = EventHotKeyID(signature: OSType(0x4F53_4854), id: id)
+        let hotKeyID = EventHotKeyID(signature: OSType(0x4F53_4854), id: id)
         var hotKeyRef: EventHotKeyRef?
         
         let status = RegisterEventHotKey(
@@ -62,6 +64,7 @@ final class HotkeyManager {
         case 1: coordinator.captureFullscreen()
         case 2: coordinator.captureWindow()
         case 3: coordinator.captureArea()
+        case 4: coordinator.recordScreen()
         default: break
         }
     }
