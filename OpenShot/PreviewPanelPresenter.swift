@@ -51,7 +51,9 @@ final class PreviewPanelPresenter {
         panel.isReleasedWhenClosed = false
         panel.titleVisibility = .hidden
         panel.titlebarAppearsTransparent = true
-        panel.sharingType = .none
+        if !PreviewWindowCaptureExclusion.isDemoMode {
+            panel.sharingType = .none
+        }
 
         panel.contentView = NSHostingView(
             rootView: PreviewWindowView(

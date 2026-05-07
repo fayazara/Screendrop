@@ -11,7 +11,11 @@ import SwiftUI
 @MainActor
 final class PreviewWindowCaptureExclusion {
     static let shared = PreviewWindowCaptureExclusion()
-    
+
+    /// When true, the preview panel is visible in screen recordings.
+    /// Activated via the --demo-mode launch argument.
+    static let isDemoMode = CommandLine.arguments.contains("--demo-mode")
+
     private weak var previewWindow: NSWindow?
     private var captureHiddenWindow: NSWindow?
     private var annotationHiddenWindow: NSWindow?
@@ -23,7 +27,9 @@ final class PreviewWindowCaptureExclusion {
         guard let window else { return }
         
         previewWindow = window
-        window.sharingType = .none
+        if !Self.isDemoMode {
+            window.sharingType = .none
+        }
         PreviewWindowPlacement.shared.attach(window: window)
     }
     
@@ -44,7 +50,7 @@ final class PreviewWindowCaptureExclusion {
             return
         }
         
-        captureHiddenWindow.sharingType = .none
+        if !Self.isDemoMode { captureHiddenWindow.sharingType = .none }
         PreviewWindowPlacement.shared.applyPlacement()
         PreviewWindowPlacement.shared.showAboveActiveSpace()
         self.captureHiddenWindow = nil
@@ -70,7 +76,7 @@ final class PreviewWindowCaptureExclusion {
             return
         }
 
-        annotationHiddenWindow.sharingType = .none
+        if !Self.isDemoMode { annotationHiddenWindow.sharingType = .none }
         PreviewWindowPlacement.shared.applyPlacement()
         PreviewWindowPlacement.shared.showAboveActiveSpace()
         self.annotationHiddenWindow = nil

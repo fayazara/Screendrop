@@ -16,8 +16,6 @@ enum OpenShotPreferences {
     static let exportFormatKey = "exportFormat"
     static let compressionQualityKey = "compressionQuality"
     static let exportDirectoryPathKey = "exportDirectoryPath"
-    static let cloudWorkerURLKey = "cloudWorkerURL"
-    static let cloudUploadTokenKey = "cloudUploadToken"
     
     private static let defaultCompressionQuality = 0.8
     
@@ -65,15 +63,16 @@ enum OpenShotPreferences {
     // MARK: - Cloud
     
     static var cloudWorkerURL: String {
-        UserDefaults.standard.string(forKey: cloudWorkerURLKey) ?? ""
+        CloudCredentialStore.shared.workerURL
     }
     
     static var cloudUploadToken: String {
-        UserDefaults.standard.string(forKey: cloudUploadTokenKey) ?? ""
+        CloudCredentialStore.shared.uploadToken
     }
     
+    /// Cloud upload is available when both S3 credentials and the worker are configured.
     static var isCloudConfigured: Bool {
-        !cloudWorkerURL.isEmpty && !cloudUploadToken.isEmpty
+        CloudCredentialStore.shared.isFullyConfigured
     }
 }
 
