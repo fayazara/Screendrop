@@ -24,33 +24,27 @@ struct VideoEditorWindow: View {
     @State private var isExporting = false
     @State private var isCompressingVideo = false
     @State private var isDetectingFFmpeg = false
-    @State private var copySucceeded = false
     @State private var feedback: String?
     @State private var errorMessage: String?
     @State private var ffmpegPath: String?
     @State private var compressionSettings = VideoCompressionSettings()
     @State private var compressionProgress: Double?
     @State private var compressionResult: VideoCompressionResult?
-    @State private var isInspectorPresented = true
+    @State private var showInspector = true
 
     @Environment(\.dismiss) private var dismissWindow
 
     var body: some View {
         mainContent
-            .frame(minWidth: 880, minHeight: 640)
+            .frame(minWidth: 980, minHeight: 720)
             .navigationTitle("OpenShot Video Editor")
             .toolbarBackgroundVisibility(.visible, for: .windowToolbar)
             .toolbar {
                 ToolbarItem(placement: .automatic) {
-                    Button {
-                        isInspectorPresented.toggle()
-                    } label: {
-                        Image(systemName: "sidebar.right")
-                    }
-                    .help(isInspectorPresented ? "Hide Inspector" : "Show Inspector")
+                    VideoInspectorToggleButton(isPresented: $showInspector)
                 }
             }
-            .inspector(isPresented: $isInspectorPresented) {
+            .inspector(isPresented: $showInspector) {
                 videoInspector
             }
             .task(id: url) {
@@ -75,7 +69,14 @@ struct VideoEditorWindow: View {
     private var mainContent: some View {
         VStack(spacing: 0) {
             playbackArea
-            editorControls
+            VStack(spacing: 10) {
+                transportTimelinePill
+                timelineStatusBar
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 16)
+            .padding(.bottom, 16)
+            .background(Color(nsColor: .windowBackgroundColor))
         }
     }
 
@@ -109,12 +110,20 @@ struct VideoEditorWindow: View {
                     .padding(18)
             }
         }
-        .frame(minHeight: 420)
+        .frame(minHeight: 390)
     }
 
-    private var editorControls: some View {
-        VStack(spacing: 12) {
-            timelineHeader
+    private var transportTimelinePill: some View {
+        HStack(spacing: 10) {
+            Button(action: togglePlayback) {
+                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                    .font(.system(size: 24, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 52, height: 52)
+            }
+            .buttonStyle(.plain)
+            .help(isPlaying ? "Pause" : "Play")
+            .disabled(!canPreview)
 
             VideoTrimTimelineView(
                 selection: $selection,
@@ -123,48 +132,142 @@ struct VideoEditorWindow: View {
                 frames: timelineFrames,
                 onSeek: seekPreview
             )
-            .frame(height: 72)
+            .frame(height: 54)
 
-            HStack(spacing: 8) {
-                Button(action: togglePlayback) {
-                    Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                }
-                .help(isPlaying ? "Pause" : "Play")
-                .disabled(!canPreview)
-
-                Button(action: resetTrim) {
-                    Image(systemName: "arrow.counterclockwise")
-                }
-                .help("Reset trim")
-                .disabled(!canPreview || isFullSelection)
-
-                Spacer()
-
-                statusLabel
+            Button(action: resetTrim) {
+                Image(systemName: "arrow.counterclockwise")
+                    .font(.system(size: 16, weight: .medium))
+                    .frame(width: 32, height: 32)
             }
-            .controlSize(.regular)
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .help("Reset trim")
+            .disabled(!canPreview || isFullSelection)
         }
-        .padding(.horizontal, 18)
-        .padding(.top, 14)
-        .padding(.bottom, 14)
-        .background(.bar)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(.separator.opacity(0.38), lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.12), radius: 10, x: 0, y: 5)
     }
 
-    private var timelineHeader: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Text(timecode(playheadTime))
-                .font(.system(.callout, design: .monospaced).weight(.medium))
-                .foregroundStyle(.primary)
-
-            Text("\(timecode(selection.start)) - \(timecode(selection.end))")
-                .font(.system(.caption, design: .monospaced))
-                .foregroundStyle(.secondary)
-
+    private var timelineStatusBar: some View {
+        HStack(spacing: 12) {
+            statusLabel
             Spacer()
+        }
+        .frame(height: 20)
+    }
 
-            Text(timecode(duration))
-                .font(.system(.caption, design: .monospaced))
-                .foregroundStyle(.secondary)
+    private var videoInspector: some View {
+        VideoInspectorPanel {
+            clipInspectorSection
+            VideoInspectorDivider()
+            qualityInspectorSection
+            speedInspectorSection
+            resolutionInspectorSection
+            codecInspectorSection
+            audioInspectorSection
+            VideoInspectorDivider()
+            ffmpegInspectorSection
+            compressionStatusInspectorSection
+            actionsInspectorSection
+        }
+    }
+
+    private var clipInspectorSection: some View {
+        VideoInspectorSection("Clip") {
+            let boundedSelection = selection.clamped(to: duration)
+            VideoInspectorValueRow(title: "Start", value: timecode(boundedSelection.start))
+            VideoInspectorValueRow(title: "End", value: timecode(boundedSelection.end))
+            VideoInspectorValueRow(title: "Length", value: timecode(boundedSelection.duration))
+        }
+    }
+
+    private var qualityInspectorSection: some View {
+        VideoInspectorSection("Quality") {
+            VideoInspectorSegmentedControl(
+                options: Array(VideoCompressionQuality.allCases),
+                selection: $compressionSettings.quality,
+                title: { $0.rawValue }
+            )
+
+            VideoInspectorHint(text: qualityHint(for: compressionSettings.quality))
+        }
+    }
+
+    private var speedInspectorSection: some View {
+        VideoInspectorSection("Speed") {
+            VideoInspectorSegmentedControl(
+                options: Array(VideoCompressionSpeed.allCases),
+                selection: $compressionSettings.speed,
+                title: { $0.rawValue }
+            )
+
+            VideoInspectorHint(text: speedHint(for: compressionSettings.speed))
+        }
+    }
+
+    private var resolutionInspectorSection: some View {
+        VideoInspectorSection("Resolution") {
+            VideoInspectorMenuPicker(
+                options: Array(VideoCompressionResolution.allCases),
+                selection: $compressionSettings.resolution,
+                title: { $0.rawValue }
+            )
+        }
+    }
+
+    private var codecInspectorSection: some View {
+        VideoInspectorSection("Codec") {
+            VideoInspectorSegmentedControl(
+                options: Array(VideoCompressionCodec.allCases),
+                selection: $compressionSettings.codec,
+                title: { $0.rawValue }
+            )
+
+            VideoInspectorHint(text: codecHint(for: compressionSettings.codec))
+        }
+    }
+
+    private var audioInspectorSection: some View {
+        VideoInspectorSection("Audio") {
+            Toggle("Remove audio", isOn: $compressionSettings.removeAudio)
+                .font(.callout)
+                .disabled(isExporting || isCompressingVideo)
+        }
+    }
+
+    private var ffmpegInspectorSection: some View {
+        VideoInspectorSection("FFmpeg") {
+            ffmpegStatus
+        }
+    }
+
+    @ViewBuilder
+    private var compressionStatusInspectorSection: some View {
+        if isCompressingVideo || compressionResult != nil {
+            VideoInspectorSection("Status") {
+                compressionStatus
+            }
+        }
+    }
+
+    private var actionsInspectorSection: some View {
+        VideoInspectorSection {
+            VideoInspectorActions(
+                primaryLabel: primaryConversionTitle,
+                primaryIcon: "arrow.down.right.and.arrow.up.left",
+                onPrimary: applyCompressedToPreview,
+                secondaryLabel: trimOnlyActionLabel,
+                onSecondary: trimOnlyAction,
+                isSecondaryDisabled: !canExport,
+                isPrimaryDisabled: !canConvert,
+                isProcessing: isCompressingVideo || isExporting
+            )
         }
     }
 
@@ -173,181 +276,76 @@ struct VideoEditorWindow: View {
         if isExporting {
             ProgressView()
                 .controlSize(.small)
+        } else if isCompressingVideo {
+            ProgressView(value: compressionProgress ?? 0)
+                .progressViewStyle(.linear)
+                .frame(width: 132)
         } else if let feedback {
             Text(feedback)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        } else if canPreview {
+            Text(isTrimmedSelection ? "Selected: \(timecode(selection.start)) - \(timecode(selection.end))" : "Duration: \(timecode(duration))")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
         }
     }
 
-    private var videoInspector: some View {
-        VStack(spacing: 0) {
-            ScrollView(.vertical) {
-                VStack(alignment: .leading, spacing: 0) {
-                    clipInspectorSection
-
-                    VideoInspectorDivider()
-
-                    compressionInspectorSection
-                }
-                .frame(maxWidth: .infinity, alignment: .topLeading)
-            }
-            .scrollContentBackground(.hidden)
-            .background(Color(nsColor: .windowBackgroundColor))
-
-            Divider()
-
-            Button(action: applyTrimToPreview) {
-                Text("Apply Clip")
-                    .font(.system(size: 13, weight: .semibold))
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 28)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .keyboardShortcut(.defaultAction)
-            .disabled(!canExport)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .background(Color(nsColor: .windowBackgroundColor))
-        }
-        .inspectorColumnWidth(min: 280, ideal: 320, max: 420)
-        .frame(minWidth: 280, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-
-    private var clipInspectorSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            VideoInspectorSectionHeader("CLIP")
-
-            VStack(alignment: .leading, spacing: 8) {
-                VideoInspectorValueRow(title: "Start", value: timecode(selection.clamped(to: duration).start))
-                VideoInspectorValueRow(title: "End", value: timecode(selection.clamped(to: duration).end))
-                VideoInspectorValueRow(title: "Length", value: timecode(selection.clamped(to: duration).duration))
-            }
-
-            HStack(spacing: 8) {
-                Button(action: copyTrim) {
-                    Label(copySucceeded ? "Copied" : "Copy", systemImage: copySucceeded ? "checkmark" : "doc.on.doc")
-                        .frame(maxWidth: .infinity)
-                }
-                .disabled(!canExport)
-
-                Button(action: saveTrimAs) {
-                    Label("Save As", systemImage: "square.and.arrow.down")
-                        .frame(maxWidth: .infinity)
-                }
-                .disabled(!canExport)
-            }
-            .controlSize(.large)
-        }
-        .padding(.horizontal, 14)
-        .padding(.top, 14)
-        .padding(.bottom, 16)
-    }
-
-    private var compressionInspectorSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
-                VideoInspectorSectionHeader("COMPRESSION")
-                compressionStatus
-            }
-
-            VideoInspectorPickerRow(title: "Quality") {
-                Picker("Quality", selection: $compressionSettings.quality) {
-                    ForEach(VideoCompressionQuality.allCases) { quality in
-                        Text(quality.rawValue).tag(quality)
-                    }
-                }
-            }
-
-            VideoInspectorPickerRow(title: "Codec") {
-                Picker("Codec", selection: $compressionSettings.codec) {
-                    ForEach(VideoCompressionCodec.allCases) { codec in
-                        Text(codec.rawValue).tag(codec)
-                    }
-                }
-            }
-
-            VideoInspectorPickerRow(title: "Size") {
-                Picker("Size", selection: $compressionSettings.resolution) {
-                    ForEach(VideoCompressionResolution.allCases) { resolution in
-                        Text(resolution.rawValue).tag(resolution)
-                    }
-                }
-            }
-
-            VideoInspectorPickerRow(title: "Speed") {
-                Picker("Speed", selection: $compressionSettings.speed) {
-                    ForEach(VideoCompressionSpeed.allCases) { speed in
-                        Text(speed.rawValue).tag(speed)
-                    }
-                }
-            }
-
-            Toggle("Remove audio", isOn: $compressionSettings.removeAudio)
-                .font(.system(size: 12))
-                .disabled(isCompressingVideo)
-
-            compressionActionGroup
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 14)
-    }
-
     @ViewBuilder
-    private var compressionActionGroup: some View {
-        if ffmpegPath == nil {
-            VStack(spacing: 8) {
-                Button(action: copyFFmpegInstallCommand) {
-                    Label("Copy Install Command", systemImage: "doc.on.doc")
-                        .frame(maxWidth: .infinity)
+    private var ffmpegStatus: some View {
+        if isDetectingFFmpeg {
+            HStack(spacing: 8) {
+                ProgressView()
+                    .controlSize(.small)
+
+                Text("Checking FFmpeg...")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        } else if ffmpegPath == nil {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Install FFmpeg with Homebrew to convert recordings.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                HStack(spacing: 8) {
+                    Text("brew install ffmpeg")
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+
+                    Spacer(minLength: 0)
+
+                    Button(action: copyFFmpegInstallCommand) {
+                        Image(systemName: "doc.on.doc")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Copy Homebrew install command")
                 }
 
-                Button(action: { Task { await detectFFmpeg() } }) {
-                    Label("Check Again", systemImage: "arrow.clockwise")
-                        .frame(maxWidth: .infinity)
+                Button("Check Again") {
+                    Task { await detectFFmpeg() }
                 }
-                .disabled(isDetectingFFmpeg)
+                .controlSize(.small)
             }
-            .controlSize(.large)
         } else {
-            VStack(spacing: 8) {
-                Button(action: saveCompressedAs) {
-                    Label("Save Compressed", systemImage: "square.and.arrow.down")
-                        .frame(maxWidth: .infinity)
-                }
-                .disabled(!canCompress)
-
-                Button(action: applyCompressedToPreview) {
-                    Label("Apply Compressed", systemImage: "checkmark.circle")
-                        .frame(maxWidth: .infinity)
-                }
-                .disabled(!canCompress)
-            }
-            .controlSize(.large)
+            Label("Ready to convert", systemImage: "checkmark.circle.fill")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 
     @ViewBuilder
     private var compressionStatus: some View {
         if isCompressingVideo {
-            ProgressView(value: compressionProgress ?? 0)
-                .progressViewStyle(.linear)
-                .frame(width: 96)
-        } else if isDetectingFFmpeg {
-            Text("Checking FFmpeg...")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-        } else if ffmpegPath == nil {
-            Text("FFmpeg required")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+            VideoInspectorProgressStatus(
+                progress: compressionProgress ?? 0,
+                label: "Converting recording"
+            )
         } else if let compressionResult {
-            Text(compressionSummary(for: compressionResult))
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
+            VideoInspectorHint(text: compressionSummary(for: compressionResult))
         }
     }
 
@@ -367,8 +365,30 @@ struct VideoEditorWindow: View {
         && selection.clamped(to: duration).duration >= VideoTrimSelection.minimumDuration
     }
 
+    private var canConvert: Bool {
+        canCompress
+    }
+
+    private var primaryConversionTitle: String {
+        isTrimmedSelection ? "Trim & Convert" : "Convert"
+    }
+
+    private var trimOnlyActionLabel: String? {
+        isTrimmedSelection ? "Trim Only" : nil
+    }
+
+    private var trimOnlyAction: (() -> Void)? {
+        guard isTrimmedSelection else { return nil }
+        return { applyTrimToPreview() }
+    }
+
     private var isFullSelection: Bool {
         abs(selection.start) < 0.001 && abs(selection.end - duration) < 0.001
+    }
+
+    private var isTrimmedSelection: Bool {
+        let boundedSelection = selection.clamped(to: duration)
+        return boundedSelection.start > 0.001 || abs(boundedSelection.end - duration) > 0.001
     }
 
     private func loadVideo(_ url: URL?) async {
@@ -382,7 +402,7 @@ struct VideoEditorWindow: View {
         timelineFrames = []
         feedback = nil
         errorMessage = nil
-        copySucceeded = false
+        compressionSettings = VideoCompressionSettings()
         compressionProgress = nil
         compressionResult = nil
         isPlaying = false
@@ -574,59 +594,6 @@ struct VideoEditorWindow: View {
         feedback = nil
     }
 
-    private func copyTrim() {
-        guard let sourceURL else { return }
-        let boundedSelection = selection.clamped(to: duration)
-
-        runExport(destinationURL: nil) {
-            let outputURL = try VideoTrimExportService.temporaryURL(for: sourceURL)
-            let trimmedURL = try await VideoTrimExportService.exportTrim(
-                sourceURL: sourceURL,
-                selection: boundedSelection,
-                to: outputURL
-            )
-            try VideoFileActions.copyToClipboard(from: trimmedURL)
-            return trimmedURL
-        } onSuccess: { _ in
-            feedback = "Copied trimmed recording."
-            copySucceeded = true
-            Task {
-                try? await Task.sleep(for: .seconds(1))
-                copySucceeded = false
-            }
-        }
-    }
-
-    private func saveTrimAs() {
-        guard let sourceURL else { return }
-        let boundedSelection = selection.clamped(to: duration)
-
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [VideoFileActions.exportContentType]
-        panel.nameFieldStringValue = VideoTrimExportService.suggestedFileName(
-            for: sourceURL,
-            selection: boundedSelection
-        )
-        panel.canCreateDirectories = true
-        panel.title = "Save Trimmed Recording"
-
-        panel.begin { response in
-            guard response == .OK, let destinationURL = panel.url else { return }
-
-            Task { @MainActor in
-                runExport(destinationURL: destinationURL) {
-                    try await VideoTrimExportService.exportTrim(
-                        sourceURL: sourceURL,
-                        selection: boundedSelection,
-                        to: destinationURL
-                    )
-                } onSuccess: { _ in
-                    feedback = "Saved trimmed recording."
-                }
-            }
-        }
-    }
-
     private func applyTrimToPreview() {
         guard let sourceURL else { return }
         let boundedSelection = selection.clamped(to: duration)
@@ -641,38 +608,6 @@ struct VideoEditorWindow: View {
         } onSuccess: { trimmedURL in
             _ = ScreenshotPreviewStack.shared.replaceVideo(originalURL: sourceURL, with: trimmedURL)
             dismissWindow()
-        }
-    }
-
-    private func saveCompressedAs() {
-        guard let sourceURL else { return }
-        let settingsSnapshot = compressionSettings
-        let boundedSelection = selection.clamped(to: duration)
-
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [VideoFileActions.exportContentType]
-        panel.nameFieldStringValue = VideoCompressionService.suggestedFileName(
-            for: sourceURL,
-            selection: boundedSelection,
-            duration: duration,
-            settings: settingsSnapshot
-        )
-        panel.canCreateDirectories = true
-        panel.title = "Save Compressed Recording"
-
-        panel.begin { response in
-            guard response == .OK, let destinationURL = panel.url else { return }
-
-            Task { @MainActor in
-                runCompression(
-                    selection: boundedSelection,
-                    settings: settingsSnapshot,
-                    outputURL: destinationURL
-                ) { result in
-                    feedback = "Saved compressed recording."
-                    compressionResult = result
-                }
-            }
         }
     }
 
@@ -847,6 +782,39 @@ struct VideoEditorWindow: View {
         formatter.countStyle = .file
         return formatter.string(fromByteCount: bytes)
     }
+
+    private func qualityHint(for quality: VideoCompressionQuality) -> String {
+        switch quality {
+        case .high:
+            "Best visual quality, larger output files."
+        case .balanced:
+            "Good quality with a practical file size."
+        case .small:
+            "Smallest output, with more visible compression."
+        }
+    }
+
+    private func speedHint(for speed: VideoCompressionSpeed) -> String {
+        switch speed {
+        case .ultrafast:
+            "Fastest conversion, least compression efficiency."
+        case .fast:
+            "Good default for screen recordings."
+        case .medium:
+            "Smaller files, slower conversion."
+        case .slow:
+            "Best compression efficiency, slowest conversion."
+        }
+    }
+
+    private func codecHint(for codec: VideoCompressionCodec) -> String {
+        switch codec {
+        case .h264:
+            "Most compatible across apps and browsers."
+        case .hevc:
+            "Smaller files on modern Apple devices."
+        }
+    }
 }
 
 private struct VideoEditorPlayerSurface: NSViewRepresentable {
@@ -912,25 +880,81 @@ private struct SendableTimelineFrame: @unchecked Sendable {
     let image: NSImage
 }
 
-private struct VideoInspectorSectionHeader: View {
-    let title: String
+private struct VideoInspectorToggleButton: View {
+    @Binding var isPresented: Bool
 
-    init(_ title: String) {
-        self.title = title
+    var body: some View {
+        Button {
+            isPresented.toggle()
+        } label: {
+            Image(systemName: "sidebar.right")
+        }
+        .help(isPresented ? "Hide Inspector" : "Show Inspector")
+    }
+}
+
+private struct VideoInspectorPanel<Content: View>: View {
+    let content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
     }
 
     var body: some View {
-        Text(title)
-            .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(.tertiary)
-            .tracking(0.5)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                content
+            }
+            .padding(.top, 16)
+            .padding(.bottom, 20)
+        }
+        .inspectorColumnWidth(300)
+        .frame(width: 300)
+    }
+}
+
+private struct VideoInspectorSection<Content: View>: View {
+    let title: String?
+    let content: Content
+
+    init(_ title: String? = nil, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if let title {
+                Text(title)
+                    .font(.headline)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(.primary)
+            }
+
+            VStack(alignment: .leading, spacing: 12) {
+                content
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
     }
 }
 
 private struct VideoInspectorDivider: View {
     var body: some View {
         Divider()
-            .padding(.horizontal, 14)
+            .padding(.vertical, 4)
+    }
+}
+
+private struct VideoInspectorHint: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.caption)
+            .foregroundStyle(.tertiary)
     }
 }
 
@@ -939,36 +963,196 @@ private struct VideoInspectorValueRow: View {
     let value: String
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 12) {
             Text(title)
-                .font(.system(size: 12))
+                .font(.callout)
                 .foregroundStyle(.secondary)
-                .frame(width: 52, alignment: .leading)
 
             Spacer()
 
             Text(value)
-                .font(.system(size: 12, design: .monospaced))
+                .font(.callout.monospacedDigit())
                 .foregroundStyle(.primary)
         }
     }
 }
 
-private struct VideoInspectorPickerRow<Content: View>: View {
-    let title: String
-    @ViewBuilder let content: () -> Content
+private struct VideoInspectorSegmentedControl<Option: Hashable>: View {
+    let options: [Option]
+    @Binding private var selection: Option
+    private let title: (Option) -> String
+
+    init(
+        options: [Option],
+        selection: Binding<Option>,
+        title: @escaping (Option) -> String
+    ) {
+        self.options = options
+        self._selection = selection
+        self.title = title
+    }
 
     var body: some View {
-        HStack(spacing: 10) {
-            Text(title)
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-                .frame(width: 52, alignment: .leading)
+        GlassEffectContainer(spacing: 0) {
+            HStack(spacing: 0) {
+                ForEach(options, id: \.self) { option in
+                    segment(for: option)
+                }
+            }
+            .padding(3)
+            .glassEffect(.regular.interactive(), in: Capsule())
+        }
+        .frame(height: 34)
+    }
 
-            content()
-                .labelsHidden()
-                .pickerStyle(.menu)
-                .frame(maxWidth: .infinity, alignment: .leading)
+    private func segment(for option: Option) -> some View {
+        let isSelected = selection == option
+        let label = title(option)
+
+        return Button {
+            selection = option
+        } label: {
+            Text(label)
+                .font(.caption)
+                .fontWeight(.semibold)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity)
+                .frame(height: 28)
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(isSelected ? Color.white : Color.primary)
+        .background {
+            if isSelected {
+                Capsule()
+                    .fill(Color.accentColor)
+            }
+        }
+        .accessibilityLabel(label)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+}
+
+private struct VideoInspectorMenuPicker<Option: Hashable>: View {
+    let options: [Option]
+    @Binding private var selection: Option
+    private let title: (Option) -> String
+
+    init(
+        options: [Option],
+        selection: Binding<Option>,
+        title: @escaping (Option) -> String
+    ) {
+        self.options = options
+        self._selection = selection
+        self.title = title
+    }
+
+    var body: some View {
+        Menu {
+            ForEach(options, id: \.self) { option in
+                Button {
+                    selection = option
+                } label: {
+                    HStack {
+                        Text(title(option))
+
+                        if option == selection {
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 8) {
+                Text(title(selection))
+                    .font(.callout)
+                    .fontWeight(.medium)
+                    .lineLimit(1)
+
+                Spacer(minLength: 8)
+
+                Image(systemName: "chevron.up.chevron.down")
+                    .imageScale(.small)
+                    .foregroundStyle(.secondary)
+            }
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 12)
+            .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
+            .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct VideoInspectorActions: View {
+    let primaryLabel: String
+    let primaryIcon: String
+    let onPrimary: () -> Void
+    var secondaryLabel: String?
+    var onSecondary: (() -> Void)?
+    var isSecondaryDisabled = false
+    var isPrimaryDisabled = false
+    var isProcessing = false
+
+    var body: some View {
+        VStack(spacing: 10) {
+            Button(action: onPrimary) {
+                HStack(spacing: 6) {
+                    if isProcessing {
+                        ProgressView()
+                            .scaleEffect(0.6)
+                            .frame(width: 16, height: 16)
+                    } else {
+                        Image(systemName: primaryIcon)
+                    }
+
+                    Text(isProcessing ? "Processing..." : primaryLabel)
+                }
+                .frame(maxWidth: .infinity)
+                .frame(height: 28)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .keyboardShortcut(.defaultAction)
+            .disabled(isPrimaryDisabled || isProcessing)
+
+            if let secondaryLabel, let onSecondary {
+                Button(action: onSecondary) {
+                    Text(secondaryLabel)
+                }
+                .buttonStyle(.plain)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .disabled(isSecondaryDisabled || isProcessing)
+            }
+        }
+    }
+}
+
+private struct VideoInspectorProgressStatus: View {
+    let progress: Double
+    let label: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ProgressView(value: progress)
+                .progressViewStyle(.linear)
+
+            HStack {
+                Text(label)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Spacer()
+
+                Text("\(Int(progress * 100))%")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 }
