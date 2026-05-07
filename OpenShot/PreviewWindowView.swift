@@ -62,6 +62,18 @@ struct PreviewWindowView: View {
                             openWindow(id: "ANNOTATION_EDITOR", value: item.url)
                         }
                     },
+                    onUpload: {
+                        guard item.kind == .image else { return }
+                        Task {
+                            do {
+                                let result = try await CloudUploader.shared.upload(itemID: item.id, fileURL: item.url)
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(result.url, forType: .string)
+                            } catch {
+                                print("Cloud upload failed: \(error)")
+                            }
+                        }
+                    },
                     onDragBegan: {
                         previewStack.beginDrag(id: item.id)
                     },
@@ -150,11 +162,13 @@ private struct PreviewCardView: View {
     let onCopy: () -> Void
     let onSave: () -> Void
     let onAnnotate: () -> Void
+    let onUpload: () -> Void
     let onDragBegan: () -> Void
     let onDragEnded: () -> Void
     
     @State private var isHovered = false
     @State private var isPresented = false
+    @State private var cloudUploader = CloudUploader.shared
     
     var body: some View {
         Image(nsImage: item.previewImage)
@@ -247,6 +261,40 @@ private struct PreviewCardView: View {
             .padding(10)
             .opacity(item.kind == .image ? 1 : 0)
             .disabled(item.kind != .image)
+
+            // Cloud upload button (bottom-right)
+            if item.kind == .image, cloudUploader.isConfigured {
+                if let uploadedURL = cloudUploader.uploadedURLs[item.id] {
+                    Button {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(uploadedURL, forType: .string)
+                    } label: {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.title2)
+                            .foregroundStyle(.black, .green)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Link copied! Click to copy again")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                    .padding(10)
+                } else if cloudUploader.uploadingItems.contains(item.id) {
+                    ProgressView(value: cloudUploader.uploadProgress[item.id] ?? 0)
+                        .progressViewStyle(.circular)
+                        .scaleEffect(0.7)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                        .padding(10)
+                } else {
+                    Button(action: onUpload) {
+                        Image(systemName: "cloud.circle.fill")
+                            .font(.title2)
+                            .foregroundStyle(.black, .white)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Upload to cloud")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                    .padding(10)
+                }
+            }
 
             if item.kind == .video {
                 Image(systemName: "play.circle.fill")
@@ -345,6 +393,24 @@ final class ScreenshotPreviewStack {
         }
         
         items.insert(item, at: 0)
+    }
+
+    func previewExistingImage(url: URL) {
+        guard let image = ScreenshotImageLoader.downsampledImage(at: url, maxPixelSize: 520) else {
+            return
+        }
+
+        QuickLookPreviewPresenter.dismiss()
+
+        if let index = items.firstIndex(where: { $0.url == url && $0.kind == .image }) {
+            var item = items.remove(at: index)
+            item.previewImage = image
+            item.autoSavedURL = nil
+            items.insert(item, at: 0)
+            return
+        }
+
+        items.insert(ScreenshotPreviewItem(url: url, previewImage: image), at: 0)
     }
 
     func addVideo(url: URL) {
@@ -449,8 +515,12 @@ final class ScreenshotPreviewStack {
     
     func deleteScreenshot(id: ScreenshotPreviewItem.ID) {
         guard let item = items.first(where: { $0.id == id }) else { return }
-        
-        deleteFile(at: item.url)
+
+        if item.kind == .image, ScreenshotHistoryStore.shared.delete(url: item.url) {
+            // The history store owns this file and has already removed it.
+        } else {
+            deleteFile(at: item.url)
+        }
         
         if let autoSavedURL = item.autoSavedURL, autoSavedURL != item.url {
             deleteFile(at: autoSavedURL)

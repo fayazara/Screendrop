@@ -11,6 +11,7 @@ import SwiftUI
 struct MenuBarView: View {
     @Environment(\.openWindow) private var openWindow
     @State private var recordingSources = RecordingSourceCatalog.shared
+    @State private var historyStore = ScreenshotHistoryStore.shared
     
     var body: some View {
         Group {
@@ -43,17 +44,15 @@ struct MenuBarView: View {
             
             Divider()
 
-            Button {
-                openWindow(id: "HISTORY")
-                NSApp.activate(ignoringOtherApps: true)
+            Menu {
+                historyMenuContent
             } label: {
                 Label("History", systemImage: "clock.arrow.circlepath")
             }
             .keyboardShortcut("h", modifiers: [.command])
             
             Button {
-                openWindow(id: "SETTINGS")
-                NSApp.activate(ignoringOtherApps: true)
+                openSettings(tab: .general)
             } label: {
                 Label("Settings", systemImage: "gearshape")
             }
@@ -68,6 +67,7 @@ struct MenuBarView: View {
         }
         .task {
             await recordingSources.refresh()
+            historyStore.reload()
         }
     }
 
@@ -137,5 +137,55 @@ struct MenuBarView: View {
         } label: {
             Label("Refresh Sources", systemImage: "arrow.clockwise")
         }
+    }
+
+    @ViewBuilder
+    private var historyMenuContent: some View {
+        if historyStore.recentItems.isEmpty {
+            Text("No screenshots")
+        } else {
+            ForEach(historyStore.recentItems) { item in
+                Button(historyMenuTitle(for: item)) {
+                    showHistoryPreview(item)
+                }
+            }
+
+            Divider()
+        }
+
+        Button {
+            historyStore.reload()
+            openSettings(tab: .history)
+        } label: {
+            Label("Show All History", systemImage: "rectangle.stack")
+        }
+    }
+
+    private func showHistoryPreview(_ item: ScreenshotHistoryItem) {
+        ScreenshotPreviewStack.shared.previewExistingImage(url: item.url)
+        PreviewPanelPresenter.shared.show(displayID: ActiveDisplayResolver.activeDisplayID(preferPointer: false))
+    }
+
+    private func openSettings(tab: SettingsTab) {
+        SettingsNavigation.shared.selectedTab = tab
+        openWindow(id: "SETTINGS")
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func historyMenuTitle(for item: ScreenshotHistoryItem) -> String {
+        let name = item.fileName
+        let limit = 30
+
+        guard name.count > limit else {
+            return name
+        }
+
+        let url = URL(fileURLWithPath: name)
+        let pathExtension = url.pathExtension
+        let suffix = pathExtension.isEmpty ? "" : ".\(pathExtension)"
+        let baseName = url.deletingPathExtension().lastPathComponent
+        let allowedBaseLength = max(8, limit - suffix.count - 3)
+
+        return "\(baseName.prefix(allowedBaseLength))...\(suffix)"
     }
 }

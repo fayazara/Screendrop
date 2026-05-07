@@ -16,6 +16,8 @@ enum OpenShotPreferences {
     static let exportFormatKey = "exportFormat"
     static let compressionQualityKey = "compressionQuality"
     static let exportDirectoryPathKey = "exportDirectoryPath"
+    static let cloudWorkerURLKey = "cloudWorkerURL"
+    static let cloudUploadTokenKey = "cloudUploadToken"
     
     private static let defaultCompressionQuality = 0.8
     
@@ -58,6 +60,20 @@ enum OpenShotPreferences {
         let picturesDirectory = FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask).first
         return (picturesDirectory ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Pictures"))
             .appendingPathComponent("OpenShot", isDirectory: true)
+    }
+    
+    // MARK: - Cloud
+    
+    static var cloudWorkerURL: String {
+        UserDefaults.standard.string(forKey: cloudWorkerURLKey) ?? ""
+    }
+    
+    static var cloudUploadToken: String {
+        UserDefaults.standard.string(forKey: cloudUploadTokenKey) ?? ""
+    }
+    
+    static var isCloudConfigured: Bool {
+        !cloudWorkerURL.isEmpty && !cloudUploadToken.isEmpty
     }
 }
 

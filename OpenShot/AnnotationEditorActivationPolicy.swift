@@ -5,23 +5,34 @@
 
 import AppKit
 
+/// Manages the app's activation policy so that regular windows (annotation
+/// editor, settings) show the Dock icon and appear in Cmd-Tab.  Uses
+/// reference counting so the policy stays `.regular` until *all* windows leave.
 @MainActor
-enum AnnotationEditorActivationPolicy {
+enum AppActivationPolicy {
     private static var activeWindowCount = 0
 
-    static func enter() {
+    /// Call when a regular window (annotation editor, settings, etc.) appears.
+    /// Pass `hidePreview: true` only for the annotation editor flow.
+    static func enter(hidePreview: Bool = false) {
         activeWindowCount += 1
-        PreviewWindowCaptureExclusion.shared.hideForAnnotation()
+        if hidePreview {
+            PreviewWindowCaptureExclusion.shared.hideForAnnotation()
+        }
         NSApp.setActivationPolicy(.regular)
         NSApp.unhide(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    static func leave() {
+    /// Call when a regular window closes.
+    /// Pass `restorePreview: true` only for the annotation editor flow.
+    static func leave(restorePreview: Bool = false) {
         activeWindowCount = max(0, activeWindowCount - 1)
         guard activeWindowCount == 0 else { return }
 
-        PreviewWindowCaptureExclusion.shared.restoreAfterAnnotation()
+        if restorePreview {
+            PreviewWindowCaptureExclusion.shared.restoreAfterAnnotation()
+        }
 
         Task { @MainActor in
             guard activeWindowCount == 0 else { return }
@@ -29,3 +40,6 @@ enum AnnotationEditorActivationPolicy {
         }
     }
 }
+
+/// Legacy alias so existing annotation editor callsites still compile.
+typealias AnnotationEditorActivationPolicy = AppActivationPolicy

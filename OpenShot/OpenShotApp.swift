@@ -23,11 +23,7 @@ struct OpenShotApp: App {
             SettingsView()
         }
         .windowResizability(.contentSize)
-
-        Window("OpenShot History", id: "HISTORY") {
-            HistoryWindow()
-        }
-        .windowResizability(.contentSize)
+        .defaultSize(width: 660, height: 580)
         
         WindowGroup("OpenShot Annotate", id: "ANNOTATION_EDITOR", for: URL.self) { value in
             AnnotationEditorWindow(url: value)

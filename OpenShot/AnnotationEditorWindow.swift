@@ -36,10 +36,10 @@ struct AnnotationEditorWindow: View {
                 model.load(url: url, dismiss: dismissWindow)
             }
             .onAppear {
-                AnnotationEditorActivationPolicy.enter()
+                AnnotationEditorActivationPolicy.enter(hidePreview: true)
             }
             .onDisappear {
-                AnnotationEditorActivationPolicy.leave()
+                AnnotationEditorActivationPolicy.leave(restorePreview: true)
             }
             .onDeleteCommand {
                 model.deleteSelectedAnnotation()

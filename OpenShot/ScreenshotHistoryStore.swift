@@ -42,6 +42,10 @@ final class ScreenshotHistoryStore {
 
     private(set) var items: [ScreenshotHistoryItem] = []
 
+    var recentItems: [ScreenshotHistoryItem] {
+        Array(items.prefix(5))
+    }
+
     private init() {
         load()
     }
@@ -115,6 +119,17 @@ final class ScreenshotHistoryStore {
 
         items.removeAll { $0.id == item.id }
         saveMetadata()
+    }
+
+    @discardableResult
+    func delete(url: URL) -> Bool {
+        let standardizedURL = url.standardizedFileURL
+        guard let item = items.first(where: { $0.url.standardizedFileURL == standardizedURL }) else {
+            return false
+        }
+
+        delete(item)
+        return true
     }
 
     func reveal(_ item: ScreenshotHistoryItem) {
