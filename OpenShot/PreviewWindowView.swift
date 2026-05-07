@@ -292,11 +292,8 @@ private struct PreviewCardView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                     .padding(10)
                 } else if cloudUploader.uploadingItems.contains(item.id) {
-                    ProgressView(value: cloudUploader.uploadProgress[item.id] ?? 0)
-                        .progressViewStyle(.circular)
-                        .scaleEffect(0.7)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                        .padding(10)
+                    // progress bar shown in center (replaces Copy/Save)
+                    EmptyView()
                 } else if showUploadFailed {
                     Image(systemName: "xmark.circle.fill")
                         .font(.title2)
@@ -323,26 +320,33 @@ private struct PreviewCardView: View {
                     .shadow(color: .black.opacity(0.28), radius: 8, x: 0, y: 2)
             }
             
-            VStack(spacing: 8) {
-                Button(action: onCopy) {
-                    Text("Copy")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.primary)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 5)
-                        .background(.background.opacity(0.8), in: .capsule)
+            if cloudUploader.uploadingItems.contains(item.id) {
+                ProgressView(value: cloudUploader.uploadProgress[item.id] ?? 0)
+                    .progressViewStyle(.linear)
+                    .tint(.white)
+                    .padding(.horizontal, 20)
+            } else {
+                VStack(spacing: 8) {
+                    Button(action: onCopy) {
+                        Text("Copy")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(.primary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 5)
+                            .background(.background.opacity(0.8), in: .capsule)
+                    }
+                    .buttonStyle(.plain)
+                    
+                    Button(action: onSave) {
+                        Text("Save")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(.primary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 5)
+                            .background(.background.opacity(0.8), in: .capsule)
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
-                
-                Button(action: onSave) {
-                    Text("Save")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.primary)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 5)
-                        .background(.background.opacity(0.8), in: .capsule)
-                }
-                .buttonStyle(.plain)
             }
         }
         .transition(.opacity)
