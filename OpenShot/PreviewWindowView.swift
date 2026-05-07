@@ -180,7 +180,7 @@ private struct PreviewCardView: View {
             .frame(width: previewCardSize.width, height: previewCardSize.height)
             .clipped()
             .overlay {
-                if isHovered {
+                if showOverlay {
                     hoveredContent
                 }
             }
@@ -379,6 +379,13 @@ private struct PreviewCardView: View {
             }
         }
         .transition(.opacity)
+    }
+    
+    private var showOverlay: Bool {
+        isHovered
+        || cloudUploader.uploadingItems.contains(item.id)
+        || showCheckmark
+        || showUploadFailed
     }
     
     private var cornerRadius: CGFloat {

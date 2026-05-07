@@ -39,6 +39,9 @@ final class CloudUploader: NSObject {
     /// Active upload tasks keyed by item ID (for cancellation).
     private var activeTasks: [UUID: URLSessionUploadTask] = [:]
     
+    /// Timers for animating the "server processing" phase (80%→95%).
+    private var processingTimers: [UUID: Timer] = [:]
+    
     private var _session: URLSession?
     
     private var session: URLSession {
@@ -107,12 +110,14 @@ final class CloudUploader: NSObject {
         do {
             let result = try await performUpload(request: request, body: body, itemID: itemID)
             activeTasks.removeValue(forKey: itemID)
+            stopProcessingAnimation(for: itemID)
             uploadingItems.remove(itemID)
             uploadProgress.removeValue(forKey: itemID)
             uploadedURLs[itemID] = result.url
             return result
         } catch {
             activeTasks.removeValue(forKey: itemID)
+            stopProcessingAnimation(for: itemID)
             uploadingItems.remove(itemID)
             uploadProgress.removeValue(forKey: itemID)
             failedItemIDs.insert(itemID)
@@ -188,8 +193,29 @@ final class CloudUploader: NSObject {
     func cancelUpload(for itemID: UUID) {
         activeTasks[itemID]?.cancel()
         activeTasks.removeValue(forKey: itemID)
+        stopProcessingAnimation(for: itemID)
         uploadingItems.remove(itemID)
         uploadProgress.removeValue(forKey: itemID)
+    }
+    
+    private func startProcessingAnimation(for itemID: UUID) {
+        guard processingTimers[itemID] == nil else { return }
+        // Animate from current (~80%) toward 95% in small increments
+        processingTimers[itemID] = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { [weak self] timer in
+            guard let self else { timer.invalidate(); return }
+            let current = self.uploadProgress[itemID] ?? 0.8
+            if current < 0.95 {
+                self.uploadProgress[itemID] = current + 0.02
+            } else {
+                timer.invalidate()
+                self.processingTimers.removeValue(forKey: itemID)
+            }
+        }
+    }
+    
+    private func stopProcessingAnimation(for itemID: UUID) {
+        processingTimers[itemID]?.invalidate()
+        processingTimers.removeValue(forKey: itemID)
     }
     
     private func mimeTypeForFile(_ url: URL) -> String {
@@ -236,8 +262,13 @@ extension CloudUploader: URLSessionTaskDelegate {
             let rawProgress = totalBytesExpectedToSend > 0
                 ? Double(totalBytesSent) / Double(totalBytesExpectedToSend)
                 : 0
-            // Cap at 90% — the remaining 10% covers server-side processing
-            uploadProgress[delegate.itemID] = rawProgress * 0.9
+            // Bytes-sent drives 0–80%; server processing fills 80–100% via animation
+            uploadProgress[delegate.itemID] = rawProgress * 0.8
+            
+            // When all bytes are sent, start animating toward 100%
+            if rawProgress >= 1.0 {
+                startProcessingAnimation(for: delegate.itemID)
+            }
         }
     }
 }
