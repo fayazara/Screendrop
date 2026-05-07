@@ -72,6 +72,7 @@ final class VideoTrimTimelineControl: NSView {
         case startHandle
         case endHandle
         case playhead
+        case selectedRange
     }
 
     private let handleWidth: CGFloat = 12
@@ -82,6 +83,8 @@ final class VideoTrimTimelineControl: NSView {
     private let dragActivationDistance: CGFloat = 3
     private var dragTarget: DragTarget?
     private var dragStartPoint: CGPoint?
+    private var dragStartSelection: VideoTrimSelection?
+    private var dragStartPlayheadTime: Double = 0
     private var dragOffsetX: CGFloat = 0
     private var dragDidActivate = false
 
@@ -113,6 +116,8 @@ final class VideoTrimTimelineControl: NSView {
         let point = convert(event.locationInWindow, from: nil)
         dragTarget = hitTarget(at: point)
         dragStartPoint = point
+        dragStartSelection = selection
+        dragStartPlayheadTime = playheadTime
         dragDidActivate = false
         dragOffsetX = 0
 
@@ -130,6 +135,8 @@ final class VideoTrimTimelineControl: NSView {
         case .playhead:
             dragDidActivate = true
             updateDrag(at: point)
+        case .selectedRange:
+            break
         case nil:
             break
         }
@@ -149,8 +156,18 @@ final class VideoTrimTimelineControl: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
+        let target = dragTarget
+        let didActivate = dragDidActivate
+        let point = convert(event.locationInWindow, from: nil)
+
+        if target == .selectedRange, !didActivate {
+            seekWithinSelection(at: point)
+        }
+
         dragTarget = nil
         dragStartPoint = nil
+        dragStartSelection = nil
+        dragStartPlayheadTime = 0
         dragOffsetX = 0
         dragDidActivate = false
         needsDisplay = true
@@ -235,7 +252,7 @@ final class VideoTrimTimelineControl: NSView {
 
     private func drawPlayhead(in rect: CGRect) {
         guard selection.end > selection.start else { return }
-        guard dragTarget != .startHandle, dragTarget != .endHandle else {
+        guard dragTarget != .startHandle, dragTarget != .endHandle, dragTarget != .selectedRange else {
             return
         }
 
@@ -392,6 +409,16 @@ final class VideoTrimTimelineControl: NSView {
             return .playhead
         }
 
+        let movableSelectionRect = CGRect(
+            x: left + handleWidth + handleHitSlop,
+            y: timelineRect.minY,
+            width: max(right - left - (handleWidth + handleHitSlop) * 2, 0),
+            height: timelineRect.height
+        )
+        if movableSelectionRect.contains(point) {
+            return .selectedRange
+        }
+
         return nil
     }
 
@@ -416,15 +443,43 @@ final class VideoTrimTimelineControl: NSView {
             let clamped = min(max(seconds, selection.start), selection.end)
             playheadTime = clamped
             playheadDidChange?(clamped)
+        case .selectedRange:
+            updateSelectedRangeDrag(to: point)
         }
 
         needsDisplay = true
+    }
+
+    private func updateSelectedRangeDrag(to point: CGPoint) {
+        guard let dragStartPoint, let dragStartSelection else { return }
+
+        let rangeDuration = dragStartSelection.duration
+        guard rangeDuration > 0, duration >= rangeDuration else { return }
+
+        let delta = secondsDelta(forXDelta: point.x - dragStartPoint.x)
+        let start = min(max(dragStartSelection.start + delta, 0), max(duration - rangeDuration, 0))
+        let end = start + rangeDuration
+        let playheadOffset = min(max(dragStartPlayheadTime - dragStartSelection.start, 0), rangeDuration)
+        let previewTime = start + playheadOffset
+
+        selection = VideoTrimSelection(start: start, end: end)
+        playheadTime = previewTime
+        selectionDidChange?(selection, previewTime)
     }
 
     private func previewHandleFrame(at seconds: Double) {
         playheadTime = seconds
         selectionDidChange?(selection, seconds)
         needsDisplay = true
+    }
+
+    private func seekWithinSelection(at point: CGPoint) {
+        guard timelineRect.contains(point), duration > 0 else { return }
+
+        let seconds = time(for: point.x)
+        let clamped = min(max(seconds, selection.start), selection.end)
+        playheadTime = clamped
+        playheadDidChange?(clamped)
     }
 
     private func xPosition(for seconds: Double) -> CGFloat {
@@ -443,5 +498,13 @@ final class VideoTrimTimelineControl: NSView {
 
         let fraction = min(max((x - timelineRect.minX) / timelineRect.width, 0), 1)
         return Double(fraction) * duration
+    }
+
+    private func secondsDelta(forXDelta xDelta: CGFloat) -> Double {
+        guard duration > 0, timelineRect.width > 0 else {
+            return 0
+        }
+
+        return Double(xDelta / timelineRect.width) * duration
     }
 }

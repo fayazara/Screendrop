@@ -22,33 +22,60 @@ struct VideoEditorWindow: View {
     @State private var isLoading = true
     @State private var isPlaying = false
     @State private var isExporting = false
+    @State private var isCompressingVideo = false
+    @State private var isDetectingFFmpeg = false
     @State private var copySucceeded = false
     @State private var feedback: String?
     @State private var errorMessage: String?
+    @State private var ffmpegPath: String?
+    @State private var compressionSettings = VideoCompressionSettings()
+    @State private var compressionProgress: Double?
+    @State private var compressionResult: VideoCompressionResult?
+    @State private var isInspectorPresented = true
 
     @Environment(\.dismiss) private var dismissWindow
 
     var body: some View {
+        mainContent
+            .frame(minWidth: 880, minHeight: 640)
+            .navigationTitle("OpenShot Video Editor")
+            .toolbarBackgroundVisibility(.visible, for: .windowToolbar)
+            .toolbar {
+                ToolbarItem(placement: .automatic) {
+                    Button {
+                        isInspectorPresented.toggle()
+                    } label: {
+                        Image(systemName: "sidebar.right")
+                    }
+                    .help(isInspectorPresented ? "Hide Inspector" : "Show Inspector")
+                }
+            }
+            .inspector(isPresented: $isInspectorPresented) {
+                videoInspector
+            }
+            .task(id: url) {
+                await loadVideo(url)
+            }
+            .task {
+                await detectFFmpeg()
+            }
+            .onChange(of: selection) { _, _ in
+                updatePlaybackBoundsForSelection()
+            }
+            .onAppear {
+                AppActivationPolicy.enter(hidePreview: true)
+            }
+            .onDisappear {
+                player.pause()
+                removePlaybackObservers()
+                AppActivationPolicy.leave(restorePreview: true)
+            }
+    }
+
+    private var mainContent: some View {
         VStack(spacing: 0) {
             playbackArea
             editorControls
-        }
-        .frame(minWidth: 860, minHeight: 620)
-        .navigationTitle("OpenShot Video Editor")
-        .toolbarBackgroundVisibility(.visible, for: .windowToolbar)
-        .task(id: url) {
-            await loadVideo(url)
-        }
-        .onChange(of: selection) { _, _ in
-            updatePlaybackBoundsForSelection()
-        }
-        .onAppear {
-            AppActivationPolicy.enter(hidePreview: true)
-        }
-        .onDisappear {
-            player.pause()
-            removePlaybackObservers()
-            AppActivationPolicy.leave(restorePreview: true)
         }
     }
 
@@ -82,26 +109,12 @@ struct VideoEditorWindow: View {
                     .padding(18)
             }
         }
-        .frame(minHeight: 460)
+        .frame(minHeight: 420)
     }
 
     private var editorControls: some View {
         VStack(spacing: 12) {
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
-                Text(timecode(playheadTime))
-                    .font(.system(.callout, design: .monospaced).weight(.medium))
-                    .foregroundStyle(.primary)
-
-                Text("\(timecode(selection.start)) - \(timecode(selection.end))")
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(.secondary)
-
-                Spacer()
-
-                Text(timecode(duration))
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(.secondary)
-            }
+            timelineHeader
 
             VideoTrimTimelineView(
                 selection: $selection,
@@ -112,10 +125,11 @@ struct VideoEditorWindow: View {
             )
             .frame(height: 72)
 
-            HStack(spacing: 10) {
+            HStack(spacing: 8) {
                 Button(action: togglePlayback) {
-                    Label(isPlaying ? "Pause" : "Play", systemImage: isPlaying ? "pause.fill" : "play.fill")
+                    Image(systemName: isPlaying ? "pause.fill" : "play.fill")
                 }
+                .help(isPlaying ? "Pause" : "Play")
                 .disabled(!canPreview)
 
                 Button(action: resetTrim) {
@@ -126,33 +140,215 @@ struct VideoEditorWindow: View {
 
                 Spacer()
 
-                if let feedback {
-                    Text(feedback)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
+                statusLabel
+            }
+            .controlSize(.regular)
+        }
+        .padding(.horizontal, 18)
+        .padding(.top, 14)
+        .padding(.bottom, 14)
+        .background(.bar)
+    }
 
+    private var timelineHeader: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text(timecode(playheadTime))
+                .font(.system(.callout, design: .monospaced).weight(.medium))
+                .foregroundStyle(.primary)
+
+            Text("\(timecode(selection.start)) - \(timecode(selection.end))")
+                .font(.system(.caption, design: .monospaced))
+                .foregroundStyle(.secondary)
+
+            Spacer()
+
+            Text(timecode(duration))
+                .font(.system(.caption, design: .monospaced))
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private var statusLabel: some View {
+        if isExporting {
+            ProgressView()
+                .controlSize(.small)
+        } else if let feedback {
+            Text(feedback)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+    }
+
+    private var videoInspector: some View {
+        VStack(spacing: 0) {
+            ScrollView(.vertical) {
+                VStack(alignment: .leading, spacing: 0) {
+                    clipInspectorSection
+
+                    VideoInspectorDivider()
+
+                    compressionInspectorSection
+                }
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+            }
+            .scrollContentBackground(.hidden)
+            .background(Color(nsColor: .windowBackgroundColor))
+
+            Divider()
+
+            Button(action: applyTrimToPreview) {
+                Text("Apply Clip")
+                    .font(.system(size: 13, weight: .semibold))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 28)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .keyboardShortcut(.defaultAction)
+            .disabled(!canExport)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(Color(nsColor: .windowBackgroundColor))
+        }
+        .inspectorColumnWidth(min: 280, ideal: 320, max: 420)
+        .frame(minWidth: 280, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private var clipInspectorSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VideoInspectorSectionHeader("CLIP")
+
+            VStack(alignment: .leading, spacing: 8) {
+                VideoInspectorValueRow(title: "Start", value: timecode(selection.clamped(to: duration).start))
+                VideoInspectorValueRow(title: "End", value: timecode(selection.clamped(to: duration).end))
+                VideoInspectorValueRow(title: "Length", value: timecode(selection.clamped(to: duration).duration))
+            }
+
+            HStack(spacing: 8) {
                 Button(action: copyTrim) {
                     Label(copySucceeded ? "Copied" : "Copy", systemImage: copySucceeded ? "checkmark" : "doc.on.doc")
+                        .frame(maxWidth: .infinity)
                 }
                 .disabled(!canExport)
 
                 Button(action: saveTrimAs) {
                     Label("Save As", systemImage: "square.and.arrow.down")
+                        .frame(maxWidth: .infinity)
                 }
-                .disabled(!canExport)
-
-                Button(action: applyTrimToPreview) {
-                    Label("Apply", systemImage: "checkmark.circle")
-                }
-                .keyboardShortcut(.defaultAction)
-                .help("Replace preview with trimmed recording")
                 .disabled(!canExport)
             }
+            .controlSize(.large)
         }
-        .padding(16)
-        .background(.bar)
+        .padding(.horizontal, 14)
+        .padding(.top, 14)
+        .padding(.bottom, 16)
+    }
+
+    private var compressionInspectorSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                VideoInspectorSectionHeader("COMPRESSION")
+                compressionStatus
+            }
+
+            VideoInspectorPickerRow(title: "Quality") {
+                Picker("Quality", selection: $compressionSettings.quality) {
+                    ForEach(VideoCompressionQuality.allCases) { quality in
+                        Text(quality.rawValue).tag(quality)
+                    }
+                }
+            }
+
+            VideoInspectorPickerRow(title: "Codec") {
+                Picker("Codec", selection: $compressionSettings.codec) {
+                    ForEach(VideoCompressionCodec.allCases) { codec in
+                        Text(codec.rawValue).tag(codec)
+                    }
+                }
+            }
+
+            VideoInspectorPickerRow(title: "Size") {
+                Picker("Size", selection: $compressionSettings.resolution) {
+                    ForEach(VideoCompressionResolution.allCases) { resolution in
+                        Text(resolution.rawValue).tag(resolution)
+                    }
+                }
+            }
+
+            VideoInspectorPickerRow(title: "Speed") {
+                Picker("Speed", selection: $compressionSettings.speed) {
+                    ForEach(VideoCompressionSpeed.allCases) { speed in
+                        Text(speed.rawValue).tag(speed)
+                    }
+                }
+            }
+
+            Toggle("Remove audio", isOn: $compressionSettings.removeAudio)
+                .font(.system(size: 12))
+                .disabled(isCompressingVideo)
+
+            compressionActionGroup
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 14)
+    }
+
+    @ViewBuilder
+    private var compressionActionGroup: some View {
+        if ffmpegPath == nil {
+            VStack(spacing: 8) {
+                Button(action: copyFFmpegInstallCommand) {
+                    Label("Copy Install Command", systemImage: "doc.on.doc")
+                        .frame(maxWidth: .infinity)
+                }
+
+                Button(action: { Task { await detectFFmpeg() } }) {
+                    Label("Check Again", systemImage: "arrow.clockwise")
+                        .frame(maxWidth: .infinity)
+                }
+                .disabled(isDetectingFFmpeg)
+            }
+            .controlSize(.large)
+        } else {
+            VStack(spacing: 8) {
+                Button(action: saveCompressedAs) {
+                    Label("Save Compressed", systemImage: "square.and.arrow.down")
+                        .frame(maxWidth: .infinity)
+                }
+                .disabled(!canCompress)
+
+                Button(action: applyCompressedToPreview) {
+                    Label("Apply Compressed", systemImage: "checkmark.circle")
+                        .frame(maxWidth: .infinity)
+                }
+                .disabled(!canCompress)
+            }
+            .controlSize(.large)
+        }
+    }
+
+    @ViewBuilder
+    private var compressionStatus: some View {
+        if isCompressingVideo {
+            ProgressView(value: compressionProgress ?? 0)
+                .progressViewStyle(.linear)
+                .frame(width: 96)
+        } else if isDetectingFFmpeg {
+            Text("Checking FFmpeg...")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        } else if ffmpegPath == nil {
+            Text("FFmpeg required")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        } else if let compressionResult {
+            Text(compressionSummary(for: compressionResult))
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
     }
 
     private var canPreview: Bool {
@@ -160,7 +356,15 @@ struct VideoEditorWindow: View {
     }
 
     private var canExport: Bool {
-        canPreview && !isExporting && selection.clamped(to: duration).duration >= VideoTrimSelection.minimumDuration
+        canPreview && !isExporting && !isCompressingVideo && selection.clamped(to: duration).duration >= VideoTrimSelection.minimumDuration
+    }
+
+    private var canCompress: Bool {
+        canPreview
+        && !isExporting
+        && !isCompressingVideo
+        && ffmpegPath != nil
+        && selection.clamped(to: duration).duration >= VideoTrimSelection.minimumDuration
     }
 
     private var isFullSelection: Bool {
@@ -179,6 +383,8 @@ struct VideoEditorWindow: View {
         feedback = nil
         errorMessage = nil
         copySucceeded = false
+        compressionProgress = nil
+        compressionResult = nil
         isPlaying = false
 
         guard let url else {
@@ -438,6 +644,119 @@ struct VideoEditorWindow: View {
         }
     }
 
+    private func saveCompressedAs() {
+        guard let sourceURL else { return }
+        let settingsSnapshot = compressionSettings
+        let boundedSelection = selection.clamped(to: duration)
+
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [VideoFileActions.exportContentType]
+        panel.nameFieldStringValue = VideoCompressionService.suggestedFileName(
+            for: sourceURL,
+            selection: boundedSelection,
+            duration: duration,
+            settings: settingsSnapshot
+        )
+        panel.canCreateDirectories = true
+        panel.title = "Save Compressed Recording"
+
+        panel.begin { response in
+            guard response == .OK, let destinationURL = panel.url else { return }
+
+            Task { @MainActor in
+                runCompression(
+                    selection: boundedSelection,
+                    settings: settingsSnapshot,
+                    outputURL: destinationURL
+                ) { result in
+                    feedback = "Saved compressed recording."
+                    compressionResult = result
+                }
+            }
+        }
+    }
+
+    private func applyCompressedToPreview() {
+        guard let sourceURL else { return }
+        let settingsSnapshot = compressionSettings
+        let boundedSelection = selection.clamped(to: duration)
+
+        do {
+            let outputURL = try VideoCompressionService.temporaryURL(for: sourceURL, settings: settingsSnapshot)
+            runCompression(
+                selection: boundedSelection,
+                settings: settingsSnapshot,
+                outputURL: outputURL
+            ) { result in
+                _ = ScreenshotPreviewStack.shared.replaceVideo(originalURL: sourceURL, with: result.outputURL)
+                dismissWindow()
+            }
+        } catch {
+            errorMessage = "Compression failed: \(error.localizedDescription)"
+        }
+    }
+
+    private func runCompression(
+        selection: VideoTrimSelection,
+        settings: VideoCompressionSettings,
+        outputURL: URL,
+        onSuccess: @escaping (VideoCompressionResult) -> Void
+    ) {
+        guard let sourceURL, let ffmpegPath else {
+            errorMessage = VideoCompressionError.ffmpegNotFound.localizedDescription
+            return
+        }
+
+        guard !isCompressingVideo else { return }
+
+        isCompressingVideo = true
+        compressionProgress = 0
+        compressionResult = nil
+        feedback = nil
+        errorMessage = nil
+        player.pause()
+        isPlaying = false
+
+        Task {
+            do {
+                let result = try await VideoCompressionService.compress(
+                    sourceURL: sourceURL,
+                    duration: duration,
+                    selection: selection,
+                    settings: settings,
+                    outputURL: outputURL,
+                    ffmpegPath: ffmpegPath
+                ) { progress in
+                    compressionProgress = progress
+                }
+
+                compressionProgress = nil
+                compressionResult = result
+                onSuccess(result)
+            } catch {
+                try? FileManager.default.removeItem(at: outputURL)
+                compressionProgress = nil
+                errorMessage = "Compression failed: \(error.localizedDescription)"
+            }
+
+            isCompressingVideo = false
+        }
+    }
+
+    private func detectFFmpeg() async {
+        guard !isDetectingFFmpeg else { return }
+
+        isDetectingFFmpeg = true
+        ffmpegPath = await FFmpegToolLocator.findFFmpeg()
+        isDetectingFFmpeg = false
+    }
+
+    private func copyFFmpegInstallCommand() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString("brew install ffmpeg", forType: .string)
+        feedback = "Copied FFmpeg install command."
+    }
+
     private func runExport(
         destinationURL: URL?,
         operation: @escaping () async throws -> URL,
@@ -507,6 +826,27 @@ struct VideoEditorWindow: View {
             return String(format: "%02d:%02d", minutes, seconds)
         }
     }
+
+    private func compressionSummary(for result: VideoCompressionResult) -> String {
+        let sizes = "\(formatFileSize(result.inputSize)) -> \(formatFileSize(result.outputSize))"
+        guard let reduction = result.reduction else {
+            return sizes
+        }
+
+        let percentage = abs(reduction * 100).rounded()
+        if reduction >= 0 {
+            return "\(sizes), \(Int(percentage))% smaller"
+        } else {
+            return "\(sizes), \(Int(percentage))% larger"
+        }
+    }
+
+    private func formatFileSize(_ bytes: Int64) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useKB, .useMB, .useGB]
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: bytes)
+    }
 }
 
 private struct VideoEditorPlayerSurface: NSViewRepresentable {
@@ -570,4 +910,65 @@ private struct VideoTrimExportIndicator: View {
 
 private struct SendableTimelineFrame: @unchecked Sendable {
     let image: NSImage
+}
+
+private struct VideoInspectorSectionHeader: View {
+    let title: String
+
+    init(_ title: String) {
+        self.title = title
+    }
+
+    var body: some View {
+        Text(title)
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(.tertiary)
+            .tracking(0.5)
+    }
+}
+
+private struct VideoInspectorDivider: View {
+    var body: some View {
+        Divider()
+            .padding(.horizontal, 14)
+    }
+}
+
+private struct VideoInspectorValueRow: View {
+    let title: String
+    let value: String
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Text(title)
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .frame(width: 52, alignment: .leading)
+
+            Spacer()
+
+            Text(value)
+                .font(.system(size: 12, design: .monospaced))
+                .foregroundStyle(.primary)
+        }
+    }
+}
+
+private struct VideoInspectorPickerRow<Content: View>: View {
+    let title: String
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Text(title)
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .frame(width: 52, alignment: .leading)
+
+            content()
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
 }

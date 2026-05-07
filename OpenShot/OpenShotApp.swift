@@ -35,7 +35,7 @@ struct OpenShotApp: App {
             VideoEditorWindow(url: value)
         }
         .windowResizability(.contentSize)
-        .defaultSize(width: 960, height: 680)
+        .defaultSize(width: 1280, height: 800)
     }
 
     @MainActor
