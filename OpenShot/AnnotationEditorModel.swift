@@ -86,7 +86,7 @@ final class AnnotationEditorModel {
     var textAlignment: NSTextAlignment = .left
 
     private var interaction: AnnotationInteraction?
-    private var history = AnnotationHistory()
+    var history = AnnotationHistory()
     private let minimumItemSize: CGFloat = 0.006
 
     func load(url: URL?, dismiss: DismissAction) {
@@ -519,133 +519,6 @@ final class AnnotationEditorModel {
         }
     }
 
-    // MARK: - Text style methods
-
-    /// The effective font size in points for the selected text item (for display in the popover).
-    var selectedTextFontSize: CGFloat {
-        get {
-            guard let item = selectedTextItem else { return textFontSize }
-            return AnnotationTextMetrics.renderedFontSize(
-                lineHeight: item.textLineHeight,
-                imagePixelHeight: imageSize.height
-            ).rounded()
-        }
-        set {
-            setTextFontSize(newValue)
-        }
-    }
-
-    var selectedTextFontName: String {
-        get { selectedTextItem?.fontName ?? textFontName }
-        set { setTextFontName(newValue) }
-    }
-
-    var selectedTextIsBold: Bool {
-        get { selectedTextItem?.isBold ?? textIsBold }
-        set { setTextBold(newValue) }
-    }
-
-    var selectedTextIsItalic: Bool {
-        get { selectedTextItem?.isItalic ?? textIsItalic }
-        set { setTextItalic(newValue) }
-    }
-
-    var selectedTextIsUnderline: Bool {
-        get { selectedTextItem?.isUnderline ?? textIsUnderline }
-        set { setTextUnderline(newValue) }
-    }
-
-    var selectedTextAlignment: NSTextAlignment {
-        get { selectedTextItem?.textAlignment ?? textAlignment }
-        set { setTextAlignment(newValue) }
-    }
-
-    /// Whether the text style popover should be available.
-    var isTextStyleAvailable: Bool {
-        selectedTool == .text || selectedTextItem != nil
-    }
-
-    private var selectedTextItem: AnnotationItem? {
-        guard let selectedItemID else { return nil }
-        return items.first { $0.id == selectedItemID && $0.tool == .text }
-    }
-
-    func setTextFontSize(_ pointSize: CGFloat) {
-        let clamped = max(pointSize, AnnotationTextMetrics.minimumFontSize)
-        textFontSize = clamped
-        saveAnnotationPreset()
-
-        guard let selectedItemID, selectedTextItem != nil else { return }
-        guard imageSize.height > 0 else { return }
-        let newLineHeight = clamped / (imageSize.height * AnnotationTextMetrics.fontScale)
-        history.push(items)
-        updateItem(id: selectedItemID) { item in
-            item.textLineHeight = newLineHeight
-        }
-    }
-
-    func setTextFontName(_ name: String) {
-        textFontName = name
-        saveAnnotationPreset()
-        guard let selectedItemID, selectedTextItem != nil else { return }
-        history.push(items)
-        updateItem(id: selectedItemID) { item in
-            item.fontName = name
-        }
-    }
-
-    func setTextBold(_ bold: Bool) {
-        textIsBold = bold
-        saveAnnotationPreset()
-        guard let selectedItemID, selectedTextItem != nil else { return }
-        history.push(items)
-        updateItem(id: selectedItemID) { item in
-            item.isBold = bold
-        }
-    }
-
-    func setTextItalic(_ italic: Bool) {
-        textIsItalic = italic
-        saveAnnotationPreset()
-        guard let selectedItemID, selectedTextItem != nil else { return }
-        history.push(items)
-        updateItem(id: selectedItemID) { item in
-            item.isItalic = italic
-        }
-    }
-
-    func setTextUnderline(_ underline: Bool) {
-        textIsUnderline = underline
-        saveAnnotationPreset()
-        guard let selectedItemID, selectedTextItem != nil else { return }
-        history.push(items)
-        updateItem(id: selectedItemID) { item in
-            item.isUnderline = underline
-        }
-    }
-
-    func setTextAlignment(_ alignment: NSTextAlignment) {
-        textAlignment = alignment
-        saveAnnotationPreset()
-        guard let selectedItemID, selectedTextItem != nil else { return }
-        history.push(items)
-        updateItem(id: selectedItemID) { item in
-            item.textAlignment = alignment
-        }
-    }
-
-    func commitTextEditing() {
-        guard let editingTextItemID else { return }
-
-        if let item = items.first(where: { $0.id == editingTextItemID }),
-           item.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            items.removeAll { $0.id == editingTextItemID }
-            selectedItemIDs.remove(editingTextItemID)
-        }
-
-        self.editingTextItemID = nil
-    }
-
     func undo() {
         guard let restoredItems = history.undo(current: items) else { return }
 
@@ -967,12 +840,12 @@ final class AnnotationEditorModel {
         }
     }
 
-    private func updateItem(id: AnnotationItem.ID, item: AnnotationItem) {
+    func updateItem(id: AnnotationItem.ID, item: AnnotationItem) {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
         items[index] = item
     }
 
-    private func updateItem(id: AnnotationItem.ID, mutate: (inout AnnotationItem) -> Void) {
+    func updateItem(id: AnnotationItem.ID, mutate: (inout AnnotationItem) -> Void) {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
         var item = items[index]
         mutate(&item)
@@ -1028,7 +901,7 @@ final class AnnotationEditorModel {
         textAlignment = preset.textAlignment
     }
 
-    private func saveAnnotationPreset() {
+    func saveAnnotationPreset() {
         let customSwatch = AnnotationSwatch.allCases.contains(selectedSwatch) ? nil : CodableSwatch(swatch: selectedSwatch)
         let preset = AnnotationStylePreset(
             selectedToolRawValue: selectedTool.rawValue,
@@ -1050,54 +923,4 @@ final class AnnotationEditorModel {
         CGPoint(x: (lhs.x + rhs.x) / 2, y: (lhs.y + rhs.y) / 2)
     }
 
-}
-
-private enum AnnotationInteraction {
-    case drawing(startPoint: CGPoint)
-    case moving(id: AnnotationItem.ID, startPoint: CGPoint, originalItem: AnnotationItem)
-    case movingSelection(ids: Set<AnnotationItem.ID>, startPoint: CGPoint, originalItems: [AnnotationItem])
-    case resizing(id: AnnotationItem.ID, handle: AnnotationResizeHandle, originalItem: AnnotationItem)
-    case selecting(startPoint: CGPoint, originalSelection: Set<AnnotationItem.ID>, extendsSelection: Bool)
-}
-
-private enum AnnotationToolState: String {
-    case idle
-    case drawing
-    case translating
-    case resizing
-
-    func path(for tool: AnnotationTool) -> String {
-        "root.\(tool.rawValue).\(rawValue)"
-    }
-}
-
-private struct AnnotationHistory {
-    private var undoStack: [[AnnotationItem]] = []
-    private var redoStack: [[AnnotationItem]] = []
-
-    mutating func reset() {
-        undoStack = []
-        redoStack = []
-    }
-
-    mutating func push(_ items: [AnnotationItem]) {
-        guard undoStack.last != items else { return }
-
-        undoStack.append(items)
-        redoStack.removeAll()
-    }
-
-    mutating func undo(current: [AnnotationItem]) -> [AnnotationItem]? {
-        guard let previous = undoStack.popLast() else { return nil }
-
-        redoStack.append(current)
-        return previous
-    }
-
-    mutating func redo(current: [AnnotationItem]) -> [AnnotationItem]? {
-        guard let next = redoStack.popLast() else { return nil }
-
-        undoStack.append(current)
-        return next
-    }
 }

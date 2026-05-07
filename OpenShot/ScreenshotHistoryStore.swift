@@ -163,20 +163,18 @@ final class ScreenshotHistoryStore {
     }
 
     private func uniqueHistoryURL(for sourceURL: URL) -> URL {
-        let baseName = sourceURL.deletingPathExtension().lastPathComponent
         let pathExtension = sourceURL.pathExtension.isEmpty ? "png" : sourceURL.pathExtension
-        let datePrefix = ScreenshotHistoryStore.fileDateFormatter.string(from: Date())
-        let initialURL = Self.historyDirectory
-            .appendingPathComponent("\(datePrefix)-\(baseName)")
-            .appendingPathExtension(pathExtension)
+        let fileName = ScreenshotFileNaming.fileName(extension: pathExtension)
+        let initialURL = Self.historyDirectory.appendingPathComponent(fileName)
 
         guard FileManager.default.fileExists(atPath: initialURL.path) else {
             return initialURL
         }
 
+        let baseName = initialURL.deletingPathExtension().lastPathComponent
         for index in 1...10_000 {
             let candidateURL = Self.historyDirectory
-                .appendingPathComponent("\(datePrefix)-\(baseName)-\(index)")
+                .appendingPathComponent("\(baseName)-\(index)")
                 .appendingPathExtension(pathExtension)
             if !FileManager.default.fileExists(atPath: candidateURL.path) {
                 return candidateURL
@@ -184,7 +182,7 @@ final class ScreenshotHistoryStore {
         }
 
         return Self.historyDirectory
-            .appendingPathComponent("\(datePrefix)-\(UUID().uuidString)")
+            .appendingPathComponent("OpenShot_\(UUID().uuidString)")
             .appendingPathExtension(pathExtension)
     }
 
@@ -192,9 +190,4 @@ final class ScreenshotHistoryStore {
         url.standardizedFileURL.path.hasPrefix(Self.historyDirectory.standardizedFileURL.path)
     }
 
-    private static let fileDateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd-HH-mm-ss"
-        return formatter
-    }()
 }

@@ -128,8 +128,25 @@ final class ScreenshotManager {
     
     /// Generates a unique temp file path for screenshots.
     private func generateTempPath(extension ext: String) -> String {
-        let timestamp = ISO8601DateFormatter().string(from: Date())
-            .replacingOccurrences(of: ":", with: "-")
-        return NSTemporaryDirectory().appending("OpenShot_\(timestamp)_\(UUID().uuidString.prefix(6)).\(ext)")
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+        let initialURL = directory.appendingPathComponent(ScreenshotFileNaming.fileName(extension: ext))
+        guard FileManager.default.fileExists(atPath: initialURL.path) else {
+            return initialURL.path
+        }
+
+        let baseName = initialURL.deletingPathExtension().lastPathComponent
+        for index in 1...10_000 {
+            let candidateURL = directory
+                .appendingPathComponent("\(baseName)-\(index)")
+                .appendingPathExtension(ext)
+            if !FileManager.default.fileExists(atPath: candidateURL.path) {
+                return candidateURL.path
+            }
+        }
+
+        return directory
+            .appendingPathComponent("OpenShot_\(UUID().uuidString)")
+            .appendingPathExtension(ext)
+            .path
     }
 }
