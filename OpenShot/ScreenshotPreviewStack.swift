@@ -243,6 +243,34 @@ final class ScreenshotPreviewStack {
         }
     }
 
+    @discardableResult
+    func replaceVideo(originalURL: URL, with editedURL: URL) -> Bool {
+        QuickLookPreviewPresenter.dismiss()
+
+        guard let index = items.firstIndex(where: { $0.url == originalURL && $0.kind == .video }) else {
+            addVideo(url: editedURL)
+            return false
+        }
+
+        let oldURL = items[index].url
+        let itemID = items[index].id
+        items[index].url = editedURL
+        items[index].previewImage = VideoPreviewImageLoader.placeholderImage()
+        items[index].autoSavedURL = nil
+
+        Task {
+            guard let thumbnail = await VideoPreviewImageLoader.thumbnail(at: editedURL, maxPixelSize: 520),
+                  let index = items.firstIndex(where: { $0.id == itemID }) else {
+                return
+            }
+
+            items[index].previewImage = thumbnail
+        }
+
+        deleteTemporaryFileIfNeeded(at: oldURL, preserving: editedURL)
+        return true
+    }
+
     private func removeImmediately(id: ScreenshotPreviewItem.ID) {
         QuickLookPreviewPresenter.dismiss()
         items.removeAll { $0.id == id }
@@ -265,6 +293,15 @@ final class ScreenshotPreviewStack {
         } catch {
             print("Failed to delete screenshot: \(error)")
         }
+    }
+
+    private func deleteTemporaryFileIfNeeded(at url: URL, preserving preservedURL: URL) {
+        guard url != preservedURL,
+              url.path.hasPrefix(URL(fileURLWithPath: NSTemporaryDirectory()).path) else {
+            return
+        }
+
+        deleteFile(at: url)
     }
 
     private func copyURLToClipboard(_ url: URL) -> Bool {

@@ -18,6 +18,7 @@ let previewCardSlideOffset = previewCardSize.width + previewTrailingPadding + 48
 struct PreviewWindowView: View {
     private let onRequestClose: (() -> Void)?
     private let onAnnotate: ((URL) -> Void)?
+    private let onEditVideo: ((URL) -> Void)?
 
     @State private var previewStack = ScreenshotPreviewStack.shared
     @State private var keyMonitor: Any?
@@ -25,9 +26,14 @@ struct PreviewWindowView: View {
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismiss) private var dismissWindow
 
-    init(onRequestClose: (() -> Void)? = nil, onAnnotate: ((URL) -> Void)? = nil) {
+    init(
+        onRequestClose: (() -> Void)? = nil,
+        onAnnotate: ((URL) -> Void)? = nil,
+        onEditVideo: ((URL) -> Void)? = nil
+    ) {
         self.onRequestClose = onRequestClose
         self.onAnnotate = onAnnotate
+        self.onEditVideo = onEditVideo
     }
     
     var body: some View {
@@ -59,6 +65,15 @@ struct PreviewWindowView: View {
                             onAnnotate(item.url)
                         } else {
                             openWindow(id: "ANNOTATION_EDITOR", value: item.url)
+                        }
+                    },
+                    onEditVideo: {
+                        guard item.kind == .video else { return }
+                        QuickLookPreviewPresenter.dismiss()
+                        if let onEditVideo {
+                            onEditVideo(item.url)
+                        } else {
+                            openWindow(id: "VIDEO_EDITOR", value: item.url)
                         }
                     },
                     onUpload: {

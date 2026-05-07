@@ -12,8 +12,8 @@ import AppKit
 enum AppActivationPolicy {
     private static var activeWindowCount = 0
 
-    /// Call when a regular window (annotation editor, settings, etc.) appears.
-    /// Pass `hidePreview: true` only for the annotation editor flow.
+    /// Call when a regular window (annotation editor, video editor, settings, etc.) appears.
+    /// Pass `hidePreview: true` for editing flows launched from the preview panel.
     static func enter(hidePreview: Bool = false) {
         activeWindowCount += 1
         if hidePreview {
@@ -25,7 +25,7 @@ enum AppActivationPolicy {
     }
 
     /// Call when a regular window closes.
-    /// Pass `restorePreview: true` only for the annotation editor flow.
+    /// Pass `restorePreview: true` for editing flows launched from the preview panel.
     static func leave(restorePreview: Bool = false) {
         activeWindowCount = max(0, activeWindowCount - 1)
         guard activeWindowCount == 0 else { return }

@@ -16,6 +16,7 @@ struct PreviewCardView: View {
     let onCopy: () -> Void
     let onSave: () -> Void
     let onAnnotate: () -> Void
+    let onEditVideo: () -> Void
     let onUpload: () -> Void
     let onDragBegan: () -> Void
     let onDragEnded: () -> Void
@@ -113,15 +114,21 @@ struct PreviewCardView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
                 .padding(10)
 
-            cornerButton(systemImage: "trash.circle.fill", help: "Delete screenshot", action: onDelete)
+            cornerButton(
+                systemImage: "trash.circle.fill",
+                help: item.kind == .video ? "Delete recording" : "Delete screenshot",
+                action: onDelete
+            )
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .padding(10)
 
-            cornerButton(systemImage: "pencil.circle.fill", help: "Annotate screenshot", action: onAnnotate)
+            cornerButton(
+                systemImage: item.kind == .video ? "scissors.circle.fill" : "pencil.circle.fill",
+                help: item.kind == .video ? "Edit recording" : "Annotate screenshot",
+                action: item.kind == .video ? onEditVideo : onAnnotate
+            )
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
                 .padding(10)
-                .opacity(item.kind == .image ? 1 : 0)
-                .disabled(item.kind != .image)
 
             cloudUploadControl
 

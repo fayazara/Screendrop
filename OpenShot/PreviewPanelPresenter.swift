@@ -14,6 +14,7 @@ final class PreviewPanelPresenter {
     static let shared = PreviewPanelPresenter()
 
     var onAnnotate: ((URL) -> Void)?
+    var onEditVideo: ((URL) -> Void)?
 
     private var panel: NSPanel?
 
@@ -62,6 +63,9 @@ final class PreviewPanelPresenter {
                 },
                 onAnnotate: { url in
                     PreviewPanelPresenter.shared.onAnnotate?(url)
+                },
+                onEditVideo: { url in
+                    PreviewPanelPresenter.shared.onEditVideo?(url)
                 }
             )
         )
