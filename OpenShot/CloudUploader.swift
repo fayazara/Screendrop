@@ -66,9 +66,10 @@ final class CloudUploader: NSObject {
             throw CloudUploadError.notConfigured
         }
         
-        let workerBase = OpenShotPreferences.cloudWorkerURL
+        let rawURL = OpenShotPreferences.cloudWorkerURL
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let workerBase = rawURL.lowercased().hasPrefix("http") ? rawURL : "https://\(rawURL)"
         let token = OpenShotPreferences.cloudUploadToken
             .trimmingCharacters(in: .whitespacesAndNewlines)
         

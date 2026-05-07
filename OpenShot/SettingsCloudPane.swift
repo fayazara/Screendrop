@@ -40,6 +40,8 @@ struct CloudSettingsPane: View {
                         .textFieldStyle(.roundedBorder)
                         .font(.system(size: 13))
                         .onChange(of: workerURL) {
+                            let cleaned = workerURL.components(separatedBy: .newlines).joined()
+                            if cleaned != workerURL { workerURL = cleaned }
                             connectionStatus = .unchecked
                         }
                 }
@@ -49,6 +51,8 @@ struct CloudSettingsPane: View {
                         .textFieldStyle(.roundedBorder)
                         .font(.system(size: 13))
                         .onChange(of: uploadToken) {
+                            let cleaned = uploadToken.components(separatedBy: .newlines).joined()
+                            if cleaned != uploadToken { uploadToken = cleaned }
                             connectionStatus = .unchecked
                         }
                 }
@@ -129,9 +133,10 @@ struct CloudSettingsPane: View {
     private func testConnection() async {
         connectionStatus = .checking
 
-        let base = workerURL
+        let raw = workerURL
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let base = raw.lowercased().hasPrefix("http") ? raw : "https://\(raw)"
         let token = uploadToken
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
