@@ -71,7 +71,6 @@ struct VideoEditorWindow: View {
             playbackArea
             VStack(spacing: 10) {
                 transportTimelinePill
-                timelineStatusBar
             }
             .padding(.horizontal, 24)
             .padding(.top, 16)
@@ -140,27 +139,21 @@ struct VideoEditorWindow: View {
                     .frame(width: 32, height: 32)
             }
             .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(Color.white.opacity(0.55))
             .help("Reset trim")
             .disabled(!canPreview || isFullSelection)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(Color(white: 0.16), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(.separator.opacity(0.38), lineWidth: 1)
+                .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
         }
-        .shadow(color: .black.opacity(0.12), radius: 10, x: 0, y: 5)
+        .shadow(color: .black.opacity(0.18), radius: 10, x: 0, y: 5)
     }
 
-    private var timelineStatusBar: some View {
-        HStack(spacing: 12) {
-            statusLabel
-            Spacer()
-        }
-        .frame(height: 20)
-    }
+
 
     private var videoInspector: some View {
         VideoInspectorPanel {
@@ -271,27 +264,7 @@ struct VideoEditorWindow: View {
         }
     }
 
-    @ViewBuilder
-    private var statusLabel: some View {
-        if isExporting {
-            ProgressView()
-                .controlSize(.small)
-        } else if isCompressingVideo {
-            ProgressView(value: compressionProgress ?? 0)
-                .progressViewStyle(.linear)
-                .frame(width: 132)
-        } else if let feedback {
-            Text(feedback)
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-        } else if canPreview {
-            Text(isTrimmedSelection ? "Selected: \(timecode(selection.start)) - \(timecode(selection.end))" : "Duration: \(timecode(duration))")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-        }
-    }
+
 
     @ViewBuilder
     private var ffmpegStatus: some View {

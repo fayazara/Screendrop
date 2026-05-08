@@ -12,7 +12,7 @@ import SwiftUI
 final class RecordingControlPresenter {
     static let shared = RecordingControlPresenter()
 
-    private let panelSize = CGSize(width: 320, height: 56)
+    private let panelSize = CGSize(width: 244, height: 62)
     private var panel: NSPanel?
 
     private init() {}
@@ -47,7 +47,9 @@ final class RecordingControlPresenter {
         panel.titleVisibility = .hidden
         panel.titlebarAppearsTransparent = true
         panel.sharingType = .none
-        panel.contentView = NSHostingView(rootView: RecordingControlView())
+        let hostingView = NSHostingView(rootView: RecordingControlView())
+        hostingView.layer?.backgroundColor = .clear
+        panel.contentView = hostingView
 
         self.panel = panel
         return panel
@@ -75,19 +77,19 @@ private struct RecordingControlView: View {
     @State private var manager = ScreenRecordingManager.shared
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 8) {
             Circle()
                 .fill(.red)
-                .frame(width: 8, height: 8)
+                .frame(width: 6, height: 6)
                 .opacity(manager.state == .paused ? 0.4 : 1)
 
             Text(manager.formattedElapsedTime)
-                .font(.system(.body, design: .monospaced, weight: .medium))
+                .font(.system(.caption, design: .monospaced, weight: .medium))
                 .foregroundStyle(.primary)
-                .frame(minWidth: 56, alignment: .leading)
+                .frame(minWidth: 40, alignment: .leading)
 
             Divider()
-                .frame(height: 20)
+                .frame(height: 14)
 
             controlButton(
                 systemImage: manager.state == .paused ? "play.fill" : "pause.fill",
@@ -116,23 +118,25 @@ private struct RecordingControlView: View {
             }
             .disabled(manager.state == .starting)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .frame(width: 320, height: 56)
-        .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .frame(height: 38)
+        .background(Color(white: 0.18))
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(.white.opacity(0.14), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color.white.opacity(0.12), lineWidth: 1)
         }
-        .shadow(color: .black.opacity(0.2), radius: 8, y: 2)
+        .shadow(color: .black.opacity(0.25), radius: 12, y: 4)
+        .shadow(color: .black.opacity(0.10), radius: 3, y: 1)
+        .preferredColorScheme(.dark)
     }
 
     private func controlButton(systemImage: String, help: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .font(.callout)
-                .frame(width: 20, height: 20)
+                .font(.system(size: 11, weight: .medium))
+                .frame(width: 16, height: 16)
                 .foregroundStyle(systemImage == "stop.fill" ? .red : .primary)
         }
         .buttonStyle(.plain)
