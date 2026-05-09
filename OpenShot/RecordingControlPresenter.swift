@@ -12,7 +12,7 @@ import SwiftUI
 final class RecordingControlPresenter {
     static let shared = RecordingControlPresenter()
 
-    private let panelSize = CGSize(width: 244, height: 62)
+    private let panelSize = CGSize(width: 244, height: 38)
     private var panel: NSPanel?
 
     private init() {}
@@ -53,9 +53,16 @@ final class RecordingControlPresenter {
         panel.titleVisibility = .hidden
         panel.titlebarAppearsTransparent = true
         panel.sharingType = .none
-        let hostingView = NSHostingView(rootView: RecordingControlView())
-        hostingView.layer?.backgroundColor = .clear
+        let hostingView = RecordingControlHostingView(rootView: RecordingControlView())
+        hostingView.frame = CGRect(origin: .zero, size: panelSize)
+        hostingView.autoresizingMask = [.width, .height]
+        hostingView.wantsLayer = true
+        hostingView.layer?.backgroundColor = NSColor.clear.cgColor
+        hostingView.layer?.isOpaque = false
         panel.contentView = hostingView
+        panel.contentView?.superview?.wantsLayer = true
+        panel.contentView?.superview?.layer?.backgroundColor = NSColor.clear.cgColor
+        panel.contentView?.superview?.layer?.isOpaque = false
 
         self.panel = panel
         return panel
@@ -75,6 +82,12 @@ private final class RecordingControlPanel: NSPanel {
     }
 
     override var canBecomeMain: Bool {
+        false
+    }
+}
+
+private final class RecordingControlHostingView<Content: View>: NSHostingView<Content> {
+    override var isOpaque: Bool {
         false
     }
 }
@@ -131,10 +144,8 @@ private struct RecordingControlView: View {
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                .stroke(Color.white.opacity(0.5), lineWidth: 1)
         }
-        .shadow(color: .black.opacity(0.25), radius: 12, y: 4)
-        .shadow(color: .black.opacity(0.10), radius: 3, y: 1)
         .preferredColorScheme(.dark)
     }
 
