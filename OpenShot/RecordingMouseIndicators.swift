@@ -16,6 +16,7 @@ final class RecordingMouseIndicatorController {
     private var globalMonitor: Any?
     private var localMonitor: Any?
     private var appearance = RecordingMouseIndicatorAppearance.current
+    private var controlGestureButtons = Set<Int>()
 
     private init() {}
 
@@ -59,6 +60,7 @@ final class RecordingMouseIndicatorController {
 
         globalMonitor = nil
         localMonitor = nil
+        controlGestureButtons = []
         store.stop()
         RecordingMouseIndicatorOverlayPresenter.shared.hide()
     }
@@ -77,11 +79,8 @@ final class RecordingMouseIndicatorController {
         let button = Self.buttonNumber(for: event)
         let uptime = event.timestamp > 0 ? event.timestamp : ProcessInfo.processInfo.systemUptime
 
-        if RecordingControlPresenter.shared.containsScreenPoint(screenPoint) {
-            if Self.isMouseUp(event.type) {
-                store.recordMouseUp(button: button, screenPoint: screenPoint, uptime: uptime)
-                RecordingMouseIndicatorOverlayPresenter.shared.endDrag(button: button)
-            }
+        if shouldSuppressControlGesture(event.type, button: button, screenPoint: screenPoint) {
+            RecordingMouseIndicatorOverlayPresenter.shared.endDrag(button: button)
             return
         }
 
@@ -108,6 +107,32 @@ final class RecordingMouseIndicatorController {
         }
     }
 
+    private func shouldSuppressControlGesture(
+        _ type: NSEvent.EventType,
+        button: Int,
+        screenPoint: CGPoint
+    ) -> Bool {
+        if Self.isMouseDown(type) {
+            if RecordingControlPresenter.shared.containsScreenPoint(screenPoint) {
+                controlGestureButtons.insert(button)
+                return true
+            }
+
+            controlGestureButtons.remove(button)
+            return false
+        }
+
+        guard controlGestureButtons.contains(button) else {
+            return false
+        }
+
+        if Self.isMouseUp(type) {
+            controlGestureButtons.remove(button)
+        }
+
+        return true
+    }
+
     private static func buttonNumber(for event: NSEvent) -> Int {
         switch event.type {
         case .leftMouseDown, .leftMouseDragged, .leftMouseUp:
@@ -117,6 +142,10 @@ final class RecordingMouseIndicatorController {
         default:
             max(2, event.buttonNumber)
         }
+    }
+
+    private static func isMouseDown(_ type: NSEvent.EventType) -> Bool {
+        type == .leftMouseDown || type == .rightMouseDown || type == .otherMouseDown
     }
 
     private static func isMouseUp(_ type: NSEvent.EventType) -> Bool {
