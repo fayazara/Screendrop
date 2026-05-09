@@ -134,12 +134,16 @@ final class ScreenRecordingManager {
                 let mouseIndicatorStore = OpenShotPreferences.showRecordingMouseIndicators
                     ? RecordingMouseIndicatorController.shared.start(mapping: target.mouseIndicatorMapping)
                     : nil
+                let keyCaptionStore = OpenShotPreferences.showRecordingKeyPressCaptions
+                    ? RecordingKeyCaptionController.shared.start(mapping: target.keyCaptionMapping)
+                    : nil
 
                 try writer.setupWriter(
                     outputURL: outputURL,
                     videoWidth: target.width,
                     videoHeight: target.height,
-                    mouseIndicatorStore: mouseIndicatorStore
+                    mouseIndicatorStore: mouseIndicatorStore,
+                    keyCaptionStore: keyCaptionStore
                 )
 
                 capture.onVideoFrame = { [writer] sampleBuffer in
@@ -177,6 +181,7 @@ final class ScreenRecordingManager {
 
         writer.pause()
         RecordingMouseIndicatorController.shared.pause()
+        RecordingKeyCaptionController.shared.pause()
         pausedAt = Date()
         state = .paused
         updateElapsedTime()
@@ -192,6 +197,7 @@ final class ScreenRecordingManager {
         self.pausedAt = nil
         writer.resume()
         RecordingMouseIndicatorController.shared.resume()
+        RecordingKeyCaptionController.shared.resume()
         state = .recording
         updateElapsedTime()
     }
@@ -309,6 +315,7 @@ final class ScreenRecordingManager {
         capture.onVideoFrame = nil
         capture.onError = nil
         RecordingMouseIndicatorController.shared.stop()
+        RecordingKeyCaptionController.shared.stop()
         outputURL = nil
         displayID = nil
         currentSource = nil
@@ -373,13 +380,19 @@ final class ScreenRecordingManager {
             pixelWidth: width,
             pixelHeight: height
         )
+        let keyCaptionMapping = RecordingKeyCaptionMapping(
+            captureRect: captureRect,
+            pixelWidth: width,
+            pixelHeight: height
+        )
         return ScreenRecordingCaptureTarget(
             filter: filter,
             configuration: configuration,
             width: width,
             height: height,
             displayID: displayID,
-            mouseIndicatorMapping: mouseIndicatorMapping
+            mouseIndicatorMapping: mouseIndicatorMapping,
+            keyCaptionMapping: keyCaptionMapping
         )
     }
 
@@ -398,6 +411,7 @@ private struct ScreenRecordingCaptureTarget {
     let height: Int
     let displayID: CGDirectDisplayID?
     let mouseIndicatorMapping: RecordingMouseIndicatorMapping
+    let keyCaptionMapping: RecordingKeyCaptionMapping
 }
 
 nonisolated final class ScreenRecordingCapture: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
@@ -497,12 +511,14 @@ nonisolated private final class ScreenRecordingWriter: @unchecked Sendable {
     private var latestSampleTime: CMTime?
     private var needsPauseDurationUpdate = false
     private var mouseIndicatorStore: RecordingMouseIndicatorStore?
+    private var keyCaptionStore: RecordingKeyCaptionStore?
 
     func setupWriter(
         outputURL: URL,
         videoWidth: Int,
         videoHeight: Int,
-        mouseIndicatorStore: RecordingMouseIndicatorStore?
+        mouseIndicatorStore: RecordingMouseIndicatorStore?,
+        keyCaptionStore: RecordingKeyCaptionStore?
     ) throws {
         try? FileManager.default.removeItem(at: outputURL)
 
@@ -541,6 +557,7 @@ nonisolated private final class ScreenRecordingWriter: @unchecked Sendable {
         pixelBufferAdaptor = adaptor
         self.outputURL = outputURL
         self.mouseIndicatorStore = mouseIndicatorStore
+        self.keyCaptionStore = keyCaptionStore
         isSessionStarted = false
         sessionStartTime = nil
         isPaused = false
@@ -591,6 +608,9 @@ nonisolated private final class ScreenRecordingWriter: @unchecked Sendable {
 
             if let snapshot = mouseIndicatorStore?.snapshot(at: adjustedPTS.seconds) {
                 RecordingMouseIndicatorRenderer.render(snapshot: snapshot, into: pixelBuffer)
+            }
+            if let snapshot = keyCaptionStore?.snapshot(at: adjustedPTS.seconds) {
+                RecordingKeyCaptionRenderer.render(snapshot: snapshot, into: pixelBuffer)
             }
 
             pixelBufferAdaptor.append(pixelBuffer, withPresentationTime: adjustedPTS)
@@ -689,6 +709,7 @@ nonisolated private final class ScreenRecordingWriter: @unchecked Sendable {
         pixelBufferAdaptor = nil
         outputURL = nil
         mouseIndicatorStore = nil
+        keyCaptionStore = nil
         isSessionStarted = false
         sessionStartTime = nil
         isPaused = false

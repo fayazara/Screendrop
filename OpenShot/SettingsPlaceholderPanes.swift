@@ -3,6 +3,7 @@ import SwiftUI
 
 struct VideoSettingsPane: View {
     @AppStorage(OpenShotPreferences.showRecordingMouseIndicatorsKey) private var showMouseIndicators = true
+    @AppStorage(OpenShotPreferences.showRecordingKeyPressCaptionsKey) private var showKeyPressCaptions = false
     @AppStorage(OpenShotPreferences.recordingMouseIndicatorColorKey) private var mouseIndicatorColor = OpenShotPreferences.defaultRecordingMouseIndicatorColor
     @AppStorage(OpenShotPreferences.recordingMouseIndicatorSizeKey) private var mouseIndicatorSize = OpenShotPreferences.defaultRecordingMouseIndicatorSize
 
@@ -24,6 +25,11 @@ struct VideoSettingsPane: View {
             SettingsSection {
                 SettingsRow("Mouse indicators:") {
                     Toggle("Show clicks and drags while recording", isOn: $showMouseIndicators)
+                        .toggleStyle(.checkbox)
+                }
+
+                SettingsRow("Key captions:") {
+                    Toggle("Show pressed keys while recording", isOn: $showKeyPressCaptions)
                         .toggleStyle(.checkbox)
                 }
 

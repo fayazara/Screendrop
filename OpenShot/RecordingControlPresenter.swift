@@ -12,7 +12,7 @@ import SwiftUI
 final class RecordingControlPresenter {
     static let shared = RecordingControlPresenter()
 
-    private let panelSize = CGSize(width: 244, height: 38)
+    private let panelSize = CGSize(width: 252, height: 46)
     private var panel: NSPanel?
 
     private init() {}
@@ -96,11 +96,13 @@ private struct RecordingControlView: View {
     @State private var manager = ScreenRecordingManager.shared
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 4) {
             Circle()
                 .fill(.red)
                 .frame(width: 6, height: 6)
                 .opacity(manager.state == .paused ? 0.4 : 1)
+                .padding(.leading, 6)
+                .padding(.trailing, 2)
 
             Text(manager.formattedElapsedTime)
                 .font(.system(.caption, design: .monospaced, weight: .medium))
@@ -109,6 +111,7 @@ private struct RecordingControlView: View {
 
             Divider()
                 .frame(height: 14)
+                .padding(.horizontal, 2)
 
             controlButton(
                 systemImage: manager.state == .paused ? "play.fill" : "pause.fill",
@@ -137,15 +140,15 @@ private struct RecordingControlView: View {
             }
             .disabled(manager.state == .starting)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
+        .padding(.horizontal, 6)
         .frame(height: 38)
         .background(Color(white: 0.18))
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 19, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
+            RoundedRectangle(cornerRadius: 19, style: .continuous)
                 .stroke(Color.white.opacity(0.5), lineWidth: 1)
         }
+        .padding(4)
         .preferredColorScheme(.dark)
     }
 
@@ -153,8 +156,9 @@ private struct RecordingControlView: View {
         Button(action: action) {
             Image(systemName: systemImage)
                 .font(.system(size: 11, weight: .medium))
-                .frame(width: 16, height: 16)
                 .foregroundStyle(systemImage == "stop.fill" ? .red : .primary)
+                .frame(width: 28, height: 28)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .help(help)

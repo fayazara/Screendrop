@@ -49,7 +49,6 @@ struct MenuBarView: View {
             } label: {
                 Label("History", systemImage: "clock.arrow.circlepath")
             }
-            .keyboardShortcut("h", modifiers: [.command])
             
             Button {
                 openSettings(tab: .general)

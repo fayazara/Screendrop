@@ -17,6 +17,7 @@ enum OpenShotPreferences {
     static let compressionQualityKey = "compressionQuality"
     static let exportDirectoryPathKey = "exportDirectoryPath"
     static let showRecordingMouseIndicatorsKey = "showRecordingMouseIndicators"
+    static let showRecordingKeyPressCaptionsKey = "showRecordingKeyPressCaptions"
     static let recordingMouseIndicatorColorKey = "recordingMouseIndicatorColor"
     static let recordingMouseIndicatorSizeKey = "recordingMouseIndicatorSize"
     
@@ -71,6 +72,10 @@ enum OpenShotPreferences {
         }
 
         return UserDefaults.standard.bool(forKey: showRecordingMouseIndicatorsKey)
+    }
+
+    static var showRecordingKeyPressCaptions: Bool {
+        UserDefaults.standard.bool(forKey: showRecordingKeyPressCaptionsKey)
     }
 
     static var recordingMouseIndicatorColor: String {
