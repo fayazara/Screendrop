@@ -37,7 +37,9 @@ final class RecordingSourceCatalog {
     }
 
     static func displayTitle(_ display: SCDisplay, index: Int) -> String {
-        "Display \(index + 1) (\(display.width)x\(display.height))"
+        let resolution = "\(display.width)x\(display.height)"
+        let name = displayName(for: display.displayID) ?? "Display \(index + 1)"
+        return "\(name) (\(resolution))"
     }
 
     static func windowTitle(_ window: SCWindow) -> String {
@@ -128,5 +130,15 @@ final class RecordingSourceCatalog {
         let title = window.title ?? ""
         let frame = window.frame
         return "\(bundleID)|\(title)|\(Int(frame.minX))|\(Int(frame.minY))|\(Int(frame.width))|\(Int(frame.height))"
+    }
+
+    private static func displayName(for displayID: CGDirectDisplayID) -> String? {
+        NSScreen.screens.first { screen in
+            guard let screenNumber = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
+                return false
+            }
+
+            return CGDirectDisplayID(screenNumber.uint32Value) == displayID
+        }?.localizedName
     }
 }
