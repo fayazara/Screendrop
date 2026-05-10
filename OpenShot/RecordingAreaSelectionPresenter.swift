@@ -53,7 +53,7 @@ final class RecordingAreaSelectionPresenter {
             self?.finish(rect: nil)
         }
         selectionView.onSelect = { [weak self, weak panel] localRect in
-            guard let self, let panel, let display = self.display else {
+            guard let self, let panel else {
                 self?.finish(rect: nil)
                 return
             }
@@ -64,18 +64,13 @@ final class RecordingAreaSelectionPresenter {
                 width: localRect.width,
                 height: localRect.height
             )
-            let sourceRect = CGRect(
-                x: globalRect.minX - display.frame.minX,
-                y: globalRect.minY - display.frame.minY,
-                width: globalRect.width,
-                height: globalRect.height
-            )
-            self.finish(rect: sourceRect)
+            self.finish(rect: globalRect)
         }
 
         panel.contentView = selectionView
         panel.makeFirstResponder(selectionView)
         panel.orderFrontRegardless()
+        selectionView.showSelectionCursor()
         self.panel = panel
     }
 
@@ -142,8 +137,14 @@ private final class RecordingAreaSelectionView: NSView {
         addCursorRect(bounds, cursor: .annotationPlus)
     }
 
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        window?.invalidateCursorRects(for: self)
+        showSelectionCursor()
+    }
+
     override func cursorUpdate(with event: NSEvent) {
-        NSCursor.annotationPlus.set()
+        showSelectionCursor()
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -151,6 +152,11 @@ private final class RecordingAreaSelectionView: NSView {
         startPoint = point
         currentPoint = point
         needsDisplay = true
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        showSelectionCursor()
+        return true
     }
 
     override func mouseDragged(with event: NSEvent) {
@@ -174,6 +180,10 @@ private final class RecordingAreaSelectionView: NSView {
         } else {
             super.keyDown(with: event)
         }
+    }
+
+    func showSelectionCursor() {
+        NSCursor.annotationPlus.set()
     }
 
     private func drawSelectionSize(for rect: CGRect) {

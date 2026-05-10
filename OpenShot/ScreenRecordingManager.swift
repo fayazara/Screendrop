@@ -360,14 +360,14 @@ final class ScreenRecordingManager {
         case .area(let display, let rect):
             let freshDisplay = content.displays.first(where: { $0.displayID == display.displayID }) ?? display
             filter = ScreenRecordingCapture.displayFilter(display: freshDisplay, content: content)
-            sourceRect = rect
-            sourceSize = rect.size
-            captureRect = CGRect(
-                x: freshDisplay.frame.minX + rect.minX,
-                y: freshDisplay.frame.minY + rect.minY,
-                width: rect.width,
-                height: rect.height
+            let mappedSourceRect = Self.sourceRect(
+                forAppKitSelectionRect: rect,
+                screenFrame: ActiveDisplayResolver.screen(for: freshDisplay.displayID)?.frame,
+                contentRect: filter.contentRect
             )
+            sourceRect = mappedSourceRect
+            sourceSize = mappedSourceRect.size
+            captureRect = rect
             displayID = freshDisplay.displayID
         }
 
@@ -394,6 +394,52 @@ final class ScreenRecordingManager {
             mouseIndicatorMapping: mouseIndicatorMapping,
             keyCaptionMapping: keyCaptionMapping
         )
+    }
+
+    private static func sourceRect(
+        forAppKitSelectionRect selectionRect: CGRect,
+        screenFrame: CGRect?,
+        contentRect: CGRect
+    ) -> CGRect {
+        guard let screenFrame,
+              screenFrame.width > 0,
+              screenFrame.height > 0,
+              contentRect.width > 0,
+              contentRect.height > 0 else {
+            return clamped(selectionRect, to: contentRect)
+        }
+
+        let minLocalX = min(max(selectionRect.minX - screenFrame.minX, 0), screenFrame.width)
+        let maxLocalX = min(max(selectionRect.maxX - screenFrame.minX, 0), screenFrame.width)
+        let minLocalY = min(max(selectionRect.minY - screenFrame.minY, 0), screenFrame.height)
+        let maxLocalY = min(max(selectionRect.maxY - screenFrame.minY, 0), screenFrame.height)
+
+        let scaleX = contentRect.width / screenFrame.width
+        let scaleY = contentRect.height / screenFrame.height
+        let sourceX = contentRect.minX + minLocalX * scaleX
+        let sourceY = contentRect.minY + (screenFrame.height - maxLocalY) * scaleY
+        let sourceWidth = max(1, (maxLocalX - minLocalX) * scaleX)
+        let sourceHeight = max(1, (maxLocalY - minLocalY) * scaleY)
+
+        return clamped(
+            CGRect(x: sourceX, y: sourceY, width: sourceWidth, height: sourceHeight),
+            to: contentRect
+        )
+    }
+
+    private static func clamped(_ rect: CGRect, to bounds: CGRect) -> CGRect {
+        guard bounds.width > 0, bounds.height > 0 else {
+            return .zero
+        }
+
+        let width = min(max(rect.width, 1), bounds.width)
+        let height = min(max(rect.height, 1), bounds.height)
+        let minX = min(max(rect.minX, bounds.minX), bounds.maxX - width)
+        let minY = min(max(rect.minY, bounds.minY), bounds.maxY - height)
+        let maxX = minX + width
+        let maxY = minY + height
+
+        return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
     }
 
     private static func generateTemporaryRecordingURL() -> URL {
