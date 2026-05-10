@@ -43,7 +43,11 @@ final class QuickLookPreviewPresenter: NSObject, QLPreviewPanelDataSource {
     
     private func dismiss() {
         guard QLPreviewPanel.sharedPreviewPanelExists() else { return }
-        QLPreviewPanel.shared()?.orderOut(nil)
+        previewURL = nil
+
+        guard let panel = QLPreviewPanel.shared() else { return }
+        panel.orderOut(nil)
+        panel.dataSource = nil
     }
     
     nonisolated func numberOfPreviewItems(in panel: QLPreviewPanel!) -> Int {

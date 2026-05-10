@@ -480,8 +480,11 @@ nonisolated final class ScreenRecordingCapture: NSObject, SCStreamOutput, SCStre
 
     func stopCapture() async throws {
         guard let stream else { return }
-        try await stream.stopCapture()
         self.stream = nil
+        defer {
+            try? stream.removeStreamOutput(self, type: .screen)
+        }
+        try await stream.stopCapture()
     }
 
     static func displayFilter(display: SCDisplay, content: SCShareableContent) -> SCContentFilter {
@@ -505,7 +508,7 @@ nonisolated final class ScreenRecordingCapture: NSObject, SCStreamOutput, SCStre
         }
         configuration.minimumFrameInterval = CMTime(value: 1, timescale: 60)
         configuration.pixelFormat = kCVPixelFormatType_32BGRA
-        configuration.queueDepth = 8
+        configuration.queueDepth = 3
         configuration.showsCursor = true
         configuration.showMouseClicks = false
         configuration.capturesAudio = false
@@ -634,32 +637,38 @@ nonisolated private final class ScreenRecordingWriter: @unchecked Sendable {
     func writeVideoSample(_ sampleBuffer: CMSampleBuffer) {
         let sendableSampleBuffer = SendableSampleBuffer(sampleBuffer)
         writingQueue.async { [weak self, sendableSampleBuffer] in
-            guard let self, let videoInput, let pixelBufferAdaptor else { return }
+            autoreleasepool {
+                guard let self = self,
+                      let videoInput = self.videoInput,
+                      let pixelBufferAdaptor = self.pixelBufferAdaptor else {
+                    return
+                }
 
-            let sampleBuffer = sendableSampleBuffer.sampleBuffer
-            guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-            let time = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+                let sampleBuffer = sendableSampleBuffer.sampleBuffer
+                guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+                let time = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
 
-            if !isSessionStarted {
-                sessionStartTime = time
-                latestSampleTime = time
-                assetWriter?.startSession(atSourceTime: .zero)
-                isSessionStarted = true
+                if !self.isSessionStarted {
+                    self.sessionStartTime = time
+                    self.latestSampleTime = time
+                    self.assetWriter?.startSession(atSourceTime: .zero)
+                    self.isSessionStarted = true
+                }
+
+                guard self.handlePauseState(sampleTime: time) else { return }
+
+                let adjustedPTS = self.adjustedTime(time)
+                guard adjustedPTS >= .zero, videoInput.isReadyForMoreMediaData else { return }
+
+                if let snapshot = self.mouseIndicatorStore?.snapshot(at: adjustedPTS.seconds) {
+                    RecordingMouseIndicatorRenderer.render(snapshot: snapshot, into: pixelBuffer)
+                }
+                if let snapshot = self.keyCaptionStore?.snapshot(at: adjustedPTS.seconds) {
+                    RecordingKeyCaptionRenderer.render(snapshot: snapshot, into: pixelBuffer)
+                }
+
+                pixelBufferAdaptor.append(pixelBuffer, withPresentationTime: adjustedPTS)
             }
-
-            guard handlePauseState(sampleTime: time) else { return }
-
-            let adjustedPTS = adjustedTime(time)
-            guard adjustedPTS >= .zero, videoInput.isReadyForMoreMediaData else { return }
-
-            if let snapshot = mouseIndicatorStore?.snapshot(at: adjustedPTS.seconds) {
-                RecordingMouseIndicatorRenderer.render(snapshot: snapshot, into: pixelBuffer)
-            }
-            if let snapshot = keyCaptionStore?.snapshot(at: adjustedPTS.seconds) {
-                RecordingKeyCaptionRenderer.render(snapshot: snapshot, into: pixelBuffer)
-            }
-
-            pixelBufferAdaptor.append(pixelBuffer, withPresentationTime: adjustedPTS)
         }
     }
 

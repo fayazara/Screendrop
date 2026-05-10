@@ -32,7 +32,15 @@ final class PreviewPanelPresenter {
         guard ScreenshotPreviewStack.shared.items.isEmpty else { return }
 
         QuickLookPreviewPresenter.dismiss()
-        panel?.orderOut(nil)
+        destroyPanel()
+    }
+
+    private func destroyPanel() {
+        guard let panel else { return }
+
+        panel.orderOut(nil)
+        panel.contentView = nil
+        self.panel = nil
     }
 
     private func makePanel() -> NSPanel {
