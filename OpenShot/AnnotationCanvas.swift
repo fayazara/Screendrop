@@ -77,6 +77,7 @@ struct AnnotationCanvas: View {
                         isSelected: model.selectedItemIDs.contains(item.id),
                         showsResizeHandles: model.selectionCount == 1,
                         isEditingText: item.id == model.editingTextItemID,
+                        allowsRedactionPreviewCaching: !(model.isTransformingExistingAnnotation && model.selectedItemIDs.contains(item.id)),
                         text: Binding(
                             get: { item.text },
                             set: { model.setText($0, for: item.id) }
@@ -97,6 +98,7 @@ struct AnnotationCanvas: View {
                         isSelected: false,
                         showsResizeHandles: false,
                         isEditingText: false,
+                        allowsRedactionPreviewCaching: false,
                         text: .constant(draftItem.text),
                         onCommitText: {},
                         onTextSizeChange: { _ in }

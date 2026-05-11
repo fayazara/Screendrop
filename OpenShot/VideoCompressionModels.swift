@@ -7,8 +7,8 @@ import Foundation
 
 enum VideoCompressionQuality: String, CaseIterable, Identifiable, Sendable {
     case high = "High"
-    case balanced = "Balanced"
-    case small = "Small"
+    case medium = "Medium"
+    case low = "Low"
 
     var id: String { rawValue }
 
@@ -16,9 +16,9 @@ enum VideoCompressionQuality: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .high:
             20
-        case .balanced:
+        case .medium:
             26
-        case .small:
+        case .low:
             32
         }
     }
@@ -27,9 +27,9 @@ enum VideoCompressionQuality: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .high:
             "192k"
-        case .balanced:
+        case .medium:
             "128k"
-        case .small:
+        case .low:
             "96k"
         }
     }
@@ -87,7 +87,7 @@ enum VideoCompressionResolution: String, CaseIterable, Identifiable, Sendable {
 }
 
 struct VideoCompressionSettings: Equatable, Sendable {
-    var quality: VideoCompressionQuality = .balanced
+    var quality: VideoCompressionQuality = .medium
     var speed: VideoCompressionSpeed = .fast
     var codec: VideoCompressionCodec = .h264
     var resolution: VideoCompressionResolution = .original

@@ -8,10 +8,12 @@ import CoreImage
 import CoreImage.CIFilterBuiltins
 
 enum RedactionImageProcessor {
+    private static let maximumCachedPreviewCost = 12 * 1024 * 1024
+
     private static let cache: NSCache<NSString, NSImage> = {
         let cache = NSCache<NSString, NSImage>()
-        cache.countLimit = 32
-        cache.totalCostLimit = 96 * 1024 * 1024
+        cache.countLimit = 8
+        cache.totalCostLimit = 32 * 1024 * 1024
         return cache
     }()
     private static let ciContext = CIContext(options: [.cacheIntermediates: false])
@@ -21,7 +23,8 @@ enum RedactionImageProcessor {
         tool: AnnotationTool,
         density: CGFloat,
         normalizedBounds: CGRect,
-        originalImageSize: CGSize
+        originalImageSize: CGSize,
+        allowsCaching: Bool = true
     ) -> NSImage? {
         guard tool.isRedactionTool else { return nil }
         guard let sourceImage = source.bestCGImage(),
@@ -41,7 +44,7 @@ enum RedactionImageProcessor {
             "\(Int(cropRect.width))",
             "\(Int(cropRect.height))"
         ].joined(separator: "-") as NSString
-        if let cachedImage = cache.object(forKey: cacheKey) {
+        if allowsCaching, let cachedImage = cache.object(forKey: cacheKey) {
             return cachedImage
         }
 
@@ -56,8 +59,11 @@ enum RedactionImageProcessor {
             }
         }
 
-        if let image {
-            cache.setObject(image, forKey: cacheKey, cost: image.pixelCost)
+        if allowsCaching, let image {
+            let cost = image.pixelCost
+            if cost <= maximumCachedPreviewCost {
+                cache.setObject(image, forKey: cacheKey, cost: cost)
+            }
         }
 
         return image
@@ -65,6 +71,7 @@ enum RedactionImageProcessor {
 
     static func removeAllCachedPreviewImages() {
         cache.removeAllObjects()
+        ciContext.clearCaches()
     }
 
     static func makePixelatedImage(source: NSImage, density: CGFloat) -> NSImage? {

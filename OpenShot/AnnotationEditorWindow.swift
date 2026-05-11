@@ -39,6 +39,7 @@ struct AnnotationEditorWindow: View {
                 AnnotationEditorActivationPolicy.enter(hidePreview: true)
             }
             .onDisappear {
+                model.releaseEditorResources()
                 AnnotationEditorActivationPolicy.leave(restorePreview: true)
             }
             .onDeleteCommand {
@@ -132,6 +133,7 @@ struct AnnotationEditorWindow: View {
 
     private func finishEditing() {
         guard let sourceURL = model.sourceURL else {
+            model.releaseEditorResources()
             dismissWindow()
             return
         }
@@ -139,21 +141,25 @@ struct AnnotationEditorWindow: View {
         guard !isFinishing else { return }
 
         guard !model.items.isEmpty || model.backgroundSettings.isEnabled else {
+            model.releaseEditorResources()
             dismissWindow()
             return
         }
 
         isFinishing = true
         do {
+            let items = model.items
+            let backgroundSettings = model.backgroundSettings
             let annotatedURL = try AnnotationRenderer.renderToTemporaryFile(
                 sourceURL: sourceURL,
-                items: model.items,
-                backgroundSettings: model.backgroundSettings
+                items: items,
+                backgroundSettings: backgroundSettings
             )
             let updatedExistingPreview = ScreenshotPreviewStack.shared.replace(originalURL: sourceURL, with: annotatedURL)
             if !updatedExistingPreview {
                 openWindow(id: "PREVIEWWINDOW")
             }
+            model.releaseEditorResources()
             dismissWindow()
         } catch {
             isFinishing = false

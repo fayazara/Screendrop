@@ -10,6 +10,8 @@ import ImageIO
 import UniformTypeIdentifiers
 
 enum AnnotationRenderer {
+    private static let ciContext = CIContext(options: [.cacheIntermediates: false])
+
     static func renderToTemporaryFile(
         sourceURL: URL,
         items: [AnnotationItem],
@@ -34,52 +36,59 @@ enum AnnotationRenderer {
         destinationURL: URL,
         contentType: UTType
     ) throws {
-        let colorSpace = CGColorSpaceCreateDeviceRGB()
-        let renderedImage: CGImage
-        if backgroundSettings.isEnabled {
-            let sourceImage = try loadSourceImage(sourceURL: sourceURL)
-            renderedImage = try AnnotationBackgroundRenderer.compose(
-                contentImage: sourceImage,
-                settings: backgroundSettings,
-                colorSpace: colorSpace
-            ) { context, layout, imageRect in
-                drawAnnotations(
-                    items,
-                    in: imageRect,
-                    canvasSize: layout.canvasSize,
-                    context: context,
+        defer {
+            ciContext.clearCaches()
+        }
+
+        try autoreleasepool {
+            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let renderedImage: CGImage
+            if backgroundSettings.isEnabled {
+                let sourceImage = try loadSourceImage(sourceURL: sourceURL)
+                renderedImage = try AnnotationBackgroundRenderer.compose(
+                    contentImage: sourceImage,
+                    settings: backgroundSettings,
                     colorSpace: colorSpace
-                )
+                ) { context, layout, imageRect in
+                    drawAnnotations(
+                        items,
+                        in: imageRect,
+                        canvasSize: layout.canvasSize,
+                        context: context,
+                        colorSpace: colorSpace
+                    )
+                }
+            } else {
+                renderedImage = try renderAnnotatedImage(sourceURL: sourceURL, items: items, colorSpace: colorSpace)
             }
-        } else {
-            renderedImage = try renderAnnotatedImage(sourceURL: sourceURL, items: items, colorSpace: colorSpace)
+
+            if FileManager.default.fileExists(atPath: destinationURL.path) {
+                try FileManager.default.removeItem(at: destinationURL)
+            }
+
+            guard let destination = CGImageDestinationCreateWithURL(
+                destinationURL as CFURL,
+                contentType.identifier as CFString,
+                1,
+                nil
+            ) else {
+                throw CocoaError(.fileWriteUnknown)
+            }
+
+            var options: CFDictionary?
+            if contentType != .png {
+                options = [
+                    kCGImageDestinationLossyCompressionQuality: OpenShotPreferences.compressionQuality
+                ] as CFDictionary
+            }
+
+            CGImageDestinationAddImage(destination, renderedImage, options)
+
+            guard CGImageDestinationFinalize(destination) else {
+                throw CocoaError(.fileWriteUnknown)
+            }
         }
 
-        if FileManager.default.fileExists(atPath: destinationURL.path) {
-            try FileManager.default.removeItem(at: destinationURL)
-        }
-
-        guard let destination = CGImageDestinationCreateWithURL(
-            destinationURL as CFURL,
-            contentType.identifier as CFString,
-            1,
-            nil
-        ) else {
-            throw CocoaError(.fileWriteUnknown)
-        }
-
-        var options: CFDictionary?
-        if contentType != .png {
-            options = [
-                kCGImageDestinationLossyCompressionQuality: OpenShotPreferences.compressionQuality
-            ] as CFDictionary
-        }
-
-        CGImageDestinationAddImage(destination, renderedImage, options)
-
-        guard CGImageDestinationFinalize(destination) else {
-            throw CocoaError(.fileWriteUnknown)
-        }
     }
 
     private static func loadSourceImage(sourceURL: URL) throws -> CGImage {
@@ -147,102 +156,104 @@ enum AnnotationRenderer {
         context.setLineCap(.round)
         context.setLineJoin(.round)
         for item in items {
-            context.setStrokeColor(item.swatch.nsColor.cgColor)
-            context.setFillColor(item.swatch.nsColor.cgColor)
+            autoreleasepool {
+                context.setStrokeColor(item.swatch.nsColor.cgColor)
+                context.setFillColor(item.swatch.nsColor.cgColor)
 
-            let lineWidth = renderedLineWidth(for: item, imageSize: imageRect.size)
-            context.setLineWidth(lineWidth)
+                let lineWidth = renderedLineWidth(for: item, imageSize: imageRect.size)
+                context.setLineWidth(lineWidth)
 
-            switch item.tool {
-            case .select:
-                continue
+                switch item.tool {
+                case .select:
+                    return
 
-            case .rectangle:
-                context.stroke(renderedRect(item.bounds, in: imageRect))
+                case .rectangle:
+                    context.stroke(renderedRect(item.bounds, in: imageRect))
 
-            case .filledRectangle:
-                let rect = renderedRect(item.bounds, in: imageRect)
-                context.addPath(CGPath(
-                    roundedRect: rect,
-                    cornerWidth: AnnotationFilledRectangleMetrics.cornerRadius(for: rect),
-                    cornerHeight: AnnotationFilledRectangleMetrics.cornerRadius(for: rect),
-                    transform: nil
-                ))
-                context.fillPath()
+                case .filledRectangle:
+                    let rect = renderedRect(item.bounds, in: imageRect)
+                    context.addPath(CGPath(
+                        roundedRect: rect,
+                        cornerWidth: AnnotationFilledRectangleMetrics.cornerRadius(for: rect),
+                        cornerHeight: AnnotationFilledRectangleMetrics.cornerRadius(for: rect),
+                        transform: nil
+                    ))
+                    context.fillPath()
 
-            case .ellipse:
-                context.strokeEllipse(in: renderedRect(item.bounds, in: imageRect))
+                case .ellipse:
+                    context.strokeEllipse(in: renderedRect(item.bounds, in: imageRect))
 
-            case .numberedCircle:
-                drawNumberedCircle(
-                    item,
-                    in: renderedRect(item.bounds, in: imageRect),
-                    context: context
-                )
+                case .numberedCircle:
+                    drawNumberedCircle(
+                        item,
+                        in: renderedRect(item.bounds, in: imageRect),
+                        context: context
+                    )
 
-            case .pixelate:
-                applyPixelation(
-                    in: renderedRect(item.bounds, in: imageRect),
-                    context: context,
-                    canvasSize: canvasSize,
-                    colorSpace: colorSpace,
-                    density: item.redactionDensity
-                )
+                case .pixelate:
+                    applyPixelation(
+                        in: renderedRect(item.bounds, in: imageRect),
+                        context: context,
+                        canvasSize: canvasSize,
+                        colorSpace: colorSpace,
+                        density: item.redactionDensity
+                    )
 
-            case .blur:
-                applyBlur(
-                    in: renderedRect(item.bounds, in: imageRect),
-                    context: context,
-                    canvasSize: canvasSize,
-                    density: item.redactionDensity
-                )
+                case .blur:
+                    applyBlur(
+                        in: renderedRect(item.bounds, in: imageRect),
+                        context: context,
+                        canvasSize: canvasSize,
+                        density: item.redactionDensity
+                    )
 
-            case .text:
-                drawText(
-                    item,
-                    in: renderedRect(item.bounds, in: imageRect),
-                    imageHeight: imageRect.height,
-                    context: context
-                )
+                case .text:
+                    drawText(
+                        item,
+                        in: renderedRect(item.bounds, in: imageRect),
+                        imageHeight: imageRect.height,
+                        context: context
+                    )
 
-            case .line:
-                guard let first = item.points.first,
-                      let last = item.points.last else {
-                    continue
+                case .line:
+                    guard let first = item.points.first,
+                          let last = item.points.last else {
+                        return
+                    }
+
+                    let start = renderedPoint(first, in: imageRect)
+                    let end = renderedPoint(last, in: imageRect)
+                    context.beginPath()
+                    context.move(to: start)
+                    context.addLine(to: end)
+                    context.strokePath()
+
+                case .freehand:
+                    drawFreehand(
+                        points: item.points,
+                        imageRect: imageRect,
+                        context: context
+                    )
+
+                case .arrow:
+                    guard let first = item.points.first,
+                          let control = item.controlPoint,
+                          let last = item.points.last,
+                          let geometry = AnnotationArrowGeometry(
+                            start: renderedPoint(first, in: imageRect),
+                            control: renderedPoint(control, in: imageRect),
+                            end: renderedPoint(last, in: imageRect),
+                            lineWidth: lineWidth
+                          ) else {
+                        return
+                    }
+
+                    context.beginPath()
+                    context.move(to: renderedPoint(first, in: imageRect))
+                    context.addQuadCurve(to: geometry.tip, control: geometry.shaftControl)
+                    context.strokePath()
+                    drawArrowHead(geometry, context: context)
                 }
-
-                let start = renderedPoint(first, in: imageRect)
-                let end = renderedPoint(last, in: imageRect)
-                context.beginPath()
-                context.move(to: start)
-                context.addLine(to: end)
-                context.strokePath()
-
-            case .freehand:
-                drawFreehand(
-                    points: item.points,
-                    imageRect: imageRect,
-                    context: context
-                )
-
-            case .arrow:
-                guard let first = item.points.first,
-                      let control = item.controlPoint,
-                      let last = item.points.last,
-                      let geometry = AnnotationArrowGeometry(
-                        start: renderedPoint(first, in: imageRect),
-                        control: renderedPoint(control, in: imageRect),
-                        end: renderedPoint(last, in: imageRect),
-                        lineWidth: lineWidth
-                      ) else {
-                    continue
-                }
-
-                context.beginPath()
-                context.move(to: renderedPoint(first, in: imageRect))
-                context.addQuadCurve(to: geometry.tip, control: geometry.shaftControl)
-                context.strokePath()
-                drawArrowHead(geometry, context: context)
             }
         }
     }
@@ -448,7 +459,6 @@ enum AnnotationRenderer {
         filter.inputImage = inputImage.clampedToExtent()
         filter.radius = Float(RedactionImageProcessor.blurRadius(for: density))
 
-        let ciContext = CIContext()
         guard let outputImage = filter.outputImage,
               let blurredImage = ciContext.createCGImage(outputImage, from: inputImage.extent) else {
             return

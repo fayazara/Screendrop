@@ -88,6 +88,7 @@ final class AnnotationEditorModel {
     private var interaction: AnnotationInteraction?
     var history = AnnotationHistory()
     private let minimumItemSize: CGFloat = 0.006
+    private let previewImageMaxPixelSize: CGFloat = 1800
 
     func load(url: URL?, dismiss: DismissAction) {
         guard let url else {
@@ -98,7 +99,7 @@ final class AnnotationEditorModel {
         applyAnnotationPreset()
         sourceURL = url
         imageSize = ScreenshotImageLoader.imageSize(at: url) ?? .zero
-        previewImage = ScreenshotImageLoader.downsampledImage(at: url, maxPixelSize: 2400)
+        previewImage = ScreenshotImageLoader.downsampledImage(at: url, maxPixelSize: previewImageMaxPixelSize)
         items = []
         draftItem = nil
         selectedItemIDs = []
@@ -116,6 +117,23 @@ final class AnnotationEditorModel {
         if previewImage == nil || imageSize == .zero {
             errorMessage = "Unable to load screenshot."
         }
+    }
+
+    func releaseEditorResources() {
+        sourceURL = nil
+        previewImage = nil
+        imageSize = .zero
+        items = []
+        draftItem = nil
+        selectedItemIDs = []
+        editingTextItemID = nil
+        isTextPlacementArmed = false
+        selectionRect = nil
+        backgroundSettings = AnnotationBackgroundSettings()
+        interaction = nil
+        history.reset()
+        errorMessage = nil
+        RedactionImageProcessor.removeAllCachedPreviewImages()
     }
 
     func beginInteraction(at location: CGPoint, imageFrame: CGRect, boundaryFrame: CGRect) {

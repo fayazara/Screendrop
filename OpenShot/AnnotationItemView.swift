@@ -14,6 +14,7 @@ struct AnnotationItemView: View {
     let isSelected: Bool
     let showsResizeHandles: Bool
     let isEditingText: Bool
+    let allowsRedactionPreviewCaching: Bool
     let text: Binding<String>
     let onCommitText: () -> Void
     let onTextSizeChange: (CGSize) -> Void
@@ -30,7 +31,8 @@ struct AnnotationItemView: View {
                     item: item,
                     originalImageSize: originalImageSize,
                     imageFrame: imageFrame,
-                    viewBounds: viewBounds
+                    viewBounds: viewBounds,
+                    allowsCaching: allowsRedactionPreviewCaching
                 )
             } else if item.tool.isFilledShape {
                 itemPath
@@ -544,6 +546,7 @@ private struct RedactionPreview: View {
     let originalImageSize: CGSize
     let imageFrame: CGRect
     let viewBounds: CGRect
+    let allowsCaching: Bool
 
     var body: some View {
         if let redactedImage = RedactionImageProcessor.previewImage(
@@ -551,7 +554,8 @@ private struct RedactionPreview: View {
             tool: item.tool,
             density: item.redactionDensity,
             normalizedBounds: item.bounds,
-            originalImageSize: originalImageSize
+            originalImageSize: originalImageSize,
+            allowsCaching: allowsCaching
         ) {
             Image(nsImage: redactedImage)
                 .interpolation(item.tool == .pixelate ? .none : .medium)

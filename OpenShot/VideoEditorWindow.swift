@@ -31,6 +31,7 @@ struct VideoEditorWindow: View {
     @State private var compressionProgress: Double?
     @State private var compressionResult: VideoCompressionResult?
     @State private var showInspector = true
+    @State private var conversionEnabled = true
 
     @Environment(\.dismiss) private var dismissWindow
 
@@ -41,6 +42,30 @@ struct VideoEditorWindow: View {
             .toolbarBackgroundVisibility(.visible, for: .windowToolbar)
             .toolbar {
                 ToolbarItem(placement: .automatic) {
+                    Button(action: performExport) {
+                        if isCompressingVideo || isExporting {
+                            HStack(spacing: 6) {
+                                ProgressView()
+                                    .controlSize(.small)
+                                Text("Processing...")
+                            }
+                        } else {
+                            Label(exportButtonLabel, systemImage: exportButtonIcon)
+                                .labelStyle(.titleAndIcon)
+                        }
+                    }
+                    .tint(.accentColor)
+                    .help(exportButtonLabel)
+                    .disabled(!canPerformExport || isCompressingVideo || isExporting)
+                }
+
+                ToolbarItemGroup(placement: .automatic) {
+                    Button(role: .destructive, action: deleteRecording) {
+                        Image(systemName: "trash")
+                    }
+                    .help("Delete recording")
+                    .disabled(sourceURL == nil || isExporting || isCompressingVideo)
+
                     VideoInspectorToggleButton(isPresented: $showInspector)
                 }
             }
@@ -159,15 +184,19 @@ struct VideoEditorWindow: View {
         VideoInspectorPanel {
             clipInspectorSection
             VideoInspectorDivider()
-            qualityInspectorSection
-            speedInspectorSection
-            resolutionInspectorSection
-            codecInspectorSection
-            audioInspectorSection
-            VideoInspectorDivider()
-            ffmpegInspectorSection
+            conversionToggleSection
+            if conversionEnabled {
+                qualityInspectorSection
+                speedInspectorSection
+                resolutionInspectorSection
+                codecInspectorSection
+                audioInspectorSection
+                if ffmpegPath == nil && !isDetectingFFmpeg {
+                    VideoInspectorDivider()
+                    ffmpegInspectorSection
+                }
+            }
             compressionStatusInspectorSection
-            actionsInspectorSection
         }
     }
 
@@ -177,6 +206,38 @@ struct VideoEditorWindow: View {
             VideoInspectorValueRow(title: "Start", value: timecode(boundedSelection.start))
             VideoInspectorValueRow(title: "End", value: timecode(boundedSelection.end))
             VideoInspectorValueRow(title: "Length", value: timecode(boundedSelection.duration))
+        }
+    }
+
+    private var conversionToggleSection: some View {
+        VideoInspectorSection {
+            Toggle(isOn: $conversionEnabled.animation(.easeInOut(duration: 0.2))) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Compress")
+                        .font(.headline)
+                        .fontWeight(.semibold)
+                    Text(conversionEnabled ? "Re-encodes with FFmpeg" : "Fast passthrough, no re-encoding")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .toggleStyle(.switch)
+            .disabled(isExporting || isCompressingVideo)
+
+            if conversionEnabled && isDetectingFFmpeg {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Checking FFmpeg...")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } else if conversionEnabled && ffmpegPath != nil {
+                Label("FFmpeg ready", systemImage: "checkmark.circle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 
@@ -249,19 +310,12 @@ struct VideoEditorWindow: View {
         }
     }
 
-    private var actionsInspectorSection: some View {
-        VideoInspectorSection {
-            VideoInspectorActions(
-                primaryLabel: primaryConversionTitle,
-                primaryIcon: "arrow.down.right.and.arrow.up.left",
-                onPrimary: applyCompressedToPreview,
-                secondaryLabel: trimOnlyActionLabel,
-                onSecondary: trimOnlyAction,
-                isSecondaryDisabled: !canExport,
-                isPrimaryDisabled: !canConvert,
-                isProcessing: isCompressingVideo || isExporting
-            )
+    private func deleteRecording() {
+        guard let sourceURL else { return }
+        if let item = ScreenshotPreviewStack.shared.items.first(where: { $0.url == sourceURL }) {
+            ScreenshotPreviewStack.shared.deleteScreenshot(id: item.id)
         }
+        dismissWindow()
     }
 
 
@@ -342,17 +396,28 @@ struct VideoEditorWindow: View {
         canCompress
     }
 
-    private var primaryConversionTitle: String {
-        isTrimmedSelection ? "Trim & Convert" : "Convert"
+    private var exportButtonLabel: String {
+        "Export"
     }
 
-    private var trimOnlyActionLabel: String? {
-        isTrimmedSelection ? "Trim Only" : nil
+    private var exportButtonIcon: String {
+        "arrow.down.circle"
     }
 
-    private var trimOnlyAction: (() -> Void)? {
-        guard isTrimmedSelection else { return nil }
-        return { applyTrimToPreview() }
+    private var canPerformExport: Bool {
+        if conversionEnabled {
+            return canConvert
+        } else {
+            return canExport && isTrimmedSelection
+        }
+    }
+
+    private func performExport() {
+        if conversionEnabled {
+            applyCompressedToPreview()
+        } else {
+            applyTrimToPreview()
+        }
     }
 
     private var isFullSelection: Bool {
@@ -760,9 +825,9 @@ struct VideoEditorWindow: View {
         switch quality {
         case .high:
             "Best visual quality, larger output files."
-        case .balanced:
+        case .medium:
             "Good quality with a practical file size."
-        case .small:
+        case .low:
             "Smallest output, with more visible compression."
         }
     }
@@ -1061,50 +1126,7 @@ private struct VideoInspectorMenuPicker<Option: Hashable>: View {
     }
 }
 
-private struct VideoInspectorActions: View {
-    let primaryLabel: String
-    let primaryIcon: String
-    let onPrimary: () -> Void
-    var secondaryLabel: String?
-    var onSecondary: (() -> Void)?
-    var isSecondaryDisabled = false
-    var isPrimaryDisabled = false
-    var isProcessing = false
 
-    var body: some View {
-        VStack(spacing: 10) {
-            Button(action: onPrimary) {
-                HStack(spacing: 6) {
-                    if isProcessing {
-                        ProgressView()
-                            .scaleEffect(0.6)
-                            .frame(width: 16, height: 16)
-                    } else {
-                        Image(systemName: primaryIcon)
-                    }
-
-                    Text(isProcessing ? "Processing..." : primaryLabel)
-                }
-                .frame(maxWidth: .infinity)
-                .frame(height: 28)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .keyboardShortcut(.defaultAction)
-            .disabled(isPrimaryDisabled || isProcessing)
-
-            if let secondaryLabel, let onSecondary {
-                Button(action: onSecondary) {
-                    Text(secondaryLabel)
-                }
-                .buttonStyle(.plain)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .disabled(isSecondaryDisabled || isProcessing)
-            }
-        }
-    }
-}
 
 private struct VideoInspectorProgressStatus: View {
     let progress: Double
