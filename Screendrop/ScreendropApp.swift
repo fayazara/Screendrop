@@ -72,8 +72,11 @@ struct ScreendropApp: App {
 // MARK: - App Delegate
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private let updaterManager = UpdaterManager.shared
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         HotkeyManager.shared.registerHotkeys()
+        updaterManager.start()
     }
 }

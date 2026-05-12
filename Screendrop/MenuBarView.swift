@@ -10,6 +10,7 @@ import SwiftUI
 
 struct MenuBarView: View {
     @Environment(\.openWindow) private var openWindow
+    @ObservedObject private var updaterManager = UpdaterManager.shared
     @State private var recordingSources = RecordingSourceCatalog.shared
     @State private var historyStore = ScreenshotHistoryStore.shared
     
@@ -56,6 +57,13 @@ struct MenuBarView: View {
                 Label("Settings", systemImage: "gearshape")
             }
             .keyboardShortcut(",", modifiers: [.command])
+
+            Button {
+                updaterManager.checkForUpdates()
+            } label: {
+                Label("Check for Updates...", systemImage: "arrow.down.circle")
+            }
+            .disabled(!updaterManager.canCheckForUpdates)
             
             Divider()
             

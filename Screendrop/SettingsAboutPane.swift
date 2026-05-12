@@ -7,6 +7,8 @@ import AppKit
 import SwiftUI
 
 struct SettingsAboutPane: View {
+    @ObservedObject private var updaterManager = UpdaterManager.shared
+
     private var versionText: String {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
         let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String
@@ -43,6 +45,27 @@ struct SettingsAboutPane: View {
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     }
+                }
+
+                Divider()
+
+                // Updates
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Updates")
+                        .font(.headline)
+
+                    Toggle(isOn: Binding(
+                        get: { updaterManager.automaticallyChecksForUpdates },
+                        set: { updaterManager.automaticallyChecksForUpdates = $0 }
+                    )) {
+                        Text("Automatically check for updates")
+                    }
+                    .toggleStyle(.switch)
+
+                    Button("Check for Updates...") {
+                        updaterManager.checkForUpdates()
+                    }
+                    .disabled(!updaterManager.canCheckForUpdates)
                 }
 
                 Divider()

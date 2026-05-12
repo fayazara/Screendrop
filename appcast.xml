@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0"
+  xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle"
+  xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <channel>
+    <title>Screendrop Updates</title>
+    <link>https://raw.githubusercontent.com/fayazara/screendrop/main/appcast.xml</link>
+    <language>en</language>
+
+    <!--
+      HOW TO ADD A NEW RELEASE:
+      1. Bump MARKETING_VERSION and CURRENT_PROJECT_VERSION in Xcode.
+      2. Export Screendrop.app to ~/Downloads.
+      3. Run: go run ./cmd/screendrop-release
+      4. Enter release notes when prompted.
+
+      The release tool creates Screendrop.dmg, signs it with Sparkle, prepends
+      this appcast, commits/pushes appcast.xml to main, and creates the GitHub
+      release with the DMG attached.
+
+      Newest release goes on top.
+    -->
+  </channel>
+</rss>

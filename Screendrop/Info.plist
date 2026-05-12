@@ -6,5 +6,11 @@
 	<string>Screendrop needs input monitoring permission to show key press captions while recording.</string>
 	<key>NSScreenCaptureUsageDescription</key>
 	<string>Screendrop needs screen recording permission to capture screenshots.</string>
+	<key>SUEnableInstallerLauncherService</key>
+	<true/>
+	<key>SUFeedURL</key>
+	<string>https://raw.githubusercontent.com/fayazara/screendrop/main/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>MA/6n0fqT0T2updDlkXr8BjhJKoHWik9uf6Lh5pUG7U=</string>
 </dict>
 </plist>
