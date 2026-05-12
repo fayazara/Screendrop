@@ -233,6 +233,7 @@ final class ScreenshotPreviewStack {
         QuickLookPreviewPresenter.dismiss()
 
         if let index = items.firstIndex(where: { $0.url == originalURL }) {
+            CloudUploader.shared.clearUploadState(for: items[index].id)
             items[index].url = historyURL
             items[index].previewImage = image
             items[index].autoSavedURL = nil
@@ -254,6 +255,7 @@ final class ScreenshotPreviewStack {
 
         let oldURL = items[index].url
         let itemID = items[index].id
+        CloudUploader.shared.clearUploadState(for: itemID)
         items[index].url = editedURL
         items[index].previewImage = VideoPreviewImageLoader.placeholderImage()
         items[index].autoSavedURL = nil
