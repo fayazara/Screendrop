@@ -59,7 +59,7 @@ The companion Worker lives here:
 When you upload a capture, Screendrop does two things:
 
 1. It uploads the file directly to your R2 bucket using the S3-compatible R2 API.
-2. It calls the Worker’s `/api/register` endpoint with the R2 object key and metadata such as filename, content type, size, dimensions, and media type.
+2. It calls the Worker's `/api/register` endpoint with the R2 object key and metadata such as filename, content type, size, dimensions, and media type.
 
 The Worker validates the upload token, stores the metadata in D1, and returns a short share URL. Screendrop stores that URL in local history so you can copy it again later.
 
