@@ -161,7 +161,7 @@ struct PreviewCardView: View {
 
     @ViewBuilder
     private var cloudUploadControl: some View {
-        if item.kind == .image, cloudUploader.isConfigured {
+        if cloudUploader.isConfigured {
             if cloudUploader.uploadingItems.contains(item.id) {
                 cornerButton(
                     systemImage: "stop.circle.fill",

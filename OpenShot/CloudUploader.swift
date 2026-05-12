@@ -12,6 +12,8 @@
 //
 
 import AppKit
+import AVFoundation
+@preconcurrency import CoreMedia
 import ImageIO
 import UniformTypeIdentifiers
 
@@ -58,8 +60,19 @@ final class CloudUploader: NSObject {
         let creds = CloudCredentialStore.shared.snapshot()
         let fileName = fileURL.lastPathComponent
         let fileData = try Data(contentsOf: fileURL, options: .mappedIfSafe)
-        let dimensions = imageDimensions(at: fileURL)
         let mimeType = mimeTypeForFile(fileURL)
+        let isVideo = mimeType.hasPrefix("video/")
+        let dimensions: (width: Int, height: Int)?
+        let duration: Double?
+
+        if isVideo {
+            let videoMeta = await videoDimensions(at: fileURL)
+            dimensions = videoMeta.dimensions
+            duration = videoMeta.duration
+        } else {
+            dimensions = imageDimensions(at: fileURL)
+            duration = nil
+        }
 
         // Generate the R2 key in the same format the worker uses
         let shortID = UUID().uuidString.split(separator: "-").first.map(String.init) ?? UUID().uuidString.prefix(8).description
@@ -96,6 +109,8 @@ final class CloudUploader: NSObject {
                 size: fileData.count,
                 width: dimensions?.width,
                 height: dimensions?.height,
+                mediaType: isVideo ? "video" : "image",
+                duration: duration,
                 creds: creds
             )
 
@@ -153,6 +168,8 @@ final class CloudUploader: NSObject {
         size: Int,
         width: Int?,
         height: Int?,
+        mediaType: String = "image",
+        duration: Double? = nil,
         creds: CloudCredentials
     ) async throws -> CloudUploadResult {
         let rawURL = creds.workerURL
@@ -171,9 +188,11 @@ final class CloudUploader: NSObject {
             "filename": filename,
             "content_type": contentType,
             "size": size,
+            "media_type": mediaType,
         ]
         if let width { body["width"] = width }
         if let height { body["height"] = height }
+        if let duration { body["duration"] = duration }
 
         let jsonData = try JSONSerialization.data(withJSONObject: body)
 
@@ -216,6 +235,10 @@ final class CloudUploader: NSObject {
         case "heic": return "image/heic"
         case "gif": return "image/gif"
         case "webp": return "image/webp"
+        case "mov": return "video/quicktime"
+        case "mp4", "m4v": return "video/mp4"
+        case "mkv": return "video/x-matroska"
+        case "webm": return "video/webm"
         default: return "application/octet-stream"
         }
     }
@@ -228,6 +251,32 @@ final class CloudUploader: NSObject {
             return nil
         }
         return (width, height)
+    }
+
+    nonisolated private func videoDimensions(at url: URL) async -> (dimensions: (width: Int, height: Int)?, duration: Double?) {
+        let asset = AVURLAsset(url: url)
+        var dims: (width: Int, height: Int)?
+        var dur: Double?
+
+        if let track = try? await asset.loadTracks(withMediaType: .video).first {
+            let size = try? await track.load(.naturalSize)
+            let transform = try? await track.load(.preferredTransform)
+            if let size, let transform {
+                let transformed = size.applying(transform)
+                dims = (width: Int(abs(transformed.width)), height: Int(abs(transformed.height)))
+            } else if let size {
+                dims = (width: Int(size.width), height: Int(size.height))
+            }
+        }
+
+        if let loadedDuration = try? await asset.load(.duration) {
+            let seconds = CMTimeGetSeconds(loadedDuration)
+            if seconds.isFinite, seconds > 0 {
+                dur = seconds
+            }
+        }
+
+        return (dimensions: dims, duration: dur)
     }
 }
 

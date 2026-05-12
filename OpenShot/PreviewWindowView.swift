@@ -77,7 +77,6 @@ struct PreviewWindowView: View {
                         }
                     },
                     onUpload: {
-                        guard item.kind == .image else { return }
                         Task {
                             do {
                                 let result = try await CloudUploader.shared.upload(itemID: item.id, fileURL: item.url)
