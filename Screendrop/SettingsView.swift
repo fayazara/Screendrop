@@ -87,6 +87,7 @@ struct SettingsView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .navigationSplitViewStyle(.balanced)
+        .toolbar(removing: .sidebarToggle)
         .background(SettingsWindowConfigurator())
         .frame(minWidth: 620, minHeight: 460)
         .onAppear {
