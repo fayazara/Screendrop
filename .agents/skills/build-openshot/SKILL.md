@@ -1,11 +1,11 @@
 ---
 name: build-openshot
-description: "Build the OpenShot macOS app using xcodebuild. Use this skill whenever the user asks to build, compile, or check if the OpenShot project compiles successfully. Also use it when the user asks to fix build errors, verify changes compile, or run a debug build."
+description: "Build the Screendrop macOS app using xcodebuild. Use this skill whenever the user asks to build, compile, or check if the Screendrop project compiles successfully. Also use it when the user asks to fix build errors, verify changes compile, or run a debug build."
 ---
 
-# Build OpenShot
+# Build Screendrop
 
-This skill handles building the OpenShot macOS application via `xcodebuild`.
+This skill handles building the Screendrop macOS application via `xcodebuild`.
 
 ## Build Command
 
@@ -13,8 +13,8 @@ Run this exact command to build the project:
 
 ```bash
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild build \
-  -project "/Users/fayazahmed/Developer/fayazara/mac/OpenShot/OpenShot.xcodeproj" \
-  -scheme OpenShot \
+  -project "/Users/fayazahmed/Developer/fayazara/mac/OpenShot/Screendrop.xcodeproj" \
+  -scheme Screendrop \
   -configuration Debug \
   -destination "platform=macOS" \
   2>&1 | grep -E "(BUILD SUCCEEDED|BUILD FAILED|error:)" | head -20

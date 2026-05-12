@@ -2,10 +2,10 @@
 
 ## Project overview
 
-OpenShot is a native macOS screenshot tool. It runs as a menu-bar-only app (`LSUIElement = YES`, activation policy `.accessory`) with no main window. Built with SwiftUI + AppKit, single Xcode target, no SPM dependencies, no tests.
+Screendrop is a native macOS screenshot tool. It runs as a menu-bar-only app (`LSUIElement = YES`, activation policy `.accessory`) with no main window. Built with SwiftUI + AppKit, single Xcode target, no SPM dependencies, no tests.
 
 **Deployment target:** macOS 26.4 (Xcode 26.4 / Tahoe beta SDK).
-**Bundle ID:** `com.fayazahmed.OpenShot`
+**Bundle ID:** `com.fayazahmed.Screendrop`
 
 ## Build
 
@@ -13,14 +13,14 @@ Use `xcodebuild` from the command line. The project requires the Xcode 26.4 beta
 
 ```bash
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild build \
-  -project OpenShot.xcodeproj \
-  -scheme OpenShot \
+  -project Screendrop.xcodeproj \
+  -scheme Screendrop \
   -configuration Debug \
   -destination "platform=macOS" \
   2>&1 | grep -E "(BUILD SUCCEEDED|BUILD FAILED|error:)" | head -20
 ```
 
-There are two shared schemes (`OpenShot` and `OpenShot Dev`) — both build the same target with Debug config. Use `OpenShot` unless told otherwise.
+There are two shared schemes (`Screendrop` and `Screendrop Dev`) — both build the same target with Debug config. Use `Screendrop` unless told otherwise.
 
 No test target exists. Build success is the only automated verification.
 
@@ -36,15 +36,15 @@ When adding new types, assume `@MainActor` isolation by default. If a type must 
 
 ## Architecture
 
-All source is in `OpenShot/` (flat, no subdirectories). Key flow:
+All source is in `Screendrop/` (flat, no subdirectories). Key flow:
 
-1. **App entry** — `OpenShotApp.swift`: `@main` App struct. Creates a `MenuBarExtra`, a Settings window, and an annotation editor `WindowGroup`.
+1. **App entry** — `ScreendropApp.swift`: `@main` App struct. Creates a `MenuBarExtra`, a Settings window, and an annotation editor `WindowGroup`.
 2. **Hotkeys** — `HotkeyManager.swift`: Registers global Carbon hotkeys (Option+1/2/3) at launch via `AppDelegate`.
 3. **Capture** — `CaptureCoordinator.swift` → `ScreenshotManager.swift`: Fullscreen uses `ScreenCaptureKit`; window/area use `/usr/sbin/screencapture` CLI.
 4. **Preview** — `PreviewPanelPresenter.swift` + `PreviewWindowView.swift`: Borderless floating `NSPanel` showing a screenshot stack. Uses `ScreenshotPreviewStack` (an `@Observable` model).
 5. **Annotation** — `AnnotationEditorWindow.swift` + `AnnotationEditorModel.swift` + `AnnotationCanvas.swift`: Full annotation editor with tools (rectangle, ellipse, arrow, freehand, text, numbered circles, pixelate, blur). All coordinates are normalized (0..1) relative to the image.
 6. **Rendering** — `AnnotationRenderer.swift`: Composites annotations onto the source image at full pixel resolution using Core Graphics.
-7. **Preferences** — `OpenShotPreferences.swift` + `SettingsView.swift`: `UserDefaults`-backed settings (auto-save, auto-copy, auto-compress, export directory).
+7. **Preferences** — `ScreendropPreferences.swift` + `SettingsView.swift`: `UserDefaults`-backed settings (auto-save, auto-copy, auto-compress, export directory).
 
 ### Singletons
 
