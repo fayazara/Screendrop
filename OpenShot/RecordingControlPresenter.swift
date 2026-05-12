@@ -52,7 +52,9 @@ final class RecordingControlPresenter {
         panel.isMovableByWindowBackground = true
         panel.titleVisibility = .hidden
         panel.titlebarAppearsTransparent = true
-        panel.sharingType = .none
+        if !PreviewWindowCaptureExclusion.isDemoMode {
+            panel.sharingType = .none
+        }
         let hostingView = RecordingControlHostingView(rootView: RecordingControlView())
         hostingView.frame = CGRect(origin: .zero, size: panelSize)
         hostingView.autoresizingMask = [.width, .height]

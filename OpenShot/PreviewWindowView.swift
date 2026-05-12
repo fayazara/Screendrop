@@ -82,6 +82,7 @@ struct PreviewWindowView: View {
                                 let result = try await CloudUploader.shared.upload(itemID: item.id, fileURL: item.url)
                                 NSPasteboard.general.clearContents()
                                 NSPasteboard.general.setString(result.url, forType: .string)
+                                ScreenshotHistoryStore.shared.setCloudURL(for: item.url, cloudURL: result.url)
                             } catch {
                                 print("Cloud upload failed: \(error)")
                             }

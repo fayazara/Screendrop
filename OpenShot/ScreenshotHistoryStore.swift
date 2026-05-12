@@ -6,6 +6,8 @@
 //
 
 import AppKit
+import AVFoundation
+@preconcurrency import CoreMedia
 import Observation
 
 struct ScreenshotHistoryItem: Identifiable, Codable, Equatable {
@@ -15,9 +17,51 @@ struct ScreenshotHistoryItem: Identifiable, Codable, Equatable {
     var fileName: String
     var pixelWidth: Int
     var pixelHeight: Int
+    var kind: PreviewMediaKind
+    var duration: Double?
+    var cloudURL: String?
 
     var url: URL {
         ScreenshotHistoryStore.historyDirectory.appendingPathComponent(fileName)
+    }
+
+    var isVideo: Bool { kind == .video }
+
+    // Backward-compatible decoding: existing history.json entries have no
+    // `kind` or `duration` fields, so they default to .image / nil.
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+        fileName = try container.decode(String.self, forKey: .fileName)
+        pixelWidth = try container.decode(Int.self, forKey: .pixelWidth)
+        pixelHeight = try container.decode(Int.self, forKey: .pixelHeight)
+        kind = try container.decodeIfPresent(PreviewMediaKind.self, forKey: .kind) ?? .image
+        duration = try container.decodeIfPresent(Double.self, forKey: .duration)
+        cloudURL = try container.decodeIfPresent(String.self, forKey: .cloudURL)
+    }
+
+    init(
+        id: UUID,
+        createdAt: Date,
+        updatedAt: Date,
+        fileName: String,
+        pixelWidth: Int,
+        pixelHeight: Int,
+        kind: PreviewMediaKind = .image,
+        duration: Double? = nil,
+        cloudURL: String? = nil
+    ) {
+        self.id = id
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.fileName = fileName
+        self.pixelWidth = pixelWidth
+        self.pixelHeight = pixelHeight
+        self.kind = kind
+        self.duration = duration
+        self.cloudURL = cloudURL
     }
 }
 
@@ -82,6 +126,64 @@ final class ScreenshotHistoryStore {
     }
 
     @discardableResult
+    func importVideo(from sourceURL: URL) async -> URL {
+        do {
+            try FileManager.default.createDirectory(at: Self.historyDirectory, withIntermediateDirectories: true)
+            let destinationURL = uniqueHistoryURL(for: sourceURL)
+
+            if sourceURL != destinationURL {
+                if FileManager.default.fileExists(atPath: destinationURL.path) {
+                    try FileManager.default.removeItem(at: destinationURL)
+                }
+                try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
+            }
+
+            // Extract video metadata via AVFoundation
+            let asset = AVURLAsset(url: destinationURL)
+            var width = 0
+            var height = 0
+            var dur: Double?
+
+            if let track = try? await asset.loadTracks(withMediaType: .video).first {
+                let size = try? await track.load(.naturalSize)
+                let transform = try? await track.load(.preferredTransform)
+                if let size, let transform {
+                    let transformed = size.applying(transform)
+                    width = Int(abs(transformed.width))
+                    height = Int(abs(transformed.height))
+                } else if let size {
+                    width = Int(size.width)
+                    height = Int(size.height)
+                }
+            }
+
+            if let loadedDuration = try? await asset.load(.duration) {
+                let seconds = CMTimeGetSeconds(loadedDuration)
+                if seconds.isFinite, seconds > 0 {
+                    dur = seconds
+                }
+            }
+
+            let item = ScreenshotHistoryItem(
+                id: UUID(),
+                createdAt: Date(),
+                updatedAt: Date(),
+                fileName: destinationURL.lastPathComponent,
+                pixelWidth: width,
+                pixelHeight: height,
+                kind: .video,
+                duration: dur
+            )
+            items.insert(item, at: 0)
+            saveMetadata()
+            return destinationURL
+        } catch {
+            print("Failed to import video into history: \(error)")
+            return sourceURL
+        }
+    }
+
+    @discardableResult
     func replace(originalURL: URL, with sourceURL: URL) -> URL {
         guard isHistoryURL(originalURL) else {
             return importScreenshot(from: sourceURL)
@@ -130,6 +232,16 @@ final class ScreenshotHistoryStore {
 
         delete(item)
         return true
+    }
+
+    func setCloudURL(for fileURL: URL, cloudURL: String) {
+        let standardized = fileURL.standardizedFileURL
+        guard let index = items.firstIndex(where: { $0.url.standardizedFileURL == standardized }) else {
+            return
+        }
+        items[index].cloudURL = cloudURL
+        items[index].updatedAt = Date()
+        saveMetadata()
     }
 
     func reveal(_ item: ScreenshotHistoryItem) {

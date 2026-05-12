@@ -65,7 +65,7 @@ struct OverlaySettingsPane: View {
             Text("Overlay")
                 .font(.title3.weight(.medium))
 
-            Text("Configure the preview card that appears\nafter taking a screenshot.")
+            Text("Configure the preview card that appears\nafter taking a screenshot or recording.")
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

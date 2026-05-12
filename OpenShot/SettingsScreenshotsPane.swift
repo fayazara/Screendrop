@@ -27,7 +27,7 @@ struct ScreenshotsSettingsPane: View {
             SettingsSection {
                 SettingsRow("After capture:") {
                     VStack(alignment: .leading, spacing: 10) {
-                        Toggle("Auto save screenshots", isOn: $autoSave)
+                        Toggle("Auto save captures", isOn: $autoSave)
                             .toggleStyle(.checkbox)
                         Toggle("Copy to clipboard", isOn: $autoCopy)
                             .toggleStyle(.checkbox)

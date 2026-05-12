@@ -141,7 +141,7 @@ struct MenuBarView: View {
     @ViewBuilder
     private var historyMenuContent: some View {
         if historyStore.recentItems.isEmpty {
-            Text("No screenshots")
+            Text("No captures")
         } else {
             ForEach(historyStore.recentItems) { item in
                 Button(historyMenuTitle(for: item)) {
@@ -161,7 +161,11 @@ struct MenuBarView: View {
     }
 
     private func showHistoryPreview(_ item: ScreenshotHistoryItem) {
-        ScreenshotPreviewStack.shared.previewExistingImage(url: item.url)
+        if item.isVideo {
+            ScreenshotPreviewStack.shared.previewExistingVideo(url: item.url)
+        } else {
+            ScreenshotPreviewStack.shared.previewExistingImage(url: item.url)
+        }
         PreviewPanelPresenter.shared.show(displayID: ActiveDisplayResolver.activeDisplayID(preferPointer: false))
     }
 

@@ -115,41 +115,71 @@ struct PreviewCardView: View {
                 .fill(.ultraThinMaterial)
                 .environment(\.colorScheme, .dark)
 
-            cornerButton(systemImage: "xmark.circle.fill", help: "Dismiss preview", action: onClose)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                .padding(10)
-
-            cornerButton(
-                systemImage: "trash.circle.fill",
-                help: item.kind == .video ? "Delete recording" : "Delete screenshot",
-                action: onDelete
-            )
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .padding(10)
-
-            cornerButton(
-                systemImage: item.kind == .video ? "scissors.circle.fill" : "pencil.circle.fill",
-                help: item.kind == .video ? "Edit recording" : "Annotate screenshot",
-                action: item.kind == .video ? onEditVideo : onAnnotate
-            )
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-                .padding(10)
-
-            cloudUploadControl
-
-            if cloudUploader.uploadingItems.contains(item.id) {
-                ProgressView(value: cloudUploader.uploadProgress[item.id] ?? 0)
-                    .progressViewStyle(.linear)
-                    .tint(.white)
-                    .padding(.horizontal, 20)
+            if showCheckmark {
+                linkCopiedOverlay
+            } else if showUploadFailed {
+                uploadFailedOverlay
             } else {
-                VStack(spacing: 8) {
-                    actionPill("Copy", action: onCopy)
-                    actionPill("Save", action: onSave)
+                cornerButton(systemImage: "xmark.circle.fill", help: "Dismiss preview", action: onClose)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                    .padding(10)
+
+                cornerButton(
+                    systemImage: "trash.circle.fill",
+                    help: item.kind == .video ? "Delete recording" : "Delete screenshot",
+                    action: onDelete
+                )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .padding(10)
+
+                cornerButton(
+                    systemImage: item.kind == .video ? "scissors.circle.fill" : "pencil.circle.fill",
+                    help: item.kind == .video ? "Edit recording" : "Annotate screenshot",
+                    action: item.kind == .video ? onEditVideo : onAnnotate
+                )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                    .padding(10)
+
+                cloudUploadControl
+
+                if cloudUploader.uploadingItems.contains(item.id) {
+                    ProgressView(value: cloudUploader.uploadProgress[item.id] ?? 0)
+                        .progressViewStyle(.linear)
+                        .tint(.white)
+                        .padding(.horizontal, 20)
+                } else {
+                    VStack(spacing: 8) {
+                        actionPill("Copy", action: onCopy)
+                        actionPill("Save", action: onSave)
+                    }
                 }
             }
         }
         .transition(.opacity)
+    }
+
+    private var linkCopiedOverlay: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "checkmark")
+                .font(.system(size: 28, weight: .semibold))
+                .foregroundStyle(.white)
+
+            Text("Link copied")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(.white)
+        }
+    }
+
+    private var uploadFailedOverlay: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "xmark")
+                .font(.system(size: 28, weight: .semibold))
+                .foregroundStyle(.red)
+
+            Text("Upload failed")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(.white)
+        }
     }
 
     private var videoPlayIndicator: some View {
@@ -170,10 +200,6 @@ struct PreviewCardView: View {
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                 .padding(10)
-            } else if showUploadFailed {
-                cornerStatusImage(systemImage: "xmark.circle.fill", foregroundStyle: AnyShapeStyle(.red))
-            } else if showCheckmark {
-                cornerStatusImage(systemImage: "checkmark.circle.fill", foregroundStyle: AnyShapeStyle(.green))
             } else if cloudUploader.uploadedURLs[item.id] != nil {
                 cornerButton(systemImage: "link.circle.fill", help: "Copy share link", action: copyUploadedURL)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
@@ -209,14 +235,6 @@ struct PreviewCardView: View {
         }
         .buttonStyle(.plain)
         .help(help)
-    }
-
-    private func cornerStatusImage(systemImage: String, foregroundStyle: AnyShapeStyle) -> some View {
-        Image(systemName: systemImage)
-            .font(.title2)
-            .foregroundStyle(.white, foregroundStyle)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-            .padding(10)
     }
 
     private func actionPill(_ title: String, action: @escaping () -> Void) -> some View {

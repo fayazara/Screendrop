@@ -18,7 +18,7 @@ struct ContentView: View {
                 .font(.title)
                 .fontWeight(.bold)
             
-            Text("Screenshot tool running in the menu bar.")
+            Text("Screenshot and recording tool running in the menu bar.")
                 .foregroundStyle(.secondary)
             
             Divider()
@@ -28,6 +28,7 @@ struct ContentView: View {
                 ShortcutRow(label: "Fullscreen", shortcut: "Option+1")
                 ShortcutRow(label: "Window", shortcut: "Option+2")
                 ShortcutRow(label: "Area", shortcut: "Option+3")
+                ShortcutRow(label: "Record", shortcut: "Option+4")
             }
         }
         .padding(40)

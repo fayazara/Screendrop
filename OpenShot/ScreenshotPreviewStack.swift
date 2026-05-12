@@ -7,7 +7,7 @@ import AppKit
 import Observation
 import SwiftUI
 
-enum PreviewMediaKind: Equatable {
+enum PreviewMediaKind: String, Equatable, Codable {
     case image
     case video
 }
@@ -81,6 +81,32 @@ final class ScreenshotPreviewStack {
         }
 
         items.insert(ScreenshotPreviewItem(url: url, previewImage: image), at: 0)
+    }
+
+    func previewExistingVideo(url: URL) {
+        QuickLookPreviewPresenter.dismiss()
+
+        if let index = items.firstIndex(where: { $0.url == url && $0.kind == .video }) {
+            let item = items.remove(at: index)
+            items.insert(item, at: 0)
+            return
+        }
+
+        let item = ScreenshotPreviewItem(
+            url: url,
+            previewImage: VideoPreviewImageLoader.placeholderImage(),
+            kind: .video
+        )
+        let itemID = item.id
+        items.insert(item, at: 0)
+
+        Task {
+            guard let thumbnail = await VideoPreviewImageLoader.thumbnail(at: url, maxPixelSize: 520),
+                  let index = items.firstIndex(where: { $0.id == itemID }) else {
+                return
+            }
+            items[index].previewImage = thumbnail
+        }
     }
 
     func addVideo(url: URL) {
@@ -172,7 +198,7 @@ final class ScreenshotPreviewStack {
     func deleteScreenshot(id: ScreenshotPreviewItem.ID) {
         guard let item = items.first(where: { $0.id == id }) else { return }
 
-        if item.kind == .image, ScreenshotHistoryStore.shared.delete(url: item.url) {
+        if ScreenshotHistoryStore.shared.delete(url: item.url) {
             // The history store owns this file and has already removed it.
         } else {
             deleteFile(at: item.url)

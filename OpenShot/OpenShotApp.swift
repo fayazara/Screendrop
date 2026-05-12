@@ -60,8 +60,11 @@ struct OpenShotApp: App {
         }
 
         ScreenRecordingManager.shared.onFinishRecording = { url, displayID in
-            ScreenshotPreviewStack.shared.addVideo(url: url)
-            PreviewPanelPresenter.shared.show(displayID: displayID)
+            Task { @MainActor in
+                let historyURL = await ScreenshotHistoryStore.shared.importVideo(from: url)
+                ScreenshotPreviewStack.shared.addVideo(url: historyURL)
+                PreviewPanelPresenter.shared.show(displayID: displayID)
+            }
         }
     }
 }
