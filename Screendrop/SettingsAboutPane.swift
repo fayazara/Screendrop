@@ -75,7 +75,7 @@ struct SettingsAboutPane: View {
                     Text("Project")
                         .font(.headline)
 
-                    Text("Screendrop is a lightweight menu bar app for capturing screenshots and screen recordings on macOS.")
+                    Text("Screendrop is a lightweight opensource app for capturing screenshots and screen recordings on macOS.")
                         .foregroundStyle(.secondary)
 
                     HStack(spacing: 10) {
