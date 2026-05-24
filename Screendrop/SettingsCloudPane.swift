@@ -52,29 +52,52 @@ struct CloudSettingsPane: View {
 
             // MARK: - Setup Guide
 
-            if !isWorkerConfigured {
-                Section {
-                    VStack(alignment: .leading, spacing: 10) {
-                        SetupStepView(number: 1, text: "Create an R2 bucket in your Cloudflare dashboard")
-                        SetupStepView(number: 2, text: "Deploy the Screendrop worker to Cloudflare Workers")
-                        SetupStepView(number: 3, text: "Set UPLOAD_TOKEN secret: wrangler secret put UPLOAD_TOKEN")
-                        SetupStepView(number: 4, text: "Paste your worker URL and upload token above")
-                    }
+            Section {
+                VStack(alignment: .leading, spacing: 12) {
+                    SetupStepView(
+                        number: 1,
+                        text: "Click \"Deploy to Cloudflare\" below. This will clone the worker repo, create an R2 bucket and D1 database automatically, and deploy it to your account."
+                    )
+                    SetupStepView(
+                        number: 2,
+                        text: "During setup, you'll be prompted to set an UPLOAD_TOKEN secret. Choose a secure token and remember it."
+                    )
+                    SetupStepView(
+                        number: 3,
+                        text: "Once deployed, paste your worker URL and upload token in the fields above."
+                    )
 
-                    SetupVideoPlayer()
-                        .frame(height: 220)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                } header: {
-                    HStack {
-                        Text("Setup Guide")
-                        Spacer()
-                        Button("View on GitHub") {
-                            if let url = URL(string: "https://github.com/fayazara/screendrop-worker") {
-                                NSWorkspace.shared.open(url)
-                            }
+                    Button {
+                        if let url = URL(string: "https://deploy.workers.cloudflare.com/?url=https://github.com/fayazara/screendrop-worker") {
+                            NSWorkspace.shared.open(url)
                         }
-                        .controlSize(.small)
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "cloud.fill")
+                                .font(.system(size: 13))
+                            Text("Deploy to Cloudflare")
+                                .font(.system(size: 13, weight: .medium))
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
                     }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.orange)
+                }
+
+                SetupVideoPlayer()
+                    .frame(height: 220)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+            } header: {
+                HStack {
+                    Text("Setup Guide")
+                    Spacer()
+                    Button("View on GitHub") {
+                        if let url = URL(string: "https://github.com/fayazara/screendrop-worker") {
+                            NSWorkspace.shared.open(url)
+                        }
+                    }
+                    .controlSize(.small)
                 }
             }
         }
