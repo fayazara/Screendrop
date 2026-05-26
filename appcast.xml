@@ -22,6 +22,26 @@
     -->
 
     <item>
+      <title>Version 0.11</title>
+      <sparkle:version>2</sparkle:version>
+      <sparkle:shortVersionString>0.11</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.4</sparkle:minimumSystemVersion>
+      <pubDate>Tue, 26 May 2026 20:22:20 +0000</pubDate>
+      <description><![CDATA[
+        <h2>What's New in 0.11</h2>
+        <ul>
+          <li>fix Tahoe deployment version to v26</li>
+        </ul>
+      ]]></description>
+      <enclosure
+        url="https://github.com/fayazara/screendrop/releases/download/v0.11/Screendrop.dmg"
+        type="application/octet-stream"
+        sparkle:edSignature="4LLFXfDhNwmXDQ6ozhRM5KI91vXo4t7UU5G4dKxNiB0BFXAW76zRHc4iZc9ovtEq5rU7jl5sy5QGjOJBhYpaBw=="
+        length="3577409"
+      />
+    </item>
+
+    <item>
       <title>Version 0.1</title>
       <sparkle:version>1</sparkle:version>
       <sparkle:shortVersionString>0.1</sparkle:shortVersionString>
