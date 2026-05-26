@@ -20,5 +20,31 @@
 
       Newest release goes on top.
     -->
+
+    <item>
+      <title>Version 0.1</title>
+      <sparkle:version>1</sparkle:version>
+      <sparkle:shortVersionString>0.1</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.4</sparkle:minimumSystemVersion>
+      <pubDate>Tue, 26 May 2026 19:18:41 +0000</pubDate>
+      <description><![CDATA[
+        <h2>What's New in 0.1</h2>
+        <ul>
+          <li>Capture fullscreen, window, or custom area screenshots with global hotkeys (Option+1/2/3)</li>
+          <li>Annotate screenshots with rectangles, ellipses, arrows, freehand drawing, text, numbered circles, and pixelate/blur tools</li>
+          <li>Floating preview panel with screenshot stack for quick access to recent captures</li>
+          <li>Auto-copy to clipboard, auto-save to disk, and optional JPEG compression</li>
+          <li>Runs quietly in the menu bar with no dock icon clutter</li>
+          <li>Your own cloud uploading with Cloudflare R2 + Workers (10 GB free on R2 free plan)</li>
+        </ul>
+      ]]></description>
+      <enclosure
+        url="https://github.com/fayazara/screendrop/releases/download/v0.1/Screendrop.dmg"
+        type="application/octet-stream"
+        sparkle:edSignature="4LGVlxxbznN7paLfv/brsX+HeozvxN3nL+8aykVkBV1cdtXtpfUD2lc9yIZuGTn1PzbAcPMIXQHu2loAALGrCQ=="
+        length="3573023"
+      />
+    </item>
+
   </channel>
 </rss>
