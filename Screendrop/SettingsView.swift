@@ -163,7 +163,7 @@ private struct SettingsSidebarView: View {
             SettingsSidebarFooter()
         }
         .listStyle(.sidebar)
-        .scrollEdgeEffectStyleSoftIfAvailable()
+        .scrollEdgeEffectSoftIfAvailable()
         .navigationTitle("Settings")
     }
 }
@@ -236,15 +236,4 @@ extension URL {
     }
 }
 
-// MARK: - macOS 26 Availability Helpers
 
-private extension View {
-    @ViewBuilder
-    func scrollEdgeEffectStyleSoftIfAvailable() -> some View {
-        if #available(macOS 26.0, *) {
-            scrollEdgeEffectStyle(.soft, for: .all)
-        } else {
-            self
-        }
-    }
-}

@@ -104,6 +104,7 @@ struct AnnotationEditorInspector: View {
                 .frame(maxWidth: .infinity, alignment: .topLeading)
             }
             .scrollContentBackground(.hidden)
+            .scrollEdgeEffectSoftIfAvailable()
             .background(sidebarBackground)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
