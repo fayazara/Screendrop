@@ -20,6 +20,10 @@ enum ScreendropPreferences {
     static let showRecordingKeyPressCaptionsKey = "showRecordingKeyPressCaptions"
     static let recordingMouseIndicatorColorKey = "recordingMouseIndicatorColor"
     static let recordingMouseIndicatorSizeKey = "recordingMouseIndicatorSize"
+    static let fullscreenHotkeyKey = "captureHotkey.fullscreen"
+    static let windowHotkeyKey = "captureHotkey.window"
+    static let areaHotkeyKey = "captureHotkey.area"
+    static let screenRecordingHotkeyKey = "captureHotkey.screenRecording"
     
     private static let defaultCompressionQuality = 0.8
     static let defaultRecordingMouseIndicatorColor = "#007AFF"

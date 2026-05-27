@@ -8,65 +8,100 @@
 import AppKit
 import Carbon.HIToolbox
 
-/// Registers system-wide global keyboard shortcuts.
-///   - Option+1: Fullscreen
-///   - Option+2: Window
-///   - Option+3: Area
-///   - Option+4: Screen Recording
+/// Registers system-wide global keyboard shortcuts for capture actions.
 final class HotkeyManager {
     
     static let shared = HotkeyManager()
     
-    private var hotKeyRefs: [EventHotKeyRef?] = []
+    private static let hotKeySignature = OSType(0x4F53_4854)
+
+    private var eventHandlerRef: EventHandlerRef?
+    private var hotKeyRefs: [EventHotKeyRef] = []
     
     private init() {}
+
+    deinit {
+        unregisterHotkeys()
+
+        if let eventHandlerRef {
+            RemoveEventHandler(eventHandlerRef)
+        }
+    }
     
     func registerHotkeys() {
+        installEventHandlerIfNeeded()
+        reloadHotkeys()
+    }
+
+    func reloadHotkeys() {
+        unregisterHotkeys()
+
+        var registeredShortcuts: Set<HotkeyShortcut> = []
+        for action in CaptureHotkeyAction.allCases {
+            let shortcut = CaptureHotkeyPreferences.shortcut(for: action)
+            guard registeredShortcuts.insert(shortcut).inserted else {
+                print("Skipping duplicate hotkey for \(action.title): \(shortcut.displayString)")
+                continue
+            }
+
+            registerHotKey(action: action, shortcut: shortcut)
+        }
+    }
+
+    private func installEventHandlerIfNeeded() {
+        guard eventHandlerRef == nil else { return }
+
         var eventType = EventTypeSpec(
             eventClass: OSType(kEventClassKeyboard),
             eventKind: UInt32(kEventHotKeyPressed)
         )
         
-        InstallEventHandler(
+        var handlerRef: EventHandlerRef?
+        let status = InstallEventHandler(
             GetApplicationEventTarget(),
             hotKeyHandler,
             1,
             &eventType,
             UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque()),
-            nil
+            &handlerRef
         )
-        
-        registerHotKey(id: 1, keyCode: UInt32(kVK_ANSI_1), modifiers: UInt32(optionKey))
-        registerHotKey(id: 2, keyCode: UInt32(kVK_ANSI_2), modifiers: UInt32(optionKey))
-        registerHotKey(id: 3, keyCode: UInt32(kVK_ANSI_3), modifiers: UInt32(optionKey))
-        registerHotKey(id: 4, keyCode: UInt32(kVK_ANSI_4), modifiers: UInt32(optionKey))
+
+        if status == noErr {
+            eventHandlerRef = handlerRef
+        } else {
+            print("Failed to install hotkey handler, status=\(status)")
+        }
     }
     
-    private func registerHotKey(id: UInt32, keyCode: UInt32, modifiers: UInt32) {
-        let hotKeyID = EventHotKeyID(signature: OSType(0x4F53_4854), id: id)
+    private func registerHotKey(action: CaptureHotkeyAction, shortcut: HotkeyShortcut) {
+        let hotKeyID = EventHotKeyID(signature: Self.hotKeySignature, id: action.hotKeyID)
         var hotKeyRef: EventHotKeyRef?
         
         let status = RegisterEventHotKey(
-            keyCode, modifiers, hotKeyID,
+            UInt32(shortcut.keyCode),
+            shortcut.modifiers.carbonEventModifiers,
+            hotKeyID,
             GetApplicationEventTarget(), 0, &hotKeyRef
         )
         
-        if status == noErr {
-            hotKeyRefs.append(hotKeyRef)
-        } else {
-            print("Failed to register hotkey id=\(id), status=\(status)")
+        guard status == noErr, let hotKeyRef else {
+            print("Failed to register \(action.title) hotkey \(shortcut.displayString), status=\(status)")
+            return
         }
+
+        hotKeyRefs.append(hotKeyRef)
+    }
+
+    private func unregisterHotkeys() {
+        for hotKeyRef in hotKeyRefs {
+            UnregisterEventHotKey(hotKeyRef)
+        }
+
+        hotKeyRefs.removeAll()
     }
     
     func handleHotKey(id: UInt32) {
-        let coordinator = CaptureCoordinator.shared
-        switch id {
-        case 1: coordinator.captureFullscreen()
-        case 2: coordinator.captureWindow()
-        case 3: coordinator.captureArea()
-        case 4: coordinator.recordScreen()
-        default: break
-        }
+        CaptureHotkeyAction(hotKeyID: id)?.perform()
     }
 }
 
