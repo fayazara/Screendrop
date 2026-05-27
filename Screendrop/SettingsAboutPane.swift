@@ -24,9 +24,8 @@ struct SettingsAboutPane: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                // App identity
+        Form {
+            Section {
                 HStack(alignment: .center, spacing: 16) {
                     Image(nsImage: NSApp.applicationIconImage)
                         .resizable()
@@ -46,68 +45,45 @@ struct SettingsAboutPane: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+            }
 
-                Divider()
-
-                // Updates
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Updates")
-                        .font(.headline)
-
-                    Toggle(isOn: Binding(
-                        get: { updaterManager.automaticallyChecksForUpdates },
-                        set: { updaterManager.automaticallyChecksForUpdates = $0 }
-                    )) {
-                        Text("Automatically check for updates")
-                    }
-                    .toggleStyle(.switch)
-
-                    Button("Check for Updates...") {
-                        updaterManager.checkForUpdates()
-                    }
-                    .disabled(!updaterManager.canCheckForUpdates)
+            Section("Updates") {
+                Toggle(isOn: Binding(
+                    get: { updaterManager.automaticallyChecksForUpdates },
+                    set: { updaterManager.automaticallyChecksForUpdates = $0 }
+                )) {
+                    Text("Automatically check for updates")
                 }
 
-                Divider()
-
-                // Project
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Project")
-                        .font(.headline)
-
-                    Text("Screendrop is a lightweight opensource app for capturing screenshots and screen recordings on macOS.")
-                        .foregroundStyle(.secondary)
-
-                    HStack(spacing: 10) {
-                        Link("GitHub", destination: URL(string: "https://github.com/fayazara/screendrop")!)
-                    }
-                    .controlSize(.small)
+                Button("Check for Updates...") {
+                    updaterManager.checkForUpdates()
                 }
+                .disabled(!updaterManager.canCheckForUpdates)
+            }
 
-                Divider()
+            Section("Project") {
+                Text("Screendrop is a lightweight opensource app for capturing screenshots and screen recordings on macOS.")
+                    .foregroundStyle(.secondary)
 
-                // Credits
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Credits")
-                        .font(.headline)
+                Link("GitHub", destination: URL(string: "https://github.com/fayazara/screendrop")!)
+            }
 
-                    Text("Built by Fayaz Ahmed")
-                        .foregroundStyle(.secondary)
+            Section("Credits") {
+                Text("Built by Fayaz Ahmed")
+                    .foregroundStyle(.secondary)
 
-                    Link(destination: URL(string: "https://x.com/fayazara")!) {
-                        HStack(spacing: 4) {
-                            Text("Follow on Twitter")
-                            Image(systemName: "arrow.up.right")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
+                Link(destination: URL(string: "https://x.com/fayazara")!) {
+                    HStack(spacing: 4) {
+                        Text("Follow on Twitter")
+                        Image(systemName: "arrow.up.right")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                 }
             }
-            .padding(.horizontal, 28)
-            .padding(.vertical, 24)
-            .frame(maxWidth: 520, alignment: .leading)
         }
+        .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
         .contentMargins(.top, 8, for: .scrollContent)
     }
 }

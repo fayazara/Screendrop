@@ -9,7 +9,6 @@ import ScreenCaptureKit
 import SwiftUI
 
 struct MenuBarView: View {
-    @Environment(\.openWindow) private var openWindow
     @ObservedObject private var updaterManager = UpdaterManager.shared
     @State private var recordingSources = RecordingSourceCatalog.shared
     @State private var historyStore = ScreenshotHistoryStore.shared
@@ -178,9 +177,7 @@ struct MenuBarView: View {
     }
 
     private func openSettings(tab: SettingsTab) {
-        SettingsNavigation.shared.selectedTab = tab
-        openWindow(id: "SETTINGS")
-        NSApp.activate(ignoringOtherApps: true)
+        SettingsWindowController.show(tab: tab)
     }
 
     private func historyMenuTitle(for item: ScreenshotHistoryItem) -> String {

@@ -19,12 +19,6 @@ struct ScreendropApp: App {
             MenuBarView()
         }
         
-        Window("Settings", id: "SETTINGS") {
-            SettingsView()
-        }
-        .windowResizability(.automatic)
-        .defaultSize(width: 700, height: 540)
-        
         WindowGroup("Screendrop Annotate", id: "ANNOTATION_EDITOR", for: URL.self) { value in
             AnnotationEditorWindow(url: value)
         }

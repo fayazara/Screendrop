@@ -76,6 +76,7 @@ struct ScreenshotsSettingsPane: View {
             }
         }
         .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
         .contentMargins(.top, 8, for: .scrollContent)
     }
 }
