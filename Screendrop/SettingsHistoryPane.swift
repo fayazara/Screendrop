@@ -24,6 +24,7 @@ struct SettingsHistoryPane: View {
                     Text("\(historyStore.items.count) capture\(historyStore.items.count == 1 ? "" : "s")")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
+                        .padding(.horizontal, 18)
 
                     LazyVStack(spacing: 0) {
                         ForEach(historyStore.items) { item in
@@ -64,21 +65,10 @@ struct SettingsHistoryPane: View {
                             }
                         }
                     }
-                    .background {
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(.quaternary.opacity(0.12))
-                    }
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
-                    }
                 }
             }
-            .frame(maxWidth: 560, alignment: .leading)
-            .padding(.horizontal, 20)
-            .padding(.vertical, 16)
-            .frame(maxWidth: .infinity)
         }
+        .scrollEdgeEffectSoftIfAvailable()
         .toolbar {
             ToolbarItem(placement: .automatic) {
                 Button {
