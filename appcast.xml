@@ -22,6 +22,26 @@
     -->
 
     <item>
+      <title>Version 0.13</title>
+      <sparkle:version>4</sparkle:version>
+      <sparkle:shortVersionString>0.13</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.4</sparkle:minimumSystemVersion>
+      <pubDate>Wed, 27 May 2026 20:01:07 +0000</pubDate>
+      <description><![CDATA[
+        <h2>What's New in 0.13</h2>
+        <ul>
+          <li>Configurable hotkeys</li>
+        </ul>
+      ]]></description>
+      <enclosure
+        url="https://github.com/fayazara/screendrop/releases/download/v0.13/Screendrop.dmg"
+        type="application/octet-stream"
+        sparkle:edSignature="xzZEJThhsRMj9pLB62pz30tL//O84+bDnsqgoNWpYDb9hc5TOnkqZE628v090EnvIgEx19ZUffAuLot/fJyLAQ=="
+        length="3624706"
+      />
+    </item>
+
+    <item>
       <title>Version 0.12</title>
       <sparkle:version>3</sparkle:version>
       <sparkle:shortVersionString>0.12</sparkle:shortVersionString>
