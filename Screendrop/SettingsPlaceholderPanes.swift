@@ -22,6 +22,8 @@ struct VideoSettingsPane: View {
 
     var body: some View {
         Form {
+            CaptureHotkeySettingsSection(actions: [.screenRecording])
+
             Section("Recording Indicators") {
                 Toggle(isOn: $showMouseIndicators) {
                     VStack(alignment: .leading, spacing: 2) {

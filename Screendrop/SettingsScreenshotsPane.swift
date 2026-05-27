@@ -24,6 +24,8 @@ struct ScreenshotsSettingsPane: View {
 
     var body: some View {
         Form {
+            CaptureHotkeySettingsSection(actions: [.fullscreen, .window, .area])
+
             Section("After Capture") {
                 Toggle(isOn: $autoSave) {
                     VStack(alignment: .leading, spacing: 2) {
