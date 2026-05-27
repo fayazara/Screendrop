@@ -64,62 +64,109 @@ private enum AppVersion {
 
 struct SettingsView: View {
     @State private var navigation = SettingsNavigation.shared
+    @State private var navigationHistory: [SettingsTab] = [.general]
+    @State private var historyIndex = 0
+    @State private var isHistoryNavigation = false
 
     private var activeTab: SettingsTab {
         navigation.selectedTab ?? .general
     }
 
     var body: some View {
-        NavigationSplitView {
-            VStack(spacing: 0) {
-                List(SettingsTab.allCases, selection: $navigation.selectedTab) { tab in
-                    SettingsSidebarRow(tab: tab)
-                        .tag(tab)
-                }
-                .listStyle(.sidebar)
-
-                SettingsSidebarFooter()
-            }
-            .navigationSplitViewColumnWidth(190)
+        NavigationSplitView(columnVisibility: .constant(.all)) {
+            SettingsSidebarView(selectedTab: $navigation.selectedTab)
+                .frame(width: 200)
+                .navigationSplitViewColumnWidth(
+                    min: 200,
+                    ideal: 200,
+                    max: 200
+                )
+                .toolbar(removing: .sidebarToggle)
         } detail: {
-            settingsDetail(for: activeTab)
-                .navigationTitle(activeTab.title)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            SettingsDetailView(tab: activeTab)
         }
+        .navigationTitle("Settings")
         .navigationSplitViewStyle(.balanced)
-        .toolbar(removing: .sidebarToggle)
-        .background(SettingsWindowConfigurator())
-        .frame(minWidth: 620, minHeight: 460)
-        .onAppear {
-            AppActivationPolicy.enter()
+        .frame(minWidth: 660, minHeight: 540)
+        .toolbar {
+            ToolbarItemGroup(placement: .navigation) {
+                Button {
+                    goBack()
+                } label: {
+                    Image(systemName: "chevron.left")
+                }
+                .disabled(!canGoBack)
+
+                Button {
+                    goForward()
+                } label: {
+                    Image(systemName: "chevron.right")
+                }
+                .disabled(!canGoForward)
+            }
         }
-        .onDisappear {
-            AppActivationPolicy.leave()
+        .onChange(of: navigation.selectedTab) { _, _ in
+            recordNavigation()
         }
     }
 
-    @ViewBuilder
-    private func settingsDetail(for tab: SettingsTab) -> some View {
-        switch tab {
-        case .general:
-            GeneralSettingsPane()
-        case .screenshots:
-            ScreenshotsSettingsPane()
-        case .video:
-            VideoSettingsPane()
-        case .overlay:
-            OverlaySettingsPane()
-        case .cloud:
-            CloudSettingsPane()
-        case .history:
-            SettingsHistoryPane()
-        case .about:
-            SettingsAboutPane()
+    // MARK: - Navigation History
+
+    private var canGoBack: Bool {
+        historyIndex > 0
+    }
+
+    private var canGoForward: Bool {
+        historyIndex < navigationHistory.count - 1
+    }
+
+    private func goBack() {
+        guard canGoBack else { return }
+        isHistoryNavigation = true
+        historyIndex -= 1
+        navigation.selectedTab = navigationHistory[historyIndex]
+        DispatchQueue.main.async { isHistoryNavigation = false }
+    }
+
+    private func goForward() {
+        guard canGoForward else { return }
+        isHistoryNavigation = true
+        historyIndex += 1
+        navigation.selectedTab = navigationHistory[historyIndex]
+        DispatchQueue.main.async { isHistoryNavigation = false }
+    }
+
+    private func recordNavigation() {
+        guard !isHistoryNavigation else { return }
+        guard let tab = navigation.selectedTab else { return }
+        if navigationHistory.last == tab { return }
+        if historyIndex < navigationHistory.count - 1 {
+            navigationHistory = Array(navigationHistory.prefix(historyIndex + 1))
         }
+        navigationHistory.append(tab)
+        historyIndex = navigationHistory.count - 1
     }
 }
 
-// MARK: - Sidebar Components
+// MARK: - Sidebar
+
+private struct SettingsSidebarView: View {
+    @Binding var selectedTab: SettingsTab?
+
+    var body: some View {
+        List(selection: $selectedTab) {
+            ForEach(SettingsTab.allCases) { tab in
+                SettingsSidebarRow(tab: tab)
+                    .tag(tab)
+            }
+
+            SettingsSidebarFooter()
+        }
+        .listStyle(.sidebar)
+        .scrollEdgeEffectStyleSoftIfAvailable()
+        .navigationTitle("Settings")
+    }
+}
 
 private struct SettingsSidebarRow: View {
     let tab: SettingsTab
@@ -128,45 +175,52 @@ private struct SettingsSidebarRow: View {
         Label {
             Text(tab.title)
         } icon: {
-            Group {
-                Image(systemName: tab.systemImage)
-            }
-            .frame(width: 18)
+            Image(systemName: tab.systemImage)
         }
+        .foregroundStyle(.primary)
     }
 }
 
 private struct SettingsSidebarFooter: View {
     var body: some View {
         Text(AppVersion.displayString)
-            .font(.caption2)
+            .font(.footnote)
             .foregroundStyle(.tertiary)
+            .fontDesign(.monospaced)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 18)
-            .padding(.vertical, 12)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 8)
+            .listRowSeparator(.hidden)
+            .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 6, trailing: 0))
     }
 }
 
-// MARK: - Window Configuration
+// MARK: - Detail
 
-private struct SettingsWindowConfigurator: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView()
-        DispatchQueue.main.async {
-            configure(window: view.window)
+private struct SettingsDetailView: View {
+    let tab: SettingsTab
+
+    var body: some View {
+        Group {
+            switch tab {
+            case .general:
+                GeneralSettingsPane()
+            case .screenshots:
+                ScreenshotsSettingsPane()
+            case .video:
+                VideoSettingsPane()
+            case .overlay:
+                OverlaySettingsPane()
+            case .cloud:
+                CloudSettingsPane()
+            case .history:
+                SettingsHistoryPane()
+            case .about:
+                SettingsAboutPane()
+            }
         }
-        return view
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        DispatchQueue.main.async {
-            configure(window: nsView.window)
-        }
-    }
-
-    private func configure(window: NSWindow?) {
-        guard let window else { return }
-        window.isMovableByWindowBackground = true
+        .navigationTitle(tab.title)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }
 
@@ -179,5 +233,18 @@ extension URL {
             return "~" + path.dropFirst(home.count)
         }
         return path
+    }
+}
+
+// MARK: - macOS 26 Availability Helpers
+
+private extension View {
+    @ViewBuilder
+    func scrollEdgeEffectStyleSoftIfAvailable() -> some View {
+        if #available(macOS 26.0, *) {
+            scrollEdgeEffectStyle(.soft, for: .all)
+        } else {
+            self
+        }
     }
 }

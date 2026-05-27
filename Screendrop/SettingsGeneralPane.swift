@@ -73,6 +73,7 @@ struct GeneralSettingsPane: View {
             }
         }
         .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
         .contentMargins(.top, 8, for: .scrollContent)
         .onAppear {
             refreshLaunchAtLoginStatus()
