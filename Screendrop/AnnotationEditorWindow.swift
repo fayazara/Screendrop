@@ -91,6 +91,7 @@ struct AnnotationEditorWindow: View {
 
     private func saveAs() {
         guard let sourceURL = model.sourceURL else { return }
+        let baseURL = model.baseImageURL ?? sourceURL
 
         let panel = NSSavePanel()
         panel.allowedContentTypes = [ScreenshotFileActions.exportContentType]
@@ -103,7 +104,7 @@ struct AnnotationEditorWindow: View {
 
             do {
                 try AnnotationRenderer.render(
-                    sourceURL: sourceURL,
+                    sourceURL: baseURL,
                     items: model.items,
                     backgroundSettings: model.backgroundSettings,
                     destinationURL: destinationURL,
@@ -140,7 +141,14 @@ struct AnnotationEditorWindow: View {
 
         guard !isFinishing else { return }
 
-        guard !model.items.isEmpty || model.backgroundSettings.isEnabled else {
+        let baseURL = model.baseImageURL ?? sourceURL
+        let items = model.items
+        let backgroundSettings = model.backgroundSettings
+        let hasContent = !items.isEmpty || backgroundSettings.isEnabled
+        let hadDocument = ScreenshotHistoryStore.shared.hasEditDocument(for: sourceURL)
+
+        // Nothing drawn and nothing previously saved -- just close.
+        guard hasContent || hadDocument else {
             model.releaseEditorResources()
             dismissWindow()
             return
@@ -148,14 +156,30 @@ struct AnnotationEditorWindow: View {
 
         isFinishing = true
         do {
-            let items = model.items
-            let backgroundSettings = model.backgroundSettings
-            let annotatedURL = try AnnotationRenderer.renderToTemporaryFile(
-                sourceURL: sourceURL,
-                items: items,
-                backgroundSettings: backgroundSettings
+            let resultURL: URL
+            if hasContent {
+                let annotatedURL = try AnnotationRenderer.renderToTemporaryFile(
+                    sourceURL: baseURL,
+                    items: items,
+                    backgroundSettings: backgroundSettings
+                )
+                let document = AnnotationDocument(items: items, background: backgroundSettings)
+                resultURL = ScreenshotHistoryStore.shared.commitAnnotations(
+                    displayURL: sourceURL,
+                    baseURL: baseURL,
+                    renderedURL: annotatedURL,
+                    document: document
+                )
+            } else {
+                // All annotations were cleared on a previously-edited image:
+                // restore the untouched original.
+                resultURL = ScreenshotHistoryStore.shared.removeAnnotations(displayURL: sourceURL)
+            }
+
+            let updatedExistingPreview = ScreenshotPreviewStack.shared.applyAnnotation(
+                originalURL: sourceURL,
+                historyURL: resultURL
             )
-            let updatedExistingPreview = ScreenshotPreviewStack.shared.replace(originalURL: sourceURL, with: annotatedURL)
             if !updatedExistingPreview {
                 openWindow(id: "PREVIEWWINDOW")
             }
