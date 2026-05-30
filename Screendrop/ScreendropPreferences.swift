@@ -156,10 +156,29 @@ enum ScreenshotExportFormat: String, CaseIterable, Identifiable {
 
 enum ScreenshotFileActions {
     static func copyPNGToClipboard(from url: URL) throws {
-        let pngData = try Data(contentsOf: url, options: .mappedIfSafe)
+        let imageData = try Data(contentsOf: url, options: .mappedIfSafe)
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
-        pasteboard.setData(pngData, forType: .png)
+
+        // Write several representations on a single pasteboard item so that
+        // every kind of paste target can find a flavor it understands:
+        //
+        // - `.fileURL`: terminals and apps that "paste a file" (e.g. opencode's
+        //   terminal, editors, Slack) read the file reference from disk.
+        // - `.png` / `.tiff`: rich-text and web targets (Gmail, Notes, Mail,
+        //   image editors) read raw image data directly.
+        //
+        // Only providing `.png` data is why pasting worked in Gmail but not in
+        // terminal apps — those read the file URL flavor instead.
+        let item = NSPasteboardItem()
+        item.setString(url.absoluteString, forType: .fileURL)
+        item.setData(imageData, forType: .png)
+        if let tiffData = NSBitmapImageRep(data: imageData)?.tiffRepresentation
+            ?? NSImage(data: imageData)?.tiffRepresentation {
+            item.setData(tiffData, forType: .tiff)
+        }
+
+        pasteboard.writeObjects([item])
     }
     
     @discardableResult
