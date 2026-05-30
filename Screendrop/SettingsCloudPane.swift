@@ -9,6 +9,7 @@
 
 import AppKit
 import AVKit
+import Security
 import SwiftUI
 
 struct CloudSettingsPane: View {
@@ -20,6 +21,23 @@ struct CloudSettingsPane: View {
 
     @State private var workerStatus: ConnectionStatus = .unchecked
     @State private var isLoading = true
+    @State private var tokenRevealed = false
+    @State private var tokenCopied = false
+    @State private var setupGuideExpanded = true
+
+    // Worker version signalling (non-blocking "update available" notice).
+    @State private var deployedWorkerVersion: String?
+    @State private var latestWorkerVersion: String?
+    @State private var updateGuideURL = "https://github.com/fayazara/screendrop-worker#updating-your-worker"
+
+    private static let versionManifestURL = "https://raw.githubusercontent.com/fayazara/screendrop-worker/main/version.json"
+
+    private var isWorkerOutdated: Bool {
+        guard let deployed = deployedWorkerVersion, let latest = latestWorkerVersion else {
+            return false
+        }
+        return Self.isVersion(deployed, olderThan: latest)
+    }
 
     private var isWorkerConfigured: Bool {
         !workerURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -28,66 +46,170 @@ struct CloudSettingsPane: View {
 
     var body: some View {
         Form {
-            // MARK: - Worker Configuration
+            // MARK: - Connection
 
-            Section("Screendrop Cloud") {
-                TextField("Worker URL", text: $workerURL, prompt: Text("https://screendrop.your-name.workers.dev"))
-                    .textFieldStyle(.roundedBorder)
-                    .onChange(of: workerURL) { fieldDidChange() }
+            Section {
+                HStack(spacing: 12) {
+                    Text("Worker URL")
+                        .frame(width: 100, alignment: .leading)
+                    TextField("Worker URL", text: $workerURL, prompt: Text("https://…workers.dev"))
+                        .labelsHidden()
+                        .textFieldStyle(.roundedBorder)
+                        .lineLimit(1)
+                        .onChange(of: workerURL) { _, newValue in
+                            let cleaned = newValue.components(separatedBy: .whitespacesAndNewlines).joined()
+                            if cleaned != newValue {
+                                workerURL = cleaned
+                            }
+                            fieldDidChange()
+                        }
+                }
 
-                SecureField("Upload Token", text: $uploadToken, prompt: Text("Paste your shared token"))
+                HStack(spacing: 12) {
+                    Text("Upload Token")
+                        .frame(width: 100, alignment: .leading)
+                    Group {
+                        if tokenRevealed {
+                            TextField("Upload Token", text: $uploadToken, prompt: Text("Paste your token"))
+                        } else {
+                            SecureField("Upload Token", text: $uploadToken, prompt: Text("Paste your token"))
+                        }
+                    }
+                    .labelsHidden()
                     .textFieldStyle(.roundedBorder)
+                    .lineLimit(1)
                     .onChange(of: uploadToken) { fieldDidChange() }
 
+                    Button {
+                        tokenRevealed.toggle()
+                    } label: {
+                        Image(systemName: tokenRevealed ? "eye.slash" : "eye")
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+                    .disabled(uploadToken.isEmpty)
+                    .help(tokenRevealed ? "Hide token" : "Reveal token")
+                }
+
                 HStack(spacing: 8) {
+                    Button {
+                        copyToken()
+                    } label: {
+                        Label(tokenCopied ? "Copied" : "Copy Token", systemImage: tokenCopied ? "checkmark" : "doc.on.doc")
+                    }
+                    .controlSize(.small)
+                    .disabled(uploadToken.isEmpty)
+
+                    Button("Regenerate") {
+                        regenerateToken()
+                    }
+                    .controlSize(.small)
+
+                    Spacer()
+
+                    if case .checking = workerStatus {
+                        connectionStatusIndicator(workerStatus)
+                    }
                     Button("Verify Connection") {
                         Task { await testWorkerConnection() }
                     }
                     .controlSize(.small)
                     .disabled(!isWorkerConfigured)
+                }
+            } header: {
+                Text("Connection")
+            } footer: {
+                VStack(alignment: .leading, spacing: 6) {
+                    if case .failed(let message) = workerStatus {
+                        Label(message, systemImage: "xmark.circle.fill")
+                            .foregroundStyle(.red)
+                            .font(.callout)
+                    }
+                    Text("Paste this token as the **UPLOAD_TOKEN** secret when you deploy the worker to Cloudflare.")
+                }
+            }
 
-                    connectionStatusIndicator(workerStatus)
+            // MARK: - Update notice
+
+            if isWorkerOutdated {
+                Section {
+                    HStack(spacing: 10) {
+                        Image(systemName: "arrow.up.circle.fill")
+                            .foregroundStyle(.orange)
+                            .font(.title3)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Worker update available")
+                                .font(.callout.weight(.medium))
+                            if let deployed = deployedWorkerVersion, let latest = latestWorkerVersion {
+                                Text("v\(deployed) → v\(latest)")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        Spacer()
+                        Button("How to update") {
+                            if let url = URL(string: updateGuideURL) {
+                                NSWorkspace.shared.open(url)
+                            }
+                        }
+                        .controlSize(.small)
+                    }
                 }
             }
 
             // MARK: - Setup Guide
 
             Section {
-                VStack(alignment: .leading, spacing: 12) {
-                    SetupStepView(
-                        number: 1,
-                        text: "Click \"Deploy to Cloudflare\" below. This will clone the worker repo, create an R2 bucket and D1 database automatically, and deploy it to your account."
-                    )
-                    SetupStepView(
-                        number: 2,
-                        text: "During setup, you'll be prompted to set an UPLOAD_TOKEN secret. Choose a secure token and remember it."
-                    )
-                    SetupStepView(
-                        number: 3,
-                        text: "Once deployed, paste your worker URL and upload token in the fields above."
-                    )
-
-                    Button {
-                        if let url = URL(string: "https://deploy.workers.cloudflare.com/?url=https://github.com/fayazara/screendrop-worker") {
-                            NSWorkspace.shared.open(url)
-                        }
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "cloud.fill")
-                                .font(.system(size: 13))
-                            Text("Deploy to Cloudflare")
-                                .font(.system(size: 13, weight: .medium))
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
+                Button {
+                    if let url = URL(string: "https://deploy.workers.cloudflare.com/?url=https://github.com/fayazara/screendrop-worker") {
+                        NSWorkspace.shared.open(url)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.orange)
+                } label: {
+                    Label("Deploy to Cloudflare", systemImage: "cloud.fill")
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 6)
                 }
+                .buttonStyle(.borderedProminent)
+                .tint(.orange)
 
-                SetupVideoPlayer()
-                    .frame(height: 220)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        setupGuideExpanded.toggle()
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .rotationEffect(.degrees(setupGuideExpanded ? 90 : 0))
+                        Text("Setup steps & demo")
+                        Spacer()
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                if setupGuideExpanded {
+                    VStack(alignment: .leading, spacing: 14) {
+                        SetupStepView(
+                            number: 1,
+                            text: "Copy the upload token above — you'll paste it into Cloudflare in the next step."
+                        )
+                        SetupStepView(
+                            number: 2,
+                            text: "Click \"Deploy to Cloudflare\". It clones the worker, provisions R2 + D1, and asks for the UPLOAD_TOKEN secret — paste the token you copied."
+                        )
+                        SetupStepView(
+                            number: 3,
+                            text: "Paste your worker URL above, then click \"Verify Connection\" to finish setup and confirm."
+                        )
+
+                        SetupVideoPlayer()
+                            .frame(height: 200)
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                    }
+                    .padding(.top, 4)
+                }
             } header: {
                 HStack {
                     Text("Setup Guide")
@@ -135,14 +257,59 @@ struct CloudSettingsPane: View {
         isLoading = true
         workerURL = store.workerURL
         uploadToken = store.uploadToken
+
+        // Collapse the setup guide for users who already have a worker URL.
+        setupGuideExpanded = workerURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+
+        // Auto-generate a strong token on first visit so the user has one ready
+        // to paste into Cloudflare during the deploy flow.
+        if uploadToken.isEmpty {
+            let token = Self.generateToken()
+            uploadToken = token
+            store.uploadToken = token
+        }
+
         DispatchQueue.main.async {
             isLoading = false
         }
     }
 
+    // MARK: - Token
+
+    private static func generateToken() -> String {
+        var bytes = [UInt8](repeating: 0, count: 32)
+        let status = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        if status == errSecSuccess {
+            return bytes.map { String(format: "%02x", $0) }.joined()
+        }
+        // Fallback: still produces a usable random token.
+        return (UUID().uuidString + UUID().uuidString)
+            .replacingOccurrences(of: "-", with: "")
+            .lowercased()
+    }
+
+    private func copyToken() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(uploadToken, forType: .string)
+        tokenCopied = true
+        Task {
+            try? await Task.sleep(for: .seconds(2))
+            tokenCopied = false
+        }
+    }
+
+    private func regenerateToken() {
+        let token = Self.generateToken()
+        uploadToken = token
+        store.uploadToken = token
+        workerStatus = .unchecked
+        copyToken()
+    }
+
     private func fieldDidChange() {
         guard !isLoading else { return }
         workerStatus = .unchecked
+        deployedWorkerVersion = nil
         saveSettings()
     }
 
@@ -163,18 +330,46 @@ struct CloudSettingsPane: View {
         let base = raw.lowercased().hasPrefix("http") ? raw : "https://\(raw)"
         let token = uploadToken.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        guard let url = URL(string: "\(base)/api/ping") else {
+        guard let setupURL = URL(string: "\(base)/api/setup"),
+              let pingURL = URL(string: "\(base)/api/ping") else {
             workerStatus = .failed("Invalid URL")
             return
         }
 
-        var request = URLRequest(url: url)
+        // 1. Provision the database schema (idempotent). Older worker versions
+        //    without this endpoint return 404, which we tolerate.
+        do {
+            var request = URLRequest(url: setupURL)
+            request.httpMethod = "POST"
+            request.timeoutInterval = 15
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+
+            let (_, response) = try await URLSession.shared.data(for: request)
+            if let http = response as? HTTPURLResponse {
+                switch http.statusCode {
+                case 200, 404:
+                    break
+                case 401, 403:
+                    workerStatus = .failed("Invalid token")
+                    return
+                default:
+                    workerStatus = .failed("Setup failed (HTTP \(http.statusCode))")
+                    return
+                }
+            }
+        } catch {
+            workerStatus = .failed(error.localizedDescription)
+            return
+        }
+
+        // 2. Confirm connectivity + auth.
+        var request = URLRequest(url: pingURL)
         request.httpMethod = "GET"
         request.timeoutInterval = 10
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
 
         do {
-            let (_, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await URLSession.shared.data(for: request)
             guard let http = response as? HTTPURLResponse else {
                 workerStatus = .failed("No response")
                 return
@@ -183,6 +378,8 @@ struct CloudSettingsPane: View {
             switch http.statusCode {
             case 200:
                 workerStatus = .connected
+                deployedWorkerVersion = Self.decodeVersion(from: data)
+                await fetchLatestWorkerInfo()
             case 401, 403:
                 workerStatus = .failed("Invalid token")
             default:
@@ -191,6 +388,53 @@ struct CloudSettingsPane: View {
         } catch {
             workerStatus = .failed(error.localizedDescription)
         }
+    }
+
+    // MARK: - Worker Version
+
+    private func fetchLatestWorkerInfo() async {
+        guard let url = URL(string: Self.versionManifestURL) else { return }
+
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 10
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return }
+            let manifest = try JSONDecoder().decode(WorkerVersionManifest.self, from: data)
+            latestWorkerVersion = manifest.version
+            if let guide = manifest.updateGuide, !guide.isEmpty {
+                updateGuideURL = guide
+            }
+        } catch {
+            // Non-blocking: if we can't reach the manifest, just skip the notice.
+        }
+    }
+
+    private static func decodeVersion(from data: Data) -> String? {
+        struct PingResponse: Decodable { let version: String? }
+        return (try? JSONDecoder().decode(PingResponse.self, from: data))?.version
+    }
+
+    /// Numeric semantic-version comparison. Returns true if `lhs` is strictly
+    /// older than `rhs` (e.g. "1.0.0" < "1.1.0").
+    private static func isVersion(_ lhs: String, olderThan rhs: String) -> Bool {
+        func components(_ value: String) -> [Int] {
+            value
+                .split(separator: ".")
+                .map { Int($0.prefix(while: \.isNumber)) ?? 0 }
+        }
+
+        let a = components(lhs)
+        let b = components(rhs)
+        let count = max(a.count, b.count)
+        for index in 0..<count {
+            let left = index < a.count ? a[index] : 0
+            let right = index < b.count ? b[index] : 0
+            if left != right { return left < right }
+        }
+        return false
     }
 
     // MARK: - Status Display
@@ -247,6 +491,11 @@ private enum ConnectionStatus: Equatable {
     case checking
     case connected
     case failed(String)
+}
+
+private struct WorkerVersionManifest: Decodable {
+    let version: String
+    let updateGuide: String?
 }
 
 private struct SetupStepView: View {
