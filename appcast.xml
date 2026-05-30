@@ -22,6 +22,30 @@
     -->
 
     <item>
+      <title>Version 0.15</title>
+      <sparkle:version>6</sparkle:version>
+      <sparkle:shortVersionString>0.15</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.4</sparkle:minimumSystemVersion>
+      <pubDate>Sat, 30 May 2026 21:53:34 +0000</pubDate>
+      <description><![CDATA[
+        <h2>What's New in 0.15</h2>
+        <ul>
+          <li>Non-destructive annotations. Edits are no longer flattened permanently — screenshots keep their original pixels and a re-editable .screendrop sidecar, so you can reopen and tweak annotations any time after saving.</li>
+          <li>Smarter clipboard &amp; saving. After editing, the latest version is automatically re-copied to the clipboard and the existing saved file is overwritten in place — no more stale copies or duplicate files.</li>
+          <li>Cloud setup is much smoother. A secure upload token is generated for you (with Copy / Reveal / Regenerate), and Verify Connection now provisions your worker's database automatically — no manual migration step after a one-click deploy.</li>
+          <li>Worker update notifications. The app detects when your deployed Cloud worker is behind and shows a non-blocking "update available" notice with a how-to link.</li>
+          <li>Cloud settings redesign. Cleaner, less cluttered layout with native input fields, an inline token reveal, and a collapsible setup guide.</li>
+        </ul>
+      ]]></description>
+      <enclosure
+        url="https://github.com/fayazara/screendrop/releases/download/v0.15/Screendrop.dmg"
+        type="application/octet-stream"
+        sparkle:edSignature="ngDegqm4Hnc4OE/OKMB7A7d0RCMFZcLrYnAhtG3OwrC2n9JA2NSVLabNjFGjvvqKxeaAJ20awKhzkgaNHG+LDw=="
+        length="3715668"
+      />
+    </item>
+
+    <item>
       <title>Version 0.14</title>
       <sparkle:version>5</sparkle:version>
       <sparkle:shortVersionString>0.14</sparkle:shortVersionString>
