@@ -20,6 +20,8 @@ struct ScreenshotHistoryItem: Identifiable, Codable, Equatable {
     var kind: PreviewMediaKind
     var duration: Double?
     var cloudURL: String?
+    /// Whether this screenshot has an editable annotation sidecar document.
+    var hasEdits: Bool
 
     var url: URL {
         ScreenshotHistoryStore.historyDirectory.appendingPathComponent(fileName)
@@ -40,6 +42,7 @@ struct ScreenshotHistoryItem: Identifiable, Codable, Equatable {
         kind = try container.decodeIfPresent(PreviewMediaKind.self, forKey: .kind) ?? .image
         duration = try container.decodeIfPresent(Double.self, forKey: .duration)
         cloudURL = try container.decodeIfPresent(String.self, forKey: .cloudURL)
+        hasEdits = try container.decodeIfPresent(Bool.self, forKey: .hasEdits) ?? false
     }
 
     init(
@@ -51,7 +54,8 @@ struct ScreenshotHistoryItem: Identifiable, Codable, Equatable {
         pixelHeight: Int,
         kind: PreviewMediaKind = .image,
         duration: Double? = nil,
-        cloudURL: String? = nil
+        cloudURL: String? = nil,
+        hasEdits: Bool = false
     ) {
         self.id = id
         self.createdAt = createdAt
@@ -62,6 +66,7 @@ struct ScreenshotHistoryItem: Identifiable, Codable, Equatable {
         self.kind = kind
         self.duration = duration
         self.cloudURL = cloudURL
+        self.hasEdits = hasEdits
     }
 }
 
@@ -82,6 +87,36 @@ final class ScreenshotHistoryStore {
 
     private static var metadataURL: URL {
         applicationSupportDirectory.appendingPathComponent("history.json")
+    }
+
+    /// Location of the editable annotation sidecar document for a display image,
+    /// e.g. `Screendrop_2026.png` -> `Screendrop_2026.png.screendrop`.
+    static func editDocumentURL(for displayURL: URL) -> URL {
+        displayURL.appendingPathExtension("screendrop")
+    }
+
+    /// Location of the untouched base image for a display image,
+    /// e.g. `Screendrop_2026.png` -> `Screendrop_2026.base.png`.
+    static func baseImageURL(for displayURL: URL) -> URL {
+        let ext = displayURL.pathExtension
+        let stem = displayURL.deletingPathExtension().lastPathComponent
+        let directory = displayURL.deletingLastPathComponent()
+        let fileName = ext.isEmpty ? "\(stem).base" : "\(stem).base.\(ext)"
+        return directory.appendingPathComponent(fileName)
+    }
+
+    /// Loads the editable annotation document for a screenshot, if one exists.
+    func loadEditDocument(for displayURL: URL) -> AnnotationDocument? {
+        let documentURL = Self.editDocumentURL(for: displayURL)
+        guard let data = try? Data(contentsOf: documentURL),
+              let document = try? JSONDecoder().decode(AnnotationDocument.self, from: data) else {
+            return nil
+        }
+        return document
+    }
+
+    func hasEditDocument(for displayURL: URL) -> Bool {
+        FileManager.default.fileExists(atPath: Self.editDocumentURL(for: displayURL).path)
     }
 
     private(set) var items: [ScreenshotHistoryItem] = []
@@ -183,40 +218,113 @@ final class ScreenshotHistoryStore {
         }
     }
 
+    /// Non-destructive annotation commit.
+    ///
+    /// - Preserves the untouched base image (lazily, on first edit) so future
+    ///   edits always re-render from the original pixels.
+    /// - Overwrites the display image with the freshly rendered composite.
+    /// - Writes the editable `.screendrop` sidecar document so the annotations
+    ///   can be re-opened and edited later.
     @discardableResult
-    func replace(originalURL: URL, with sourceURL: URL) -> URL {
-        guard isHistoryURL(originalURL) else {
-            return importScreenshot(from: sourceURL)
+    func commitAnnotations(
+        displayURL: URL,
+        baseURL: URL,
+        renderedURL: URL,
+        document: AnnotationDocument
+    ) -> URL {
+        guard isHistoryURL(displayURL) else {
+            return importScreenshot(from: renderedURL)
         }
 
         do {
-            if FileManager.default.fileExists(atPath: originalURL.path) {
-                try FileManager.default.removeItem(at: originalURL)
-            }
-            try FileManager.default.copyItem(at: sourceURL, to: originalURL)
+            let baseDestination = Self.baseImageURL(for: displayURL)
 
-            if let index = items.firstIndex(where: { $0.fileName == originalURL.lastPathComponent }) {
-                let imageSize = ScreenshotImageLoader.imageSize(at: originalURL) ?? .zero
+            // First edit: snapshot the current (untouched) display image as the base.
+            if baseURL.standardizedFileURL == displayURL.standardizedFileURL {
+                if !FileManager.default.fileExists(atPath: baseDestination.path),
+                   FileManager.default.fileExists(atPath: displayURL.path) {
+                    try FileManager.default.copyItem(at: displayURL, to: baseDestination)
+                }
+            }
+
+            // Overwrite the display image with the rendered composite.
+            if FileManager.default.fileExists(atPath: displayURL.path) {
+                try FileManager.default.removeItem(at: displayURL)
+            }
+            try FileManager.default.copyItem(at: renderedURL, to: displayURL)
+
+            // Persist the editable sidecar document.
+            var document = document
+            document.baseImageFileName = baseDestination.lastPathComponent
+            let data = try JSONEncoder().encode(document)
+            try data.write(to: Self.editDocumentURL(for: displayURL), options: .atomic)
+
+            if let index = items.firstIndex(where: { $0.fileName == displayURL.lastPathComponent }) {
+                let imageSize = ScreenshotImageLoader.imageSize(at: displayURL) ?? .zero
                 items[index].updatedAt = Date()
                 items[index].pixelWidth = Int(imageSize.width)
                 items[index].pixelHeight = Int(imageSize.height)
+                items[index].hasEdits = true
                 saveMetadata()
             }
 
-            return originalURL
+            return displayURL
         } catch {
-            print("Failed to update screenshot history item: \(error)")
-            return sourceURL
+            print("Failed to commit annotations: \(error)")
+            return renderedURL
         }
     }
 
-    func delete(_ item: ScreenshotHistoryItem) {
+    /// Restores the untouched base image into the display slot and removes the
+    /// editable sidecar. Used when every annotation has been cleared.
+    @discardableResult
+    func removeAnnotations(displayURL: URL) -> URL {
+        guard isHistoryURL(displayURL) else { return displayURL }
+
+        let baseDestination = Self.baseImageURL(for: displayURL)
+        let documentURL = Self.editDocumentURL(for: displayURL)
+
         do {
-            if FileManager.default.fileExists(atPath: item.url.path) {
-                try FileManager.default.removeItem(at: item.url)
+            if FileManager.default.fileExists(atPath: baseDestination.path) {
+                if FileManager.default.fileExists(atPath: displayURL.path) {
+                    try FileManager.default.removeItem(at: displayURL)
+                }
+                try FileManager.default.copyItem(at: baseDestination, to: displayURL)
+                try FileManager.default.removeItem(at: baseDestination)
+            }
+
+            if FileManager.default.fileExists(atPath: documentURL.path) {
+                try FileManager.default.removeItem(at: documentURL)
+            }
+
+            if let index = items.firstIndex(where: { $0.fileName == displayURL.lastPathComponent }) {
+                let imageSize = ScreenshotImageLoader.imageSize(at: displayURL) ?? .zero
+                items[index].updatedAt = Date()
+                items[index].pixelWidth = Int(imageSize.width)
+                items[index].pixelHeight = Int(imageSize.height)
+                items[index].hasEdits = false
+                saveMetadata()
             }
         } catch {
-            print("Failed to delete history file: \(error)")
+            print("Failed to remove annotations: \(error)")
+        }
+
+        return displayURL
+    }
+
+    func delete(_ item: ScreenshotHistoryItem) {
+        let auxiliaryURLs = [
+            item.url,
+            Self.baseImageURL(for: item.url),
+            Self.editDocumentURL(for: item.url)
+        ]
+
+        for url in auxiliaryURLs where FileManager.default.fileExists(atPath: url.path) {
+            do {
+                try FileManager.default.removeItem(at: url)
+            } catch {
+                print("Failed to delete history file: \(error)")
+            }
         }
 
         items.removeAll { $0.id == item.id }

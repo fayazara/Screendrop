@@ -248,10 +248,12 @@ final class ScreenshotPreviewStack {
         }
     }
 
+    /// Refreshes a preview item after a (non-destructive) annotation commit and
+    /// re-publishes the latest version: re-copying it to the clipboard and
+    /// overwriting the existing auto-saved file so we never leave a stale copy
+    /// behind or accumulate duplicates.
     @discardableResult
-    func replace(originalURL: URL, with annotatedURL: URL) -> Bool {
-        let historyURL = ScreenshotHistoryStore.shared.replace(originalURL: originalURL, with: annotatedURL)
-
+    func applyAnnotation(originalURL: URL, historyURL: URL) -> Bool {
         guard let image = ScreenshotImageLoader.downsampledImage(at: historyURL, maxPixelSize: 520) else {
             return false
         }
@@ -262,11 +264,36 @@ final class ScreenshotPreviewStack {
             CloudUploader.shared.clearUploadState(for: items[index].id)
             items[index].url = historyURL
             items[index].previewImage = image
-            items[index].autoSavedURL = nil
+            republishLatestVersion(at: index)
             return true
         } else {
             items.insert(ScreenshotPreviewItem(url: historyURL, previewImage: image), at: 0)
+            republishLatestVersion(at: 0)
             return false
+        }
+    }
+
+    /// Re-copies the current image to the clipboard (when auto-copy is on) and
+    /// overwrites the existing auto-saved file in place (when auto-save is on),
+    /// keeping the clipboard and exported file in sync with the latest edit.
+    private func republishLatestVersion(at index: Int) {
+        guard items.indices.contains(index) else { return }
+        let item = items[index]
+
+        if ScreendropPreferences.autoSave {
+            if let existingURL = item.autoSavedURL {
+                do {
+                    try ScreenshotFileActions.save(from: item.url, to: existingURL)
+                } catch {
+                    print("Failed to update auto-saved screenshot: \(error)")
+                }
+            } else {
+                items[index].autoSavedURL = saveToDefaultLocation(from: item.url)
+            }
+        }
+
+        if ScreendropPreferences.autoCopy {
+            _ = copyURLToClipboard(item.url)
         }
     }
 

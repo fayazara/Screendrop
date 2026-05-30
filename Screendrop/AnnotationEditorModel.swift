@@ -10,7 +10,13 @@ import SwiftUI
 @MainActor
 @Observable
 final class AnnotationEditorModel {
+    /// The display/history image being edited. Used to match the preview item
+    /// and to locate the sidecar document.
     var sourceURL: URL?
+    /// The untouched image the annotations are rendered on top of. When
+    /// re-editing an existing document this is the preserved base image;
+    /// otherwise it is the same as `sourceURL`.
+    var baseImageURL: URL?
     var previewImage: NSImage?
     var imageSize: CGSize = .zero
     var items: [AnnotationItem] = []
@@ -98,17 +104,33 @@ final class AnnotationEditorModel {
 
         applyAnnotationPreset()
         sourceURL = url
-        imageSize = ScreenshotImageLoader.imageSize(at: url) ?? .zero
-        previewImage = ScreenshotImageLoader.downsampledImage(at: url, maxPixelSize: previewImageMaxPixelSize)
-        items = []
+
+        // Restore an existing editable document if one exists, rendering the
+        // canvas from the untouched base image so annotations remain editable.
+        let document = ScreenshotHistoryStore.shared.loadEditDocument(for: url)
+        let candidateBaseURL = ScreenshotHistoryStore.baseImageURL(for: url)
+        let renderSourceURL: URL
+        if let document, FileManager.default.fileExists(atPath: candidateBaseURL.path) {
+            renderSourceURL = candidateBaseURL
+            items = document.annotationItems
+            backgroundSettings = document.backgroundSettings
+        } else {
+            renderSourceURL = url
+            items = []
+            backgroundSettings = AnnotationBackgroundSettings()
+        }
+
+        baseImageURL = renderSourceURL
+        imageSize = ScreenshotImageLoader.imageSize(at: renderSourceURL) ?? .zero
+        previewImage = ScreenshotImageLoader.downsampledImage(at: renderSourceURL, maxPixelSize: previewImageMaxPixelSize)
         draftItem = nil
         selectedItemIDs = []
         editingTextItemID = nil
         isTextPlacementArmed = selectedTool == .text
         selectionRect = nil
-        backgroundSettings = AnnotationBackgroundSettings()
         interaction = nil
         nextNumberedCircleValue = 1
+        syncNextNumberedCircleValue()
         history.reset()
         RedactionImageProcessor.removeAllCachedPreviewImages()
         statePath = AnnotationToolState.idle.path(for: selectedTool)
@@ -121,6 +143,7 @@ final class AnnotationEditorModel {
 
     func releaseEditorResources() {
         sourceURL = nil
+        baseImageURL = nil
         previewImage = nil
         imageSize = .zero
         items = []
