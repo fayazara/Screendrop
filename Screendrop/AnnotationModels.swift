@@ -578,7 +578,7 @@ struct AnnotationItem: Identifiable, Equatable {
     }
 }
 
-enum AnnotationTool: String, CaseIterable, Identifiable {
+enum AnnotationTool: String, CaseIterable, Identifiable, Codable {
     case select
     case rectangle
     case filledRectangle
