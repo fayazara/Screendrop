@@ -91,13 +91,17 @@ struct AnnotationEditorInspector: View {
                     AnnotationInspectorDivider()
 
                     // MARK: Background
-                    AnnotationBackgroundInspector(
-                        settings: Binding(
-                            get: { model.backgroundSettings },
-                            set: { model.backgroundSettings = $0 }
-                        ),
-                        onPickWallpaper: onPickWallpaper
-                    )
+                    VStack(alignment: .leading, spacing: 12) {
+                        AnnotationInspectorSectionHeader("BACKGROUND")
+
+                        AnnotationBackgroundInspector(
+                            settings: Binding(
+                                get: { model.backgroundSettings },
+                                set: { model.backgroundSettings = $0 }
+                            ),
+                            onPickWallpaper: onPickWallpaper
+                        )
+                    }
                     .padding(.horizontal, 14)
                     .padding(.vertical, 14)
                 }

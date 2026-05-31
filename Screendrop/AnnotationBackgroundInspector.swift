@@ -10,113 +10,69 @@ struct AnnotationBackgroundInspector: View {
     @Binding var settings: AnnotationBackgroundSettings
     let onPickWallpaper: () -> Void
 
-    private let gradientColumns = Array(repeating: GridItem(.flexible(minimum: 20), spacing: 5), count: 8)
-    private let wallpaperColumns = Array(repeating: GridItem(.flexible(), spacing: 8), count: 4)
-    private let colorColumns = Array(repeating: GridItem(.flexible(), spacing: 4), count: 8)
+    private let swatchColumns = Array(repeating: GridItem(.flexible(), spacing: 6), count: 8)
     private let alignmentColumns = Array(repeating: GridItem(.fixed(28), spacing: 4), count: 3)
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Button {
-                settings.style = .none
-            } label: {
-                Text("None")
-                    .font(.system(size: 12, weight: .medium))
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 28)
-                    .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(settings.style == .none ? .white : .primary.opacity(0.7))
-            .background(
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .fill(settings.style == .none ? Color.accentColor : Color(nsColor: .controlBackgroundColor))
-            )
-            .padding(.bottom, 16)
-
-            backgroundSectionTitle("Gradients")
-                .padding(.bottom, 8)
-            LazyVGrid(columns: gradientColumns, spacing: 5) {
-                ForEach(AnnotationBackgroundGradient.presets) { gradient in
-                    Button {
-                        settings.style = .gradient(gradient)
-                    } label: {
-                        RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .fill(LinearGradient(
-                                colors: gradient.colors.map(\.color),
-                                startPoint: gradient.startPoint,
-                                endPoint: gradient.endPoint
-                            ))
-                            .aspectRatio(1, contentMode: .fit)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                    .stroke(settings.style == .gradient(gradient) ? Color.white.opacity(0.8) : Color.white.opacity(0.08), lineWidth: settings.style == .gradient(gradient) ? 2 : 0.5)
-                            )
-                            .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-                    }
-                    .buttonStyle(.plain)
-                    .help(gradient.title)
+        VStack(alignment: .leading, spacing: 16) {
+            swatchGroup("Color") {
+                AnnotationSwatchTile(isSelected: settings.style == .none) {
+                    settings.style = .none
+                } content: {
+                    AnnotationNoneSwatch()
                 }
-            }
-            .padding(.bottom, 16)
+                .help("No background")
 
-            backgroundSectionTitle("Wallpapers")
-                .padding(.bottom, 8)
-            LazyVGrid(columns: wallpaperColumns, spacing: 8) {
-                if let customWallpaper {
-                    wallpaperButton(
-                        style: .customWallpaper(AnnotationCustomWallpaper(url: customWallpaper.url)),
-                        title: customWallpaper.title
-                    ) {
-                        AnnotationCustomWallpaperPreview(wallpaper: AnnotationCustomWallpaper(url: customWallpaper.url))
-                    }
-                }
-
-                Button(action: onPickWallpaper) {
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .stroke(style: StrokeStyle(lineWidth: 1.5, dash: [5, 4]))
-                        .foregroundStyle(.quaternary)
-                        .aspectRatio(1, contentMode: .fit)
-                        .overlay {
-                            Image(systemName: "plus")
-                                .font(.system(size: 14, weight: .medium))
-                                .foregroundStyle(.tertiary)
-                        }
-                        .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                }
-                .buttonStyle(.plain)
-                .help("Choose wallpaper")
-            }
-            .padding(.bottom, 16)
-
-            backgroundSectionTitle("Plain color")
-                .padding(.bottom, 8)
-            LazyVGrid(columns: colorColumns, spacing: 8) {
                 ForEach(AnnotationBackgroundColor.plainPresets) { color in
-                    Button {
+                    AnnotationSwatchTile(isSelected: settings.style == .solid(color)) {
                         settings.style = .solid(color)
-                    } label: {
-                        Circle()
-                            .fill(color.color)
-                            .aspectRatio(1, contentMode: .fit)
-                            .overlay(
-                                Circle()
-                                    .stroke(settings.style == .solid(color) ? Color.white.opacity(0.9) : Color.white.opacity(0.1), lineWidth: settings.style == .solid(color) ? 2 : 0.5)
-                            )
-                            .contentShape(Circle())
+                    } content: {
+                        Rectangle().fill(color.color)
                     }
-                    .buttonStyle(.plain)
                     .help(color.title)
                 }
             }
-            .padding(.bottom, 18)
+
+            swatchGroup("Gradient") {
+                ForEach(AnnotationBackgroundGradient.presets) { gradient in
+                    AnnotationSwatchTile(isSelected: settings.style == .gradient(gradient)) {
+                        settings.style = .gradient(gradient)
+                    } content: {
+                        Rectangle().fill(LinearGradient(
+                            colors: gradient.colors.map(\.color),
+                            startPoint: gradient.startPoint,
+                            endPoint: gradient.endPoint
+                        ))
+                    }
+                    .help(gradient.title)
+                }
+            }
+
+            swatchGroup("Wallpaper") {
+                if let customWallpaper {
+                    AnnotationSwatchTile(
+                        isSelected: settings.style == .customWallpaper(AnnotationCustomWallpaper(url: customWallpaper.url))
+                    ) {
+                        settings.customWallpaper = AnnotationCustomWallpaper(url: customWallpaper.url)
+                        settings.style = .customWallpaper(AnnotationCustomWallpaper(url: customWallpaper.url))
+                    } content: {
+                        AnnotationCustomWallpaperPreview(wallpaper: AnnotationCustomWallpaper(url: customWallpaper.url))
+                    }
+                    .help(customWallpaper.title)
+                }
+
+                AnnotationAddSwatchTile(action: onPickWallpaper)
+                    .help("Choose wallpaper")
+            }
+
+            AnnotationInspectorHairline()
+                .padding(.vertical, 2)
 
             AnnotationBackgroundSlider(
                 title: "Padding",
                 value: $settings.padding,
                 range: 0.04...0.45
             )
-            .padding(.bottom, 14)
 
             HStack(spacing: 12) {
                 AnnotationBackgroundSlider(
@@ -131,7 +87,6 @@ struct AnnotationBackgroundInspector: View {
                     range: 0...0.12
                 )
             }
-            .padding(.bottom, 14)
 
             HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 6) {
@@ -175,34 +130,100 @@ struct AnnotationBackgroundInspector: View {
         settings.customWallpaper
     }
 
-    private func wallpaperButton<Content: View>(
-        style: AnnotationBackgroundStyle,
-        title: String,
+    @ViewBuilder
+    private func swatchGroup<Content: View>(
+        _ title: String,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        Button {
-            if case .customWallpaper(let wallpaper) = style {
-                settings.customWallpaper = wallpaper
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+
+            LazyVGrid(columns: swatchColumns, spacing: 6) {
+                content()
             }
-            settings.style = style
-        } label: {
+        }
+    }
+}
+
+/// A uniform background swatch: a rounded-square preview with a consistent
+/// accent focus ring when selected. Used for every background option (none,
+/// solid colors, gradients, wallpapers) so the picker reads as one control.
+private struct AnnotationSwatchTile<Content: View>: View {
+    let isSelected: Bool
+    let action: () -> Void
+    @ViewBuilder let content: () -> Content
+
+    private let cornerRadius: CGFloat = 7
+
+    var body: some View {
+        Button(action: action) {
             content()
                 .aspectRatio(1, contentMode: .fit)
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .stroke(settings.style == style ? Color.white.opacity(0.8) : Color.white.opacity(0.08), lineWidth: settings.style == style ? 2 : 0.5)
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5)
                 )
-                .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .padding(2.5)
+                .overlay {
+                    if isSelected {
+                        RoundedRectangle(cornerRadius: cornerRadius + 2.5, style: .continuous)
+                            .strokeBorder(Color.accentColor, lineWidth: 2)
+                    }
+                }
+                .contentShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         }
         .buttonStyle(.plain)
-        .help(title)
     }
+}
 
-    private func backgroundSectionTitle(_ title: String) -> some View {
-        Text(title)
-            .font(.system(size: 11, weight: .medium))
-            .foregroundStyle(.secondary)
+/// Tile shown for the "None" option – a neutral square with a diagonal slash.
+private struct AnnotationNoneSwatch: View {
+    var body: some View {
+        ZStack {
+            Rectangle().fill(Color(nsColor: .controlBackgroundColor))
+
+            GeometryReader { proxy in
+                Path { path in
+                    path.move(to: CGPoint(x: 0, y: proxy.size.height))
+                    path.addLine(to: CGPoint(x: proxy.size.width, y: 0))
+                }
+                .stroke(Color.secondary.opacity(0.55), lineWidth: 1.5)
+            }
+        }
+    }
+}
+
+/// "Add wallpaper" tile that matches the swatch geometry but uses a dashed
+/// outline and never shows a selection ring.
+private struct AnnotationAddSwatchTile: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .strokeBorder(style: StrokeStyle(lineWidth: 1.2, dash: [4, 3]))
+                .foregroundStyle(.quaternary)
+                .aspectRatio(1, contentMode: .fit)
+                .overlay {
+                    Image(systemName: "plus")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                }
+                .padding(2.5)
+                .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct AnnotationInspectorHairline: View {
+    var body: some View {
+        Rectangle()
+            .fill(Color(nsColor: .separatorColor).opacity(0.5))
+            .frame(height: 0.5)
     }
 }
 

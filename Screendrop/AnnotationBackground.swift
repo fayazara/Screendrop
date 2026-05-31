@@ -12,8 +12,8 @@ import SwiftUI
 
 struct AnnotationBackgroundSettings: Equatable {
     var style: AnnotationBackgroundStyle = .none
-    var padding: CGFloat = 0.16
-    var cornerRadius: CGFloat = 0.035
+    var padding: CGFloat = 0.08
+    var cornerRadius: CGFloat = 0.018
     var shadow: CGFloat = 0.36
     var aspectRatio: AnnotationBackgroundAspectRatio = .auto
     var alignment: AnnotationBackgroundAlignment = .center
