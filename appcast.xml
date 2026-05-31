@@ -22,6 +22,27 @@
     -->
 
     <item>
+      <title>Version 0.16</title>
+      <sparkle:version>7</sparkle:version>
+      <sparkle:shortVersionString>0.16</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.4</sparkle:minimumSystemVersion>
+      <pubDate>Sun, 31 May 2026 18:36:09 +0000</pubDate>
+      <description><![CDATA[
+        <h2>What's New in 0.16</h2>
+        <ul>
+          <li>Smoother arrow curving — Bending arrows is now twice as responsive, and arrows snap back to a straight line when you drag the curve near the center.</li>
+          <li>Redesigned background picker — Backgrounds, gradients, solid colors, and wallpapers now share one clean, consistent grid with a clear selection highlight. Default padding and corner rounding have been toned down.</li>
+        </ul>
+      ]]></description>
+      <enclosure
+        url="https://github.com/fayazara/screendrop/releases/download/v0.16/Screendrop.dmg"
+        type="application/octet-stream"
+        sparkle:edSignature="UqoD94H3Ewm9je/Hn8iPsB5234cNfkxpNH2B5Mdfw/GpPgjp4uPEo27LvTsKj+mIrbNTyJZ+D69WbZa9egztCg=="
+        length="3714910"
+      />
+    </item>
+
+    <item>
       <title>Version 0.15</title>
       <sparkle:version>6</sparkle:version>
       <sparkle:shortVersionString>0.15</sparkle:shortVersionString>
