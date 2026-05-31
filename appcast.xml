@@ -22,6 +22,32 @@
     -->
 
     <item>
+      <title>Version 0.7</title>
+      <sparkle:version>8</sparkle:version>
+      <sparkle:shortVersionString>0.7</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.4</sparkle:minimumSystemVersion>
+      <pubDate>Sun, 31 May 2026 21:31:41 +0000</pubDate>
+      <description><![CDATA[
+        <h2>What's New in 0.7</h2>
+        <ul>
+          <li>After-capture actions — Choose exactly what happens after a screenshot or recording (independently): show the preview overlay, copy, save, upload to Cloud &amp; copy link, open the editor, or pin. Set them up in Settings → Screenshots and Settings → Video.</li>
+          <li>Pin to screen — Keep a screenshot floating on top for reference. Pin from the preview card, then drag it anywhere; hover for copy/save/close.</li>
+          <li>Copy text from image (OCR) — Right-click a screenshot in the preview or a pinned window to copy any text in it.</li>
+          <li>Self-timer — Add a 3, 5, or 10-second countdown before a capture (Settings → Screenshots).</li>
+          <li>Color picker — Pick a color anywhere on screen from the menu bar; the hex is copied to your clipboard.</li>
+          <li>Overlay preferences — Choose which corner the preview docks to, auto-close it after a delay, and toggle close-after-drag.</li>
+          <li>Capture options — Mute capture sounds, hide the menu bar icon, and optionally include a window's shadow when capturing a window.</li>
+        </ul>
+      ]]></description>
+      <enclosure
+        url="https://github.com/fayazara/screendrop/releases/download/v0.7/Screendrop.dmg"
+        type="application/octet-stream"
+        sparkle:edSignature="0pbhpfocSEGd0osy/NIw/OEHRRDan4WlRbea2L/hmPEFBfM+iXN3TyvzCOzL4MUvw3AdidXzdNVxJ9waqWisCw=="
+        length="3789419"
+      />
+    </item>
+
+    <item>
       <title>Version 0.16</title>
       <sparkle:version>7</sparkle:version>
       <sparkle:shortVersionString>0.16</sparkle:shortVersionString>
