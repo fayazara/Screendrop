@@ -11,11 +11,12 @@ import SwiftUI
 struct ScreendropApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @Environment(\.openWindow) var openWindow
-    
+    @AppStorage(ScreendropPreferences.showMenuBarIconKey) private var showMenuBarIcon = true
+
     var body: some Scene {
         let _ = configurePreviewPresentation()
 
-        MenuBarExtra("Screendrop", image: "MenuBarIcon") {
+        MenuBarExtra("Screendrop", image: "MenuBarIcon", isInserted: $showMenuBarIcon) {
             MenuBarView()
         }
         
@@ -42,22 +43,29 @@ struct ScreendropApp: App {
         }
 
         CaptureCoordinator.shared.onShowPreview = { [openWindow] url, displayID in
-            let historyURL = ScreenshotHistoryStore.shared.importScreenshot(from: url)
-            ScreenshotPreviewStack.shared.add(url: historyURL)
+            // Set the editor openers first so auto-annotate can fire during add.
             PreviewPanelPresenter.shared.onAnnotate = { url in
                 openWindow(id: "ANNOTATION_EDITOR", value: url)
             }
             PreviewPanelPresenter.shared.onEditVideo = { url in
                 openWindow(id: "VIDEO_EDITOR", value: url)
             }
-            PreviewPanelPresenter.shared.show(displayID: displayID)
+
+            let historyURL = ScreenshotHistoryStore.shared.importScreenshot(from: url)
+            ScreenshotPreviewStack.shared.add(url: historyURL)
+
+            if AfterCaptureActions.isEnabled(.showOverlay, for: .screenshot) {
+                PreviewPanelPresenter.shared.show(displayID: displayID)
+            }
         }
 
         ScreenRecordingManager.shared.onFinishRecording = { url, displayID in
             Task { @MainActor in
                 let historyURL = await ScreenshotHistoryStore.shared.importVideo(from: url)
                 ScreenshotPreviewStack.shared.addVideo(url: historyURL)
-                PreviewPanelPresenter.shared.show(displayID: displayID)
+                if AfterCaptureActions.isEnabled(.showOverlay, for: .recording) {
+                    PreviewPanelPresenter.shared.show(displayID: displayID)
+                }
             }
         }
     }
@@ -72,5 +80,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.accessory)
         HotkeyManager.shared.registerHotkeys()
         updaterManager.start()
+    }
+
+    /// When the menu bar icon is hidden, reopening Screendrop (e.g. from
+    /// Spotlight or Finder) is the only way back in, so surface Settings.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        if !ScreendropPreferences.showMenuBarIcon {
+            SettingsWindowController.show(tab: .general)
+        }
+        return true
     }
 }

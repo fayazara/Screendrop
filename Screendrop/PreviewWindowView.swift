@@ -23,8 +23,21 @@ struct PreviewWindowView: View {
     @State private var previewStack = ScreenshotPreviewStack.shared
     @State private var keyMonitor: Any?
     @State private var globalKeyMonitor: Any?
+    @AppStorage(ScreendropPreferences.previewPositionKey) private var previewPositionRaw = PreviewOverlayPosition.right.rawValue
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismiss) private var dismissWindow
+
+    private var previewPosition: PreviewOverlayPosition {
+        PreviewOverlayPosition(rawValue: previewPositionRaw) ?? .right
+    }
+
+    private var stackAlignment: Alignment {
+        previewPosition == .left ? .bottomLeading : .bottomTrailing
+    }
+
+    private var slideDirection: CGFloat {
+        previewPosition == .left ? -1 : 1
+    }
 
     init(
         onRequestClose: (() -> Void)? = nil,
@@ -43,6 +56,7 @@ struct PreviewWindowView: View {
                     item: item,
                     isHidden: previewStack.draggingItemID == item.id,
                     isDismissing: previewStack.dismissingItemIDs.contains(item.id),
+                    slideDirection: slideDirection,
                     onHoverChanged: { isHovered in
                         previewStack.setHovered(item.id, isHovered: isHovered)
                     },
@@ -88,6 +102,15 @@ struct PreviewWindowView: View {
                             }
                         }
                     },
+                    onPin: {
+                        guard item.kind == .image else { return }
+                        QuickLookPreviewPresenter.dismiss()
+                        PinnedScreenshotPresenter.shared.pin(url: item.url)
+                        previewStack.dismiss(id: item.id)
+                    },
+                    onCopyText: {
+                        previewStack.copyText(id: item.id)
+                    },
                     onDragBegan: {
                         previewStack.beginDrag(id: item.id)
                     },
@@ -100,8 +123,9 @@ struct PreviewWindowView: View {
             }
         }
         .frame(width: previewCardSize.width)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-        .padding(.trailing, previewTrailingPadding)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: stackAlignment)
+        .padding(.leading, previewPosition == .left ? previewTrailingPadding : 0)
+        .padding(.trailing, previewPosition == .right ? previewTrailingPadding : 0)
         .padding(.bottom, 32)
         .animation(previewStackAnimation, value: previewStack.itemIDs)
         .onAppear(perform: installKeyMonitors)

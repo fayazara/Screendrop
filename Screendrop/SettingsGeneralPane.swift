@@ -9,6 +9,8 @@ import SwiftUI
 
 struct GeneralSettingsPane: View {
     @AppStorage(ScreendropPreferences.exportDirectoryPathKey) private var exportDirectoryPath = ""
+    @AppStorage(ScreendropPreferences.playSoundsKey) private var playSounds = true
+    @AppStorage(ScreendropPreferences.showMenuBarIconKey) private var showMenuBarIcon = true
     @State private var launchAtLoginStatus = LaunchAtLoginController.status
     @State private var launchAtLoginError: String?
 
@@ -70,6 +72,26 @@ struct GeneralSettingsPane: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+
+                Toggle(isOn: $playSounds) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Play sounds")
+                        Text("Play the camera shutter sound when a screenshot is taken.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .toggleStyle(.switch)
+
+                Toggle(isOn: $showMenuBarIcon) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Show menu bar icon")
+                        Text("When hidden, reopen Screendrop to get back to Settings.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .toggleStyle(.switch)
             }
         }
         .formStyle(.grouped)

@@ -38,7 +38,15 @@ struct MenuBarView: View {
             } label: {
                 Label("Record Screen", systemImage: "record.circle")
             }
-            
+
+            Divider()
+
+            Button {
+                ColorPickerService.pickColor()
+            } label: {
+                Label("Pick Color", systemImage: "eyedropper")
+            }
+
             Divider()
 
             Menu {
