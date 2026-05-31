@@ -816,6 +816,9 @@ final class AnnotationEditorModel {
         lockAspectRatio: Bool
     ) -> AnnotationItem {
         if originalItem.tool.usesEndpoints {
+            if originalItem.tool == .arrow, handle == .control {
+                return arrowItem(originalItem, draggingCurveHandleTo: point)
+            }
             return originalItem.withEndpoint(handle, movedTo: point)
         }
 
@@ -831,6 +834,46 @@ final class AnnotationEditorModel {
             : nil
 
         return originalItem.resized(to: rect(from: anchor, to: constrainedPoint, aspectRatio: aspectRatio))
+    }
+
+    /// Bend an arrow by dragging its curve handle. The dragged location is the
+    /// desired apex of the curve, which maps directly onto the visible bend.
+    /// When the bend gets close to straight, the apex snaps back onto the
+    /// start→end line so releasing near the centre produces a clean line.
+    private func arrowItem(_ item: AnnotationItem, draggingCurveHandleTo apex: CGPoint) -> AnnotationItem {
+        guard let start = item.points.first, let end = item.points.last else {
+            return item
+        }
+
+        let snappedApex = snappedArrowApex(apex, start: start, end: end)
+        let control = AnnotationItem.arrowControlPoint(forApex: snappedApex, start: start, end: end)
+        return item.withEndpoint(.control, movedTo: control)
+    }
+
+    /// Snap the apex onto the start→end line when its perpendicular offset is a
+    /// small fraction of the arrow's length, keeping the handle under the
+    /// cursor while flattening the curve to a straight line.
+    private func snappedArrowApex(_ apex: CGPoint, start: CGPoint, end: CGPoint) -> CGPoint {
+        // Work in pixel space so the snap distance is aspect-correct.
+        let sx = max(imageSize.width, 1)
+        let sy = max(imageSize.height, 1)
+        let ax = apex.x * sx
+        let ay = apex.y * sy
+        let startX = start.x * sx
+        let startY = start.y * sy
+        let dx = end.x * sx - startX
+        let dy = end.y * sy - startY
+        let lengthSquared = dx * dx + dy * dy
+        guard lengthSquared > 0 else { return apex }
+
+        let projection = ((ax - startX) * dx + (ay - startY) * dy) / lengthSquared
+        let projX = startX + projection * dx
+        let projY = startY + projection * dy
+        let perpendicular = hypot(ax - projX, ay - projY)
+        let snapThreshold = max(sqrt(lengthSquared) * 0.06, 6)
+
+        guard perpendicular <= snapThreshold else { return apex }
+        return CGPoint(x: projX / sx, y: projY / sy)
     }
 
     private func initialPoints(for tool: AnnotationTool, at point: CGPoint) -> [CGPoint] {

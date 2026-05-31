@@ -81,7 +81,9 @@ enum AnnotationResizeHandle: CaseIterable {
         case .start:
             item.points.first
         case .control:
-            item.controlPoint
+            // The on-screen handle sits on the curve (its apex), not on the
+            // raw Bézier control point, so hit-testing must use the same point.
+            item.arrowCurveHandle
         case .end:
             item.points.last
         case .topLeft, .topRight, .bottomLeft, .bottomRight:
@@ -366,6 +368,33 @@ struct AnnotationItem: Identifiable, Equatable {
         }
 
         return CGPoint(x: (start.x + end.x) / 2, y: (start.y + end.y) / 2)
+    }
+
+    /// The point on the rendered curve that the curve handle is displayed at –
+    /// the apex of the quadratic Bézier (the value at t = 0.5). A quadratic
+    /// curve only travels halfway towards its control point, so dragging the
+    /// raw control point feels half as responsive as the visible bend. By
+    /// exposing the apex as the draggable handle, dragging maps 1:1 to the
+    /// curve and the handle stays on the line, matching CleanShot.
+    var arrowCurveHandle: CGPoint? {
+        guard tool == .arrow,
+              let start = points.first,
+              let end = points.last,
+              let control = controlPoint else {
+            return nil
+        }
+
+        return CGPoint(
+            x: 0.25 * start.x + 0.5 * control.x + 0.25 * end.x,
+            y: 0.25 * start.y + 0.5 * control.y + 0.25 * end.y
+        )
+    }
+
+    /// Convert an apex position (where the curve handle is dragged) into the
+    /// Bézier control point that produces that apex: control = 2·apex − mid.
+    static func arrowControlPoint(forApex apex: CGPoint, start: CGPoint, end: CGPoint) -> CGPoint {
+        let mid = CGPoint(x: (start.x + end.x) / 2, y: (start.y + end.y) / 2)
+        return CGPoint(x: 2 * apex.x - mid.x, y: 2 * apex.y - mid.y)
     }
 
     func isRenderable(minimumSize: CGFloat, allowEmptyText: Bool = false) -> Bool {
