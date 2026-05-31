@@ -24,7 +24,14 @@ enum ScreendropPreferences {
     static let windowHotkeyKey = "captureHotkey.window"
     static let areaHotkeyKey = "captureHotkey.area"
     static let screenRecordingHotkeyKey = "captureHotkey.screenRecording"
-    
+    static let playSoundsKey = "playSounds"
+    static let showMenuBarIconKey = "showMenuBarIcon"
+    static let captureWindowShadowKey = "captureWindowShadow"
+    static let captureDelaySecondsKey = "captureDelaySeconds"
+    static let previewPositionKey = "previewPosition"
+    static let previewAutoCloseSecondsKey = "previewAutoCloseSeconds"
+    static let previewCloseAfterDraggingKey = "previewCloseAfterDragging"
+
     private static let defaultCompressionQuality = 0.8
     static let defaultRecordingMouseIndicatorColor = "#007AFF"
     static let defaultRecordingMouseIndicatorSize = 44.0
@@ -92,6 +99,55 @@ enum ScreendropPreferences {
             ?? defaultRecordingMouseIndicatorSize
         return min(max(value, 24), 96)
     }
+
+    /// Whether to play the shutter sound after a screenshot. Defaults to on.
+    static var playSounds: Bool {
+        if UserDefaults.standard.object(forKey: playSoundsKey) == nil {
+            return true
+        }
+        return UserDefaults.standard.bool(forKey: playSoundsKey)
+    }
+
+    /// Whether the menu bar icon is shown. Defaults to on.
+    static var showMenuBarIcon: Bool {
+        if UserDefaults.standard.object(forKey: showMenuBarIconKey) == nil {
+            return true
+        }
+        return UserDefaults.standard.bool(forKey: showMenuBarIconKey)
+    }
+
+    /// Whether captured windows include their drop shadow. Defaults to off
+    /// (tighter, shadow-free crops).
+    static var captureWindowShadow: Bool {
+        UserDefaults.standard.bool(forKey: captureWindowShadowKey)
+    }
+
+    /// Countdown delay (in seconds) before a capture is taken. 0 means off.
+    static var captureDelaySeconds: Int {
+        max(0, UserDefaults.standard.integer(forKey: captureDelaySecondsKey))
+    }
+
+    /// Which screen corner the preview overlay docks to.
+    static var previewPosition: PreviewOverlayPosition {
+        guard let raw = UserDefaults.standard.string(forKey: previewPositionKey),
+              let position = PreviewOverlayPosition(rawValue: raw) else {
+            return .right
+        }
+        return position
+    }
+
+    /// Seconds before the preview overlay auto-dismisses. 0 means never.
+    static var previewAutoCloseSeconds: Int {
+        max(0, UserDefaults.standard.integer(forKey: previewAutoCloseSecondsKey))
+    }
+
+    /// Whether dragging a preview card out dismisses it. Defaults to on.
+    static var previewCloseAfterDragging: Bool {
+        if UserDefaults.standard.object(forKey: previewCloseAfterDraggingKey) == nil {
+            return true
+        }
+        return UserDefaults.standard.bool(forKey: previewCloseAfterDraggingKey)
+    }
     
     // MARK: - Cloud
     
@@ -106,6 +162,20 @@ enum ScreendropPreferences {
     /// Cloud upload is available when the worker URL and upload token are configured.
     static var isCloudConfigured: Bool {
         CloudCredentialStore.shared.isConfigured
+    }
+}
+
+enum PreviewOverlayPosition: String, CaseIterable, Identifiable {
+    case left
+    case right
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .left: "Bottom left"
+        case .right: "Bottom right"
+        }
     }
 }
 

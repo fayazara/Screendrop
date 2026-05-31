@@ -10,6 +10,7 @@ struct PreviewCardView: View {
     let item: ScreenshotPreviewItem
     let isHidden: Bool
     let isDismissing: Bool
+    var slideDirection: CGFloat = 1
     let onHoverChanged: (Bool) -> Void
     let onClose: () -> Void
     let onDelete: () -> Void
@@ -18,6 +19,8 @@ struct PreviewCardView: View {
     let onAnnotate: () -> Void
     let onEditVideo: () -> Void
     let onUpload: () -> Void
+    let onPin: () -> Void
+    let onCopyText: () -> Void
     let onDragBegan: () -> Void
     let onDragEnded: () -> Void
 
@@ -107,6 +110,11 @@ struct PreviewCardView: View {
                 }
             }
             .animation(previewStackAnimation, value: isDismissing)
+            .contextMenu {
+                if item.kind == .image {
+                    Button("Copy Text from Image") { onCopyText() }
+                }
+            }
     }
 
     private var hoveredContent: some View {
@@ -151,6 +159,9 @@ struct PreviewCardView: View {
                     VStack(spacing: 8) {
                         actionPill("Copy", action: onCopy)
                         actionPill("Save", action: onSave)
+                        if item.kind == .image {
+                            actionPill("Pin", action: onPin)
+                        }
                     }
                 }
             }
@@ -224,7 +235,7 @@ struct PreviewCardView: View {
     }
 
     private var horizontalOffset: CGFloat {
-        isPresented && !isDismissing ? 0 : previewCardSlideOffset
+        isPresented && !isDismissing ? 0 : previewCardSlideOffset * slideDirection
     }
 
     private func cornerButton(systemImage: String, help: String, action: @escaping () -> Void) -> some View {

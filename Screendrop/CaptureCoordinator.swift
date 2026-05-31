@@ -27,6 +27,7 @@ final class CaptureCoordinator {
         PreviewWindowPlacement.shared.setTargetDisplayID(displayID)
 
         Task {
+            await CaptureCountdownPresenter.shared.runIfNeeded(displayID: displayID)
             await prepareForCapture()
             defer {
                 Task { @MainActor in
@@ -41,6 +42,10 @@ final class CaptureCoordinator {
     
     func captureWindow() {
         Task {
+            let countdownDisplayID = await MainActor.run {
+                ActiveDisplayResolver.activeDisplayID(preferPointer: true)
+            }
+            await CaptureCountdownPresenter.shared.runIfNeeded(displayID: countdownDisplayID)
             await prepareForCapture()
             defer {
                 Task { @MainActor in
@@ -48,7 +53,9 @@ final class CaptureCoordinator {
                 }
             }
             
-            guard let url = await ScreenshotManager.shared.captureWindow() else { return }
+            guard let url = await ScreenshotManager.shared.captureWindow(
+                includeShadow: ScreendropPreferences.captureWindowShadow
+            ) else { return }
             let displayID = await MainActor.run {
                 ActiveDisplayResolver.activeDisplayID(preferPointer: true)
             }
@@ -58,6 +65,10 @@ final class CaptureCoordinator {
     
     func captureArea() {
         Task {
+            let countdownDisplayID = await MainActor.run {
+                ActiveDisplayResolver.activeDisplayID(preferPointer: true)
+            }
+            await CaptureCountdownPresenter.shared.runIfNeeded(displayID: countdownDisplayID)
             await prepareForCapture()
             defer {
                 Task { @MainActor in
@@ -107,7 +118,9 @@ final class CaptureCoordinator {
 
     @MainActor
     private func finishCapture(url: URL, displayID: CGDirectDisplayID?) {
-        CaptureFeedbackSound.play()
+        if ScreendropPreferences.playSounds {
+            CaptureFeedbackSound.play()
+        }
         showPreview(url: url, displayID: displayID)
     }
     
@@ -115,7 +128,9 @@ final class CaptureCoordinator {
         guard let onShowPreview else {
             let historyURL = ScreenshotHistoryStore.shared.importScreenshot(from: url)
             ScreenshotPreviewStack.shared.add(url: historyURL)
-            PreviewPanelPresenter.shared.show(displayID: displayID)
+            if AfterCaptureActions.isEnabled(.showOverlay, for: .screenshot) {
+                PreviewPanelPresenter.shared.show(displayID: displayID)
+            }
             return
         }
 

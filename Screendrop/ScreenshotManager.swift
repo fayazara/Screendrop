@@ -56,8 +56,12 @@ final class ScreenshotManager {
     
     /// Uses the native macOS screencapture tool for interactive window selection.
     /// `-w` = click a window, `-o` = no shadow, `-t png` = lossless PNG.
-    func captureWindow() async -> URL? {
-        return await runScreencapture(args: ["-w", "-o"])
+    func captureWindow(includeShadow: Bool = false) async -> URL? {
+        var args = ["-w"]
+        if !includeShadow {
+            args.append("-o")
+        }
+        return await runScreencapture(args: args)
     }
     
     // MARK: - Area Capture

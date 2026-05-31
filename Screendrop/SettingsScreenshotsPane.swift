@@ -6,11 +6,13 @@
 import SwiftUI
 
 struct ScreenshotsSettingsPane: View {
-    @AppStorage(ScreendropPreferences.autoSaveKey) private var autoSave = false
-    @AppStorage(ScreendropPreferences.autoCopyKey) private var autoCopy = false
     @AppStorage(ScreendropPreferences.autoCompressKey) private var autoCompress = false
     @AppStorage(ScreendropPreferences.exportFormatKey) private var exportFormatRawValue = ""
     @AppStorage(ScreendropPreferences.compressionQualityKey) private var compressionQuality = 0.8
+    @AppStorage(ScreendropPreferences.captureWindowShadowKey) private var captureWindowShadow = false
+    @AppStorage(ScreendropPreferences.captureDelaySecondsKey) private var captureDelaySeconds = 0
+
+    private let delayOptions: [Int] = [0, 3, 5, 10]
 
     private var exportFormat: ScreenshotExportFormat {
         get {
@@ -26,27 +28,32 @@ struct ScreenshotsSettingsPane: View {
         Form {
             CaptureHotkeySettingsSection(actions: [.fullscreen, .window, .area])
 
-            Section("After Capture") {
-                Toggle(isOn: $autoSave) {
+            Section("Capture") {
+                Picker(selection: $captureDelaySeconds) {
+                    ForEach(delayOptions, id: \.self) { seconds in
+                        Text(seconds == 0 ? "Off" : "\(seconds) seconds").tag(seconds)
+                    }
+                } label: {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Auto save captures")
-                        Text("Automatically save screenshots to the export folder.")
+                        Text("Self-timer")
+                        Text("Show a countdown before the capture is taken.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                 }
-                .toggleStyle(.switch)
 
-                Toggle(isOn: $autoCopy) {
+                Toggle(isOn: $captureWindowShadow) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Copy to clipboard")
-                        Text("Automatically copy the captured image to your clipboard.")
+                        Text("Capture window shadow")
+                        Text("Include the window's drop shadow when capturing a window.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                 }
                 .toggleStyle(.switch)
             }
+
+            AfterCaptureActionsSection(type: .screenshot, title: "After Capture")
 
             Section("File Format") {
                 Picker("Format", selection: Binding(

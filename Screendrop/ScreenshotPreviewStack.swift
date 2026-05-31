@@ -46,23 +46,67 @@ final class ScreenshotPreviewStack {
     private init() {}
 
     func add(url: URL) {
-        guard let image = ScreenshotImageLoader.downsampledImage(at: url, maxPixelSize: 520) else {
-            return
-        }
-
         QuickLookPreviewPresenter.dismiss()
 
-        var item = ScreenshotPreviewItem(url: url, previewImage: image)
+        if AfterCaptureActions.isEnabled(.showOverlay, for: .screenshot),
+           let image = ScreenshotImageLoader.downsampledImage(at: url, maxPixelSize: 520) {
+            var item = ScreenshotPreviewItem(url: url, previewImage: image)
+            if AfterCaptureActions.isEnabled(.save, for: .screenshot) {
+                item.autoSavedURL = saveToDefaultLocation(from: url)
+            }
+            items.insert(item, at: 0)
+            runAfterCaptureActions(type: .screenshot, url: url, itemID: item.id)
+            scheduleAutoClose(id: item.id)
+        } else {
+            if AfterCaptureActions.isEnabled(.save, for: .screenshot) {
+                _ = saveToDefaultLocation(from: url)
+            }
+            runAfterCaptureActions(type: .screenshot, url: url, itemID: UUID())
+        }
+    }
 
-        if ScreendropPreferences.autoSave {
-            item.autoSavedURL = saveToDefaultLocation(from: url)
+    /// Runs the non-save after-capture actions (copy / upload / annotate / pin /
+    /// open editor). Save is handled by the caller so it can track the
+    /// auto-saved URL on the preview item.
+    private func runAfterCaptureActions(type: AfterCaptureType, url: URL, itemID: UUID) {
+        if AfterCaptureActions.isEnabled(.copy, for: type) {
+            switch type {
+            case .screenshot: _ = copyURLToClipboard(url)
+            case .recording: _ = copyVideoURLToClipboard(url)
+            }
         }
 
-        if ScreendropPreferences.autoCopy {
-            _ = copyURLToClipboard(url)
+        if AfterCaptureActions.isEnabled(.upload, for: type) {
+            autoUpload(itemID: itemID, url: url)
         }
 
-        items.insert(item, at: 0)
+        switch type {
+        case .screenshot:
+            if AfterCaptureActions.isEnabled(.annotate, for: type) {
+                PreviewPanelPresenter.shared.onAnnotate?(url)
+            }
+            if AfterCaptureActions.isEnabled(.pin, for: type) {
+                PinnedScreenshotPresenter.shared.pin(url: url)
+            }
+        case .recording:
+            if AfterCaptureActions.isEnabled(.openVideoEditor, for: type) {
+                PreviewPanelPresenter.shared.onEditVideo?(url)
+            }
+        }
+    }
+
+    private func autoUpload(itemID: UUID, url: URL) {
+        guard CloudUploader.shared.isConfigured else { return }
+        Task {
+            do {
+                let result = try await CloudUploader.shared.upload(itemID: itemID, fileURL: url)
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(result.url, forType: .string)
+                ScreenshotHistoryStore.shared.setCloudURL(for: url, cloudURL: result.url)
+            } catch {
+                print("Auto cloud upload failed: \(error)")
+            }
+        }
     }
 
     func previewExistingImage(url: URL) {
@@ -112,6 +156,14 @@ final class ScreenshotPreviewStack {
     func addVideo(url: URL) {
         QuickLookPreviewPresenter.dismiss()
 
+        guard AfterCaptureActions.isEnabled(.showOverlay, for: .recording) else {
+            if AfterCaptureActions.isEnabled(.save, for: .recording) {
+                _ = saveVideoToDefaultLocation(from: url)
+            }
+            runAfterCaptureActions(type: .recording, url: url, itemID: UUID())
+            return
+        }
+
         var item = ScreenshotPreviewItem(
             url: url,
             previewImage: VideoPreviewImageLoader.placeholderImage(),
@@ -119,15 +171,13 @@ final class ScreenshotPreviewStack {
         )
         let itemID = item.id
 
-        if ScreendropPreferences.autoSave {
+        if AfterCaptureActions.isEnabled(.save, for: .recording) {
             item.autoSavedURL = saveVideoToDefaultLocation(from: url)
         }
 
-        if ScreendropPreferences.autoCopy {
-            _ = copyVideoURLToClipboard(url)
-        }
-
         items.insert(item, at: 0)
+        runAfterCaptureActions(type: .recording, url: url, itemID: itemID)
+        scheduleAutoClose(id: itemID)
 
         Task {
             guard let thumbnail = await VideoPreviewImageLoader.thumbnail(at: url, maxPixelSize: 520),
@@ -137,6 +187,33 @@ final class ScreenshotPreviewStack {
 
             items[index].previewImage = thumbnail
         }
+    }
+
+    /// Dismisses a preview card after the configured delay, unless the user is
+    /// interacting with it (hovering, dragging, or uploading).
+    private func scheduleAutoClose(id: ScreenshotPreviewItem.ID) {
+        guard ScreendropPreferences.previewAutoCloseSeconds > 0 else { return }
+        let seconds = ScreendropPreferences.previewAutoCloseSeconds
+        Task {
+            try? await Task.sleep(for: .seconds(Double(seconds)))
+            autoCloseIfIdle(id: id)
+        }
+    }
+
+    private func autoCloseIfIdle(id: ScreenshotPreviewItem.ID) {
+        guard items.contains(where: { $0.id == id }) else { return }
+
+        if hoveredItemID == id
+            || draggingItemID == id
+            || CloudUploader.shared.uploadingItems.contains(id) {
+            Task {
+                try? await Task.sleep(for: .seconds(2))
+                autoCloseIfIdle(id: id)
+            }
+            return
+        }
+
+        dismiss(id: id)
     }
 
     func setHovered(_ id: ScreenshotPreviewItem.ID, isHovered: Bool) {
@@ -153,7 +230,11 @@ final class ScreenshotPreviewStack {
     }
 
     func finishDrag(id: ScreenshotPreviewItem.ID) {
-        removeImmediately(id: id)
+        if ScreendropPreferences.previewCloseAfterDragging {
+            removeImmediately(id: id)
+        } else {
+            draggingItemID = nil
+        }
     }
 
     func dismiss(id: ScreenshotPreviewItem.ID) {
@@ -193,6 +274,19 @@ final class ScreenshotPreviewStack {
         }
         guard didCopy else { return }
         dismiss(id: id)
+    }
+
+    /// Runs OCR on the item's image and copies the recognised text to the
+    /// clipboard. No-op for videos or images without detectable text.
+    func copyText(id: ScreenshotPreviewItem.ID) {
+        guard let item = items.first(where: { $0.id == id }), item.kind == .image else { return }
+        let url = item.url
+        Task {
+            let text = await ImageTextRecognizer.recognizeText(at: url)
+            guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+        }
     }
 
     func deleteScreenshot(id: ScreenshotPreviewItem.ID) {
