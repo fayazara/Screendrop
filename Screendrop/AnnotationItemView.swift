@@ -194,8 +194,8 @@ struct AnnotationItemView: View {
     }
 
     private var controlViewPoint: CGPoint? {
-        guard let controlPoint = item.controlPoint else { return nil }
-        return viewPoint(controlPoint)
+        guard let curveHandle = item.arrowCurveHandle else { return nil }
+        return viewPoint(curveHandle)
     }
 
     private var viewBounds: CGRect {
