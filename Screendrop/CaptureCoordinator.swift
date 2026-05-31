@@ -42,10 +42,6 @@ final class CaptureCoordinator {
     
     func captureWindow() {
         Task {
-            let countdownDisplayID = await MainActor.run {
-                ActiveDisplayResolver.activeDisplayID(preferPointer: true)
-            }
-            await CaptureCountdownPresenter.shared.runIfNeeded(displayID: countdownDisplayID)
             await prepareForCapture()
             defer {
                 Task { @MainActor in
@@ -53,8 +49,11 @@ final class CaptureCoordinator {
                 }
             }
             
+            // The self-timer is handled by screencapture's `-T` so the delay
+            // happens *after* the window is picked, not before.
             guard let url = await ScreenshotManager.shared.captureWindow(
-                includeShadow: ScreendropPreferences.captureWindowShadow
+                includeShadow: ScreendropPreferences.captureWindowShadow,
+                delaySeconds: ScreendropPreferences.captureDelaySeconds
             ) else { return }
             let displayID = await MainActor.run {
                 ActiveDisplayResolver.activeDisplayID(preferPointer: true)
@@ -65,10 +64,6 @@ final class CaptureCoordinator {
     
     func captureArea() {
         Task {
-            let countdownDisplayID = await MainActor.run {
-                ActiveDisplayResolver.activeDisplayID(preferPointer: true)
-            }
-            await CaptureCountdownPresenter.shared.runIfNeeded(displayID: countdownDisplayID)
             await prepareForCapture()
             defer {
                 Task { @MainActor in
@@ -76,7 +71,11 @@ final class CaptureCoordinator {
                 }
             }
             
-            guard let url = await ScreenshotManager.shared.captureArea() else { return }
+            // The self-timer is handled by screencapture's `-T` so the delay
+            // happens *after* the area is drawn, not before.
+            guard let url = await ScreenshotManager.shared.captureArea(
+                delaySeconds: ScreendropPreferences.captureDelaySeconds
+            ) else { return }
             let displayID = await MainActor.run {
                 ActiveDisplayResolver.activeDisplayID(preferPointer: true)
             }
