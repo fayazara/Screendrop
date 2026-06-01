@@ -2,9 +2,51 @@
 
 > **Beta** -- Screendrop is under active development. Expect rough edges, missing features, and breaking changes between releases. Feedback and bug reports are welcome via [GitHub Issues](https://github.com/fayazara/Screendrop/issues).
 
+<p align="center">
+  <a href="https://github.com/fayazara/Screendrop/releases/latest/download/Screendrop.dmg">
+    <img src="download-button.png" alt="Download the latest version of Screendrop" width="220">
+  </a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/fayazara/Screendrop/releases/latest">Latest release</a>
+  ·
+  <a href="https://github.com/fayazara/Screendrop/releases">All releases</a>
+</p>
+
 Screendrop is a native macOS menu bar app for taking screenshots, recording the screen, annotating captures, and sharing them when needed. It is built for a fast local workflow: capture something, preview it immediately, mark it up, save it, copy it, or upload it from the same floating preview.
 
 The app is designed to stay out of the way. It runs as a menu bar utility with no main window, keeps a local capture history, and only talks to the network when you explicitly configure cloud sharing or check for updates.
+
+## Install
+
+### Download
+
+1. Download the latest `Screendrop.dmg` using the button above, or from the [releases page](https://github.com/fayazara/Screendrop/releases/latest).
+2. Open the DMG and drag **Screendrop** into your Applications folder.
+3. Launch Screendrop. It lives in the menu bar — look for its icon in the top-right.
+
+The download button always points at the most recent release, so the link stays current as new versions ship.
+
+**Requirements:** macOS 26.4 or newer.
+
+> On first launch macOS may warn that the app is from an unidentified developer. If so, right-click the app and choose **Open**, or allow it under **System Settings → Privacy & Security**.
+
+### Homebrew
+
+Install via the Homebrew tap:
+
+```bash
+brew install --cask fayazara/tap/screendrop
+```
+
+To update later:
+
+```bash
+brew upgrade --cask screendrop
+```
+
+(Screendrop also updates itself via Sparkle.)
 
 ## What It Does
 
