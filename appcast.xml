@@ -22,6 +22,27 @@
     -->
 
     <item>
+      <title>Version 0.18</title>
+      <sparkle:version>9</sparkle:version>
+      <sparkle:shortVersionString>0.18</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.4</sparkle:minimumSystemVersion>
+      <pubDate>Mon, 01 Jun 2026 09:31:39 +0000</pubDate>
+      <description><![CDATA[
+        <h2>What's New in 0.18</h2>
+        <ul>
+          <li>Removed unnecessary color picker</li>
+          <li>Updated installation instructions in README.md</li>
+        </ul>
+      ]]></description>
+      <enclosure
+        url="https://github.com/fayazara/screendrop/releases/download/v0.18/Screendrop.dmg"
+        type="application/octet-stream"
+        sparkle:edSignature="OoRqMBFJ2Y2FZ+5cMQaD0eQtSnemHuHQmib7aHwNlZhzXDjtAkTzsksZ02Rpy+F7bclRU4J/yUUmd15CuRe8BA=="
+        length="3788407"
+      />
+    </item>
+
+    <item>
       <title>Version 0.7</title>
       <sparkle:version>8</sparkle:version>
       <sparkle:shortVersionString>0.7</sparkle:shortVersionString>
