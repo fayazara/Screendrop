@@ -41,14 +41,6 @@ struct MenuBarView: View {
 
             Divider()
 
-            Button {
-                ColorPickerService.pickColor()
-            } label: {
-                Label("Pick Color", systemImage: "eyedropper")
-            }
-
-            Divider()
-
             Menu {
                 historyMenuContent
             } label: {
