@@ -2,8 +2,11 @@ package main
 
 import (
 	"bufio"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/xml"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -41,6 +44,12 @@ const (
 	appcastFile    = "appcast.xml"
 	repoEnvVar     = "SCREENDROP_REPO"
 	appcastURL     = "https://raw.githubusercontent.com/fayazara/screendrop/main/appcast.xml"
+
+	// Homebrew tap (cask) configuration.
+	tapRepo      = "fayazara/homebrew-tap"
+	caskRelPath  = "Casks/screendrop.rb"
+	tapDirEnvVar = "SCREENDROP_TAP_DIR"
+	bundleID     = "com.fayazahmed.Screendrop"
 )
 
 var derivedDataPrefixes = []string{
@@ -287,10 +296,120 @@ func main() {
 	}
 	success("Release created")
 
+	step("Updating Homebrew cask...")
+	if err := updateHomebrewCask(homeDir, version, dmgPath); err != nil {
+		warn("Homebrew cask not updated: " + err.Error())
+	} else {
+		success("Homebrew cask updated in " + tapRepo)
+	}
+
 	fmt.Printf("\n%s%s=======================================%s\n", green, bold, reset)
 	fmt.Printf("%s%s  Released %s v%s%s\n", green, bold, appDisplayName, version, reset)
 	fmt.Printf("%s%s  %s%s\n", green, bold, releaseURL, reset)
 	fmt.Printf("%s%s=======================================%s\n\n", green, bold, reset)
+}
+
+// updateHomebrewCask regenerates the cask with the new version and the DMG's
+// sha256, then commits and pushes it to the tap repo. Non-fatal: a missing or
+// unconfigured tap should never block a release.
+func updateHomebrewCask(homeDir, version, dmgPath string) error {
+	sum, err := sha256File(dmgPath)
+	if err != nil {
+		return fmt.Errorf("hashing DMG: %w", err)
+	}
+
+	tapDir, cleanup, err := resolveTapDir(homeDir)
+	if err != nil {
+		return err
+	}
+	if cleanup != nil {
+		defer cleanup()
+	}
+
+	caskPath := filepath.Join(tapDir, caskRelPath)
+	if err := os.MkdirAll(filepath.Dir(caskPath), 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(caskPath, []byte(renderCask(version, sum)), 0o644); err != nil {
+		return err
+	}
+
+	if out, err := runCmd("git", "-C", tapDir, "add", caskRelPath); err != nil {
+		return fmt.Errorf("git add: %s", out)
+	}
+
+	commitMsg := fmt.Sprintf("screendrop %s", version)
+	if out, err := runCmd("git", "-C", tapDir, "commit", "-m", commitMsg); err != nil {
+		if strings.Contains(out, "nothing to commit") {
+			return nil
+		}
+		return fmt.Errorf("git commit: %s", out)
+	}
+
+	if out, err := runCmd("git", "-C", tapDir, "push"); err != nil {
+		return fmt.Errorf("git push: %s", out)
+	}
+	return nil
+}
+
+// resolveTapDir returns a working copy of the tap repo. It honours
+// SCREENDROP_TAP_DIR (a local clone) or falls back to a temporary clone.
+func resolveTapDir(homeDir string) (string, func(), error) {
+	if dir := strings.TrimSpace(os.Getenv(tapDirEnvVar)); dir != "" {
+		if !fileExists(dir) {
+			return "", nil, fmt.Errorf("%s set but %s does not exist", tapDirEnvVar, dir)
+		}
+		_, _ = runCmd("git", "-C", dir, "pull", "--ff-only")
+		return dir, nil, nil
+	}
+
+	tmp, err := os.MkdirTemp("", "screendrop-tap-")
+	if err != nil {
+		return "", nil, err
+	}
+	cleanup := func() { _ = os.RemoveAll(tmp) }
+
+	if out, err := runCmd("gh", "repo", "clone", tapRepo, tmp); err != nil {
+		cleanup()
+		return "", nil, fmt.Errorf("clone %s failed (create it or set %s): %s", tapRepo, tapDirEnvVar, out)
+	}
+	return tmp, cleanup, nil
+}
+
+func renderCask(version, sha string) string {
+	return fmt.Sprintf(`cask "screendrop" do
+  version "%s"
+  sha256 "%s"
+
+  url "https://github.com/%s/releases/download/v#{version}/%s"
+  name "Screendrop"
+  desc "Native macOS menu bar screenshot and screen recording tool"
+  homepage "https://github.com/%s"
+
+  auto_updates true
+
+  app "%s"
+
+  zap trash: [
+    "~/Library/Preferences/%s.plist",
+    "~/Library/Application Support/Screendrop",
+  ]
+end
+`, version, sha, githubRepo, dmgName, githubRepo, appName, bundleID)
+}
+
+func sha256File(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	hasher := sha256.New()
+	if _, err := io.Copy(hasher, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(hasher.Sum(nil)), nil
 }
 
 func findRepoDir(homeDir string) string {
