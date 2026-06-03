@@ -22,6 +22,27 @@
     -->
 
     <item>
+      <title>Version 0.19</title>
+      <sparkle:version>10</sparkle:version>
+      <sparkle:shortVersionString>0.19</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.4</sparkle:minimumSystemVersion>
+      <pubDate>Wed, 03 Jun 2026 20:47:28 +0000</pubDate>
+      <description><![CDATA[
+        <h2>What's New in 0.19</h2>
+        <ul>
+          <li>Zoom images in annotator</li>
+          <li>Smart redaction and blur feature</li>
+        </ul>
+      ]]></description>
+      <enclosure
+        url="https://github.com/fayazara/screendrop/releases/download/v0.19/Screendrop.dmg"
+        type="application/octet-stream"
+        sparkle:edSignature="wccBIMmOsKGl4ExxO+dZqR6tLoVJJatMAYv13fOVMmJQ4kXxwIlsbDFr7kp75grx3k3VETDnOiZU7hzkZz+HBw=="
+        length="3865774"
+      />
+    </item>
+
+    <item>
       <title>Version 0.18</title>
       <sparkle:version>9</sparkle:version>
       <sparkle:shortVersionString>0.18</sparkle:shortVersionString>
