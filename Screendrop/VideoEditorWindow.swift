@@ -764,7 +764,7 @@ struct VideoEditorWindow: View {
         }
 
         let frames = await Task.detached(priority: .userInitiated) { () -> [SendableTimelineFrame] in
-            let asset = AVURLAsset(url: url)
+            let asset = AVURLAsset(url:  url)
             let generator = AVAssetImageGenerator(asset: asset)
             generator.appliesPreferredTrackTransform = true
             generator.requestedTimeToleranceBefore = .zero
