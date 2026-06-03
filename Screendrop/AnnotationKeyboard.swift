@@ -12,6 +12,10 @@ struct AnnotationKeyCommandHandler: NSViewRepresentable {
     let onRedo: () -> Void
     let onSelectAll: () -> Void
     let onSelectTool: (AnnotationTool) -> Void
+    let onZoomIn: () -> Void
+    let onZoomOut: () -> Void
+    let onFitCanvas: () -> Void
+    let onActualSize: () -> Void
 
     func makeNSView(context: Context) -> AnnotationKeyCommandHandlerView {
         let view = AnnotationKeyCommandHandlerView()
@@ -20,6 +24,10 @@ struct AnnotationKeyCommandHandler: NSViewRepresentable {
         view.onRedo = onRedo
         view.onSelectAll = onSelectAll
         view.onSelectTool = onSelectTool
+        view.onZoomIn = onZoomIn
+        view.onZoomOut = onZoomOut
+        view.onFitCanvas = onFitCanvas
+        view.onActualSize = onActualSize
         return view
     }
 
@@ -29,6 +37,10 @@ struct AnnotationKeyCommandHandler: NSViewRepresentable {
         nsView.onRedo = onRedo
         nsView.onSelectAll = onSelectAll
         nsView.onSelectTool = onSelectTool
+        nsView.onZoomIn = onZoomIn
+        nsView.onZoomOut = onZoomOut
+        nsView.onFitCanvas = onFitCanvas
+        nsView.onActualSize = onActualSize
     }
 }
 
@@ -38,6 +50,10 @@ final class AnnotationKeyCommandHandlerView: NSView {
     var onRedo: (() -> Void)?
     var onSelectAll: (() -> Void)?
     var onSelectTool: ((AnnotationTool) -> Void)?
+    var onZoomIn: (() -> Void)?
+    var onZoomOut: (() -> Void)?
+    var onFitCanvas: (() -> Void)?
+    var onActualSize: (() -> Void)?
 
     private var localKeyMonitor: Any?
 
@@ -84,6 +100,26 @@ final class AnnotationKeyCommandHandlerView: NSView {
                 return nil
             }
 
+            if Self.isZoomIn(event) {
+                self.onZoomIn?()
+                return nil
+            }
+
+            if Self.isZoomOut(event) {
+                self.onZoomOut?()
+                return nil
+            }
+
+            if Self.isFitCanvas(event) {
+                self.onFitCanvas?()
+                return nil
+            }
+
+            if Self.isActualSize(event) {
+                self.onActualSize?()
+                return nil
+            }
+
             if let tool = Self.toolShortcut(for: event) {
                 self.onSelectTool?(tool)
                 return nil
@@ -118,6 +154,29 @@ final class AnnotationKeyCommandHandlerView: NSView {
         event.modifierFlags.contains(.command)
             && !event.modifierFlags.contains(.shift)
             && event.charactersIgnoringModifiers?.lowercased() == "a"
+    }
+
+    private static func isZoomIn(_ event: NSEvent) -> Bool {
+        guard event.modifierFlags.contains(.command) else { return false }
+        let character = event.charactersIgnoringModifiers
+        return character == "+" || character == "="
+    }
+
+    private static func isZoomOut(_ event: NSEvent) -> Bool {
+        event.modifierFlags.contains(.command)
+            && (event.charactersIgnoringModifiers == "-" || event.charactersIgnoringModifiers == "_")
+    }
+
+    private static func isFitCanvas(_ event: NSEvent) -> Bool {
+        event.modifierFlags.contains(.command)
+            && !event.modifierFlags.contains(.shift)
+            && event.charactersIgnoringModifiers == "1"
+    }
+
+    private static func isActualSize(_ event: NSEvent) -> Bool {
+        event.modifierFlags.contains(.command)
+            && !event.modifierFlags.contains(.shift)
+            && event.charactersIgnoringModifiers == "0"
     }
 
     private static func toolShortcut(for event: NSEvent) -> AnnotationTool? {

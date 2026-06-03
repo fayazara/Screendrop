@@ -50,7 +50,11 @@ struct AnnotationEditorWindow: View {
                 onUndo: model.undo,
                 onRedo: model.redo,
                 onSelectAll: model.selectAllAnnotations,
-                onSelectTool: model.selectTool
+                onSelectTool: model.selectTool,
+                onZoomIn: { withAnimation(.canvasZoom) { model.zoomIn() } },
+                onZoomOut: { withAnimation(.canvasZoom) { model.zoomOut() } },
+                onFitCanvas: { withAnimation(.canvasZoom) { model.fitCanvas() } },
+                onActualSize: { withAnimation(.canvasZoom) { model.setZoomPercent(100) } }
             ))
             .inspector(isPresented: $isInspectorPresented) {
                 AnnotationEditorInspector(
@@ -76,6 +80,14 @@ struct AnnotationEditorWindow: View {
             }
         }
         .frame(minWidth: 760, minHeight: 580)
+        .clipped()
+        .overlay(alignment: .bottomLeading) {
+            if model.previewImage != nil, model.imageSize != .zero {
+                AnnotationZoomControl(model: model)
+                    .padding(.leading, 16)
+                    .padding(.bottom, 16)
+            }
+        }
         .overlay(alignment: .bottomLeading) {
             if let errorMessage = model.errorMessage {
                 Text(errorMessage)
@@ -189,6 +201,55 @@ struct AnnotationEditorWindow: View {
             isFinishing = false
             model.errorMessage = "Failed to finish annotation: \(error.localizedDescription)"
         }
+    }
+}
+
+private extension Animation {
+    /// Animation used for discrete zoom changes (menu, shortcuts, zoom in/out).
+    static var canvasZoom: Animation { .smooth(duration: 0.24) }
+}
+
+private struct AnnotationZoomControl: View {
+    @Bindable var model: AnnotationEditorModel
+
+    private func zoom(_ change: () -> Void) {
+        withAnimation(.canvasZoom, change)
+    }
+
+    var body: some View {
+        Menu {
+            Button("Zoom In") { zoom { model.zoomIn() } }
+                .keyboardShortcut("+", modifiers: .command)
+            Button("Zoom Out") { zoom { model.zoomOut() } }
+                .keyboardShortcut("-", modifiers: .command)
+
+            Divider()
+
+            Button("Fit Canvas") { zoom { model.fitCanvas() } }
+                .keyboardShortcut("1", modifiers: .command)
+
+            Divider()
+
+            Button("50%") { zoom { model.setZoomPercent(50) } }
+            Button("100%") { zoom { model.setZoomPercent(100) } }
+                .keyboardShortcut("0", modifiers: .command)
+            Button("200%") { zoom { model.setZoomPercent(200) } }
+        } label: {
+            Text("\(model.zoomPercent)%")
+                .font(.system(size: 12, weight: .medium))
+                .monospacedDigit()
+                .frame(minWidth: 38)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(.regularMaterial, in: Capsule())
+                .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08)))
+                .contentShape(Capsule())
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
+        .help("Zoom")
     }
 }
 
