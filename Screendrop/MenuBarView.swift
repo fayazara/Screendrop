@@ -5,6 +5,7 @@
 //  Created by Fayaz Ahmed Aralikatti on 26/04/26.
 //
 
+import AppKit
 import ScreenCaptureKit
 import SwiftUI
 
@@ -45,6 +46,12 @@ struct MenuBarView: View {
                 historyMenuContent
             } label: {
                 Label("History", systemImage: "clock.arrow.circlepath")
+            }
+
+            Button {
+                openScreenshotsFolder()
+            } label: {
+                Label("Open Screenshots Folder", systemImage: "folder")
             }
             
             Button {
@@ -175,6 +182,33 @@ struct MenuBarView: View {
 
     private func openSettings(tab: SettingsTab) {
         SettingsWindowController.show(tab: tab)
+    }
+
+    private func openScreenshotsFolder() {
+        let directory = ScreendropPreferences.exportDirectory
+
+        do {
+            try FileManager.default.createDirectory(
+                at: directory,
+                withIntermediateDirectories: true
+            )
+        } catch {
+            showOpenScreenshotsFolderError(directory: directory, errorDescription: error.localizedDescription)
+            return
+        }
+
+        if !NSWorkspace.shared.open(directory) {
+            showOpenScreenshotsFolderError(directory: directory, errorDescription: nil)
+        }
+    }
+
+    private func showOpenScreenshotsFolderError(directory: URL, errorDescription: String?) {
+        let alert = NSAlert()
+        alert.messageText = "Could not open screenshots folder."
+        alert.informativeText = errorDescription ?? directory.path
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
     }
 
     private func historyMenuTitle(for item: ScreenshotHistoryItem) -> String {
