@@ -43,6 +43,8 @@ final class AnnotationEditorModel {
     var redactionDensity: CGFloat = 0.55
     var backgroundSettings = AnnotationBackgroundSettings()
     var errorMessage: String?
+    var isSmartRedacting = false
+    var smartRedactionMessage: String?
 
     // MARK: Zoom & pan
     /// When `true` the canvas is scaled to fit the available viewport (default).
@@ -153,6 +155,7 @@ final class AnnotationEditorModel {
         RedactionImageProcessor.removeAllCachedPreviewImages()
         statePath = AnnotationToolState.idle.path(for: selectedTool)
         errorMessage = nil
+        smartRedactionMessage = nil
 
         if previewImage == nil || imageSize == .zero {
             errorMessage = "Unable to load screenshot."
@@ -174,6 +177,8 @@ final class AnnotationEditorModel {
         interaction = nil
         history.reset()
         errorMessage = nil
+        isSmartRedacting = false
+        smartRedactionMessage = nil
         RedactionImageProcessor.removeAllCachedPreviewImages()
     }
 
@@ -539,6 +544,31 @@ final class AnnotationEditorModel {
         statePath = AnnotationToolState.idle.path(for: selectedTool)
     }
 
+    func smartRedact(using tool: AnnotationTool) {
+        guard tool.isRedactionTool,
+              !isSmartRedacting,
+              let recognitionURL = baseImageURL ?? sourceURL else {
+            return
+        }
+
+        let loadedSourceURL = sourceURL
+        isSmartRedacting = true
+        smartRedactionMessage = nil
+
+        Task { @MainActor in
+            let regions = await SmartRedactionRecognizer.sensitiveRegions(at: recognitionURL)
+
+            guard sourceURL == loadedSourceURL,
+                  baseImageURL == recognitionURL || sourceURL == recognitionURL else {
+                isSmartRedacting = false
+                return
+            }
+
+            applySmartRedactionRegions(regions, tool: tool)
+            isSmartRedacting = false
+        }
+    }
+
     func hoveredAnnotation(at location: CGPoint, imageFrame: CGRect, boundaryFrame: CGRect) -> AnnotationItem? {
         guard let point = normalizedPoint(location, in: imageFrame, boundedBy: boundaryFrame, clamped: false) else {
             return nil
@@ -732,6 +762,39 @@ final class AnnotationEditorModel {
             textIsUnderline = item.isUnderline
             textAlignment = item.textAlignment
         }
+    }
+
+    private func applySmartRedactionRegions(_ regions: [SmartRedactionRegion], tool: AnnotationTool) {
+        let renderableRegions = regions.filter {
+            $0.bounds.width >= minimumItemSize && $0.bounds.height >= minimumItemSize
+        }
+
+        guard !renderableRegions.isEmpty else {
+            smartRedactionMessage = "No sensitive text found."
+            return
+        }
+
+        history.push(items)
+        let newItems = renderableRegions.map { region in
+            AnnotationItem(
+                tool: tool,
+                rect: region.bounds,
+                swatch: selectedSwatch,
+                strokeWidth: strokeWidth,
+                redactionDensity: redactionDensity
+            )
+        }
+
+        items.append(contentsOf: newItems)
+        selectedItemIDs = Set(newItems.map(\.id))
+        editingTextItemID = nil
+        isTextPlacementArmed = false
+        selectionRect = nil
+        interaction = nil
+        draftItem = nil
+        selectedTool = tool
+        statePath = AnnotationToolState.idle.path(for: tool)
+        smartRedactionMessage = "Added \(newItems.count) redaction\(newItems.count == 1 ? "" : "s")."
     }
 
     private func normalizedPoint(

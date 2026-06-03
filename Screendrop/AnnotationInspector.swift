@@ -34,6 +34,46 @@ struct AnnotationEditorInspector: View {
                     .padding(.top, 14)
                     .padding(.bottom, 16)
 
+                    AnnotationInspectorDivider()
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        AnnotationInspectorSectionHeader("SMART REDACTION")
+
+                        HStack(spacing: 8) {
+                            SmartRedactionButton(
+                                title: "Smart Pixelate",
+                                systemImage: "app.background.dotted",
+                                isRunning: model.isSmartRedacting
+                            ) {
+                                model.smartRedact(using: .pixelate)
+                            }
+
+                            SmartRedactionButton(
+                                title: "Smart Blur",
+                                systemImage: "drop.fill",
+                                isRunning: model.isSmartRedacting
+                            ) {
+                                model.smartRedact(using: .blur)
+                            }
+                        }
+
+                        if model.isSmartRedacting {
+                            HStack(spacing: 6) {
+                                ProgressView()
+                                    .controlSize(.small)
+                                Text("Scanning screenshot...")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        } else if let message = model.smartRedactionMessage {
+                            Text(message)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 14)
+
                     if model.inspectedTool != nil {
                         AnnotationInspectorDivider()
 
@@ -152,6 +192,24 @@ struct AnnotationEditorInspector: View {
 
     private var sidebarBackground: Color {
         colorScheme == .dark ? Color(nsColor: .windowBackgroundColor) : .white
+    }
+}
+
+private struct SmartRedactionButton: View {
+    let title: String
+    let systemImage: String
+    let isRunning: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .font(.system(size: 12, weight: .medium))
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .disabled(isRunning)
     }
 }
 
