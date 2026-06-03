@@ -30,6 +30,7 @@ struct AnnotationCanvas: View {
     @Bindable var model: AnnotationEditorModel
     let image: NSImage
 
+    @Environment(\.displayScale) private var displayScale
     @State private var hasActiveInteraction = false
     @State private var hoveredLocation: CGPoint?
     @State private var currentCursor: AnnotationCanvasCursor = .arrow
@@ -40,7 +41,7 @@ struct AnnotationCanvas: View {
                 contentSize: model.imageSize,
                 settings: model.backgroundSettings
             )
-            let canvasFrame = aspectFitRect(imageSize: backgroundLayout.canvasSize, in: proxy.size)
+            let canvasFrame = model.displayCanvasFrame(in: proxy.size)
             let displayLayout = backgroundLayout.scaled(to: canvasFrame)
             let imageFrame = displayLayout.imageFrame
             let boundaryFrame = model.backgroundSettings.isEnabled ? displayLayout.canvasFrame : imageFrame
@@ -119,7 +120,23 @@ struct AnnotationCanvas: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .contentShape(Rectangle())
+            .background(
+                AnnotationCanvasInputHandler(
+                    onPan: { dx, dy in model.panBy(dx: dx, dy: dy) },
+                    onZoom: { factor in model.zoomBy(factor) }
+                )
+            )
             .gesture(interactionGesture(imageFrame: imageFrame, boundaryFrame: boundaryFrame))
+            .onAppear {
+                model.viewportSize = proxy.size
+                model.displayScale = displayScale
+            }
+            .onChange(of: proxy.size) { _, newValue in
+                model.viewportSize = newValue
+            }
+            .onChange(of: displayScale) { _, newValue in
+                model.displayScale = newValue
+            }
             .onContinuousHover { phase in
                 switch phase {
                 case .active(let location):
@@ -188,24 +205,6 @@ struct AnnotationCanvas: View {
             }
     }
 
-    private func aspectFitRect(imageSize: CGSize, in containerSize: CGSize) -> CGRect {
-        guard imageSize.width > 0,
-              imageSize.height > 0,
-              containerSize.width > 0,
-              containerSize.height > 0 else {
-            return .zero
-        }
-
-        let scale = min(containerSize.width / imageSize.width, containerSize.height / imageSize.height)
-        let size = CGSize(width: imageSize.width * scale, height: imageSize.height * scale)
-        return CGRect(
-            x: (containerSize.width - size.width) / 2,
-            y: (containerSize.height - size.height) / 2,
-            width: size.width,
-            height: size.height
-        )
-    }
-
     private func viewRect(_ rect: CGRect, in imageFrame: CGRect) -> CGRect {
         CGRect(
             x: imageFrame.minX + rect.minX * imageFrame.width,
@@ -241,6 +240,80 @@ struct AnnotationCanvas: View {
         guard currentCursor != cursor else { return }
         currentCursor = cursor
         cursor.nsCursor.set()
+    }
+}
+
+/// Captures scroll-wheel and pinch-magnify events over the canvas region to
+/// drive panning and zooming, without interfering with SwiftUI drawing gestures.
+private struct AnnotationCanvasInputHandler: NSViewRepresentable {
+    let onPan: (CGFloat, CGFloat) -> Void
+    let onZoom: (CGFloat) -> Void
+
+    func makeNSView(context: Context) -> InputView {
+        let view = InputView()
+        view.onPan = onPan
+        view.onZoom = onZoom
+        return view
+    }
+
+    func updateNSView(_ nsView: InputView, context: Context) {
+        nsView.onPan = onPan
+        nsView.onZoom = onZoom
+    }
+
+    final class InputView: NSView {
+        var onPan: ((CGFloat, CGFloat) -> Void)?
+        var onZoom: ((CGFloat) -> Void)?
+
+        private var monitor: Any?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            installMonitor()
+        }
+
+        deinit {
+            if let monitor {
+                NSEvent.removeMonitor(monitor)
+            }
+        }
+
+        private func installMonitor() {
+            guard monitor == nil else { return }
+
+            monitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel, .magnify]) { [weak self] event in
+                guard let self,
+                      let window = self.window,
+                      window.isKeyWindow,
+                      event.window == window else {
+                    return event
+                }
+
+                if window.firstResponder is NSTextView {
+                    return event
+                }
+
+                let pointInView = self.convert(event.locationInWindow, from: nil)
+                guard self.bounds.contains(pointInView) else {
+                    return event
+                }
+
+                switch event.type {
+                case .magnify:
+                    self.onZoom?(1 + event.magnification)
+                    return nil
+                case .scrollWheel:
+                    if event.modifierFlags.intersection([.command, .option]).isEmpty {
+                        self.onPan?(event.scrollingDeltaX, event.scrollingDeltaY)
+                    } else {
+                        self.onZoom?(1 + event.scrollingDeltaY * 0.0025)
+                    }
+                    return nil
+                default:
+                    return event
+                }
+            }
+        }
     }
 }
 
