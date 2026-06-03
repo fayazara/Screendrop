@@ -87,61 +87,56 @@ brew install ffmpeg
 
 ## Cloud Sharing
 
-Screendrop does not require a paid backend. Cloud sharing is designed around a small Cloudflare setup that can run on the free tier:
+Screendrop does not require a paid backend. Cloud sharing is designed around a small Cloudflare Worker setup that can run on the free tier:
 
+- A Cloudflare Worker receives authenticated uploads and returns share links.
 - Cloudflare R2 stores the actual screenshot or recording files.
-- A Cloudflare Worker creates and serves share links.
 - Cloudflare D1 stores lightweight metadata for each uploaded capture.
-- Screendrop uploads directly from your Mac to your own R2 bucket.
+- Screendrop only needs your Worker URL and upload token. It does not store R2/S3 credentials.
 
 The companion Worker lives here:
 
 [github.com/fayazara/screendrop-worker](https://github.com/fayazara/screendrop-worker)
 
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/fayazara/screendrop-worker)
+
 ### How Uploads Work
 
-When you upload a capture, Screendrop does two things:
+When you upload a capture:
 
-1. It uploads the file directly to your R2 bucket using the S3-compatible R2 API.
-2. It calls the Worker's `/api/register` endpoint with the R2 object key and metadata such as filename, content type, size, dimensions, and media type.
+1. Screendrop sends the file to your Worker with `PUT /api/upload`.
+2. The Worker validates the upload token.
+3. The Worker writes the file to R2 and records metadata in D1.
+4. The Worker returns a share URL, which Screendrop copies to the clipboard and stores in local history.
 
-The Worker validates the upload token, stores the metadata in D1, and returns a short share URL. Screendrop stores that URL in local history so you can copy it again later.
-
-This keeps large files out of the Worker request path. The Worker only handles metadata and public link routing; the file bytes go directly to R2.
+The upload token is the only secret Screendrop needs. File storage and metadata stay in your own Cloudflare account.
 
 ### Cloud Setup
 
-In Cloudflare:
+The fastest setup is from Screendrop:
 
-1. Create an R2 bucket.
-2. Generate R2 S3 API credentials with read/write access.
-3. Deploy the Screendrop Worker.
-4. Set the Worker upload token:
+1. Open **Settings -> Cloud**.
+2. Copy the generated upload token.
+3. Click **Deploy to Cloudflare**.
+4. Paste the token when Cloudflare asks for the `UPLOAD_TOKEN` secret.
+5. After deployment, copy your Worker URL back into Screendrop.
+6. Click **Verify Connection**.
+
+The deploy flow provisions the Cloudflare resources the Worker needs, including R2 and D1 bindings. If you are deploying manually, configure the Worker with the required R2 and D1 bindings and store the upload token as a Worker secret:
 
 ```bash
-wrangler secret put UPLOAD_TOKEN
+npx wrangler secret put UPLOAD_TOKEN
 ```
 
-In Screendrop, open Settings -> Cloud and enter:
-
-- R2 endpoint, for example `https://<account_id>.r2.cloudflarestorage.com`
-- Bucket name
-- Region, usually `auto` for R2
-- R2 access key ID
-- R2 secret access key
-- Optional public URL base if you use a custom R2 public domain
-- Worker URL
-- Upload token
-
-Use the built-in connection checks to verify both R2 and the Worker before uploading captures.
+Screendrop's connection check calls the Worker setup and ping endpoints so it can verify the URL and token before you upload captures.
 
 ## Privacy Model
 
 Screendrop is local-first.
 
 - Captures are stored on your Mac by default.
-- R2 credentials and the upload token are stored in Keychain.
-- Bucket names, endpoints, and Worker URLs are stored in app preferences.
+- The upload token is stored in Keychain.
+- The Worker URL is stored in app preferences.
 - Cloud uploads only happen when you use the upload action.
 - The app does not depend on a central Screendrop server.
 
