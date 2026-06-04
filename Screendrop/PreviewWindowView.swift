@@ -12,8 +12,11 @@ import SwiftUI
 
 let previewCardSize = CGSize(width: 165, height: 124)
 let previewTrailingPadding: CGFloat = 28
+let previewStackSpacing: CGFloat = 15
+let previewStackEdgePadding: CGFloat = 32
 let previewStackAnimation = Animation.smooth(duration: 0.3, extraBounce: 0)
 let previewCardSlideOffset = previewCardSize.width + previewTrailingPadding + 48
+let previewCardScrollOutOffset = previewCardSize.height + previewStackEdgePadding + 48
 
 struct PreviewWindowView: View {
     private let onRequestClose: (() -> Void)?
@@ -50,84 +53,98 @@ struct PreviewWindowView: View {
     }
     
     var body: some View {
-        VStack(spacing: 15) {
-            ForEach(previewStack.items) { item in
-                PreviewCardView(
-                    item: item,
-                    isHidden: previewStack.draggingItemID == item.id,
-                    isDismissing: previewStack.dismissingItemIDs.contains(item.id),
-                    slideDirection: slideDirection,
-                    onHoverChanged: { isHovered in
-                        previewStack.setHovered(item.id, isHovered: isHovered)
-                    },
-                    onClose: {
-                        previewStack.dismiss(id: item.id)
-                    },
-                    onDelete: {
-                        previewStack.deleteScreenshot(id: item.id)
-                    },
-                    onCopy: {
-                        previewStack.copyToClipboard(id: item.id)
-                    },
-                    onSave: {
-                        previewStack.save(id: item.id)
-                    },
-                    onAnnotate: {
-                        guard item.kind == .image else { return }
-                        QuickLookPreviewPresenter.dismiss()
-                        if let onAnnotate {
-                            onAnnotate(item.url)
-                        } else {
-                            openWindow(id: "ANNOTATION_EDITOR", value: item.url)
-                        }
-                    },
-                    onEditVideo: {
-                        guard item.kind == .video else { return }
-                        QuickLookPreviewPresenter.dismiss()
-                        if let onEditVideo {
-                            onEditVideo(item.url)
-                        } else {
-                            openWindow(id: "VIDEO_EDITOR", value: item.url)
-                        }
-                    },
-                    onUpload: {
-                        Task {
-                            do {
-                                let result = try await CloudUploader.shared.upload(itemID: item.id, fileURL: item.url)
-                                NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString(result.url, forType: .string)
-                                ScreenshotHistoryStore.shared.setCloudURL(for: item.url, cloudURL: result.url)
-                            } catch {
-                                print("Cloud upload failed: \(error)")
+        GeometryReader { proxy in
+            let visibleCapacity = visibleItemCapacity(for: proxy.size.height)
+
+            VStack(spacing: previewStackSpacing) {
+                ForEach(previewStack.items) { item in
+                    PreviewCardView(
+                        item: item,
+                        isHidden: previewStack.draggingItemID == item.id,
+                        isDismissing: previewStack.dismissingItemIDs.contains(item.id),
+                        dismissalStyle: previewStack.overflowDismissingItemIDs.contains(item.id) ? .scrollOut : .slideOut,
+                        slideDirection: slideDirection,
+                        onHoverChanged: { isHovered in
+                            previewStack.setHovered(item.id, isHovered: isHovered)
+                        },
+                        onClose: {
+                            previewStack.dismiss(id: item.id)
+                        },
+                        onDelete: {
+                            previewStack.deleteScreenshot(id: item.id)
+                        },
+                        onCopy: {
+                            previewStack.copyToClipboard(id: item.id)
+                        },
+                        onSave: {
+                            previewStack.save(id: item.id)
+                        },
+                        onAnnotate: {
+                            guard item.kind == .image else { return }
+                            QuickLookPreviewPresenter.dismiss()
+                            if let onAnnotate {
+                                onAnnotate(item.url)
+                            } else {
+                                openWindow(id: "ANNOTATION_EDITOR", value: item.url)
+                            }
+                        },
+                        onEditVideo: {
+                            guard item.kind == .video else { return }
+                            QuickLookPreviewPresenter.dismiss()
+                            if let onEditVideo {
+                                onEditVideo(item.url)
+                            } else {
+                                openWindow(id: "VIDEO_EDITOR", value: item.url)
+                            }
+                        },
+                        onUpload: {
+                            Task {
+                                do {
+                                    let result = try await CloudUploader.shared.upload(itemID: item.id, fileURL: item.url)
+                                    NSPasteboard.general.clearContents()
+                                    NSPasteboard.general.setString(result.url, forType: .string)
+                                    ScreenshotHistoryStore.shared.setCloudURL(for: item.url, cloudURL: result.url)
+                                } catch {
+                                    print("Cloud upload failed: \(error)")
+                                }
+                            }
+                        },
+                        onPin: {
+                            guard item.kind == .image else { return }
+                            QuickLookPreviewPresenter.dismiss()
+                            PinnedScreenshotPresenter.shared.pin(url: item.url)
+                            previewStack.dismiss(id: item.id)
+                        },
+                        onCopyText: {
+                            previewStack.copyText(id: item.id)
+                        },
+                        onDragBegan: {
+                            previewStack.beginDrag(id: item.id)
+                        },
+                        onDragEnded: {
+                            withAnimation(previewStackAnimation) {
+                                previewStack.finishDrag(id: item.id)
                             }
                         }
-                    },
-                    onPin: {
-                        guard item.kind == .image else { return }
-                        QuickLookPreviewPresenter.dismiss()
-                        PinnedScreenshotPresenter.shared.pin(url: item.url)
-                        previewStack.dismiss(id: item.id)
-                    },
-                    onCopyText: {
-                        previewStack.copyText(id: item.id)
-                    },
-                    onDragBegan: {
-                        previewStack.beginDrag(id: item.id)
-                    },
-                    onDragEnded: {
-                        withAnimation(previewStackAnimation) {
-                            previewStack.finishDrag(id: item.id)
-                        }
-                    }
-                )
+                    )
+                }
+            }
+            .frame(width: previewCardSize.width)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: stackAlignment)
+            .padding(.leading, previewPosition == .left ? previewTrailingPadding : 0)
+            .padding(.trailing, previewPosition == .right ? previewTrailingPadding : 0)
+            .padding(.bottom, previewStackEdgePadding)
+            .animation(previewStackAnimation, value: previewStack.itemIDs)
+            .onAppear {
+                previewStack.dismissOverflowItems(visibleCapacity: visibleCapacity)
+            }
+            .onChange(of: previewStack.itemIDs) { _, _ in
+                previewStack.dismissOverflowItems(visibleCapacity: visibleCapacity)
+            }
+            .onChange(of: visibleCapacity) { _, capacity in
+                previewStack.dismissOverflowItems(visibleCapacity: capacity)
             }
         }
-        .frame(width: previewCardSize.width)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: stackAlignment)
-        .padding(.leading, previewPosition == .left ? previewTrailingPadding : 0)
-        .padding(.trailing, previewPosition == .right ? previewTrailingPadding : 0)
-        .padding(.bottom, 32)
-        .animation(previewStackAnimation, value: previewStack.itemIDs)
         .onAppear(perform: installKeyMonitors)
         .onDisappear(perform: tearDown)
         .onChange(of: previewStack.items.count) { _, count in
@@ -139,6 +156,15 @@ struct PreviewWindowView: View {
                 }
             }
         }
+    }
+
+    private func visibleItemCapacity(for height: CGFloat) -> Int {
+        guard height > 0 else { return Int.max }
+
+        let availableHeight = max(0, height - (previewStackEdgePadding * 2))
+        let itemStride = previewCardSize.height + previewStackSpacing
+        let capacity = Int((availableHeight + previewStackSpacing) / itemStride)
+        return max(1, capacity)
     }
     
     // MARK: - Keyboard
