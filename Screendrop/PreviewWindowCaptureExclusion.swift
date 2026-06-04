@@ -17,7 +17,6 @@ final class PreviewWindowCaptureExclusion {
     static let isDemoMode = CommandLine.arguments.contains("--demo-mode")
 
     private weak var previewWindow: NSWindow?
-    private var captureHiddenWindow: NSWindow?
     private var annotationHiddenWindow: NSWindow?
     private var annotationHideCount = 0
     
@@ -33,29 +32,6 @@ final class PreviewWindowCaptureExclusion {
         PreviewWindowPlacement.shared.attach(window: window)
     }
     
-    func hideForCapture() {
-        guard let previewWindow,
-              previewWindow.isVisible else {
-            return
-        }
-        
-        captureHiddenWindow = previewWindow
-        previewWindow.orderOut(nil)
-    }
-    
-    func restoreAfterCapture() {
-        guard let captureHiddenWindow else { return }
-        guard annotationHideCount == 0 else {
-            self.captureHiddenWindow = nil
-            return
-        }
-        
-        if !Self.isDemoMode { captureHiddenWindow.sharingType = .none }
-        PreviewWindowPlacement.shared.applyPlacement()
-        PreviewWindowPlacement.shared.showAboveActiveSpace()
-        self.captureHiddenWindow = nil
-    }
-
     func hideForAnnotation() {
         annotationHideCount += 1
         guard annotationHideCount == 1 else { return }
@@ -63,15 +39,12 @@ final class PreviewWindowCaptureExclusion {
         if let previewWindow, previewWindow.isVisible {
             annotationHiddenWindow = previewWindow
             previewWindow.orderOut(nil)
-        } else if let captureHiddenWindow {
-            annotationHiddenWindow = captureHiddenWindow
         }
     }
 
     func restoreAfterAnnotation() {
         annotationHideCount = max(0, annotationHideCount - 1)
         guard annotationHideCount == 0,
-              captureHiddenWindow == nil,
               let annotationHiddenWindow else {
             return
         }

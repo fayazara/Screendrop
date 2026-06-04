@@ -28,13 +28,6 @@ final class CaptureCoordinator {
 
         Task {
             await CaptureCountdownPresenter.shared.runIfNeeded(displayID: displayID)
-            await prepareForCapture()
-            defer {
-                Task { @MainActor in
-                    PreviewWindowCaptureExclusion.shared.restoreAfterCapture()
-                }
-            }
-            
             guard let url = await ScreenshotManager.shared.captureFullscreen(displayID: displayID) else { return }
             await MainActor.run { self.finishCapture(url: url, displayID: displayID) }
         }
@@ -42,13 +35,6 @@ final class CaptureCoordinator {
     
     func captureWindow() {
         Task {
-            await prepareForCapture()
-            defer {
-                Task { @MainActor in
-                    PreviewWindowCaptureExclusion.shared.restoreAfterCapture()
-                }
-            }
-            
             // The self-timer is handled by screencapture's `-T` so the delay
             // happens *after* the window is picked, not before.
             guard let url = await ScreenshotManager.shared.captureWindow(
@@ -64,13 +50,6 @@ final class CaptureCoordinator {
     
     func captureArea() {
         Task {
-            await prepareForCapture()
-            defer {
-                Task { @MainActor in
-                    PreviewWindowCaptureExclusion.shared.restoreAfterCapture()
-                }
-            }
-            
             // The self-timer is handled by screencapture's `-T` so the delay
             // happens *after* the area is drawn, not before.
             guard let url = await ScreenshotManager.shared.captureArea(
@@ -134,14 +113,6 @@ final class CaptureCoordinator {
         }
 
         onShowPreview(url, displayID)
-    }
-    
-    private func prepareForCapture() async {
-        await MainActor.run {
-            PreviewWindowCaptureExclusion.shared.hideForCapture()
-        }
-        
-        try? await Task.sleep(for: .milliseconds(200))
     }
 }
 

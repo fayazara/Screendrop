@@ -34,6 +34,8 @@ final class ScreenshotPreviewStack {
     var draggingItemID: ScreenshotPreviewItem.ID?
     var dismissingItemIDs: Set<ScreenshotPreviewItem.ID> = []
 
+    private var visibleCapacity: Int?
+
     var itemIDs: [ScreenshotPreviewItem.ID] {
         items.map(\.id)
     }
@@ -54,6 +56,7 @@ final class ScreenshotPreviewStack {
             if AfterCaptureActions.isEnabled(.save, for: .screenshot) {
                 item.autoSavedURL = saveToDefaultLocation(from: url)
             }
+            prepareForInsertedPreview()
             items.insert(item, at: 0)
             runAfterCaptureActions(type: .screenshot, url: url, itemID: item.id)
             scheduleAutoClose(id: item.id)
@@ -124,6 +127,7 @@ final class ScreenshotPreviewStack {
             return
         }
 
+        prepareForInsertedPreview()
         items.insert(ScreenshotPreviewItem(url: url, previewImage: image), at: 0)
     }
 
@@ -142,6 +146,7 @@ final class ScreenshotPreviewStack {
             kind: .video
         )
         let itemID = item.id
+        prepareForInsertedPreview()
         items.insert(item, at: 0)
 
         Task {
@@ -175,6 +180,7 @@ final class ScreenshotPreviewStack {
             item.autoSavedURL = saveVideoToDefaultLocation(from: url)
         }
 
+        prepareForInsertedPreview()
         items.insert(item, at: 0)
         runAfterCaptureActions(type: .recording, url: url, itemID: itemID)
         scheduleAutoClose(id: itemID)
@@ -262,12 +268,37 @@ final class ScreenshotPreviewStack {
         }
     }
 
+    func setVisibleCapacity(_ capacity: Int) {
+        guard capacity > 0, capacity < Int.max else { return }
+
+        visibleCapacity = capacity
+        dismissOverflowItems(visibleCapacity: capacity)
+    }
+
     func dismissOverflowItems(visibleCapacity: Int) {
         guard visibleCapacity > 0 else { return }
-        guard items.count > visibleCapacity else { return }
 
-        let overflowCount = items.count - visibleCapacity
-        let overflowItems = items.suffix(overflowCount)
+        let stableItemCount = items.filter { !dismissingItemIDs.contains($0.id) }.count
+        let overflowCount = stableItemCount - visibleCapacity
+        dismissOldestStableItems(count: overflowCount)
+    }
+
+    private func prepareForInsertedPreview() {
+        guard let visibleCapacity else { return }
+
+        let stableItemCount = items.filter { !dismissingItemIDs.contains($0.id) }.count
+        let overflowCount = stableItemCount + 1 - visibleCapacity
+        dismissOldestStableItems(count: overflowCount)
+    }
+
+    private func dismissOldestStableItems(count: Int) {
+        guard count > 0 else { return }
+
+        let overflowItems = items
+            .reversed()
+            .filter { !dismissingItemIDs.contains($0.id) }
+            .prefix(count)
+
         for item in overflowItems {
             dismiss(id: item.id)
         }
@@ -372,6 +403,7 @@ final class ScreenshotPreviewStack {
             republishLatestVersion(at: index)
             return true
         } else {
+            prepareForInsertedPreview()
             items.insert(ScreenshotPreviewItem(url: historyURL, previewImage: image), at: 0)
             republishLatestVersion(at: 0)
             return false

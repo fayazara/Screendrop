@@ -123,7 +123,6 @@ final class ScreenRecordingManager {
         isStopping = false
 
         PreviewWindowPlacement.shared.setTargetDisplayID(targetDisplayID)
-        PreviewWindowCaptureExclusion.shared.hideForCapture()
         RecordingControlPresenter.shared.show(displayID: targetDisplayID)
 
         Task {
@@ -246,19 +245,16 @@ final class ScreenRecordingManager {
 
         guard let url else {
             errorMessage = "Failed to finish recording."
-            PreviewWindowCaptureExclusion.shared.restoreAfterCapture()
             RecordingControlPresenter.shared.hide()
             return
         }
 
         switch action {
         case .preview:
-            PreviewWindowCaptureExclusion.shared.restoreAfterCapture()
             RecordingControlPresenter.shared.hide()
             onFinishRecording?(url, restartDisplayID)
         case .discard:
             deleteFile(at: url)
-            PreviewWindowCaptureExclusion.shared.restoreAfterCapture()
             RecordingControlPresenter.shared.hide()
         case .restart:
             deleteFile(at: url)
@@ -280,7 +276,6 @@ final class ScreenRecordingManager {
         await writer.cancel()
         cleanupAfterRecording()
         errorMessage = "Failed to start screen recording: \(error.localizedDescription)"
-        PreviewWindowCaptureExclusion.shared.restoreAfterCapture()
         RecordingControlPresenter.shared.hide()
     }
 

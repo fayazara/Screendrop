@@ -134,13 +134,13 @@ struct PreviewWindowView: View {
             .padding(.bottom, previewStackEdgePadding)
             .animation(previewStackAnimation, value: previewStack.itemIDs)
             .onAppear {
-                previewStack.dismissOverflowItems(visibleCapacity: visibleCapacity)
+                previewStack.setVisibleCapacity(visibleCapacity)
             }
             .onChange(of: previewStack.itemIDs) { _, _ in
                 previewStack.dismissOverflowItems(visibleCapacity: visibleCapacity)
             }
             .onChange(of: visibleCapacity) { _, capacity in
-                previewStack.dismissOverflowItems(visibleCapacity: capacity)
+                previewStack.setVisibleCapacity(capacity)
             }
         }
         .onAppear(perform: installKeyMonitors)
