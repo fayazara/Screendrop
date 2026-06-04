@@ -6,10 +6,16 @@
 import AppKit
 import SwiftUI
 
+enum PreviewCardDismissalStyle {
+    case slideOut
+    case scrollOut
+}
+
 struct PreviewCardView: View {
     let item: ScreenshotPreviewItem
     let isHidden: Bool
     let isDismissing: Bool
+    let dismissalStyle: PreviewCardDismissalStyle
     var slideDirection: CGFloat = 1
     let onHoverChanged: (Bool) -> Void
     let onClose: () -> Void
@@ -55,7 +61,7 @@ struct PreviewCardView: View {
             .shadow(color: .black.opacity(0.5), radius: 30, x: 0, y: 12)
             .shadow(color: .black.opacity(0.3), radius: 10, x: 0, y: 4)
             .opacity(isHidden ? 0 : 1)
-            .offset(x: horizontalOffset + shakeOffset)
+            .offset(x: horizontalOffset + shakeOffset, y: verticalOffset)
             .onChange(of: cloudUploader.failedItemIDs.contains(item.id)) { _, failed in
                 guard failed else { return }
                 shakeCard()
@@ -235,7 +241,19 @@ struct PreviewCardView: View {
     }
 
     private var horizontalOffset: CGFloat {
-        isPresented && !isDismissing ? 0 : previewCardSlideOffset * slideDirection
+        if !isPresented {
+            return previewCardSlideOffset * slideDirection
+        }
+
+        if isDismissing && dismissalStyle == .slideOut {
+            return previewCardSlideOffset * slideDirection
+        }
+
+        return 0
+    }
+
+    private var verticalOffset: CGFloat {
+        isDismissing && dismissalStyle == .scrollOut ? previewCardScrollOutOffset : 0
     }
 
     private func cornerButton(systemImage: String, help: String, action: @escaping () -> Void) -> some View {
