@@ -16,7 +16,6 @@ let previewStackSpacing: CGFloat = 15
 let previewStackEdgePadding: CGFloat = 32
 let previewStackAnimation = Animation.smooth(duration: 0.3, extraBounce: 0)
 let previewCardSlideOffset = previewCardSize.width + previewTrailingPadding + 48
-let previewCardScrollOutOffset = previewCardSize.height + previewStackEdgePadding + 48
 
 struct PreviewWindowView: View {
     private let onRequestClose: (() -> Void)?
@@ -62,7 +61,6 @@ struct PreviewWindowView: View {
                         item: item,
                         isHidden: previewStack.draggingItemID == item.id,
                         isDismissing: previewStack.dismissingItemIDs.contains(item.id),
-                        dismissalStyle: previewStack.overflowDismissingItemIDs.contains(item.id) ? .scrollOut : .slideOut,
                         slideDirection: slideDirection,
                         onHoverChanged: { isHovered in
                             previewStack.setHovered(item.id, isHovered: isHovered)
