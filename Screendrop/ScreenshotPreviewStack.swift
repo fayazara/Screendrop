@@ -33,7 +33,6 @@ final class ScreenshotPreviewStack {
     var hoveredItemID: ScreenshotPreviewItem.ID?
     var draggingItemID: ScreenshotPreviewItem.ID?
     var dismissingItemIDs: Set<ScreenshotPreviewItem.ID> = []
-    var overflowDismissingItemIDs: Set<ScreenshotPreviewItem.ID> = []
 
     var itemIDs: [ScreenshotPreviewItem.ID] {
         items.map(\.id)
@@ -270,34 +269,7 @@ final class ScreenshotPreviewStack {
         let overflowCount = items.count - visibleCapacity
         let overflowItems = items.suffix(overflowCount)
         for item in overflowItems {
-            dismissOverflow(id: item.id)
-        }
-    }
-
-    private func dismissOverflow(id: ScreenshotPreviewItem.ID) {
-        guard items.contains(where: { $0.id == id }),
-              !dismissingItemIDs.contains(id) else {
-            return
-        }
-
-        QuickLookPreviewPresenter.dismiss()
-
-        withAnimation(previewStackAnimation) {
-            dismissingItemIDs.insert(id)
-            overflowDismissingItemIDs.insert(id)
-
-            if hoveredItemID == id {
-                hoveredItemID = nil
-            }
-
-            if draggingItemID == id {
-                draggingItemID = nil
-            }
-        }
-
-        Task {
-            try? await Task.sleep(for: .milliseconds(320))
-            removeImmediately(id: id)
+            dismiss(id: item.id)
         }
     }
 
@@ -463,7 +435,6 @@ final class ScreenshotPreviewStack {
         QuickLookPreviewPresenter.dismiss()
         items.removeAll { $0.id == id }
         dismissingItemIDs.remove(id)
-        overflowDismissingItemIDs.remove(id)
 
         if hoveredItemID == id {
             hoveredItemID = nil
