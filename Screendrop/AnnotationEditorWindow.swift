@@ -266,36 +266,39 @@ private struct AnnotationZoomControl: View {
 private struct LowResolutionPreviewNotice: View {
     @State private var isExpanded = false
 
-    var body: some View {
-        HStack(spacing: 6) {
-            Button {
-                withAnimation(.snappy(duration: 0.2)) {
-                    isExpanded.toggle()
-                }
-            } label: {
-                Image(systemName: "info.circle")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .contentShape(Capsule())
-            }
-            .buttonStyle(.plain)
-            .help("Why is this preview low resolution?")
+    private let diameter: CGFloat = 28
 
-            if isExpanded {
-                Text("Preview shown in low resolution to save memory. Exports stay full quality — turn this off in Settings.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: 220, alignment: .leading)
-                    .transition(.opacity.combined(with: .move(edge: .leading)))
+    var body: some View {
+        Button {
+            withAnimation(.snappy(duration: 0.22)) {
+                isExpanded.toggle()
             }
+        } label: {
+            HStack(spacing: 7) {
+                Image(systemName: "info.circle.fill")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .frame(width: diameter, height: diameter)
+
+                if isExpanded {
+                    Text("Low-res preview to save memory — exports stay full quality")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .fixedSize()
+                        .padding(.trailing, 12)
+                        .transition(.opacity.combined(with: .move(edge: .leading)))
+                }
+            }
+            .frame(height: diameter)
+            .fixedSize()
+            .background(.regularMaterial, in: Capsule())
+            .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08)))
+            .clipShape(Capsule())
+            .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(.regularMaterial, in: Capsule())
-        .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08)))
-        .fixedSize()
-        .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
+        .buttonStyle(.plain)
+        .help("Why is this preview low resolution?")
     }
 }
 
