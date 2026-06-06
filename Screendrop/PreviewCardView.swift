@@ -100,6 +100,15 @@ struct PreviewCardView: View {
                     onHoverChanged(status)
                 }
             }
+            .simultaneousGesture(
+                TapGesture(count: 2).onEnded {
+                    if item.kind == .video {
+                        onEditVideo()
+                    } else {
+                        onAnnotate()
+                    }
+                }
+            )
             .onAppear {
                 isPresented = false
 
