@@ -11,6 +11,7 @@ struct ScreenshotsSettingsPane: View {
     @AppStorage(ScreendropPreferences.compressionQualityKey) private var compressionQuality = 0.8
     @AppStorage(ScreendropPreferences.captureWindowShadowKey) private var captureWindowShadow = false
     @AppStorage(ScreendropPreferences.captureDelaySecondsKey) private var captureDelaySeconds = 0
+    @AppStorage(ScreendropPreferences.lowResolutionEditorPreviewKey) private var lowResolutionEditorPreview = true
 
     private let delayOptions: [Int] = [0, 3, 5, 10]
 
@@ -46,6 +47,18 @@ struct ScreenshotsSettingsPane: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Capture window shadow")
                         Text("Include the window's drop shadow when capturing a window.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .toggleStyle(.switch)
+            }
+
+            Section("Annotation Editor") {
+                Toggle(isOn: $lowResolutionEditorPreview) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Use low-resolution preview to save memory")
+                        Text("Shows a downscaled image while editing to reduce memory use. Saved and exported screenshots are always full resolution.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }

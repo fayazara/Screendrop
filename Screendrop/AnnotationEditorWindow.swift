@@ -83,9 +83,15 @@ struct AnnotationEditorWindow: View {
         .clipped()
         .overlay(alignment: .bottomLeading) {
             if model.previewImage != nil, model.imageSize != .zero {
-                AnnotationZoomControl(model: model)
-                    .padding(.leading, 16)
-                    .padding(.bottom, 16)
+                HStack(spacing: 8) {
+                    AnnotationZoomControl(model: model)
+
+                    if model.isPreviewDownscaled {
+                        LowResolutionPreviewNotice()
+                    }
+                }
+                .padding(.leading, 16)
+                .padding(.bottom, 16)
             }
         }
         .overlay(alignment: .bottomLeading) {
@@ -250,6 +256,46 @@ private struct AnnotationZoomControl: View {
         .fixedSize()
         .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
         .help("Zoom")
+    }
+}
+
+/// A small badge shown beside the zoom control when the editing preview is
+/// downscaled to save memory. Collapsed it's just an "i" button; tapping it
+/// expands an explanation that the reduction is preview-only and points users
+/// to Settings to disable it.
+private struct LowResolutionPreviewNotice: View {
+    @State private var isExpanded = false
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Button {
+                withAnimation(.snappy(duration: 0.2)) {
+                    isExpanded.toggle()
+                }
+            } label: {
+                Image(systemName: "info.circle")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .help("Why is this preview low resolution?")
+
+            if isExpanded {
+                Text("Preview shown in low resolution to save memory. Exports stay full quality — turn this off in Settings.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: 220, alignment: .leading)
+                    .transition(.opacity.combined(with: .move(edge: .leading)))
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(.regularMaterial, in: Capsule())
+        .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08)))
+        .fixedSize()
+        .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
     }
 }
 

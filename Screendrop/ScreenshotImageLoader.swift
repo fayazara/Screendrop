@@ -38,7 +38,18 @@ enum ScreenshotImageLoader {
         
         return NSImage(cgImage: cgImage, size: CGSize(width: cgImage.width, height: cgImage.height))
     }
-    
+
+    /// Decodes the image at its native pixel resolution. Used when the
+    /// low-resolution editing preview preference is disabled.
+    static func fullResolutionImage(at url: URL) -> NSImage? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, sourceOptions),
+              let cgImage = CGImageSourceCreateImageAtIndex(source, 0, sourceOptions) else {
+            return nil
+        }
+
+        return NSImage(cgImage: cgImage, size: CGSize(width: cgImage.width, height: cgImage.height))
+    }
+
     private static var sourceOptions: CFDictionary {
         [kCGImageSourceShouldCache: false] as CFDictionary
     }
