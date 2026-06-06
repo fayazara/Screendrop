@@ -9,7 +9,7 @@ import AppKit
 import QuickLookUI
 
 @MainActor
-final class QuickLookPreviewPresenter: NSObject, QLPreviewPanelDataSource {
+final class QuickLookPreviewPresenter: NSObject, QLPreviewPanelDataSource, QLPreviewPanelDelegate {
     static let shared = QuickLookPreviewPresenter()
     
     private var previewURL: NSURL?
@@ -29,7 +29,10 @@ final class QuickLookPreviewPresenter: NSObject, QLPreviewPanelDataSource {
     private func show(url: URL) {
         previewURL = url as NSURL
         
-        guard let panel = QLPreviewPanel.shared() else { return }
+        guard let panel = QLPreviewPanel.shared() else {
+            PreviewWindowCaptureExclusion.shared.restoreOverlay(reason: .quickLook)
+            return
+        }
 
         // Activate the app *before* presenting the panel so macOS considers
         // it the frontmost process. Without this, the QuickLook window opens
@@ -37,9 +40,12 @@ final class QuickLookPreviewPresenter: NSObject, QLPreviewPanelDataSource {
         NSApp.activate()
 
         panel.dataSource = self
-        panel.delegate = nil
+        panel.delegate = self
         panel.currentPreviewItemIndex = 0
         panel.reloadData()
+        // Hide the floating preview overlay so it doesn't sit on top of the
+        // Quick Look window. Restored when Quick Look is dismissed or closes.
+        PreviewWindowCaptureExclusion.shared.suppressOverlay(reason: .quickLook)
         if panel.isVisible {
             panel.refreshCurrentPreviewItem()
         } else {
@@ -55,11 +61,22 @@ final class QuickLookPreviewPresenter: NSObject, QLPreviewPanelDataSource {
     }
     
     private func dismiss() {
-        guard QLPreviewPanel.sharedPreviewPanelExists() else { return }
+        defer { PreviewWindowCaptureExclusion.shared.restoreOverlay(reason: .quickLook) }
 
-        guard let panel = QLPreviewPanel.shared() else { return }
+        guard QLPreviewPanel.sharedPreviewPanelExists(),
+              let panel = QLPreviewPanel.shared() else {
+            previewURL = nil
+            return
+        }
         panel.orderOut(nil)
         previewURL = nil
+    }
+
+    /// Fires when Quick Look closes on its own (e.g. the user clicks its close
+    /// button or it loses key focus), which bypasses `dismiss()`.
+    func windowWillClose(_ notification: Notification) {
+        previewURL = nil
+        PreviewWindowCaptureExclusion.shared.restoreOverlay(reason: .quickLook)
     }
     
     nonisolated func numberOfPreviewItems(in panel: QLPreviewPanel!) -> Int {

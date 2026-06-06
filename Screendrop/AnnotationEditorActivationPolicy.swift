@@ -17,7 +17,7 @@ enum AppActivationPolicy {
     static func enter(hidePreview: Bool = false) {
         activeWindowCount += 1
         if hidePreview {
-            PreviewWindowCaptureExclusion.shared.hideForAnnotation()
+            PreviewWindowCaptureExclusion.shared.suppressOverlay(reason: .editor)
         }
         NSApp.setActivationPolicy(.regular)
         NSApp.unhide(nil)
@@ -31,7 +31,7 @@ enum AppActivationPolicy {
         guard activeWindowCount == 0 else { return }
 
         if restorePreview {
-            PreviewWindowCaptureExclusion.shared.restoreAfterAnnotation()
+            PreviewWindowCaptureExclusion.shared.restoreOverlay(reason: .editor)
         }
 
         Task { @MainActor in
