@@ -15,6 +15,8 @@ struct AnnotationEditorWindow: View {
     @State private var model = AnnotationEditorModel()
     @State private var isInspectorPresented = true
     @State private var isFinishing = false
+    @State private var isUploading = false
+    @State private var didCopyLink = false
     @Environment(\.dismiss) private var dismissWindow
     @Environment(\.openWindow) private var openWindow
 
@@ -23,7 +25,42 @@ struct AnnotationEditorWindow: View {
             .navigationTitle("Screendrop Annotate")
             .toolbarBackgroundVisibility(.visible, for: .windowToolbar)
             .toolbar {
-                ToolbarItem(placement: .automatic) {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    if CloudUploader.shared.isConfigured {
+                        Button(action: uploadAnnotation) {
+                            if isUploading {
+                                HStack(spacing: 6) {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                    Text("Uploading...")
+                                }
+                                .padding(.horizontal, 6)
+                            } else if didCopyLink {
+                                Label("Link copied", systemImage: "checkmark.circle.fill")
+                                    .labelStyle(.titleAndIcon)
+                                    .padding(.horizontal, 6)
+                            } else {
+                                Label("Upload", systemImage: "arrow.up.circle")
+                                    .labelStyle(.titleAndIcon)
+                                    .padding(.horizontal, 6)
+                            }
+                        }
+                        .tint(.accentColor)
+                        .help("Upload to the cloud and copy the link")
+                        .disabled(isUploading)
+                    }
+
+                    Button(action: saveAs) {
+                        Label("Save As", systemImage: "arrow.down.circle")
+                            .labelStyle(.titleAndIcon)
+                    }
+                    .help("Save a copy to a location of your choice")
+
+                    Button(action: finishEditing) {
+                        Image(systemName: "checkmark.circle")
+                    }
+                    .help("Finish editing and save")
+
                     Button {
                         isInspectorPresented.toggle()
                     } label: {
@@ -45,6 +82,12 @@ struct AnnotationEditorWindow: View {
             .onDeleteCommand {
                 model.deleteSelectedAnnotation()
             }
+            .onChange(of: model.items) { _, _ in
+                if didCopyLink { withAnimation(.snappy(duration: 0.2)) { didCopyLink = false } }
+            }
+            .onChange(of: model.backgroundSettings) { _, _ in
+                if didCopyLink { withAnimation(.snappy(duration: 0.2)) { didCopyLink = false } }
+            }
             .background(AnnotationKeyCommandHandler(
                 onDelete: model.deleteSelectedAnnotation,
                 onUndo: model.undo,
@@ -59,9 +102,7 @@ struct AnnotationEditorWindow: View {
             .inspector(isPresented: $isInspectorPresented) {
                 AnnotationEditorInspector(
                     model: model,
-                    onPickWallpaper: pickCustomWallpaper,
-                    onSaveAs: saveAs,
-                    onDone: finishEditing
+                    onPickWallpaper: pickCustomWallpaper
                 )
             }
     }
@@ -147,6 +188,60 @@ struct AnnotationEditorWindow: View {
             let wallpaper = AnnotationCustomWallpaper(url: url)
             model.backgroundSettings.customWallpaper = wallpaper
             model.backgroundSettings.style = .customWallpaper(wallpaper)
+        }
+    }
+
+    private func uploadAnnotation() {
+        guard let sourceURL = model.sourceURL, !isUploading else { return }
+
+        let baseURL = model.baseImageURL ?? sourceURL
+        let items = model.items
+        let backgroundSettings = model.backgroundSettings
+        let hasContent = !items.isEmpty || backgroundSettings.isEnabled
+
+        isUploading = true
+        Task {
+            defer { isUploading = false }
+            do {
+                // Persist the current annotations first so the uploaded file
+                // matches what's saved in history, then upload that file. The
+                // editor stays open.
+                let resultURL: URL
+                if hasContent {
+                    let annotatedURL = try AnnotationRenderer.renderToTemporaryFile(
+                        sourceURL: baseURL,
+                        items: items,
+                        backgroundSettings: backgroundSettings
+                    )
+                    let document = AnnotationDocument(items: items, background: backgroundSettings)
+                    resultURL = ScreenshotHistoryStore.shared.commitAnnotations(
+                        displayURL: sourceURL,
+                        baseURL: baseURL,
+                        renderedURL: annotatedURL,
+                        document: document
+                    )
+                    // The display image is now the composite; repoint the editor
+                    // at the preserved base snapshot so continued edits don't
+                    // re-bake annotations on top of an already-composited image.
+                    model.baseImageURL = ScreenshotHistoryStore.baseImageURL(for: resultURL)
+                } else {
+                    resultURL = ScreenshotHistoryStore.shared.removeAnnotations(displayURL: sourceURL)
+                    model.baseImageURL = resultURL
+                }
+
+                _ = ScreenshotPreviewStack.shared.applyAnnotation(
+                    originalURL: sourceURL,
+                    historyURL: resultURL
+                )
+
+                let result = try await CloudUploader.shared.upload(itemID: UUID(), fileURL: resultURL)
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(result.url, forType: .string)
+                ScreenshotHistoryStore.shared.setCloudURL(for: resultURL, cloudURL: result.url)
+                withAnimation(.snappy(duration: 0.2)) { didCopyLink = true }
+            } catch {
+                model.errorMessage = "Upload failed: \(error.localizedDescription)"
+            }
         }
     }
 

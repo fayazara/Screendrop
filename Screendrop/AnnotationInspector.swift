@@ -15,8 +15,6 @@ struct AnnotationEditorInspector: View {
 
     @Bindable var model: AnnotationEditorModel
     let onPickWallpaper: () -> Void
-    let onSaveAs: () -> Void
-    let onDone: () -> Void
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
@@ -151,30 +149,6 @@ struct AnnotationEditorInspector: View {
             .scrollEdgeEffectSoftIfAvailable()
             .background(sidebarBackground)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-            Divider()
-
-            HStack(spacing: 10) {
-                Button(action: onSaveAs) {
-                    Text("Save as...")
-                        .font(.system(size: 13, weight: .medium))
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 28)
-                }
-                .controlSize(.large)
-
-                Button(action: onDone) {
-                    Text("Done")
-                        .font(.system(size: 13, weight: .semibold))
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 28)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .background(sidebarBackground)
         }
         .background(sidebarBackground)
         .inspectorColumnWidth(
