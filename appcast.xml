@@ -22,6 +22,32 @@
     -->
 
     <item>
+      <title>Version 0.20</title>
+      <sparkle:version>11</sparkle:version>
+      <sparkle:shortVersionString>0.20</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.4</sparkle:minimumSystemVersion>
+      <pubDate>Sat, 06 Jun 2026 19:10:17 +0000</pubDate>
+      <description><![CDATA[
+        <h2>What's New in 0.20</h2>
+        <ul>
+          <li>Double-click to edit — Double-click a preview card to jump straight into the editor (annotator for images, video editor for recordings). First community contribution, thanks @jamesqquick! 🎉</li>
+          <li>Upload from the annotator — A new Upload action in the annotation editor saves your annotations, uploads the full-resolution image to your cloud, and copies the link to your clipboard — without closing the editor. Shows a live progress spinner and a "Link copied" confirmation.</li>
+          <li>Low-resolution editor preview — The annotator uses a lighter preview to keep memory usage down on large captures. It's now an explicit setting (Settings → Screenshots → Annotation Editor, on by default), the preview is sharper than before, and a small info badge in the editor explains it. Exports are always full resolution.</li>
+          <li>Redesigned annotation editor toolbar — Save As, Done, and Upload now live in a native macOS Liquid Glass toolbar pill with consistent iconography, replacing the old sidebar button bar.</li>
+          <li>Smoother stacked-preview behavior — cards dismiss horizontally and overflow is trimmed more gracefully.</li>
+          <li>Removed the legacy capture-hide flow for a snappier capture path.</li>
+          <li>The floating preview overlay no longer sits on top of the annotation editor, video editor, or Quick Look — it hides while those are open and reliably returns afterward (fixes cases where it blocked clicks/scrolling).</li>
+        </ul>
+      ]]></description>
+      <enclosure
+        url="https://github.com/fayazara/screendrop/releases/download/v0.20/Screendrop.dmg"
+        type="application/octet-stream"
+        sparkle:edSignature="NPqirT5nA7X4i1hpAYsHOCKvmx2XAv2OwVGC4UFtlA5qNZ+96gsv9ekDcAFwjnQUV39TzANnTbsnPc0mG1HDBA=="
+        length="3902396"
+      />
+    </item>
+
+    <item>
       <title>Version 0.19</title>
       <sparkle:version>10</sparkle:version>
       <sparkle:shortVersionString>0.19</sparkle:shortVersionString>
