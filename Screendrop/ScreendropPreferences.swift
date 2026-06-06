@@ -31,6 +31,7 @@ enum ScreendropPreferences {
     static let previewPositionKey = "previewPosition"
     static let previewAutoCloseSecondsKey = "previewAutoCloseSeconds"
     static let previewCloseAfterDraggingKey = "previewCloseAfterDragging"
+    static let lowResolutionEditorPreviewKey = "lowResolutionEditorPreview"
 
     private static let defaultCompressionQuality = 0.8
     static let defaultRecordingMouseIndicatorColor = "#007AFF"
@@ -147,6 +148,17 @@ enum ScreendropPreferences {
             return true
         }
         return UserDefaults.standard.bool(forKey: previewCloseAfterDraggingKey)
+    }
+
+    /// Whether the annotation editor displays a downscaled preview of the
+    /// screenshot to reduce memory usage. This only affects the on-screen
+    /// editing preview — exported images are always rendered at full
+    /// resolution. Defaults to on.
+    static var lowResolutionEditorPreview: Bool {
+        if UserDefaults.standard.object(forKey: lowResolutionEditorPreviewKey) == nil {
+            return true
+        }
+        return UserDefaults.standard.bool(forKey: lowResolutionEditorPreviewKey)
     }
     
     // MARK: - Cloud

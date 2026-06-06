@@ -18,6 +18,9 @@ final class AnnotationEditorModel {
     /// otherwise it is the same as `sourceURL`.
     var baseImageURL: URL?
     var previewImage: NSImage?
+    /// Whether the currently displayed `previewImage` is a downscaled copy of
+    /// the source (low-resolution preview preference). Exports are unaffected.
+    var isPreviewDownscaled = false
     var imageSize: CGSize = .zero
     var items: [AnnotationItem] = []
     var draftItem: AnnotationItem?
@@ -113,7 +116,12 @@ final class AnnotationEditorModel {
     private var interaction: AnnotationInteraction?
     var history = AnnotationHistory()
     private let minimumItemSize: CGFloat = 0.006
-    private let previewImageMaxPixelSize: CGFloat = 1800
+
+    /// Longest-edge cap (in pixels) for the downscaled editing preview when the
+    /// low-resolution preview preference is enabled. Kept high enough that the
+    /// preview stays crisp even when zoomed, while still bounding memory use on
+    /// very large (multi-monitor / Retina) captures.
+    private let previewImageMaxPixelSize: CGFloat = 2880
 
     func load(url: URL?, dismiss: DismissAction) {
         guard let url else {
@@ -142,7 +150,18 @@ final class AnnotationEditorModel {
 
         baseImageURL = renderSourceURL
         imageSize = ScreenshotImageLoader.imageSize(at: renderSourceURL) ?? .zero
-        previewImage = ScreenshotImageLoader.downsampledImage(at: renderSourceURL, maxPixelSize: previewImageMaxPixelSize)
+        // The editing preview is only ever used for on-screen display; exports
+        // always re-read the full-resolution source via AnnotationRenderer. When
+        // the low-resolution preference is enabled we cap the preview's longest
+        // edge to bound memory; otherwise we load it at full resolution.
+        if ScreendropPreferences.lowResolutionEditorPreview {
+            previewImage = ScreenshotImageLoader.downsampledImage(at: renderSourceURL, maxPixelSize: previewImageMaxPixelSize)
+            // Only flag as downscaled if the source actually exceeds the cap.
+            isPreviewDownscaled = max(imageSize.width, imageSize.height) > previewImageMaxPixelSize
+        } else {
+            previewImage = ScreenshotImageLoader.fullResolutionImage(at: renderSourceURL)
+            isPreviewDownscaled = false
+        }
         draftItem = nil
         selectedItemIDs = []
         editingTextItemID = nil
@@ -166,6 +185,7 @@ final class AnnotationEditorModel {
         sourceURL = nil
         baseImageURL = nil
         previewImage = nil
+        isPreviewDownscaled = false
         imageSize = .zero
         items = []
         draftItem = nil
