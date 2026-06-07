@@ -12,7 +12,7 @@ struct SettingsHistoryPane: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 0) {
                 if historyStore.items.isEmpty {
                     ContentUnavailableView(
                         "No Captures",
@@ -25,6 +25,8 @@ struct SettingsHistoryPane: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 18)
+                        .padding(.top, 16)
+                        .padding(.bottom, 8)
 
                     LazyVStack(spacing: 0) {
                         ForEach(historyStore.items) { item in
@@ -190,6 +192,7 @@ private struct SettingsHistoryItemRow: View {
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 10)
+        .contentShape(Rectangle())
         .onHover { hovering in
             isHovering = hovering
         }
