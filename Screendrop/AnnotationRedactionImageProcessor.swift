@@ -97,17 +97,23 @@ enum RedactionImageProcessor {
         let blockSize = max(1, Int(round(pixelBlockSize(for: density) * scale)))
         let smallWidth = max(1, pixelWidth / blockSize)
         let smallHeight = max(1, pixelHeight / blockSize)
-        let colorSpace = croppedImage.colorSpace ?? CGColorSpaceCreateDeviceRGB()
-        let bitmapInfo = croppedImage.bitmapInfo
+        // Always render into a guaranteed-valid bitmap format (8-bit RGBA,
+        // premultiplied) rather than mirroring the source image's format.
+        // CGBitmapContext only supports a narrow set of pixel formats, so a
+        // source that is opaque RGB, 16-bit, or in a wide-gamut/gray color
+        // space would make context creation fail and the pixelation disappear.
+        // This matches the export path in AnnotationRenderer.applyPixelation.
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue
 
         guard let downsampleContext = CGContext(
             data: nil,
             width: smallWidth,
             height: smallHeight,
-            bitsPerComponent: croppedImage.bitsPerComponent,
+            bitsPerComponent: 8,
             bytesPerRow: 0,
             space: colorSpace,
-            bitmapInfo: bitmapInfo.rawValue
+            bitmapInfo: bitmapInfo
         ) else {
             return nil
         }
@@ -120,10 +126,10 @@ enum RedactionImageProcessor {
             data: nil,
             width: pixelWidth,
             height: pixelHeight,
-            bitsPerComponent: croppedImage.bitsPerComponent,
+            bitsPerComponent: 8,
             bytesPerRow: 0,
             space: colorSpace,
-            bitmapInfo: bitmapInfo.rawValue
+            bitmapInfo: bitmapInfo
         ) else {
             return nil
         }
