@@ -72,14 +72,9 @@ struct SettingsAboutPane: View {
                 Text("Built by Fayaz Ahmed")
                     .foregroundStyle(.secondary)
 
-                Link(destination: URL(string: "https://x.com/fayazara")!) {
-                    HStack(spacing: 4) {
-                        Text("Follow on Twitter")
-                        Image(systemName: "arrow.up.right")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
+                Link("GitHub", destination: URL(string: "https://github.com/fayazara")!)
+
+                Link("Follow on Twitter", destination: URL(string: "https://x.com/fayazara")!)
             }
         }
         .formStyle(.grouped)
