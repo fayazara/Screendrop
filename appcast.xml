@@ -27,6 +27,26 @@
     -->
 
     <item>
+      <title>Version 0.20.3</title>
+      <sparkle:version>14</sparkle:version>
+      <sparkle:shortVersionString>0.20.3</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.4</sparkle:minimumSystemVersion>
+      <pubDate>Sun, 07 Jun 2026 10:56:09 +0000</pubDate>
+      <description><![CDATA[
+        <h2>What's New in 0.20.3</h2>
+        <ul>
+          <li>Improved the History view in Settings — tidier spacing, and item actions now appear when hovering anywhere on a row</li>
+        </ul>
+      ]]></description>
+      <enclosure
+        url="https://github.com/fayazara/screendrop/releases/download/v0.20.3/Screendrop.dmg"
+        type="application/octet-stream"
+        sparkle:edSignature="y5sHU1LbCE1HzMtD1CgDZ3HhwW06d2XcvM59qHO5iBz2SWpIfu5rsi+BfdekYxIX+LCUMo7nMooze9g3Nfy1CA=="
+        length="3902661"
+      />
+    </item>
+
+    <item>
       <title>Version 0.20.2</title>
       <sparkle:version>13</sparkle:version>
       <sparkle:shortVersionString>0.20.2</sparkle:shortVersionString>
