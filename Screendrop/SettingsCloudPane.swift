@@ -110,8 +110,16 @@ struct CloudSettingsPane: View {
                     if case .checking = workerStatus {
                         connectionStatusIndicator(workerStatus)
                     }
-                    Button("Verify Connection") {
+                    Button {
                         Task { await testWorkerConnection() }
+                    } label: {
+                        HStack(spacing: 5) {
+                            if workerStatus == .connected {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundStyle(.green)
+                            }
+                            Text("Verify Connection")
+                        }
                     }
                     .controlSize(.small)
                     .disabled(!isWorkerConfigured)
