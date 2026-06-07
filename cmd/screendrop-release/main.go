@@ -23,6 +23,14 @@ var (
 	notesFlag     string
 	notesFileFlag string
 	assumeYes     bool
+
+	// Build-phase flags (-build): archive, export with Developer ID, notarize
+	// and staple the app before packaging/publishing.
+	doBuild        bool
+	schemeFlag     string
+	setVersionFlag string
+	setBuildFlag   string
+	notaryProfile  string
 )
 
 const (
@@ -60,6 +68,12 @@ const (
 	caskRelPath  = "Casks/screendrop.rb"
 	tapDirEnvVar = "SCREENDROP_TAP_DIR"
 	bundleID     = "com.fayazahmed.Screendrop"
+
+	// Build/notarize configuration (used with -build).
+	projectName     = "Screendrop.xcodeproj"
+	releaseScheme   = "Screendrop"
+	developmentTeam = "TB2S44TFQS"
+	archiveName     = "Screendrop.xcarchive"
 )
 
 var derivedDataPrefixes = []string{
@@ -102,6 +116,11 @@ func main() {
 	flag.StringVar(&notesFileFlag, "notes-file", "", "Path to a file with release notes, one bullet per line. Skips the interactive prompt.")
 	flag.BoolVar(&assumeYes, "yes", false, "Assume \"yes\" for all confirmation prompts (non-interactive).")
 	flag.BoolVar(&assumeYes, "y", false, "Alias for -yes.")
+	flag.BoolVar(&doBuild, "build", false, "Archive, export (Developer ID), notarize and staple the app into ~/Downloads before releasing.")
+	flag.StringVar(&schemeFlag, "scheme", releaseScheme, "Xcode scheme to archive (with -build).")
+	flag.StringVar(&setVersionFlag, "set-version", "", "Set MARKETING_VERSION before archiving and commit it (with -build).")
+	flag.StringVar(&setBuildFlag, "set-build", "", "Set CURRENT_PROJECT_VERSION before archiving and commit it (with -build).")
+	flag.StringVar(&notaryProfile, "notary-profile", "screendrop-notary", "notarytool keychain profile name (with -build).")
 	flag.Parse()
 
 	homeDir, _ := os.UserHomeDir()
@@ -122,11 +141,30 @@ func main() {
 	requireCommand("git", "")
 	requireCommand("plutil", "")
 
+	if doBuild {
+		requireCommand("xcodebuild", "")
+		requireCommand("xcrun", "")
+		requireCommand("ditto", "")
+	}
+
 	signUpdate := findSignUpdate(homeDir)
-	if signUpdate == "" {
+	if signUpdate == "" && !doBuild {
 		fail("Sparkle sign_update not found in DerivedData. Build the project once first.")
 	}
 	success("All tools found")
+
+	if doBuild {
+		runBuildPhase(repoDir, homeDir, appPath)
+
+		// The archive populates DerivedData with Sparkle's artifacts, so
+		// sign_update is available now even if it wasn't before.
+		if signUpdate == "" {
+			signUpdate = findSignUpdate(homeDir)
+			if signUpdate == "" {
+				fail("Sparkle sign_update not found in DerivedData after archiving.")
+			}
+		}
+	}
 
 	step("Validating " + appPath + "...")
 
@@ -226,6 +264,33 @@ func main() {
 	signature, length := parseSparkleSignature(signOut)
 	success(fmt.Sprintf("Signed (length: %s bytes)", length))
 
+	// Release notes markdown (used by the GitHub release).
+	var mdNotes strings.Builder
+	mdNotes.WriteString("## What's New\n\n")
+	for _, n := range notes {
+		mdNotes.WriteString(fmt.Sprintf("- %s\n", n))
+	}
+
+	// Publishing order matters. We create the GitHub release (with the DMG)
+	// BEFORE touching the appcast, because the appcast points at the release's
+	// download URL -- doing it the other way round leaves a published appcast
+	// referencing a release that may not exist if a later step fails.
+	//
+	//   1. push local commits  (so the release tag includes the released source)
+	//   2. create/upload the GitHub release + DMG
+	//   3. update + push the appcast
+	//   4. update the Homebrew cask
+
+	step("Pushing commits to GitHub...")
+	if out, err := runCmdRetry(3, "git", "-C", repoDir, "push", "origin", gitBranch); err != nil {
+		fail("git push failed:\n" + out)
+	}
+	success("Pushed to " + gitBranch)
+
+	step("Creating GitHub release...")
+	releaseURL := createOrUpdateRelease("v"+version, dmgPath, mdNotes.String())
+	success("Release created")
+
 	step("Updating appcast.xml...")
 
 	appcastData, err := os.ReadFile(appcastPath)
@@ -256,9 +321,16 @@ func main() {
 		},
 	}
 
+	// Prepend the new item, dropping any existing entry for the same build so
+	// re-running a release replaces rather than duplicates it.
 	allItems := make([]Item, 0, len(appcast.Channel.Items)+1)
 	allItems = append(allItems, newItem)
-	allItems = append(allItems, appcast.Channel.Items...)
+	for _, it := range appcast.Channel.Items {
+		if it.Version == build {
+			continue
+		}
+		allItems = append(allItems, it)
+	}
 
 	if err := writeAppcast(appcastPath, allItems); err != nil {
 		fail("Could not write appcast.xml: " + err.Error())
@@ -273,33 +345,16 @@ func main() {
 
 	commitMsg := fmt.Sprintf("Release v%s appcast", version)
 	if out, err := runCmd("git", "-C", repoDir, "commit", "--only", appcastFile, "-m", commitMsg); err != nil {
-		fail(fmt.Sprintf("git commit failed: %s\n%s", err, out))
+		if !strings.Contains(out, "nothing to commit") {
+			fail("git commit failed:\n" + out)
+		}
+		warn("Appcast already up to date; nothing to commit")
 	}
 
-	if out, err := runCmd("git", "-C", repoDir, "push", "origin", gitBranch); err != nil {
-		fail(fmt.Sprintf("git push failed: %s\n%s", err, out))
+	if out, err := runCmdRetry(3, "git", "-C", repoDir, "push", "origin", gitBranch); err != nil {
+		fail("git push failed:\n" + out)
 	}
 	success("Pushed to " + gitBranch)
-
-	step("Creating GitHub release...")
-
-	var mdNotes strings.Builder
-	mdNotes.WriteString("## What's New\n\n")
-	for _, n := range notes {
-		mdNotes.WriteString(fmt.Sprintf("- %s\n", n))
-	}
-
-	releaseURL, err := runCmd("gh", "release", "create",
-		"v"+version,
-		dmgPath,
-		"--repo", githubRepo,
-		"--title", "v"+version,
-		"--notes", mdNotes.String(),
-	)
-	if err != nil {
-		fail(fmt.Sprintf("gh release create failed: %s\n%s", err, releaseURL))
-	}
-	success("Release created")
 
 	step("Updating Homebrew cask...")
 	if err := updateHomebrewCask(homeDir, version, dmgPath); err != nil {
@@ -496,6 +551,63 @@ func runCmd(name string, args ...string) (string, error) {
 	return strings.TrimSpace(string(out)), err
 }
 
+// runCmdRetry runs a command, retrying with backoff on failure. Intended for
+// flaky network operations (gh / git push) which can fail with transient
+// "connection reset by peer" errors.
+func runCmdRetry(attempts int, name string, args ...string) (string, error) {
+	var out string
+	var err error
+	for i := 1; i <= attempts; i++ {
+		if out, err = runCmd(name, args...); err == nil {
+			return out, nil
+		}
+		if i < attempts {
+			warn(fmt.Sprintf("attempt %d/%d failed, retrying in %ds...", i, attempts, i*2))
+			time.Sleep(time.Duration(i*2) * time.Second)
+		}
+	}
+	return out, err
+}
+
+// createOrUpdateRelease creates the GitHub release for tag with the DMG
+// attached. If the release already exists (a re-run after a partial failure),
+// it re-uploads the DMG instead of failing. Returns the release URL.
+func createOrUpdateRelease(tag, dmgPath, notesMarkdown string) string {
+	if releaseExists(tag) {
+		warn("Release " + tag + " already exists; re-uploading the DMG.")
+		if out, err := runCmdRetry(3, "gh", "release", "upload", tag, dmgPath, "--clobber", "--repo", githubRepo); err != nil {
+			fail("gh release upload failed:\n" + out)
+		}
+		return fmt.Sprintf("https://github.com/%s/releases/tag/%s", githubRepo, tag)
+	}
+
+	out, err := runCmdRetry(3, "gh", "release", "create",
+		tag, dmgPath,
+		"--repo", githubRepo,
+		"--title", tag,
+		"--notes", notesMarkdown,
+	)
+	if err != nil {
+		fail("gh release create failed:\n" + out)
+	}
+	return out
+}
+
+// releaseExists reports whether a GitHub release for tag exists. A clean "not
+// found" answers false immediately; an ambiguous failure (likely network) is
+// retried before deciding.
+func releaseExists(tag string) bool {
+	out, err := runCmd("gh", "release", "view", tag, "--repo", githubRepo)
+	if err == nil {
+		return true
+	}
+	if strings.Contains(strings.ToLower(out), "not found") {
+		return false
+	}
+	_, err = runCmdRetry(2, "gh", "release", "view", tag, "--repo", githubRepo)
+	return err == nil
+}
+
 func plistValue(plistPath, key string) (string, error) {
 	out, err := runCmd("plutil", "-extract", key, "raw", "-o", "-", plistPath)
 	if err != nil {
@@ -583,6 +695,192 @@ func cleanNote(line string) string {
 		}
 	}
 	return line
+}
+
+// runBuildPhase reproduces the Xcode GUI release flow on the command line:
+// optional version/build bump, archive, export with Developer ID, notarize via
+// notarytool, and staple. The notarized + stapled app is placed at appPath
+// (~/Downloads/Screendrop.app) so the rest of the pipeline can package it.
+func runBuildPhase(repoDir, homeDir, appPath string) {
+	ensureXcodeDeveloperDir()
+
+	projectPath := filepath.Join(repoDir, projectName)
+
+	if setVersionFlag != "" || setBuildFlag != "" {
+		step("Setting version/build...")
+		if err := bumpVersion(projectPath, setVersionFlag, setBuildFlag); err != nil {
+			fail("Version bump failed: " + err.Error())
+		}
+		commitMsg := versionCommitMessage(setVersionFlag, setBuildFlag)
+		if _, err := runCmd("git", "-C", repoDir, "add", filepath.Join(projectName, "project.pbxproj")); err != nil {
+			fail("git add (version bump) failed: " + err.Error())
+		}
+		if out, err := runCmd("git", "-C", repoDir, "commit", "-m", commitMsg); err != nil {
+			if !strings.Contains(out, "nothing to commit") {
+				fail("git commit (version bump) failed:\n" + out)
+			}
+		}
+		success(commitMsg)
+	}
+
+	archivePath := filepath.Join(homeDir, "Downloads", archiveName)
+	_ = os.RemoveAll(archivePath)
+
+	step("Archiving " + schemeFlag + " (Release)... this can take a couple of minutes")
+	if out, err := runCmd("xcodebuild", "archive",
+		"-project", projectPath,
+		"-scheme", schemeFlag,
+		"-configuration", "Release",
+		"-destination", "generic/platform=macOS",
+		"-archivePath", archivePath,
+		"DEVELOPMENT_TEAM="+developmentTeam,
+	); err != nil {
+		fail("xcodebuild archive failed:\n" + lastLines(out, 40))
+	}
+	success("Archived")
+
+	step("Exporting with Developer ID...")
+	exportDir, err := os.MkdirTemp("", "screendrop-export-")
+	if err != nil {
+		fail("Could not create export dir: " + err.Error())
+	}
+	defer os.RemoveAll(exportDir)
+
+	optsPath := filepath.Join(exportDir, "ExportOptions.plist")
+	if err := os.WriteFile(optsPath, []byte(exportOptionsPlist()), 0o644); err != nil {
+		fail("Could not write ExportOptions.plist: " + err.Error())
+	}
+
+	if out, err := runCmd("xcodebuild", "-exportArchive",
+		"-archivePath", archivePath,
+		"-exportOptionsPlist", optsPath,
+		"-exportPath", exportDir,
+	); err != nil {
+		fail("xcodebuild -exportArchive failed:\n" + lastLines(out, 40))
+	}
+
+	exportedApp := filepath.Join(exportDir, appName)
+	if !fileExists(exportedApp) {
+		fail("Exported app not found at " + exportedApp)
+	}
+	success("Exported")
+
+	step("Notarizing (waiting for Apple)... this can take a few minutes")
+	zipPath := filepath.Join(exportDir, "Screendrop-notarize.zip")
+	if out, err := runCmd("ditto", "-c", "-k", "--keepParent", exportedApp, zipPath); err != nil {
+		fail("Zipping for notarization failed:\n" + out)
+	}
+
+	notaryOut, notaryErr := runCmd("xcrun", "notarytool", "submit", zipPath,
+		"--keychain-profile", notaryProfile,
+		"--wait")
+	if notaryErr != nil {
+		fail(fmt.Sprintf("notarytool submit failed (is the '%s' keychain profile set up?):\n%s", notaryProfile, notaryOut))
+	}
+	if !strings.Contains(notaryOut, "status: Accepted") {
+		fail("Notarization did not succeed:\n" + notaryOut + "\n\nInspect with: xcrun notarytool log <submission-id> --keychain-profile " + notaryProfile)
+	}
+	success("Notarized")
+
+	step("Stapling notarization ticket...")
+	if out, err := runCmd("xcrun", "stapler", "staple", exportedApp); err != nil {
+		fail("stapler failed:\n" + out)
+	}
+
+	_ = os.RemoveAll(appPath)
+	if out, err := runCmd("ditto", exportedApp, appPath); err != nil {
+		fail("Placing app in ~/Downloads failed:\n" + out)
+	}
+	success("Notarized app ready at " + appPath)
+}
+
+// ensureXcodeDeveloperDir makes sure xcodebuild/xcrun resolve to a full Xcode
+// install rather than the Command Line Tools. xcodebuild fails outright when
+// the active developer directory is /Library/Developer/CommandLineTools, so we
+// point DEVELOPER_DIR at Xcode for all child processes.
+func ensureXcodeDeveloperDir() {
+	if dir := os.Getenv("DEVELOPER_DIR"); strings.Contains(dir, "Xcode") && fileExists(dir) {
+		return
+	}
+
+	if out, err := runCmd("xcode-select", "-p"); err == nil && strings.Contains(out, "Xcode") {
+		os.Setenv("DEVELOPER_DIR", out)
+		return
+	}
+
+	const fallback = "/Applications/Xcode.app/Contents/Developer"
+	if fileExists(fallback) {
+		os.Setenv("DEVELOPER_DIR", fallback)
+		return
+	}
+
+	fail("Xcode not found. xcodebuild needs full Xcode (not Command Line Tools).\n" +
+		"Install Xcode, or run: sudo xcode-select -s /Applications/Xcode.app, or set DEVELOPER_DIR.")
+}
+
+// bumpVersion rewrites MARKETING_VERSION and/or CURRENT_PROJECT_VERSION in the
+// pbxproj (all build configurations).
+func bumpVersion(projectPath, version, build string) error {
+	pbxPath := filepath.Join(projectPath, "project.pbxproj")
+	data, err := os.ReadFile(pbxPath)
+	if err != nil {
+		return err
+	}
+	contents := string(data)
+
+	if version != "" {
+		re := regexp.MustCompile(`MARKETING_VERSION = [^;]+;`)
+		if !re.MatchString(contents) {
+			return fmt.Errorf("MARKETING_VERSION not found in pbxproj")
+		}
+		contents = re.ReplaceAllString(contents, "MARKETING_VERSION = "+version+";")
+	}
+	if build != "" {
+		re := regexp.MustCompile(`CURRENT_PROJECT_VERSION = [^;]+;`)
+		if !re.MatchString(contents) {
+			return fmt.Errorf("CURRENT_PROJECT_VERSION not found in pbxproj")
+		}
+		contents = re.ReplaceAllString(contents, "CURRENT_PROJECT_VERSION = "+build+";")
+	}
+
+	return os.WriteFile(pbxPath, []byte(contents), 0o644)
+}
+
+func versionCommitMessage(version, build string) string {
+	switch {
+	case version != "" && build != "":
+		return fmt.Sprintf("Bump version to %s (build %s)", version, build)
+	case version != "":
+		return fmt.Sprintf("Bump version to %s", version)
+	default:
+		return fmt.Sprintf("Bump build to %s", build)
+	}
+}
+
+func exportOptionsPlist() string {
+	return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>method</key>
+	<string>developer-id</string>
+	<key>teamID</key>
+	<string>` + developmentTeam + `</string>
+	<key>signingStyle</key>
+	<string>automatic</string>
+</dict>
+</plist>
+`
+}
+
+// lastLines returns the trailing n lines of s, to keep xcodebuild's verbose
+// output readable on failure.
+func lastLines(s string, n int) string {
+	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
+	if len(lines) <= n {
+		return s
+	}
+	return strings.Join(lines[len(lines)-n:], "\n")
 }
 
 func parseSparkleSignature(output string) (string, string) {
