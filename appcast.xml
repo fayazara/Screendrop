@@ -27,6 +27,26 @@
     -->
 
     <item>
+      <title>Version 0.20.4</title>
+      <sparkle:version>15</sparkle:version>
+      <sparkle:shortVersionString>0.20.4</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.4</sparkle:minimumSystemVersion>
+      <pubDate>Sun, 07 Jun 2026 12:02:43 +0000</pubDate>
+      <description><![CDATA[
+        <h2>What's New in 0.20.4</h2>
+        <ul>
+          <li>Show a persistent green checkmark on the worker connection button when cloud upload is verified.</li>
+        </ul>
+      ]]></description>
+      <enclosure
+        url="https://github.com/fayazara/screendrop/releases/download/v0.20.4/Screendrop.dmg"
+        type="application/octet-stream"
+        sparkle:edSignature="fGi2nTk5lLhYWBFTVkdjE6XPvjoz8bRf+GxQTSRfknZGId8ai0hwMjQL2fRiCoXy3RIk/DFiUX4xDOuhXI4xDQ=="
+        length="3904039"
+      />
+    </item>
+
+    <item>
       <title>Version 0.20.3</title>
       <sparkle:version>14</sparkle:version>
       <sparkle:shortVersionString>0.20.3</sparkle:shortVersionString>
