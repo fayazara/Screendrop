@@ -12,7 +12,12 @@
       1. Bump MARKETING_VERSION and CURRENT_PROJECT_VERSION in Xcode.
       2. Export Screendrop.app to ~/Downloads.
       3. Run: go run ./cmd/screendrop-release
-      4. Enter release notes when prompted.
+         - Enter release notes when prompted, or run non-interactively with
+           flags, e.g.:
+             go run ./cmd/screendrop-release -yes \
+               -notes "Fixed pixelate preview
+             Improved upload flow"
+           (-notes-file <path> reads bullets from a file instead.)
 
       The release tool creates Screendrop.dmg, signs it with Sparkle, prepends
       this appcast, commits/pushes appcast.xml to main, and creates the GitHub
@@ -20,6 +25,26 @@
 
       Newest release goes on top.
     -->
+
+    <item>
+      <title>Version 0.20.1</title>
+      <sparkle:version>12</sparkle:version>
+      <sparkle:shortVersionString>0.20.1</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.4</sparkle:minimumSystemVersion>
+      <pubDate>Sun, 07 Jun 2026 08:06:58 +0000</pubDate>
+      <description><![CDATA[
+        <h2>What's New in 0.20.1</h2>
+        <ul>
+          <li>Fixed pixelate in the annotation editor — it now correctly pixelates the selected area instead of drawing an empty box</li>
+        </ul>
+      ]]></description>
+      <enclosure
+        url="https://github.com/fayazara/screendrop/releases/download/v0.20.1/Screendrop.dmg"
+        type="application/octet-stream"
+        sparkle:edSignature="XCHiGMNPm8AiwYs0Sp5iMYaBc6Kp2wVRqVx1ylxeM/Zfn1M1U5dM5Ne2mwgK0EDzgqQQLCD1neNnixDm4TMLCQ=="
+        length="3902360"
+      />
+    </item>
 
     <item>
       <title>Version 0.20</title>
