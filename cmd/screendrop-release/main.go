@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/xml"
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -13,6 +14,15 @@ import (
 	"regexp"
 	"strings"
 	"time"
+)
+
+// Release-note input and prompt behaviour can be supplied via flags so the
+// tool can run fully non-interactively (e.g. from an agent or CI). When no
+// notes flag is given it falls back to reading them from stdin.
+var (
+	notesFlag     string
+	notesFileFlag string
+	assumeYes     bool
 )
 
 const (
@@ -88,6 +98,12 @@ type Enclosure struct {
 }
 
 func main() {
+	flag.StringVar(&notesFlag, "notes", "", "Release notes, one bullet per line. Skips the interactive prompt.")
+	flag.StringVar(&notesFileFlag, "notes-file", "", "Path to a file with release notes, one bullet per line. Skips the interactive prompt.")
+	flag.BoolVar(&assumeYes, "yes", false, "Assume \"yes\" for all confirmation prompts (non-interactive).")
+	flag.BoolVar(&assumeYes, "y", false, "Alias for -yes.")
+	flag.Parse()
+
 	homeDir, _ := os.UserHomeDir()
 	appPath := filepath.Join(homeDir, "Downloads", appName)
 	dmgPath := filepath.Join(homeDir, "Downloads", dmgName)
@@ -152,20 +168,9 @@ func main() {
 
 	success("App validated")
 
-	step("Release notes (one bullet point per line, empty line to finish):")
-	fmt.Printf("  %sEnter your release notes below:%s\n", yellow, reset)
-
-	var notes []string
-	scanner := bufio.NewScanner(os.Stdin)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			break
-		}
-		notes = append(notes, line)
-	}
-	if err := scanner.Err(); err != nil {
-		fail("Could not read release notes: " + err.Error())
+	notes, err := collectReleaseNotes()
+	if err != nil {
+		fail(err.Error())
 	}
 	if len(notes) == 0 {
 		fail("No release notes provided")
@@ -500,6 +505,11 @@ func plistValue(plistPath, key string) (string, error) {
 }
 
 func confirm(prompt string, defaultYes bool) bool {
+	if assumeYes {
+		fmt.Printf("  %s (auto-yes)\n", prompt)
+		return true
+	}
+
 	hint := "(Y/n)"
 	if !defaultYes {
 		hint = "(y/N)"
@@ -513,6 +523,66 @@ func confirm(prompt string, defaultYes bool) bool {
 		return defaultYes
 	}
 	return line == "y" || line == "yes"
+}
+
+// collectReleaseNotes returns the release-note bullets from (in priority order)
+// the -notes-file flag, the -notes flag, or interactive stdin input.
+func collectReleaseNotes() ([]string, error) {
+	if notesFileFlag != "" {
+		data, err := os.ReadFile(notesFileFlag)
+		if err != nil {
+			return nil, fmt.Errorf("could not read notes file: %w", err)
+		}
+		step("Using release notes from " + notesFileFlag)
+		return parseNotes(string(data)), nil
+	}
+
+	if notesFlag != "" {
+		step("Using release notes from -notes flag")
+		return parseNotes(notesFlag), nil
+	}
+
+	step("Release notes (one bullet point per line, empty line to finish):")
+	fmt.Printf("  %sEnter your release notes below:%s\n", yellow, reset)
+
+	var notes []string
+	scanner := bufio.NewScanner(os.Stdin)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			break
+		}
+		notes = append(notes, cleanNote(line))
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("could not read release notes: %w", err)
+	}
+	return notes, nil
+}
+
+// parseNotes splits raw text into trimmed, non-empty bullet lines.
+func parseNotes(raw string) []string {
+	var notes []string
+	for _, line := range strings.Split(raw, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		notes = append(notes, cleanNote(line))
+	}
+	return notes
+}
+
+// cleanNote strips a leading markdown-style bullet marker so callers can pass
+// either "Fixed a bug" or "- Fixed a bug".
+func cleanNote(line string) string {
+	line = strings.TrimSpace(line)
+	for _, prefix := range []string{"- ", "* ", "• "} {
+		if strings.HasPrefix(line, prefix) {
+			return strings.TrimSpace(strings.TrimPrefix(line, prefix))
+		}
+	}
+	return line
 }
 
 func parseSparkleSignature(output string) (string, string) {
@@ -567,7 +637,12 @@ func writeAppcast(path string, items []Item) error {
       1. Bump MARKETING_VERSION and CURRENT_PROJECT_VERSION in Xcode.
       2. Export Screendrop.app to ~/Downloads.
       3. Run: go run ./cmd/screendrop-release
-      4. Enter release notes when prompted.
+         - Enter release notes when prompted, or run non-interactively with
+           flags, e.g.:
+             go run ./cmd/screendrop-release -yes \
+               -notes "Fixed pixelate preview
+             Improved upload flow"
+           (-notes-file <path> reads bullets from a file instead.)
 
       The release tool creates Screendrop.dmg, signs it with Sparkle, prepends
       this appcast, commits/pushes appcast.xml to main, and creates the GitHub
