@@ -18,6 +18,7 @@ enum ScreendropPreferences {
     static let exportDirectoryPathKey = "exportDirectoryPath"
     static let showRecordingMouseIndicatorsKey = "showRecordingMouseIndicators"
     static let showRecordingKeyPressCaptionsKey = "showRecordingKeyPressCaptions"
+    static let recordMicrophoneAudioKey = "recordMicrophoneAudio"
     static let recordingMouseIndicatorColorKey = "recordingMouseIndicatorColor"
     static let recordingMouseIndicatorSizeKey = "recordingMouseIndicatorSize"
     static let fullscreenHotkeyKey = "captureHotkey.fullscreen"
@@ -36,6 +37,7 @@ enum ScreendropPreferences {
     private static let defaultCompressionQuality = 0.8
     static let defaultRecordingMouseIndicatorColor = "#007AFF"
     static let defaultRecordingMouseIndicatorSize = 44.0
+    static let defaultRecordMicrophoneAudio = true
     
     static var autoSave: Bool {
         UserDefaults.standard.bool(forKey: autoSaveKey)
@@ -88,6 +90,14 @@ enum ScreendropPreferences {
 
     static var showRecordingKeyPressCaptions: Bool {
         UserDefaults.standard.bool(forKey: showRecordingKeyPressCaptionsKey)
+    }
+
+    static var recordMicrophoneAudio: Bool {
+        if UserDefaults.standard.object(forKey: recordMicrophoneAudioKey) == nil {
+            return defaultRecordMicrophoneAudio
+        }
+
+        return UserDefaults.standard.bool(forKey: recordMicrophoneAudioKey)
     }
 
     static var recordingMouseIndicatorColor: String {
