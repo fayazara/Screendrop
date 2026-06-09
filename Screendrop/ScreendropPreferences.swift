@@ -32,6 +32,7 @@ enum ScreendropPreferences {
     static let previewAutoCloseSecondsKey = "previewAutoCloseSeconds"
     static let previewCloseAfterDraggingKey = "previewCloseAfterDragging"
     static let lowResolutionEditorPreviewKey = "lowResolutionEditorPreview"
+    static let trimFullscreenMenuBarKey = "trimFullscreenMenuBar"
 
     private static let defaultCompressionQuality = 0.8
     static let defaultRecordingMouseIndicatorColor = "#007AFF"
@@ -161,6 +162,16 @@ enum ScreendropPreferences {
         return UserDefaults.standard.bool(forKey: lowResolutionEditorPreviewKey)
     }
     
+    /// Whether fullscreen captures on notched displays trim the empty black
+    /// menu-bar strip at the top. The strip is only removed when it's solid
+    /// black (menu bar hidden); a revealed menu bar is preserved. Defaults to on.
+    static var trimFullscreenMenuBar: Bool {
+        if UserDefaults.standard.object(forKey: trimFullscreenMenuBarKey) == nil {
+            return true
+        }
+        return UserDefaults.standard.bool(forKey: trimFullscreenMenuBarKey)
+    }
+
     // MARK: - Cloud
     
     static var cloudWorkerURL: String {

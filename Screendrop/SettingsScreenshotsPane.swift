@@ -12,6 +12,7 @@ struct ScreenshotsSettingsPane: View {
     @AppStorage(ScreendropPreferences.captureWindowShadowKey) private var captureWindowShadow = false
     @AppStorage(ScreendropPreferences.captureDelaySecondsKey) private var captureDelaySeconds = 0
     @AppStorage(ScreendropPreferences.lowResolutionEditorPreviewKey) private var lowResolutionEditorPreview = true
+    @AppStorage(ScreendropPreferences.trimFullscreenMenuBarKey) private var trimFullscreenMenuBar = true
 
     private let delayOptions: [Int] = [0, 3, 5, 10]
 
@@ -47,6 +48,16 @@ struct ScreenshotsSettingsPane: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Capture window shadow")
                         Text("Include the window's drop shadow when capturing a window.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .toggleStyle(.switch)
+
+                Toggle(isOn: $trimFullscreenMenuBar) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Trim menu bar from fullscreen captures")
+                        Text("On notched Macs, removes the empty black bar at the top of a fullscreen capture. A visible menu bar is kept.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
