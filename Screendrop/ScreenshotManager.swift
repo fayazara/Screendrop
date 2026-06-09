@@ -44,8 +44,12 @@ final class ScreenshotManager {
                 contentFilter: filter,
                 configuration: config
             )
-            
-            return saveImage(image)
+
+            // On notched displays, drop the empty black menu-bar strip left by
+            // fullscreen apps (kept when the menu bar is actually visible).
+            let trimmed = NotchBarTrimmer.trimmingEmptyMenuBar(image, displayID: display.displayID)
+
+            return saveImage(trimmed)
         } catch {
             print("Fullscreen capture failed: \(error)")
             return nil

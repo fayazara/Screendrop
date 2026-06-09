@@ -429,16 +429,14 @@ private struct AnnotationZoomControl: View {
                 .font(.system(size: 12, weight: .medium))
                 .monospacedDigit()
                 .frame(minWidth: 38)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(.regularMaterial, in: Capsule())
-                .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08)))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
                 .contentShape(Capsule())
+                .glassEffect(.regular.interactive())
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
-        .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
         .help("Zoom")
     }
 }
@@ -453,13 +451,11 @@ private struct CropResolutionBadge: View {
         Text("\(Int(size.width)) × \(Int(size.height)) px")
             .font(.system(size: 12, weight: .medium))
             .monospacedDigit()
-            .foregroundStyle(.white)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(.regularMaterial, in: Capsule())
-            .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08)))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
             .fixedSize()
-            .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
+            .glassEffect()
             .help("Crop size")
     }
 }
@@ -482,7 +478,7 @@ private struct LowResolutionPreviewNotice: View {
             HStack(spacing: 7) {
                 Image(systemName: "info.circle.fill")
                     .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.secondary)
                     .frame(width: diameter, height: diameter)
 
                 if isExpanded {
@@ -497,10 +493,7 @@ private struct LowResolutionPreviewNotice: View {
             }
             .frame(height: diameter)
             .fixedSize()
-            .background(.regularMaterial, in: Capsule())
-            .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08)))
-            .clipShape(Capsule())
-            .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
+            .glassEffect()
         }
         .buttonStyle(.plain)
         .help("Why is this preview low resolution?")
