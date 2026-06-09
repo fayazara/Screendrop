@@ -62,7 +62,7 @@ extension AnnotationEditorModel {
         guard let selectedItemID, selectedTextItem != nil else { return }
         guard imageSize.height > 0 else { return }
         let newLineHeight = clamped / (imageSize.height * AnnotationTextMetrics.fontScale)
-        history.push(items)
+        registerItemEdit()
         updateItem(id: selectedItemID) { item in
             item.textLineHeight = newLineHeight
         }
@@ -72,7 +72,7 @@ extension AnnotationEditorModel {
         textFontName = name
         saveAnnotationPreset()
         guard let selectedItemID, selectedTextItem != nil else { return }
-        history.push(items)
+        registerItemEdit()
         updateItem(id: selectedItemID) { item in
             item.fontName = name
         }
@@ -82,7 +82,7 @@ extension AnnotationEditorModel {
         textIsBold = bold
         saveAnnotationPreset()
         guard let selectedItemID, selectedTextItem != nil else { return }
-        history.push(items)
+        registerItemEdit()
         updateItem(id: selectedItemID) { item in
             item.isBold = bold
         }
@@ -92,7 +92,7 @@ extension AnnotationEditorModel {
         textIsItalic = italic
         saveAnnotationPreset()
         guard let selectedItemID, selectedTextItem != nil else { return }
-        history.push(items)
+        registerItemEdit()
         updateItem(id: selectedItemID) { item in
             item.isItalic = italic
         }
@@ -102,7 +102,7 @@ extension AnnotationEditorModel {
         textIsUnderline = underline
         saveAnnotationPreset()
         guard let selectedItemID, selectedTextItem != nil else { return }
-        history.push(items)
+        registerItemEdit()
         updateItem(id: selectedItemID) { item in
             item.isUnderline = underline
         }
@@ -112,7 +112,7 @@ extension AnnotationEditorModel {
         textAlignment = alignment
         saveAnnotationPreset()
         guard let selectedItemID, selectedTextItem != nil else { return }
-        history.push(items)
+        registerItemEdit()
         updateItem(id: selectedItemID) { item in
             item.textAlignment = alignment
         }

@@ -26,47 +26,11 @@ struct AnnotationEditorWindow: View {
             .toolbarBackgroundVisibility(.visible, for: .windowToolbar)
             .toolbar {
                 ToolbarItemGroup(placement: .primaryAction) {
-                    if CloudUploader.shared.isConfigured {
-                        Button(action: uploadAnnotation) {
-                            if isUploading {
-                                HStack(spacing: 6) {
-                                    ProgressView()
-                                        .controlSize(.small)
-                                    Text("Uploading...")
-                                }
-                                .padding(.horizontal, 6)
-                            } else if didCopyLink {
-                                Label("Link copied", systemImage: "checkmark.circle.fill")
-                                    .labelStyle(.titleAndIcon)
-                                    .padding(.horizontal, 6)
-                            } else {
-                                Label("Upload", systemImage: "arrow.up.circle")
-                                    .labelStyle(.titleAndIcon)
-                                    .padding(.horizontal, 6)
-                            }
-                        }
-                        .tint(.accentColor)
-                        .help("Upload to the cloud and copy the link")
-                        .disabled(isUploading)
+                    if model.isCropping {
+                        cropActions
+                    } else {
+                        editingActions
                     }
-
-                    Button(action: saveAs) {
-                        Label("Save As", systemImage: "arrow.down.circle")
-                            .labelStyle(.titleAndIcon)
-                    }
-                    .help("Save a copy to a location of your choice")
-
-                    Button(action: finishEditing) {
-                        Image(systemName: "checkmark.circle")
-                    }
-                    .help("Finish editing and save")
-
-                    Button {
-                        isInspectorPresented.toggle()
-                    } label: {
-                        Image(systemName: "sidebar.right")
-                    }
-                    .help(isInspectorPresented ? "Hide Inspector" : "Show Inspector")
                 }
             }
             .task(id: url) {
@@ -97,14 +61,131 @@ struct AnnotationEditorWindow: View {
                 onZoomIn: { withAnimation(.canvasZoom) { model.zoomIn() } },
                 onZoomOut: { withAnimation(.canvasZoom) { model.zoomOut() } },
                 onFitCanvas: { withAnimation(.canvasZoom) { model.fitCanvas() } },
-                onActualSize: { withAnimation(.canvasZoom) { model.setZoomPercent(100) } }
+                onActualSize: { withAnimation(.canvasZoom) { model.setZoomPercent(100) } },
+                onToggleCrop: { withAnimation(.snappy(duration: 0.2)) { model.toggleCropping() } },
+                onApplyCrop: { withAnimation(.snappy(duration: 0.2)) { model.applyCrop() } },
+                onCancelCrop: { withAnimation(.snappy(duration: 0.2)) { model.cancelCrop() } },
+                isCropping: { model.isCropping }
             ))
             .inspector(isPresented: $isInspectorPresented) {
                 AnnotationEditorInspector(
                     model: model,
                     onPickWallpaper: pickCustomWallpaper
                 )
+                .disabled(model.isCropping)
             }
+    }
+
+    // MARK: Toolbar actions
+
+    /// The standard trailing actions shown when not cropping.
+    @ViewBuilder
+    private var editingActions: some View {
+        Button(action: enterCrop) {
+            Label("Crop", systemImage: "crop")
+                .labelStyle(.titleAndIcon)
+        }
+        .help("Crop the screenshot")
+        .disabled(model.previewImage == nil || model.imageSize == .zero)
+
+        if CloudUploader.shared.isConfigured {
+            Button(action: uploadAnnotation) {
+                if isUploading {
+                    HStack(spacing: 6) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Uploading...")
+                    }
+                    .padding(.horizontal, 6)
+                } else if didCopyLink {
+                    Label("Link copied", systemImage: "checkmark.circle.fill")
+                        .labelStyle(.titleAndIcon)
+                        .padding(.horizontal, 6)
+                } else {
+                    Label("Upload", systemImage: "arrow.up.circle")
+                        .labelStyle(.titleAndIcon)
+                        .padding(.horizontal, 6)
+                }
+            }
+            .tint(.accentColor)
+            .help("Upload to the cloud and copy the link")
+            .disabled(isUploading)
+        }
+
+        Button(action: saveAs) {
+            Label("Save As", systemImage: "arrow.down.circle")
+                .labelStyle(.titleAndIcon)
+        }
+        .help("Save a copy to a location of your choice")
+
+        Button(action: finishEditing) {
+            Image(systemName: "checkmark.circle")
+        }
+        .help("Finish editing and save")
+
+        Button {
+            isInspectorPresented.toggle()
+        } label: {
+            Image(systemName: "sidebar.right")
+        }
+        .help(isInspectorPresented ? "Hide Inspector" : "Show Inspector")
+    }
+
+    /// The crop controls that replace the trailing actions while cropping.
+    @ViewBuilder
+    private var cropActions: some View {
+        Menu {
+            Picker("Aspect Ratio", selection: aspectBinding) {
+                ForEach(CropAspectRatio.allCases) { aspect in
+                    Text(aspect.title).tag(aspect)
+                }
+            }
+            .pickerStyle(.inline)
+            .labelsHidden()
+        } label: {
+            Label(model.cropAspect.title, systemImage: "aspectratio")
+                .labelStyle(.titleAndIcon)
+        }
+        .help("Aspect ratio")
+
+        Button {
+            withAnimation(.snappy(duration: 0.18)) { model.resetCrop() }
+        } label: {
+            Text("Reset").padding(.horizontal, 6)
+        }
+        .help("Reset the selection to the whole image")
+
+        Button(action: exitCrop) {
+            Text("Cancel").padding(.horizontal, 6)
+        }
+        .keyboardShortcut(.cancelAction)
+
+        Button(action: applyCropAction) {
+            Text("Crop").padding(.horizontal, 8)
+        }
+        .keyboardShortcut(.defaultAction)
+        .buttonStyle(.borderedProminent)
+    }
+
+    private var aspectBinding: Binding<CropAspectRatio> {
+        Binding(
+            get: { model.cropAspect },
+            set: { newValue in
+                withAnimation(.snappy(duration: 0.18)) { model.setCropAspect(newValue) }
+            }
+        )
+    }
+
+    private func enterCrop() {
+        withAnimation(.snappy(duration: 0.22)) { model.beginCropping() }
+    }
+
+    private func exitCrop() {
+        withAnimation(.snappy(duration: 0.22)) { model.cancelCrop() }
+    }
+
+    private func applyCropAction() {
+        withAnimation(.snappy(duration: 0.22)) { model.applyCrop() }
     }
 
     private var mainContent: some View {
@@ -133,6 +214,14 @@ struct AnnotationEditorWindow: View {
                 }
                 .padding(.leading, 16)
                 .padding(.bottom, 16)
+            }
+        }
+        .overlay(alignment: .bottomTrailing) {
+            if model.isCropping, model.imageSize != .zero {
+                CropResolutionBadge(size: model.cropPixelSize)
+                    .padding(.trailing, 16)
+                    .padding(.bottom, 16)
+                    .transition(.opacity.combined(with: .scale(scale: 0.92, anchor: .bottomTrailing)))
             }
         }
         .overlay(alignment: .bottomLeading) {
@@ -197,7 +286,7 @@ struct AnnotationEditorWindow: View {
         let baseURL = model.baseImageURL ?? sourceURL
         let items = model.items
         let backgroundSettings = model.backgroundSettings
-        let hasContent = !items.isEmpty || backgroundSettings.isEnabled
+        let hasContent = !items.isEmpty || backgroundSettings.isEnabled || model.isCropped
 
         isUploading = true
         Task {
@@ -257,7 +346,7 @@ struct AnnotationEditorWindow: View {
         let baseURL = model.baseImageURL ?? sourceURL
         let items = model.items
         let backgroundSettings = model.backgroundSettings
-        let hasContent = !items.isEmpty || backgroundSettings.isEnabled
+        let hasContent = !items.isEmpty || backgroundSettings.isEnabled || model.isCropped
         let hadDocument = ScreenshotHistoryStore.shared.hasEditDocument(for: sourceURL)
 
         // Nothing drawn and nothing previously saved -- just close.
@@ -354,6 +443,27 @@ private struct AnnotationZoomControl: View {
     }
 }
 
+/// Live pixel dimensions of the current crop selection, shown in the bottom
+/// trailing corner of the canvas while cropping. Styled to match the zoom
+/// control capsule on the opposite side.
+private struct CropResolutionBadge: View {
+    let size: CGSize
+
+    var body: some View {
+        Text("\(Int(size.width)) × \(Int(size.height)) px")
+            .font(.system(size: 12, weight: .medium))
+            .monospacedDigit()
+            .foregroundStyle(.white)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(.regularMaterial, in: Capsule())
+            .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08)))
+            .fixedSize()
+            .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
+            .help("Crop size")
+    }
+}
+
 /// A small badge shown beside the zoom control when the editing preview is
 /// downscaled to save memory. Collapsed it's just an "i" button; tapping it
 /// expands an explanation that the reduction is preview-only and points users
@@ -372,7 +482,7 @@ private struct LowResolutionPreviewNotice: View {
             HStack(spacing: 7) {
                 Image(systemName: "info.circle.fill")
                     .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.white)
                     .frame(width: diameter, height: diameter)
 
                 if isExpanded {

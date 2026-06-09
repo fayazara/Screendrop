@@ -239,11 +239,23 @@ final class ScreenshotHistoryStore {
         do {
             let baseDestination = Self.baseImageURL(for: displayURL)
 
-            // First edit: snapshot the current (untouched) display image as the base.
-            if baseURL.standardizedFileURL == displayURL.standardizedFileURL {
-                if !FileManager.default.fileExists(atPath: baseDestination.path),
-                   FileManager.default.fileExists(atPath: displayURL.path) {
-                    try FileManager.default.copyItem(at: displayURL, to: baseDestination)
+            // Keep the canonical base image (`<stem>.base.<ext>`) in sync with
+            // the image the annotations actually render on top of.
+            if baseURL.standardizedFileURL != baseDestination.standardizedFileURL {
+                if baseURL.standardizedFileURL == displayURL.standardizedFileURL {
+                    // First edit: snapshot the current (untouched) display image
+                    // as the base, lazily.
+                    if !FileManager.default.fileExists(atPath: baseDestination.path),
+                       FileManager.default.fileExists(atPath: displayURL.path) {
+                        try FileManager.default.copyItem(at: displayURL, to: baseDestination)
+                    }
+                } else {
+                    // The base was replaced this session (e.g. by a crop). Persist
+                    // the new base so re-opened edits render from the cropped pixels.
+                    if FileManager.default.fileExists(atPath: baseDestination.path) {
+                        try FileManager.default.removeItem(at: baseDestination)
+                    }
+                    try FileManager.default.copyItem(at: baseURL, to: baseDestination)
                 }
             }
 

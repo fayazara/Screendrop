@@ -523,6 +523,44 @@ struct AnnotationItem: Identifiable, Equatable {
         return item
     }
 
+    /// Remap this annotation from the original image's normalized space into the
+    /// space of a cropped image. `crop` is the normalized crop rect relative to
+    /// the original image. Stroke width and text size are rescaled so they keep
+    /// the same rendered pixel size after the image dimensions change. Returns
+    /// `nil` when the annotation falls entirely outside the crop.
+    func remappedForCrop(crop: CGRect, oldImageSize: CGSize, newImageSize: CGSize) -> AnnotationItem? {
+        guard crop.width > 0, crop.height > 0 else { return nil }
+
+        func remap(_ point: CGPoint) -> CGPoint {
+            CGPoint(
+                x: (point.x - crop.minX) / crop.width,
+                y: (point.y - crop.minY) / crop.height
+            )
+        }
+
+        let standardizedRect = rect.standardized
+        var item = self
+        item.rect = CGRect(
+            x: (standardizedRect.minX - crop.minX) / crop.width,
+            y: (standardizedRect.minY - crop.minY) / crop.height,
+            width: standardizedRect.width / crop.width,
+            height: standardizedRect.height / crop.height
+        )
+        item.points = points.map(remap)
+
+        let oldMaxEdge = max(oldImageSize.width, oldImageSize.height)
+        let newMaxEdge = max(newImageSize.width, newImageSize.height)
+        if newMaxEdge > 0 {
+            item.strokeWidth = strokeWidth * oldMaxEdge / newMaxEdge
+        }
+        // textLineHeight is normalized to the image height; the new height is
+        // `oldHeight * crop.height`, so divide to preserve the rendered size.
+        item.textLineHeight = textLineHeight / crop.height
+
+        guard item.bounds.intersects(CropRectEditor.unit) else { return nil }
+        return item
+    }
+
     private var arrowPoints: [CGPoint] {
         guard tool == .arrow,
               let start = points.first,

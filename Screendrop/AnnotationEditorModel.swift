@@ -49,6 +49,15 @@ final class AnnotationEditorModel {
     var isSmartRedacting = false
     var smartRedactionMessage: String?
 
+    // MARK: Crop
+    /// Whether the modal crop overlay is currently active.
+    var isCropping = false
+    /// The working crop rectangle, normalized to the image (0...1, top-left
+    /// origin). Only meaningful while `isCropping` is true.
+    var cropRect = CGRect(x: 0, y: 0, width: 1, height: 1)
+    /// The aspect-ratio constraint applied while cropping.
+    var cropAspect: CropAspectRatio = .freeform
+
     // MARK: Zoom & pan
     /// When `true` the canvas is scaled to fit the available viewport (default).
     var zoomToFit = true
@@ -117,6 +126,22 @@ final class AnnotationEditorModel {
     var history = AnnotationHistory()
     private let minimumItemSize: CGFloat = 0.006
 
+    /// A full snapshot of the editor's image state, captured before a crop so
+    /// the operation can be undone/redone.
+    private struct CropSnapshot {
+        var baseImageURL: URL?
+        var previewImage: NSImage?
+        var isPreviewDownscaled: Bool
+        var imageSize: CGSize
+        var items: [AnnotationItem]
+    }
+
+    private var cropUndoStack: [CropSnapshot] = []
+    private var cropRedoStack: [CropSnapshot] = []
+
+    /// Smallest crop dimension, in normalized units, derived from a pixel floor.
+    private let minimumCropPixels: CGFloat = 24
+
     /// Longest-edge cap (in pixels) for the downscaled editing preview when the
     /// low-resolution preview preference is enabled. Kept high enough that the
     /// preview stays crisp even when zoomed, while still bounding memory use on
@@ -151,17 +176,13 @@ final class AnnotationEditorModel {
         baseImageURL = renderSourceURL
         imageSize = ScreenshotImageLoader.imageSize(at: renderSourceURL) ?? .zero
         // The editing preview is only ever used for on-screen display; exports
-        // always re-read the full-resolution source via AnnotationRenderer. When
-        // the low-resolution preference is enabled we cap the preview's longest
-        // edge to bound memory; otherwise we load it at full resolution.
-        if ScreendropPreferences.lowResolutionEditorPreview {
-            previewImage = ScreenshotImageLoader.downsampledImage(at: renderSourceURL, maxPixelSize: previewImageMaxPixelSize)
-            // Only flag as downscaled if the source actually exceeds the cap.
-            isPreviewDownscaled = max(imageSize.width, imageSize.height) > previewImageMaxPixelSize
-        } else {
-            previewImage = ScreenshotImageLoader.fullResolutionImage(at: renderSourceURL)
-            isPreviewDownscaled = false
-        }
+        // always re-read the full-resolution source via AnnotationRenderer.
+        previewImage = makePreviewImage(from: renderSourceURL)
+        isCropping = false
+        cropRect = CGRect(x: 0, y: 0, width: 1, height: 1)
+        cropAspect = .freeform
+        cropUndoStack = []
+        cropRedoStack = []
         draftItem = nil
         selectedItemIDs = []
         editingTextItemID = nil
@@ -181,6 +202,20 @@ final class AnnotationEditorModel {
         }
     }
 
+    /// Loads an editing preview for the image at `url`. When the low-resolution
+    /// preview preference is enabled the longest edge is capped to bound memory;
+    /// otherwise the image is decoded at full resolution. Updates
+    /// `isPreviewDownscaled` as a side effect. Requires `imageSize` to be set.
+    private func makePreviewImage(from url: URL) -> NSImage? {
+        if ScreendropPreferences.lowResolutionEditorPreview {
+            isPreviewDownscaled = max(imageSize.width, imageSize.height) > previewImageMaxPixelSize
+            return ScreenshotImageLoader.downsampledImage(at: url, maxPixelSize: previewImageMaxPixelSize)
+        } else {
+            isPreviewDownscaled = false
+            return ScreenshotImageLoader.fullResolutionImage(at: url)
+        }
+    }
+
     func releaseEditorResources() {
         sourceURL = nil
         baseImageURL = nil
@@ -196,6 +231,11 @@ final class AnnotationEditorModel {
         backgroundSettings = AnnotationBackgroundSettings()
         interaction = nil
         history.reset()
+        isCropping = false
+        cropRect = CGRect(x: 0, y: 0, width: 1, height: 1)
+        cropAspect = .freeform
+        cropUndoStack = []
+        cropRedoStack = []
         errorMessage = nil
         isSmartRedacting = false
         smartRedactionMessage = nil
@@ -203,6 +243,7 @@ final class AnnotationEditorModel {
     }
 
     func beginInteraction(at location: CGPoint, imageFrame: CGRect, boundaryFrame: CGRect) {
+        guard !isCropping else { return }
         let isExtendingSelection = isMultiSelectionModifierPressed
 
         guard let point = normalizedPoint(location, in: imageFrame, boundedBy: boundaryFrame, clamped: false) else {
@@ -248,6 +289,7 @@ final class AnnotationEditorModel {
     }
 
     func updateInteraction(to location: CGPoint, imageFrame: CGRect, boundaryFrame: CGRect) {
+        guard !isCropping else { return }
         guard let interaction,
               let point = normalizedPoint(location, in: imageFrame, boundedBy: boundaryFrame, clamped: true) else {
             return
@@ -294,6 +336,7 @@ final class AnnotationEditorModel {
     }
 
     func endInteraction(at location: CGPoint, imageFrame: CGRect, boundaryFrame: CGRect) {
+        guard !isCropping else { return }
         defer { interaction = nil }
 
         guard let interaction,
@@ -319,7 +362,7 @@ final class AnnotationEditorModel {
                 return
             }
 
-            history.push(items)
+            registerItemEdit()
             items.append(item)
             selectedItemID = item.id
             editingTextItemID = item.tool == .text ? item.id : nil
@@ -359,7 +402,7 @@ final class AnnotationEditorModel {
            let resizeHandle = hitTestResizeHandle(point, in: imageFrame, item: selectedItem) {
             applyStyleFromItem(selectedItem, updateSelectedTool: !preservingSelectedTool)
             draftItem = nil
-            history.push(items)
+            registerItemEdit()
             interaction = .resizing(id: selectedItem.id, handle: resizeHandle, originalItem: selectedItem)
             statePath = AnnotationToolState.resizing.path(for: selectedTool)
             return true
@@ -388,7 +431,7 @@ final class AnnotationEditorModel {
 
         applyStyleFromItem(item, updateSelectedTool: !preservingSelectedTool)
         draftItem = nil
-        history.push(items)
+        registerItemEdit()
 
         if shouldBeginTextEditing {
             editingTextItemID = item.id
@@ -482,7 +525,7 @@ final class AnnotationEditorModel {
         saveAnnotationPreset()
 
         if !selectedItemIDs.isEmpty {
-            history.push(items)
+            registerItemEdit()
             updateSelectedItems { item in
                 item.swatch = swatch
             }
@@ -499,7 +542,7 @@ final class AnnotationEditorModel {
         saveAnnotationPreset()
 
         if !selectedItemIDs.isEmpty {
-            history.push(items)
+            registerItemEdit()
             updateSelectedItems { item in
                 item.strokeWidth = strokeWidth
             }
@@ -516,7 +559,7 @@ final class AnnotationEditorModel {
         saveAnnotationPreset()
 
         if !selectedItemIDs.isEmpty {
-            history.push(items)
+            registerItemEdit()
             updateSelectedItems { item in
                 item.redactionDensity = redactionDensity
             }
@@ -539,7 +582,7 @@ final class AnnotationEditorModel {
     func deleteSelectedAnnotation() {
         guard !selectedItemIDs.isEmpty else { return }
 
-        history.push(items)
+        registerItemEdit()
         items.removeAll { selectedItemIDs.contains($0.id) }
         selectedItemIDs = []
         editingTextItemID = nil
@@ -628,22 +671,39 @@ final class AnnotationEditorModel {
         }
     }
 
-    func undo() {
-        guard let restoredItems = history.undo(current: items) else { return }
+    /// Records the current annotation state for undo before an item mutation.
+    /// Also invalidates any pending crop-redo, since a fresh edit diverges the
+    /// timeline (you can no longer redo an undone crop after editing).
+    func registerItemEdit() {
+        history.push(items)
+        cropRedoStack.removeAll()
+    }
 
-        items = restoredItems
-        selectedItemIDs = []
-        editingTextItemID = nil
-        draftItem = nil
-        interaction = nil
-        selectionRect = nil
-        syncNextNumberedCircleValue()
-        statePath = AnnotationToolState.idle.path(for: selectedTool)
+    func undo() {
+        guard !isCropping else { return }
+
+        if let restoredItems = history.undo(current: items) {
+            applyRestoredItems(restoredItems)
+            return
+        }
+
+        // No finer-grained annotation edits remain; fall back to undoing the
+        // most recent crop, if any.
+        undoCrop()
     }
 
     func redo() {
-        guard let restoredItems = history.redo(current: items) else { return }
+        guard !isCropping else { return }
 
+        if let restoredItems = history.redo(current: items) {
+            applyRestoredItems(restoredItems)
+            return
+        }
+
+        redoCrop()
+    }
+
+    private func applyRestoredItems(_ restoredItems: [AnnotationItem]) {
         items = restoredItems
         selectedItemIDs = []
         editingTextItemID = nil
@@ -794,7 +854,7 @@ final class AnnotationEditorModel {
             return
         }
 
-        history.push(items)
+        registerItemEdit()
         let newItems = renderableRegions.map { region in
             AnnotationItem(
                 tool: tool,
@@ -1239,5 +1299,207 @@ extension AnnotationEditorModel {
             width: min(max(pan.width, -maxX), maxX),
             height: min(max(pan.height, -maxY), maxY)
         )
+    }
+}
+
+// MARK: - Crop
+
+extension AnnotationEditorModel {
+    /// Whether the image has been cropped in this editing session (and can be
+    /// undone). Used to decide whether there is committable content.
+    var isCropped: Bool {
+        !cropUndoStack.isEmpty
+    }
+
+    /// Pixel dimensions of the current crop selection.
+    var cropPixelSize: CGSize {
+        CGSize(
+            width: (cropRect.width * imageSize.width).rounded(),
+            height: (cropRect.height * imageSize.height).rounded()
+        )
+    }
+
+    /// Enter the modal crop mode, resetting the selection to the whole image.
+    func beginCropping() {
+        guard imageSize != .zero, !isCropping else { return }
+
+        commitTextEditing()
+        selectedItemIDs = []
+        editingTextItemID = nil
+        isTextPlacementArmed = false
+        draftItem = nil
+        interaction = nil
+        selectionRect = nil
+        cropAspect = .freeform
+        cropRect = CropRectEditor.unit
+        fitCanvas()
+        isCropping = true
+    }
+
+    /// Leave crop mode without applying.
+    func cancelCrop() {
+        guard isCropping else { return }
+        isCropping = false
+        cropRect = CropRectEditor.unit
+        cropAspect = .freeform
+    }
+
+    func toggleCropping() {
+        isCropping ? cancelCrop() : beginCropping()
+    }
+
+    /// Reset the crop selection back to the whole image (respecting the aspect).
+    func resetCrop() {
+        guard isCropping else { return }
+        if let ratio = cropAspect.normalizedRatio(imageSize: imageSize) {
+            cropRect = CropRectEditor.applyAspect(to: CropRectEditor.unit, aspect: ratio)
+        } else {
+            cropRect = CropRectEditor.unit
+        }
+    }
+
+    func setCropAspect(_ aspect: CropAspectRatio) {
+        cropAspect = aspect
+        guard isCropping else { return }
+        if let ratio = aspect.normalizedRatio(imageSize: imageSize) {
+            cropRect = CropRectEditor.applyAspect(to: cropRect, aspect: ratio)
+        }
+    }
+
+    /// Resize the crop selection by dragging a handle to a normalized point.
+    func updateCrop(handle: CropHandle, toNormalized point: CGPoint) {
+        guard isCropping else { return }
+        // Edge handles ignore the aspect lock; corner handles enforce it.
+        let aspect = handle.isCorner ? cropAspect.normalizedRatio(imageSize: imageSize) : nil
+        cropRect = CropRectEditor.resize(
+            cropRect,
+            handle: handle,
+            to: point,
+            aspect: aspect,
+            minWidth: minimumCropWidth,
+            minHeight: minimumCropHeight,
+            fromCenter: isCropCenterResizeModifierPressed
+        )
+    }
+
+    /// Whether the "resize from center" modifier is held. Honors Cmd+Shift as
+    /// well as Option (the macOS-standard for symmetric resize).
+    private var isCropCenterResizeModifierPressed: Bool {
+        let flags = NSEvent.modifierFlags
+        return flags.contains(.option) || (flags.contains(.command) && flags.contains(.shift))
+    }
+
+    /// Translate the whole crop selection by a normalized delta.
+    func moveCrop(byNormalized delta: CGSize) {
+        guard isCropping else { return }
+        cropRect = CropRectEditor.move(cropRect, by: delta)
+    }
+
+    /// Bake the crop into a new full-resolution base image, remap annotations,
+    /// and exit crop mode. Quality is preserved (the crop runs on the native
+    /// pixels). The operation is undoable via `undo()`.
+    func applyCrop() {
+        guard isCropping else { return }
+
+        let crop = cropRect.standardized.intersection(CropRectEditor.unit)
+        defer {
+            isCropping = false
+            cropRect = CropRectEditor.unit
+            cropAspect = .freeform
+        }
+
+        guard crop.width > 0.0001, crop.height > 0.0001 else { return }
+
+        // No-op when the selection still covers (essentially) the whole image.
+        if crop.minX < 0.0005, crop.minY < 0.0005, crop.width > 0.999, crop.height > 0.999 {
+            return
+        }
+
+        guard let baseURL = baseImageURL,
+              let result = AnnotationImageCropper.crop(url: baseURL, normalizedRect: crop) else {
+            errorMessage = "Unable to crop the image."
+            return
+        }
+
+        let snapshot = currentCropSnapshot()
+        let oldImageSize = imageSize
+        let usedCrop = result.normalizedRect
+        let newImageSize = result.pixelSize
+
+        let remappedItems = items.compactMap {
+            $0.remappedForCrop(crop: usedCrop, oldImageSize: oldImageSize, newImageSize: newImageSize)
+        }
+
+        baseImageURL = result.url
+        imageSize = newImageSize
+        items = remappedItems
+        previewImage = makePreviewImage(from: result.url)
+
+        selectedItemIDs = []
+        editingTextItemID = nil
+        draftItem = nil
+        interaction = nil
+        selectionRect = nil
+        syncNextNumberedCircleValue()
+
+        // A crop invalidates the fine-grained annotation history (those
+        // snapshots live in the pre-crop coordinate space), so reset it. The
+        // crop snapshot itself preserves the items for undo.
+        history.reset()
+        cropUndoStack.append(snapshot)
+        cropRedoStack.removeAll()
+
+        resetZoom()
+        errorMessage = nil
+    }
+
+    private func undoCrop() {
+        guard let previous = cropUndoStack.popLast() else { return }
+        cropRedoStack.append(currentCropSnapshot())
+        restore(previous)
+    }
+
+    private func redoCrop() {
+        guard let next = cropRedoStack.popLast() else { return }
+        cropUndoStack.append(currentCropSnapshot())
+        restore(next)
+    }
+
+    private func currentCropSnapshot() -> CropSnapshot {
+        CropSnapshot(
+            baseImageURL: baseImageURL,
+            previewImage: previewImage,
+            isPreviewDownscaled: isPreviewDownscaled,
+            imageSize: imageSize,
+            items: items
+        )
+    }
+
+    private func restore(_ snapshot: CropSnapshot) {
+        baseImageURL = snapshot.baseImageURL
+        previewImage = snapshot.previewImage
+        isPreviewDownscaled = snapshot.isPreviewDownscaled
+        imageSize = snapshot.imageSize
+        items = snapshot.items
+        selectedItemIDs = []
+        editingTextItemID = nil
+        draftItem = nil
+        interaction = nil
+        selectionRect = nil
+        // Annotation history was reset at crop time; keep it clean.
+        history.reset()
+        syncNextNumberedCircleValue()
+        statePath = AnnotationToolState.idle.path(for: selectedTool)
+        resetZoom()
+    }
+
+    private var minimumCropWidth: CGFloat {
+        guard imageSize.width > 0 else { return 0.05 }
+        return min(0.5, max(0.01, minimumCropPixels / imageSize.width))
+    }
+
+    private var minimumCropHeight: CGFloat {
+        guard imageSize.height > 0 else { return 0.05 }
+        return min(0.5, max(0.01, minimumCropPixels / imageSize.height))
     }
 }

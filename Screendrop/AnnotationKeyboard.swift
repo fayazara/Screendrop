@@ -16,9 +16,22 @@ struct AnnotationKeyCommandHandler: NSViewRepresentable {
     let onZoomOut: () -> Void
     let onFitCanvas: () -> Void
     let onActualSize: () -> Void
+    let onToggleCrop: () -> Void
+    let onApplyCrop: () -> Void
+    let onCancelCrop: () -> Void
+    let isCropping: () -> Bool
 
     func makeNSView(context: Context) -> AnnotationKeyCommandHandlerView {
         let view = AnnotationKeyCommandHandlerView()
+        apply(to: view)
+        return view
+    }
+
+    func updateNSView(_ nsView: AnnotationKeyCommandHandlerView, context: Context) {
+        apply(to: nsView)
+    }
+
+    private func apply(to view: AnnotationKeyCommandHandlerView) {
         view.onDelete = onDelete
         view.onUndo = onUndo
         view.onRedo = onRedo
@@ -28,19 +41,10 @@ struct AnnotationKeyCommandHandler: NSViewRepresentable {
         view.onZoomOut = onZoomOut
         view.onFitCanvas = onFitCanvas
         view.onActualSize = onActualSize
-        return view
-    }
-
-    func updateNSView(_ nsView: AnnotationKeyCommandHandlerView, context: Context) {
-        nsView.onDelete = onDelete
-        nsView.onUndo = onUndo
-        nsView.onRedo = onRedo
-        nsView.onSelectAll = onSelectAll
-        nsView.onSelectTool = onSelectTool
-        nsView.onZoomIn = onZoomIn
-        nsView.onZoomOut = onZoomOut
-        nsView.onFitCanvas = onFitCanvas
-        nsView.onActualSize = onActualSize
+        view.onToggleCrop = onToggleCrop
+        view.onApplyCrop = onApplyCrop
+        view.onCancelCrop = onCancelCrop
+        view.isCropping = isCropping
     }
 }
 
@@ -54,6 +58,10 @@ final class AnnotationKeyCommandHandlerView: NSView {
     var onZoomOut: (() -> Void)?
     var onFitCanvas: (() -> Void)?
     var onActualSize: (() -> Void)?
+    var onToggleCrop: (() -> Void)?
+    var onApplyCrop: (() -> Void)?
+    var onCancelCrop: (() -> Void)?
+    var isCropping: (() -> Bool)?
 
     private var localKeyMonitor: Any?
 
@@ -78,6 +86,29 @@ final class AnnotationKeyCommandHandlerView: NSView {
 
             if Self.isEditingText(in: self.window) {
                 return event
+            }
+
+            // Crop mode is modal: Return applies, Escape cancels, and all other
+            // editing shortcuts are swallowed so they can't act on the hidden
+            // annotation layer.
+            if self.isCropping?() == true {
+                if Self.isReturn(event) {
+                    self.onApplyCrop?()
+                    return nil
+                }
+                if Self.isEscape(event) {
+                    self.onCancelCrop?()
+                    return nil
+                }
+                if Self.isUndo(event) || Self.isRedo(event) {
+                    return event
+                }
+                return nil
+            }
+
+            if Self.isCropToggle(event) {
+                self.onToggleCrop?()
+                return nil
             }
 
             if Self.isPlainDelete(event) {
@@ -132,6 +163,19 @@ final class AnnotationKeyCommandHandlerView: NSView {
     private static func isPlainDelete(_ event: NSEvent) -> Bool {
         event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty
             && (event.keyCode == 51 || event.keyCode == 117)
+    }
+
+    private static func isReturn(_ event: NSEvent) -> Bool {
+        event.keyCode == 36 || event.keyCode == 76
+    }
+
+    private static func isEscape(_ event: NSEvent) -> Bool {
+        event.keyCode == 53
+    }
+
+    private static func isCropToggle(_ event: NSEvent) -> Bool {
+        event.modifierFlags.intersection([.command, .option, .control]).isEmpty
+            && event.charactersIgnoringModifiers?.lowercased() == "c"
     }
 
     private static func isEditingText(in window: NSWindow?) -> Bool {

@@ -117,8 +117,13 @@ struct AnnotationCanvas: View {
                             y: viewRect(selectionRect, in: imageFrame).midY
                         )
                 }
+
+                if model.isCropping {
+                    AnnotationCropOverlay(model: model, imageFrame: imageFrame)
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .coordinateSpace(.named(AnnotationCanvasCoordinateSpace.name))
             .contentShape(Rectangle())
             .background(
                 AnnotationCanvasInputHandler(
@@ -220,6 +225,10 @@ struct AnnotationCanvas: View {
     }
 
     private func updateCursor(at location: CGPoint, imageFrame: CGRect, boundaryFrame: CGRect) {
+        guard !model.isCropping else {
+            setCursor(.arrow)
+            return
+        }
         guard model.containsInteractionPoint(location, imageFrame: imageFrame, boundaryFrame: boundaryFrame) else {
             setCursor(.arrow)
             return
