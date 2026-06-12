@@ -28,6 +28,8 @@ struct PreviewWindowView: View {
     @State private var scrollMonitor: Any?
     @State private var isOverlayTransitioning = false
     @State private var transitionResetTask: Task<Void, Never>?
+    @State private var stackHeight: CGFloat = 500
+    @State private var peekHeight: CGFloat = 64
     @AppStorage(ScreendropPreferences.previewPositionKey) private var previewPositionRaw = PreviewOverlayPosition.right.rawValue
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismiss) private var dismissWindow
@@ -58,22 +60,30 @@ struct PreviewWindowView: View {
         GeometryReader { proxy in
             let visibleCapacity = visibleItemCapacity(for: proxy.size.height)
 
+            // Both the stack and the peek tab stay mounted; collapsing/expanding
+            // just slides them vertically (the window clips them at the bottom
+            // edge). Keeping them mounted means the cards don't re-run their
+            // horizontal entrance slide on expand — the whole stack moves as one
+            // along a single vertical axis, and the peek pill slides in as the
+            // stack slides out.
             ZStack {
-                if previewStack.isCollapsed {
-                    peekTab
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: stackAlignment)
-                        .padding(.leading, previewPosition == .left ? peekHorizontalPadding : 0)
-                        .padding(.trailing, previewPosition == .right ? peekHorizontalPadding : 0)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                } else {
-                    stackContent
-                        .frame(width: previewCardSize.width)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: stackAlignment)
-                        .padding(.leading, previewPosition == .left ? previewTrailingPadding : 0)
-                        .padding(.trailing, previewPosition == .right ? previewTrailingPadding : 0)
-                        .padding(.bottom, previewStackEdgePadding)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
+                stackContent
+                    .frame(width: previewCardSize.width)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { stackHeight = $0 }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: stackAlignment)
+                    .padding(.leading, previewPosition == .left ? previewTrailingPadding : 0)
+                    .padding(.trailing, previewPosition == .right ? previewTrailingPadding : 0)
+                    .padding(.bottom, previewStackEdgePadding)
+                    .reportsInteractiveRect(active: !previewStack.isCollapsed)
+                    .offset(y: previewStack.isCollapsed ? stackHiddenOffset : 0)
+
+                peekTab
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { peekHeight = $0 }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: stackAlignment)
+                    .padding(.leading, previewPosition == .left ? peekHorizontalPadding : 0)
+                    .padding(.trailing, previewPosition == .right ? peekHorizontalPadding : 0)
+                    .reportsInteractiveRect(active: previewStack.isCollapsed)
+                    .offset(y: previewStack.isCollapsed ? 0 : peekHiddenOffset)
             }
             .animation(previewStackAnimation, value: previewStack.itemIDs)
             .animation(previewStackAnimation, value: previewStack.isCollapsed)
@@ -224,9 +234,21 @@ struct PreviewWindowView: View {
         return count == 1 ? "1 \(noun)" : "\(count) \(noun)s"
     }
 
-    /// Horizontal inset that centres the peek tab under the card column.
+    /// The peek tab matches the card width, so it uses the same edge inset as
+    /// the cards to line up on the same x-position.
     private var peekHorizontalPadding: CGFloat {
-        previewTrailingPadding + max(0, (previewCardSize.width - previewPeekTabWidth) / 2)
+        previewTrailingPadding
+    }
+
+    /// Distance to slide the stack straight down so it clears the bottom edge
+    /// (and is clipped by the window) when collapsed.
+    private var stackHiddenOffset: CGFloat {
+        stackHeight + previewStackEdgePadding + 24
+    }
+
+    /// Distance to slide the peek pill down below the bottom edge when expanded.
+    private var peekHiddenOffset: CGFloat {
+        peekHeight + 24
     }
 
     private func visibleItemCapacity(for height: CGFloat) -> Int {
