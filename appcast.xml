@@ -27,6 +27,32 @@
     -->
 
     <item>
+      <title>Version 0.21.0</title>
+      <sparkle:version>16</sparkle:version>
+      <sparkle:shortVersionString>0.21.0</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.4</sparkle:minimumSystemVersion>
+      <pubDate>Fri, 12 Jun 2026 16:18:26 +0000</pubDate>
+      <description><![CDATA[
+        <h2>What's New in 0.21.0</h2>
+        <ul>
+          <li>New peek tab: recent captures now collapse into a compact pill at the bottom of the screen while you edit or preview, instead of disappearing. Click it to bring your stack back, or scroll down to tuck it away.</li>
+          <li>Quick Look (press Space) now keeps your captures in the peek tab instead of hiding the overlay.</li>
+          <li>Crop tool: crop and reframe your screenshots right inside the annotator.</li>
+          <li>Clear all captures at once with the new button on the peek tab.</li>
+          <li>Unsaved capture warning: Screendrop now warns you before quitting or updating when you have captures that haven't been saved to disk, so you never lose work.</li>
+          <li>Smoother, single-axis overlay animations and refined peek-pill visuals.</li>
+          <li>Various annotator polish for buttons and labels.</li>
+        </ul>
+      ]]></description>
+      <enclosure
+        url="https://github.com/fayazara/screendrop/releases/download/v0.21.0/Screendrop.dmg"
+        type="application/octet-stream"
+        sparkle:edSignature="97qezllPuEki4q7xwMBaKzGKG2H9UeSN1HlLjAQinjeuBiuEH/A6Ha1OTIEIiRwcMbfpF8+ikt1o1F6hYP53AQ=="
+        length="4007464"
+      />
+    </item>
+
+    <item>
       <title>Version 0.20.4</title>
       <sparkle:version>15</sparkle:version>
       <sparkle:shortVersionString>0.20.4</sparkle:shortVersionString>
