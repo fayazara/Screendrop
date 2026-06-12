@@ -199,11 +199,19 @@ struct PreviewWindowView: View {
     }
 
     private var peekTab: some View {
-        PreviewPeekTab(title: peekTitle) {
-            withAnimation(previewStackAnimation) {
-                previewStack.expand()
+        PreviewPeekTab(
+            title: peekTitle,
+            onExpand: {
+                withAnimation(previewStackAnimation) {
+                    previewStack.expand()
+                }
+            },
+            onDismissAll: {
+                withAnimation(previewStackAnimation) {
+                    previewStack.dismissAll()
+                }
             }
-        }
+        )
         .reportsInteractiveRect()
     }
 

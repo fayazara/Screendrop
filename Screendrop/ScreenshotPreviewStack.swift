@@ -57,6 +57,17 @@ final class ScreenshotPreviewStack {
         return items.first { $0.id == hoveredItemID }
     }
 
+    /// Items currently in the stack that have not been written anywhere on the
+    /// user's filesystem (Auto Save off and never manually saved). These only
+    /// live in the temporary directory and are lost when the app quits.
+    var unsavedItems: [ScreenshotPreviewItem] {
+        items.filter { $0.autoSavedURL == nil }
+    }
+
+    var hasUnsavedItems: Bool {
+        !unsavedItems.isEmpty
+    }
+
     private init() {}
 
     /// Tuck the overlay into the peek tab (no-op when there's nothing to show).
@@ -291,6 +302,13 @@ final class ScreenshotPreviewStack {
         }
     }
 
+    /// Dismisses every item in the stack (used by the peek tab's clear button).
+    func dismissAll() {
+        for id in itemIDs {
+            dismiss(id: id)
+        }
+    }
+
     func setVisibleCapacity(_ capacity: Int) {
         guard capacity > 0, capacity < Int.max else { return }
 
@@ -396,17 +414,21 @@ final class ScreenshotPreviewStack {
         panel.canCreateDirectories = true
         panel.title = kind == .video ? "Save Recording" : "Save Screenshot"
 
-        panel.begin { response in
-            if response == .OK, let destURL = panel.url {
-                do {
-                    if kind == .video {
-                        try VideoFileActions.save(from: url, to: destURL)
-                    } else {
-                        try ScreenshotFileActions.save(from: url, to: destURL)
-                    }
-                } catch {
-                    print("Failed to save preview: \(error)")
+        panel.begin { [weak self] response in
+            guard response == .OK, let destURL = panel.url else { return }
+            do {
+                if kind == .video {
+                    try VideoFileActions.save(from: url, to: destURL)
+                } else {
+                    try ScreenshotFileActions.save(from: url, to: destURL)
                 }
+                // Record that this capture now lives on disk so the unsaved
+                // warning doesn't flag a screenshot the user just saved.
+                if let index = self?.items.firstIndex(where: { $0.id == id }) {
+                    self?.items[index].autoSavedURL = destURL
+                }
+            } catch {
+                print("Failed to save preview: \(error)")
             }
         }
     }

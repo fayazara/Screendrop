@@ -90,4 +90,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         return true
     }
+
+    /// Guard against silently losing captures. Screenshots that were never
+    /// saved to disk (Auto Save off and not manually saved) only live in the
+    /// temporary directory, so quitting — including a Sparkle update relaunch,
+    /// which terminates the app — discards them. Warn before that happens.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        let unsavedCount = ScreenshotPreviewStack.shared.unsavedItems.count
+        guard unsavedCount > 0 else { return .terminateNow }
+
+        NSApp.activate(ignoringOtherApps: true)
+
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = unsavedCount == 1
+            ? "You have 1 unsaved capture"
+            : "You have \(unsavedCount) unsaved captures"
+        alert.informativeText = """
+        These captures haven't been saved to your Mac and will be lost if you quit. \
+        Turn on Auto Save in Settings to keep every capture automatically.
+        """
+
+        // Cancel is the default (and leftmost-safe) action so an accidental
+        // Return never discards work.
+        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: "Quit Anyway")
+
+        return alert.runModal() == .alertSecondButtonReturn ? .terminateNow : .terminateCancel
+    }
 }
