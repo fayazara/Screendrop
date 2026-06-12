@@ -30,7 +30,7 @@ final class QuickLookPreviewPresenter: NSObject, QLPreviewPanelDataSource, QLPre
         previewURL = url as NSURL
         
         guard let panel = QLPreviewPanel.shared() else {
-            PreviewWindowCaptureExclusion.shared.restoreOverlay(reason: .quickLook)
+            ScreenshotPreviewStack.shared.expand()
             return
         }
 
@@ -43,9 +43,9 @@ final class QuickLookPreviewPresenter: NSObject, QLPreviewPanelDataSource, QLPre
         panel.delegate = self
         panel.currentPreviewItemIndex = 0
         panel.reloadData()
-        // Hide the floating preview overlay so it doesn't sit on top of the
-        // Quick Look window. Restored when Quick Look is dismissed or closes.
-        PreviewWindowCaptureExclusion.shared.suppressOverlay(reason: .quickLook)
+        // Collapse the floating overlay into the peek tab so it doesn't sit on
+        // top of the Quick Look window. Expanded again when Quick Look closes.
+        ScreenshotPreviewStack.shared.collapse()
         if panel.isVisible {
             panel.refreshCurrentPreviewItem()
         } else {
@@ -61,7 +61,7 @@ final class QuickLookPreviewPresenter: NSObject, QLPreviewPanelDataSource, QLPre
     }
     
     private func dismiss() {
-        defer { PreviewWindowCaptureExclusion.shared.restoreOverlay(reason: .quickLook) }
+        defer { ScreenshotPreviewStack.shared.expand() }
 
         guard QLPreviewPanel.sharedPreviewPanelExists(),
               let panel = QLPreviewPanel.shared() else {
@@ -76,7 +76,7 @@ final class QuickLookPreviewPresenter: NSObject, QLPreviewPanelDataSource, QLPre
     /// button or it loses key focus), which bypasses `dismiss()`.
     func windowWillClose(_ notification: Notification) {
         previewURL = nil
-        PreviewWindowCaptureExclusion.shared.restoreOverlay(reason: .quickLook)
+        ScreenshotPreviewStack.shared.expand()
     }
     
     nonisolated func numberOfPreviewItems(in panel: QLPreviewPanel!) -> Int {
