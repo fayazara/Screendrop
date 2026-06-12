@@ -27,6 +27,26 @@
     -->
 
     <item>
+      <title>Version 0.21.1</title>
+      <sparkle:version>17</sparkle:version>
+      <sparkle:shortVersionString>0.21.1</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.4</sparkle:minimumSystemVersion>
+      <pubDate>Fri, 12 Jun 2026 16:37:21 +0000</pubDate>
+      <description><![CDATA[
+        <h2>What's New in 0.21.1</h2>
+        <ul>
+          <li>Fixed a glitch where preview cards briefly looked square (the image overflowed the rounded corners) while the overlay collapsed or expanded.</li>
+        </ul>
+      ]]></description>
+      <enclosure
+        url="https://github.com/fayazara/screendrop/releases/download/v0.21.1/Screendrop.dmg"
+        type="application/octet-stream"
+        sparkle:edSignature="jwnuF9nEpOKstYIy+tnuwXH4kQFQpiVpvwANtWWfcnYqqobkjJqY2OGP/i8uYZMbu/BJydZOvuq5bQ2JucFaBg=="
+        length="4007790"
+      />
+    </item>
+
+    <item>
       <title>Version 0.21.0</title>
       <sparkle:version>16</sparkle:version>
       <sparkle:shortVersionString>0.21.0</sparkle:shortVersionString>
