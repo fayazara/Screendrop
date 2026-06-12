@@ -74,6 +74,12 @@ final class AnnotationEditorModel {
     static let minZoomPercent = 10
     static let maxZoomPercent = 400
 
+    /// While cropping, the image is fit with this much breathing room (in
+    /// points) on every side so the crop resize handles — which are centered on
+    /// the crop edges — never spill outside the interactive canvas bounds. Half
+    /// a handle's hit target is 15pt; the extra leaves a comfortable grab area.
+    static let cropHandleMargin: CGFloat = 26
+
     private var nextNumberedCircleValue = 1
     private(set) var statePath = AnnotationToolState.idle.path(for: .rectangle)
 
@@ -1191,7 +1197,21 @@ extension AnnotationEditorModel {
               viewportSize.width > 0, viewportSize.height > 0 else {
             return pixelToPointScale
         }
-        return min(viewportSize.width / canvas.width, viewportSize.height / canvas.height)
+        let fitContainer = fitContainerSize(for: viewportSize)
+        return min(fitContainer.width / canvas.width, fitContainer.height / canvas.height)
+    }
+
+    /// The container size used to compute the fit scale. While cropping, this is
+    /// inset by `cropHandleMargin` on every side so the image leaves room for
+    /// the crop resize handles, keeping them fully on-screen and clickable even
+    /// when the crop is dragged to the image's edge.
+    private func fitContainerSize(for container: CGSize) -> CGSize {
+        guard isCropping else { return container }
+        let inset = Self.cropHandleMargin * 2
+        return CGSize(
+            width: max(container.width - inset, 1),
+            height: max(container.height - inset, 1)
+        )
     }
 
     /// The scale currently applied to the canvas.
@@ -1226,7 +1246,8 @@ extension AnnotationEditorModel {
         guard canvas.width > 0, canvas.height > 0,
               container.width > 0, container.height > 0 else { return .zero }
 
-        let fit = min(container.width / canvas.width, container.height / canvas.height)
+        let fitContainer = fitContainerSize(for: container)
+        let fit = min(fitContainer.width / canvas.width, fitContainer.height / canvas.height)
         let scale = zoomToFit ? fit : manualZoomScale
         let size = CGSize(width: canvas.width * scale, height: canvas.height * scale)
         let pan = clampedPan(panOffset, scaledSize: size, container: container)
