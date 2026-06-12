@@ -74,7 +74,6 @@ struct PreviewWindowView: View {
                     .padding(.leading, previewPosition == .left ? previewTrailingPadding : 0)
                     .padding(.trailing, previewPosition == .right ? previewTrailingPadding : 0)
                     .padding(.bottom, previewStackEdgePadding)
-                    .reportsInteractiveRect(active: !previewStack.isCollapsed)
                     .offset(y: previewStack.isCollapsed ? stackHiddenOffset : 0)
 
                 peekTab
@@ -82,7 +81,6 @@ struct PreviewWindowView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: stackAlignment)
                     .padding(.leading, previewPosition == .left ? peekHorizontalPadding : 0)
                     .padding(.trailing, previewPosition == .right ? peekHorizontalPadding : 0)
-                    .reportsInteractiveRect(active: previewStack.isCollapsed)
                     .offset(y: previewStack.isCollapsed ? 0 : peekHiddenOffset)
             }
             .animation(previewStackAnimation, value: previewStack.itemIDs)
@@ -205,7 +203,8 @@ struct PreviewWindowView: View {
         // card) so the passthrough hosting view treats the inter-card gaps and
         // edges as interactive too — otherwise the cursor flickers in and out of
         // the hit area while moving across the stack and hover feels glitchy.
-        .reportsInteractiveRect()
+        // Only while expanded, so the off-screen stack doesn't capture clicks.
+        .reportsInteractiveRect(active: !previewStack.isCollapsed)
     }
 
     private var peekTab: some View {
@@ -222,7 +221,9 @@ struct PreviewWindowView: View {
                 }
             }
         )
-        .reportsInteractiveRect()
+        // Report the pill's own frame (not the full panel) as interactive, and
+        // only while collapsed, so the rest of the screen stays click-through.
+        .reportsInteractiveRect(active: previewStack.isCollapsed)
     }
 
     /// "1 Screenshot" / "3 Screenshots" — or "Captures" when the stack also

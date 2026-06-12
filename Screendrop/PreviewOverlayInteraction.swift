@@ -80,6 +80,9 @@ struct PreviewPeekTab: View {
 
     private let contentHeight: CGFloat = 24
 
+    /// Full pill height: content height plus the top/bottom insets.
+    private var pillHeight: CGFloat { contentHeight + 18 }
+
     /// Trailing space reserved inside the expand button so the label clears the
     /// dismiss control that's overlaid on the trailing edge.
     private var trailingControlsWidth: CGFloat { contentHeight + 16 }
@@ -99,23 +102,32 @@ struct PreviewPeekTab: View {
         // the stack. The dismiss control is layered on top of the trailing edge,
         // so taps there hit it first while the rest of the pill expands.
         Button(action: onExpand) {
-            HStack(spacing: 7) {
-                Image(systemName: "chevron.up")
-                    .font(.system(size: 11, weight: .semibold))
+            ZStack(alignment: .leading) {
+                // A real, near-transparent hit surface. In this AppKit-backed
+                // passthrough panel, contentShape alone can still leave only
+                // rendered glyphs/text hittable; this gives SwiftUI a concrete
+                // full-pill view to receive the click without changing visuals.
+                Rectangle()
+                    .fill(.black.opacity(0.001))
 
-                Text(title)
-                    .font(.system(size: 12, weight: .medium))
+                HStack(spacing: 7) {
+                    Image(systemName: "chevron.up")
+                        .font(.system(size: 11, weight: .semibold))
 
-                Spacer(minLength: 0)
+                    Text(title)
+                        .font(.system(size: 12, weight: .medium))
+
+                    Spacer(minLength: 0)
+                }
+                .foregroundStyle(.secondary)
+                .padding(.leading, 14)
+                .padding(.trailing, trailingControlsWidth)
             }
-            .foregroundStyle(.secondary)
-            .padding(.leading, 14)
-            .padding(.trailing, trailingControlsWidth)
-            .frame(height: contentHeight)
-            .frame(width: previewPeekTabWidth)
-            .padding(.top, 8)
-            .padding(.bottom, 10)
-            .contentShape(shape)
+            // Concrete size so the label actually fills the pill. A plain button
+            // proposes an unbounded size to its label, so maxWidth/maxHeight here
+            // would collapse to the text size and shrink the tap target.
+            .frame(width: previewPeekTabWidth, height: pillHeight)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .help("Show recent captures")
