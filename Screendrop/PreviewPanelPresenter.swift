@@ -64,7 +64,7 @@ final class PreviewPanelPresenter {
             panel.sharingType = .none
         }
 
-        panel.contentView = NSHostingView(
+        panel.contentView = PassthroughPreviewHostingView(
             rootView: PreviewWindowView(
                 onRequestClose: {
                     PreviewPanelPresenter.shared.closeIfEmpty()

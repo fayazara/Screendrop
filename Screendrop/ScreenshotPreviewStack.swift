@@ -34,6 +34,18 @@ final class ScreenshotPreviewStack {
     var draggingItemID: ScreenshotPreviewItem.ID?
     var dismissingItemIDs: Set<ScreenshotPreviewItem.ID> = []
 
+    /// When true the overlay is tucked into a small "peek" tab at the bottom
+    /// edge instead of showing the full stack. The overlay window itself stays
+    /// visible the whole time — this only changes what it renders. Used while an
+    /// editor is open and when the user scrolls the stack down to hide it.
+    var isCollapsed = false
+
+    /// Screen-space (SwiftUI `.global`) frames of the currently interactive
+    /// elements (cards, or the peek tab). The overlay's hosting view reads these
+    /// to pass mouse events through every other (transparent) region so the
+    /// always-on panel never blocks the windows beneath it.
+    var interactiveRects: [CGRect] = []
+
     private var visibleCapacity: Int?
 
     var itemIDs: [ScreenshotPreviewItem.ID] {
@@ -46,6 +58,17 @@ final class ScreenshotPreviewStack {
     }
 
     private init() {}
+
+    /// Tuck the overlay into the peek tab (no-op when there's nothing to show).
+    func collapse() {
+        guard !items.isEmpty else { return }
+        isCollapsed = true
+    }
+
+    /// Expand the overlay back into the full stack.
+    func expand() {
+        isCollapsed = false
+    }
 
     func add(url: URL) {
         QuickLookPreviewPresenter.dismiss()
@@ -284,6 +307,10 @@ final class ScreenshotPreviewStack {
     }
 
     private func prepareForInsertedPreview() {
+        // A freshly captured (or re-previewed) item should always be visible,
+        // so surface the full stack even if it was tucked into the peek tab.
+        isCollapsed = false
+
         guard let visibleCapacity else { return }
 
         let stableItemCount = items.filter { !dismissingItemIDs.contains($0.id) }.count
@@ -474,6 +501,12 @@ final class ScreenshotPreviewStack {
 
         if draggingItemID == id {
             draggingItemID = nil
+        }
+
+        // Don't leave the overlay stuck in the peek state once it's empty; the
+        // panel is torn down and the next capture should open expanded.
+        if items.isEmpty {
+            isCollapsed = false
         }
     }
 

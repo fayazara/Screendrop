@@ -11,6 +11,10 @@ struct PreviewCardView: View {
     let isHidden: Bool
     let isDismissing: Bool
     var slideDirection: CGFloat = 1
+    /// Suppresses the hover action overlay while the whole stack is animating
+    /// in or out (collapsing to / expanding from the peek tab), so actions don't
+    /// flash over cards mid-transition.
+    var suppressHoverActions: Bool = false
     let onHoverChanged: (Bool) -> Void
     let onClose: () -> Void
     let onDelete: () -> Void
@@ -52,8 +56,8 @@ struct PreviewCardView: View {
                 RoundedRectangle(cornerRadius: cornerRadius)
                     .strokeBorder(.white.opacity(0.25), lineWidth: 1)
             }
-            .shadow(color: .black.opacity(0.5), radius: 30, x: 0, y: 12)
-            .shadow(color: .black.opacity(0.3), radius: 10, x: 0, y: 4)
+            .shadow(color: .black.opacity(0.18), radius: 16, x: 0, y: 6)
+            .shadow(color: .black.opacity(0.10), radius: 4, x: 0, y: 1)
             .opacity(isHidden ? 0 : 1)
             .offset(x: horizontalOffset + shakeOffset)
             .onChange(of: cloudUploader.failedItemIDs.contains(item.id)) { _, failed in
@@ -233,7 +237,7 @@ struct PreviewCardView: View {
     }
 
     private var showOverlay: Bool {
-        isHovered
+        (isHovered && !suppressHoverActions)
         || cloudUploader.uploadingItems.contains(item.id)
         || showCheckmark
         || showUploadFailed

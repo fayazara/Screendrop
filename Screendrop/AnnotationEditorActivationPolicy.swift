@@ -17,7 +17,10 @@ enum AppActivationPolicy {
     static func enter(hidePreview: Bool = false) {
         activeWindowCount += 1
         if hidePreview {
-            PreviewWindowCaptureExclusion.shared.suppressOverlay(reason: .editor)
+            // The overlay stays on screen but tucks into the peek tab so it
+            // doesn't sit on top of the editor. The panel is never ordered out,
+            // so there's no show/hide race when the editor closes.
+            ScreenshotPreviewStack.shared.collapse()
         }
         NSApp.setActivationPolicy(.regular)
         NSApp.unhide(nil)
@@ -31,7 +34,7 @@ enum AppActivationPolicy {
         guard activeWindowCount == 0 else { return }
 
         if restorePreview {
-            PreviewWindowCaptureExclusion.shared.restoreOverlay(reason: .editor)
+            ScreenshotPreviewStack.shared.expand()
         }
 
         Task { @MainActor in

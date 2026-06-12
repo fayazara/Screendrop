@@ -16,12 +16,14 @@ final class PreviewWindowCaptureExclusion {
     /// Activated via the --demo-mode launch argument.
     static let isDemoMode = CommandLine.arguments.contains("--demo-mode")
 
-    /// Reasons the floating preview overlay is currently hidden. The panel is a
-    /// full-screen, high-level floating window, so while an editor or Quick Look
-    /// window is up we order it out entirely — that's the only reliable way to
-    /// keep it from sitting on top of and intercepting events for those windows.
+    /// Reasons the floating preview overlay is currently hidden.
+    ///
+    /// The panel is a full-screen, high-level floating window. For most cases
+    /// (e.g. the annotation editor) it now stays visible and collapses into a
+    /// peek tab instead — see `ScreenshotPreviewStack.collapse()`. Quick Look,
+    /// however, is a system-owned key window we don't control, so we still order
+    /// the overlay out entirely while it's up.
     enum SuppressionReason: Hashable {
-        case editor
         case quickLook
     }
 
@@ -40,7 +42,7 @@ final class PreviewWindowCaptureExclusion {
             window.sharingType = .none
         }
         // A panel shown (or re-shown) while suppression is active must not
-        // appear on top of the editor / Quick Look window.
+        // appear on top of the Quick Look window.
         if isSuppressed {
             window.orderOut(nil)
         }
@@ -68,7 +70,12 @@ final class PreviewWindowCaptureExclusion {
 
         if !Self.isDemoMode { previewWindow.sharingType = .none }
         PreviewWindowPlacement.shared.applyPlacement()
-        PreviewWindowPlacement.shared.showAboveActiveSpace()
+        // Re-show with retries (matching the initial capture path). Ordering a
+        // high-level floating panel to the front is unreliable while the app is
+        // still transitioning activation policy and the Quick Look window is
+        // tearing down, so a single orderFront can be dropped by the window
+        // server. The retries recover from that race.
+        PreviewWindowPlacement.shared.showAboveActiveSpaceAfterOpening()
     }
 }
 
