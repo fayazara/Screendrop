@@ -56,6 +56,11 @@ struct PreviewCardView: View {
                 RoundedRectangle(cornerRadius: cornerRadius)
                     .strokeBorder(.white.opacity(0.25), lineWidth: 1)
             }
+            // Flatten the rounded-clipped image + border into a single layer so
+            // the collapse/expand offset animation transforms the already-rounded
+            // result. Without this the fill image can briefly overflow the
+            // rounded corners mid-animation, making the card look square/janky.
+            .compositingGroup()
             .shadow(color: .black.opacity(0.18), radius: 16, x: 0, y: 6)
             .shadow(color: .black.opacity(0.10), radius: 4, x: 0, y: 1)
             .opacity(isHidden ? 0 : 1)
