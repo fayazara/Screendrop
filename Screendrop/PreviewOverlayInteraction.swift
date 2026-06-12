@@ -49,26 +49,30 @@ struct InteractiveRectsKey: PreferenceKey {
 
 extension View {
     /// Publishes this view's `.global` frame as an interactive region for the
-    /// passthrough hosting view.
-    func reportsInteractiveRect() -> some View {
+    /// passthrough hosting view. Pass `active: false` to stop reporting (e.g.
+    /// while the view is slid off-screen) so it doesn't capture clicks at its
+    /// resting layout position.
+    func reportsInteractiveRect(active: Bool = true) -> some View {
         background(
             GeometryReader { proxy in
                 Color.clear.preference(
                     key: InteractiveRectsKey.self,
-                    value: [proxy.frame(in: .global)]
+                    value: active ? [proxy.frame(in: .global)] : []
                 )
             }
         )
     }
 }
 
-/// Fixed width of the peek tab, also used to centre it under the card column.
-let previewPeekTabWidth: CGFloat = 132
+/// Width of the peek tab — matched to the card width so the pill lines up
+/// exactly under the card column.
+let previewPeekTabWidth: CGFloat = previewCardSize.width
 
 /// The collapsed "peek" representation of the overlay: a small tab tucked
-/// against the bottom edge. A leading "x" clears the whole stack, and the rest
-/// (up-chevron + count) expands it. Uses the system liquid-glass material so it
-/// matches the rest of the app and gets native interactive hover/press feedback.
+/// against the bottom edge, the same width and x-position as the cards. The
+/// leading end shows an up-chevron + count and expands the stack; the trailing
+/// "x" clears it. Uses the system liquid-glass material so it matches the rest
+/// of the app and gets native interactive hover/press feedback.
 struct PreviewPeekTab: View {
     let title: String
     let onExpand: () -> Void
@@ -76,56 +80,62 @@ struct PreviewPeekTab: View {
 
     private let contentHeight: CGFloat = 24
 
-    /// Leading space reserved inside the expand button so the title clears the
-    /// dismiss control that's overlaid on the leading edge.
-    private var leadingControlsWidth: CGFloat { contentHeight + 16 }
+    /// Trailing space reserved inside the expand button so the label clears the
+    /// dismiss control that's overlaid on the trailing edge.
+    private var trailingControlsWidth: CGFloat { contentHeight + 16 }
 
     private var shape: UnevenRoundedRectangle {
         UnevenRoundedRectangle(
-            topLeadingRadius: 13,
+            topLeadingRadius: 16,
             bottomLeadingRadius: 0,
             bottomTrailingRadius: 0,
-            topTrailingRadius: 13,
+            topTrailingRadius: 16,
             style: .continuous
         )
     }
 
     var body: some View {
         // The expand button fills the entire pill so clicking anywhere toggles
-        // the stack. The dismiss control is layered on top of the leading edge,
+        // the stack. The dismiss control is layered on top of the trailing edge,
         // so taps there hit it first while the rest of the pill expands.
         Button(action: onExpand) {
-            HStack(spacing: 6) {
+            HStack(spacing: 7) {
                 Image(systemName: "chevron.up")
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.system(size: 11, weight: .semibold))
 
                 Text(title)
                     .font(.system(size: 12, weight: .medium))
+
+                Spacer(minLength: 0)
             }
             .foregroundStyle(.secondary)
-            .padding(.leading, leadingControlsWidth)
-            .padding(.trailing, 16)
+            .padding(.leading, 14)
+            .padding(.trailing, trailingControlsWidth)
             .frame(height: contentHeight)
-            .frame(minWidth: previewPeekTabWidth, alignment: .leading)
+            .frame(width: previewPeekTabWidth)
             .padding(.top, 8)
             .padding(.bottom, 10)
             .contentShape(shape)
         }
         .buttonStyle(.plain)
         .help("Show recent captures")
-        .glassEffect(.regular.interactive(), in: shape)
-        .overlay(alignment: .leading) {
+        // Keep the dismiss control as part of the glass foreground content
+        // (before .glassEffect) so the "x" gets the same vibrancy/appearance
+        // adaptation as the chevron + label and stays visible in light mode.
+        .overlay(alignment: .trailing) {
             HStack(spacing: 2) {
-                PeekDismissButton(diameter: contentHeight, action: onDismissAll)
-
                 Divider()
                     .frame(height: 14)
+
+                PeekDismissButton(diameter: contentHeight, action: onDismissAll)
             }
-            .padding(.leading, 6)
+            .padding(.trailing, 6)
         }
+        .glassEffect(.regular.interactive(), in: shape)
         .overlay {
+            // Match the cards' border exactly (colour, thickness, opacity).
             shape
-                .strokeBorder(.separator.opacity(0.6), lineWidth: 0.5)
+                .strokeBorder(.white.opacity(0.25), lineWidth: 1)
                 .allowsHitTesting(false)
         }
     }
