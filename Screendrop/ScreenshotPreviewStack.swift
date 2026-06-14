@@ -7,23 +7,6 @@ import AppKit
 import Observation
 import SwiftUI
 
-enum PreviewMediaKind: String, Equatable, Codable {
-    case image
-    case video
-}
-
-struct ScreenshotPreviewItem: Identifiable, Equatable {
-    let id = UUID()
-    var url: URL
-    var previewImage: NSImage
-    var kind: PreviewMediaKind = .image
-    var autoSavedURL: URL?
-
-    static func == (lhs: ScreenshotPreviewItem, rhs: ScreenshotPreviewItem) -> Bool {
-        lhs.id == rhs.id
-    }
-}
-
 @MainActor
 @Observable
 final class ScreenshotPreviewStack {
@@ -278,10 +261,18 @@ final class ScreenshotPreviewStack {
     }
 
     func dismiss(id: ScreenshotPreviewItem.ID) {
-        guard items.contains(where: { $0.id == id }),
-              !dismissingItemIDs.contains(id) else {
+        guard items.contains(where: { $0.id == id }) else { return }
+
+        // While the overlay is tucked into the peek tab the stack is off-screen,
+        // so there's nothing to animate. Remove the card silently behind the
+        // scenes — never expand the stack just to play an exit animation (e.g.
+        // when the auto-close timer fires while collapsed).
+        guard !isCollapsed else {
+            removeImmediately(id: id)
             return
         }
+
+        guard !dismissingItemIDs.contains(id) else { return }
 
         QuickLookPreviewPresenter.dismiss()
 
@@ -302,11 +293,16 @@ final class ScreenshotPreviewStack {
         }
     }
 
-    /// Dismisses every item in the stack (used by the peek tab's clear button).
+    /// Clears the whole stack in a single step (used by the peek tab's clear
+    /// button). Wipes every item at once rather than expanding the stack and
+    /// animating each card out — the panel tears down as soon as it's empty.
     func dismissAll() {
-        for id in itemIDs {
-            dismiss(id: id)
-        }
+        QuickLookPreviewPresenter.dismiss()
+        items.removeAll()
+        dismissingItemIDs.removeAll()
+        hoveredItemID = nil
+        draggingItemID = nil
+        isCollapsed = false
     }
 
     func setVisibleCapacity(_ capacity: Int) {
@@ -525,11 +521,11 @@ final class ScreenshotPreviewStack {
             draggingItemID = nil
         }
 
-        // Don't leave the overlay stuck in the peek state once it's empty; the
-        // panel is torn down and the next capture should open expanded.
-        if items.isEmpty {
-            isCollapsed = false
-        }
+        // Intentionally leave `isCollapsed` untouched here. If the last card is
+        // removed while collapsed (e.g. an auto-close timer fires in peek mode),
+        // flipping it to `false` would animate the now-empty stack open right
+        // before the panel tears down. The next capture re-expands the overlay
+        // via `prepareForInsertedPreview()`, so there's nothing to reset.
     }
 
     private func deleteFile(at url: URL) {

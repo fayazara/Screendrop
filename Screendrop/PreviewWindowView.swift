@@ -83,7 +83,14 @@ struct PreviewWindowView: View {
                     .padding(.trailing, previewPosition == .right ? peekHorizontalPadding : 0)
                     .offset(y: previewStack.isCollapsed ? 0 : peekHiddenOffset)
             }
-            .animation(previewStackAnimation, value: previewStack.itemIDs)
+            // Only animate card add/remove while the stack is expanded. When
+            // collapsed the stack is slid off-screen and its hidden offset is
+            // derived from the (geometry-driven) stack height; animating an item
+            // change there makes the offset animate against a stale height for a
+            // frame, briefly peeking the stack above the bottom edge before it
+            // slides back down. Removing items instantly in peek mode keeps the
+            // dismissal fully behind the scenes.
+            .animation(previewStack.isCollapsed ? nil : previewStackAnimation, value: previewStack.itemIDs)
             .animation(previewStackAnimation, value: previewStack.isCollapsed)
             .onAppear {
                 previewStack.setVisibleCapacity(visibleCapacity)
@@ -216,9 +223,7 @@ struct PreviewWindowView: View {
                 }
             },
             onDismissAll: {
-                withAnimation(previewStackAnimation) {
-                    previewStack.dismissAll()
-                }
+                previewStack.dismissAll()
             }
         )
         // Report the pill's own frame (not the full panel) as interactive, and
@@ -281,8 +286,9 @@ struct PreviewWindowView: View {
         }
     }
 
-    /// Scrolling down while hovering the stack tucks it into the peek tab,
-    /// mirroring CleanShot's gesture.
+    /// Scrolling/swiping while hovering the stack drives two gestures: a
+    /// downward swipe tucks the stack into the peek tab, and an outward
+    /// horizontal swipe dismisses the hovered card.
     private func installScrollMonitor() {
         guard scrollMonitor == nil else { return }
 
@@ -293,11 +299,27 @@ struct PreviewWindowView: View {
     }
 
     private func handleScroll(_ event: NSEvent) {
-        guard !previewStack.isCollapsed, previewStack.hoveredItemID != nil else { return }
+        guard !previewStack.isCollapsed, let hoveredID = previewStack.hoveredItemID else { return }
+
+        let horizontal = event.scrollingDeltaX
+        let vertical = event.scrollingDeltaY
+
+        // A predominantly horizontal swipe toward the docked edge (the same
+        // direction the card exits in) flicks that card away. `slideDirection`
+        // is +1 when docked right and -1 when docked left, so multiplying by it
+        // normalises "outward" to a positive value for either side.
+        if abs(horizontal) > abs(vertical) {
+            if horizontal * slideDirection > 8 {
+                withAnimation(previewStackAnimation) {
+                    previewStack.dismiss(id: hoveredID)
+                }
+            }
+            return
+        }
 
         // A downward swipe (positive deltaY with natural scrolling) collapses
         // the stack into the peek tab. Threshold avoids accidental triggers.
-        if event.scrollingDeltaY > 6 {
+        if vertical > 6 {
             withAnimation(previewStackAnimation) {
                 previewStack.collapse()
             }
