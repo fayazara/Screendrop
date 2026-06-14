@@ -61,15 +61,21 @@ final class QuickLookPreviewPresenter: NSObject, QLPreviewPanelDataSource, QLPre
     }
     
     private func dismiss() {
-        defer { ScreenshotPreviewStack.shared.expand() }
-
+        // Only restore (expand) the overlay if Quick Look is actually on screen.
+        // This method doubles as generic cleanup that's called whenever cards are
+        // inserted or removed; in those cases there's no Quick Look window to
+        // close, and unconditionally expanding would pop the collapsed peek stack
+        // back open (e.g. when an auto-close timer fires in peek mode).
         guard QLPreviewPanel.sharedPreviewPanelExists(),
-              let panel = QLPreviewPanel.shared() else {
+              let panel = QLPreviewPanel.shared(),
+              panel.isVisible else {
             previewURL = nil
             return
         }
+
         panel.orderOut(nil)
         previewURL = nil
+        ScreenshotPreviewStack.shared.expand()
     }
 
     /// Fires when Quick Look closes on its own (e.g. the user clicks its close
