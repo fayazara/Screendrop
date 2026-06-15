@@ -16,6 +16,7 @@ final class ScreenshotPreviewStack {
     var hoveredItemID: ScreenshotPreviewItem.ID?
     var draggingItemID: ScreenshotPreviewItem.ID?
     var dismissingItemIDs: Set<ScreenshotPreviewItem.ID> = []
+    var isExiting = false
 
     /// When true the overlay is tucked into a small "peek" tab at the bottom
     /// edge instead of showing the full stack. The overlay window itself stays
@@ -29,6 +30,7 @@ final class ScreenshotPreviewStack {
     /// always-on panel never blocks the windows beneath it.
     var interactiveRects: [CGRect] = []
 
+    @ObservationIgnored private var overlayExitTask: Task<Void, Never>?
     private var visibleCapacity: Int?
 
     var itemIDs: [ScreenshotPreviewItem.ID] {
@@ -55,12 +57,13 @@ final class ScreenshotPreviewStack {
 
     /// Tuck the overlay into the peek tab (no-op when there's nothing to show).
     func collapse() {
-        guard !items.isEmpty else { return }
+        guard !items.isEmpty, !isExiting else { return }
         isCollapsed = true
     }
 
     /// Expand the overlay back into the full stack.
     func expand() {
+        guard !isExiting else { return }
         isCollapsed = false
     }
 
@@ -261,18 +264,22 @@ final class ScreenshotPreviewStack {
     }
 
     func dismiss(id: ScreenshotPreviewItem.ID) {
+        guard !isExiting else { return }
         guard items.contains(where: { $0.id == id }) else { return }
+        guard !dismissingItemIDs.contains(id) else { return }
 
         // While the overlay is tucked into the peek tab the stack is off-screen,
-        // so there's nothing to animate. Remove the card silently behind the
-        // scenes — never expand the stack just to play an exit animation (e.g.
-        // when the auto-close timer fires while collapsed).
+        // so non-final removals happen silently behind the scenes. If this is
+        // the last visible capture, animate the peek pill itself down first.
         guard !isCollapsed else {
+            if isLastStableItem(id) {
+                dismissOverlay()
+                return
+            }
+
             removeImmediately(id: id)
             return
         }
-
-        guard !dismissingItemIDs.contains(id) else { return }
 
         QuickLookPreviewPresenter.dismiss()
 
@@ -293,16 +300,10 @@ final class ScreenshotPreviewStack {
         }
     }
 
-    /// Clears the whole stack in a single step (used by the peek tab's clear
-    /// button). Wipes every item at once rather than expanding the stack and
-    /// animating each card out — the panel tears down as soon as it's empty.
+    /// Clears the whole stack by sliding the currently visible overlay surface
+    /// below the screen before the panel tears down.
     func dismissAll() {
-        QuickLookPreviewPresenter.dismiss()
-        items.removeAll()
-        dismissingItemIDs.removeAll()
-        hoveredItemID = nil
-        draggingItemID = nil
-        isCollapsed = false
+        dismissOverlay()
     }
 
     func setVisibleCapacity(_ capacity: Int) {
@@ -321,6 +322,8 @@ final class ScreenshotPreviewStack {
     }
 
     private func prepareForInsertedPreview() {
+        clearPendingOverlayExitForNewPreview()
+
         // A freshly captured (or re-previewed) item should always be visible,
         // so surface the full stack even if it was tucked into the peek tab.
         isCollapsed = false
@@ -509,6 +512,8 @@ final class ScreenshotPreviewStack {
     }
 
     private func removeImmediately(id: ScreenshotPreviewItem.ID) {
+        guard !isExiting else { return }
+
         QuickLookPreviewPresenter.dismiss()
         items.removeAll { $0.id == id }
         dismissingItemIDs.remove(id)
@@ -526,6 +531,59 @@ final class ScreenshotPreviewStack {
         // flipping it to `false` would animate the now-empty stack open right
         // before the panel tears down. The next capture re-expands the overlay
         // via `prepareForInsertedPreview()`, so there's nothing to reset.
+    }
+
+    private func dismissOverlay() {
+        guard !items.isEmpty, !isExiting else { return }
+
+        QuickLookPreviewPresenter.dismiss()
+        overlayExitTask?.cancel()
+
+        withAnimation(previewStackAnimation) {
+            isCollapsed = true
+            isExiting = true
+            dismissingItemIDs.removeAll()
+            hoveredItemID = nil
+            draggingItemID = nil
+        }
+
+        overlayExitTask = Task {
+            try? await Task.sleep(for: .milliseconds(420))
+            guard !Task.isCancelled else { return }
+            finishOverlayExit()
+        }
+    }
+
+    private func isLastStableItem(_ id: ScreenshotPreviewItem.ID) -> Bool {
+        let stableItemIDs = items
+            .filter { !dismissingItemIDs.contains($0.id) }
+            .map(\.id)
+
+        return stableItemIDs.count == 1 && stableItemIDs.first == id
+    }
+
+    private func finishOverlayExit() {
+        QuickLookPreviewPresenter.dismiss()
+        items.removeAll()
+        dismissingItemIDs.removeAll()
+        hoveredItemID = nil
+        draggingItemID = nil
+        isCollapsed = false
+        isExiting = false
+        overlayExitTask = nil
+    }
+
+    private func clearPendingOverlayExitForNewPreview() {
+        guard isExiting else { return }
+
+        overlayExitTask?.cancel()
+        overlayExitTask = nil
+        items.removeAll()
+        dismissingItemIDs.removeAll()
+        hoveredItemID = nil
+        draggingItemID = nil
+        isCollapsed = false
+        isExiting = false
     }
 
     private func deleteFile(at url: URL) {

@@ -46,6 +46,14 @@ struct PreviewWindowView: View {
         previewPosition == .left ? -1 : 1
     }
 
+    private var stackIsHidden: Bool {
+        previewStack.isCollapsed || previewStack.isExiting
+    }
+
+    private var peekIsVisible: Bool {
+        previewStack.isCollapsed && !previewStack.isExiting
+    }
+
     init(
         onRequestClose: (() -> Void)? = nil,
         onAnnotate: ((URL) -> Void)? = nil,
@@ -74,14 +82,14 @@ struct PreviewWindowView: View {
                     .padding(.leading, previewPosition == .left ? previewTrailingPadding : 0)
                     .padding(.trailing, previewPosition == .right ? previewTrailingPadding : 0)
                     .padding(.bottom, previewStackEdgePadding)
-                    .offset(y: previewStack.isCollapsed ? stackHiddenOffset : 0)
+                    .offset(y: stackIsHidden ? stackHiddenOffset : 0)
 
                 peekTab
                     .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { peekHeight = $0 }
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: stackAlignment)
                     .padding(.leading, previewPosition == .left ? peekHorizontalPadding : 0)
                     .padding(.trailing, previewPosition == .right ? peekHorizontalPadding : 0)
-                    .offset(y: previewStack.isCollapsed ? 0 : peekHiddenOffset)
+                    .offset(y: peekIsVisible ? 0 : peekHiddenOffset)
             }
             // Only animate card add/remove while the stack is expanded. When
             // collapsed the stack is slid off-screen and its hidden offset is
@@ -92,6 +100,7 @@ struct PreviewWindowView: View {
             // dismissal fully behind the scenes.
             .animation(previewStack.isCollapsed ? nil : previewStackAnimation, value: previewStack.itemIDs)
             .animation(previewStackAnimation, value: previewStack.isCollapsed)
+            .animation(previewStackAnimation, value: previewStack.isExiting)
             .onAppear {
                 previewStack.setVisibleCapacity(visibleCapacity)
             }
@@ -102,13 +111,10 @@ struct PreviewWindowView: View {
                 previewStack.setVisibleCapacity(capacity)
             }
             .onChange(of: previewStack.isCollapsed) { _, _ in
-                isOverlayTransitioning = true
-                transitionResetTask?.cancel()
-                transitionResetTask = Task {
-                    try? await Task.sleep(for: .milliseconds(340))
-                    guard !Task.isCancelled else { return }
-                    isOverlayTransitioning = false
-                }
+                scheduleTransitionReset()
+            }
+            .onChange(of: previewStack.isExiting) { _, _ in
+                scheduleTransitionReset()
             }
             .onPreferenceChange(InteractiveRectsKey.self) { rects in
                 Task { @MainActor in
@@ -211,7 +217,7 @@ struct PreviewWindowView: View {
         // edges as interactive too — otherwise the cursor flickers in and out of
         // the hit area while moving across the stack and hover feels glitchy.
         // Only while expanded, so the off-screen stack doesn't capture clicks.
-        .reportsInteractiveRect(active: !previewStack.isCollapsed)
+        .reportsInteractiveRect(active: !previewStack.isCollapsed && !previewStack.isExiting)
     }
 
     private var peekTab: some View {
@@ -228,7 +234,7 @@ struct PreviewWindowView: View {
         )
         // Report the pill's own frame (not the full panel) as interactive, and
         // only while collapsed, so the rest of the screen stays click-through.
-        .reportsInteractiveRect(active: previewStack.isCollapsed)
+        .reportsInteractiveRect(active: previewStack.isCollapsed && !previewStack.isExiting)
     }
 
     /// "1 Screenshot" / "3 Screenshots" — or "Captures" when the stack also
@@ -299,7 +305,7 @@ struct PreviewWindowView: View {
     }
 
     private func handleScroll(_ event: NSEvent) {
-        guard !previewStack.isCollapsed, let hoveredID = previewStack.hoveredItemID else { return }
+        guard !previewStack.isCollapsed, !previewStack.isExiting, let hoveredID = previewStack.hoveredItemID else { return }
 
         let horizontal = event.scrollingDeltaX
         let vertical = event.scrollingDeltaY
@@ -344,8 +350,20 @@ struct PreviewWindowView: View {
         scrollMonitor = nil
         QuickLookPreviewPresenter.dismiss()
     }
+
+    private func scheduleTransitionReset() {
+        isOverlayTransitioning = true
+        transitionResetTask?.cancel()
+        transitionResetTask = Task {
+            try? await Task.sleep(for: .milliseconds(340))
+            guard !Task.isCancelled else { return }
+            isOverlayTransitioning = false
+        }
+    }
     
     private func handlePreviewKey(_ event: NSEvent) -> Bool {
+        guard !previewStack.isExiting else { return false }
+
         if event.keyCode == 53, QuickLookPreviewPresenter.isShown {
             QuickLookPreviewPresenter.dismiss()
             return true
