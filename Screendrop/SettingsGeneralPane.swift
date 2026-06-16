@@ -9,6 +9,7 @@ import SwiftUI
 
 struct GeneralSettingsPane: View {
     @AppStorage(ScreendropPreferences.exportDirectoryPathKey) private var exportDirectoryPath = ""
+    @AppStorage(ScreendropPreferences.saveButtonUsesFolderKey) private var saveButtonUsesFolder = false
     @AppStorage(ScreendropPreferences.playSoundsKey) private var playSounds = true
     @AppStorage(ScreendropPreferences.showMenuBarIconKey) private var showMenuBarIcon = true
     @State private var launchAtLoginStatus = LaunchAtLoginController.status
@@ -18,6 +19,13 @@ struct GeneralSettingsPane: View {
         Binding(
             get: { launchAtLoginStatus.isEnabled },
             set: updateLaunchAtLogin
+        )
+    }
+
+    private var saveButtonUsesFolderBinding: Binding<Bool> {
+        Binding(
+            get: { _ = saveButtonUsesFolder; return ScreendropPreferences.saveButtonUsesConfiguredFolder },
+            set: { saveButtonUsesFolder = $0 }
         )
     }
 
@@ -50,6 +58,16 @@ struct GeneralSettingsPane: View {
                     .controlSize(.small)
                     .disabled(exportDirectoryPath.isEmpty)
                 }
+
+                Toggle(isOn: saveButtonUsesFolderBinding) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Save without choosing a location")
+                        Text("When you click Save, write straight to the export folder instead of asking where to put it.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .toggleStyle(.switch)
             }
 
             Section("System") {
