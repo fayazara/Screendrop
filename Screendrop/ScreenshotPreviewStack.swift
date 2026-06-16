@@ -396,7 +396,7 @@ final class ScreenshotPreviewStack {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
         let kind = items[index].kind
 
-        if ScreendropPreferences.autoSave {
+        if ScreendropPreferences.saveButtonUsesConfiguredFolder {
             if items[index].autoSavedURL == nil {
                 items[index].autoSavedURL = kind == .video
                     ? saveVideoToDefaultLocation(from: items[index].url)
