@@ -427,6 +427,7 @@ final class ScreenshotPreviewStack {
                 if let index = self?.items.firstIndex(where: { $0.id == id }) {
                     self?.items[index].autoSavedURL = destURL
                 }
+                self?.dismiss(id: id)
             } catch {
                 print("Failed to save preview: \(error)")
             }
