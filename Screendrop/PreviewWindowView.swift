@@ -164,6 +164,7 @@ struct PreviewWindowView: View {
                     },
                     onAnnotate: {
                         guard item.kind == .image else { return }
+                        previewStack.markEngaged(id: item.id)
                         QuickLookPreviewPresenter.dismiss()
                         if let onAnnotate {
                             onAnnotate(item.url)
@@ -173,6 +174,7 @@ struct PreviewWindowView: View {
                     },
                     onEditVideo: {
                         guard item.kind == .video else { return }
+                        previewStack.markEngaged(id: item.id)
                         QuickLookPreviewPresenter.dismiss()
                         if let onEditVideo {
                             onEditVideo(item.url)
@@ -370,6 +372,7 @@ struct PreviewWindowView: View {
         }
         
         if event.keyCode == 49, let hoveredItem = previewStack.hoveredItem {
+            previewStack.markEngaged(id: hoveredItem.id)
             QuickLookPreviewPresenter.show(url: hoveredItem.url)
             return true
         }

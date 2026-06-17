@@ -18,6 +18,12 @@ final class ScreenshotPreviewStack {
     var dismissingItemIDs: Set<ScreenshotPreviewItem.ID> = []
     var isExiting = false
 
+    /// Items the user has explicitly engaged with via a high-intent action
+    /// (Quick Look or opening an editor). Auto-close is permanently cancelled
+    /// for these so we never yank a capture out from under the user while — or
+    /// after — they were actively working with it.
+    private var engagedItemIDs: Set<ScreenshotPreviewItem.ID> = []
+
     /// When true the overlay is tucked into a small "peek" tab at the bottom
     /// edge instead of showing the full stack. The overlay window itself stays
     /// visible the whole time — this only changes what it renders. Used while an
@@ -106,6 +112,7 @@ final class ScreenshotPreviewStack {
         switch type {
         case .screenshot:
             if AfterCaptureActions.isEnabled(.annotate, for: type) {
+                markEngaged(id: itemID)
                 PreviewPanelPresenter.shared.onAnnotate?(url)
             }
             if AfterCaptureActions.isEnabled(.pin, for: type) {
@@ -113,6 +120,7 @@ final class ScreenshotPreviewStack {
             }
         case .recording:
             if AfterCaptureActions.isEnabled(.openVideoEditor, for: type) {
+                markEngaged(id: itemID)
                 PreviewPanelPresenter.shared.onEditVideo?(url)
             }
         }
@@ -226,10 +234,24 @@ final class ScreenshotPreviewStack {
         }
     }
 
+    /// Marks an item as explicitly engaged (Quick Look / editor), cancelling its
+    /// pending auto-close. Called from the high-intent action sites.
+    func markEngaged(id: ScreenshotPreviewItem.ID) {
+        engagedItemIDs.insert(id)
+    }
+
     private func autoCloseIfIdle(id: ScreenshotPreviewItem.ID) {
         guard items.contains(where: { $0.id == id }) else { return }
 
-        if hoveredItemID == id
+        // A high-intent action voids the transient-overlay contract: leave the
+        // card on screen until the user dismisses it themselves.
+        guard !engagedItemIDs.contains(id) else { return }
+
+        // While Quick Look is on screen, don't auto-close *any* card. Removing a
+        // background card collapses/tears down the floating overlay, which closes
+        // the user's open Quick Look session. Defer until Quick Look is gone.
+        if QuickLookPreviewPresenter.isShown
+            || hoveredItemID == id
             || draggingItemID == id
             || CloudUploader.shared.uploadingItems.contains(id) {
             Task {
@@ -517,6 +539,7 @@ final class ScreenshotPreviewStack {
         QuickLookPreviewPresenter.dismiss()
         items.removeAll { $0.id == id }
         dismissingItemIDs.remove(id)
+        engagedItemIDs.remove(id)
 
         if hoveredItemID == id {
             hoveredItemID = nil
@@ -566,6 +589,7 @@ final class ScreenshotPreviewStack {
         QuickLookPreviewPresenter.dismiss()
         items.removeAll()
         dismissingItemIDs.removeAll()
+        engagedItemIDs.removeAll()
         hoveredItemID = nil
         draggingItemID = nil
         isCollapsed = false
@@ -580,6 +604,7 @@ final class ScreenshotPreviewStack {
         overlayExitTask = nil
         items.removeAll()
         dismissingItemIDs.removeAll()
+        engagedItemIDs.removeAll()
         hoveredItemID = nil
         draggingItemID = nil
         isCollapsed = false
