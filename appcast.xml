@@ -27,6 +27,28 @@
     -->
 
     <item>
+      <title>Version 0.21.3</title>
+      <sparkle:version>19</sparkle:version>
+      <sparkle:shortVersionString>0.21.3</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.4</sparkle:minimumSystemVersion>
+      <pubDate>Fri, 19 Jun 2026 18:45:13 +0000</pubDate>
+      <description><![CDATA[
+        <h2>What's New in 0.21.3</h2>
+        <ul>
+          <li>Preview Save can now write straight to your configured export folder independently of auto-save on capture</li>
+          <li>Successful manual saves from the preview card now dismiss the card after saving</li>
+          <li>Thanks to James Q Quick for the preview Save contribution</li>
+        </ul>
+      ]]></description>
+      <enclosure
+        url="https://github.com/fayazara/screendrop/releases/download/v0.21.3/Screendrop.dmg"
+        type="application/octet-stream"
+        sparkle:edSignature="p2QncezHMUNqhoRFAJ+wA9cWALB7AQYpr0DHlI0G6KyPFESE7/pE/l9yXVg2FxXkdPZZnNSwFz3dNjQk729uBQ=="
+        length="4129428"
+      />
+    </item>
+
+    <item>
       <title>Version 0.21.2</title>
       <sparkle:version>18</sparkle:version>
       <sparkle:shortVersionString>0.21.2</sparkle:shortVersionString>
