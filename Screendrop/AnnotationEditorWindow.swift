@@ -18,7 +18,6 @@ struct AnnotationEditorWindow: View {
     @State private var isUploading = false
     @State private var didCopyLink = false
     @Environment(\.dismiss) private var dismissWindow
-    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         mainContent
@@ -383,7 +382,7 @@ struct AnnotationEditorWindow: View {
                 historyURL: resultURL
             )
             if !updatedExistingPreview {
-                openWindow(id: "PREVIEWWINDOW")
+                PreviewPanelPresenter.shared.show(displayID: nil)
             }
             model.releaseEditorResources()
             dismissWindow()

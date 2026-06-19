@@ -9,6 +9,7 @@ import SwiftUI
 @MainActor
 final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     private static var shared: SettingsWindowController?
+    private var didEnterActivationPolicy = false
 
     static func show(tab: SettingsTab? = nil) {
         if let tab {
@@ -68,12 +69,18 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     override func showWindow(_ sender: Any?) {
         super.showWindow(sender)
         window?.makeKeyAndOrderFront(nil)
-        AppActivationPolicy.enter()
+        if !didEnterActivationPolicy {
+            AppActivationPolicy.enter()
+            didEnterActivationPolicy = true
+        }
         NSApp.activate(ignoringOtherApps: true)
     }
 
     func windowWillClose(_ notification: Notification) {
-        AppActivationPolicy.leave()
+        if didEnterActivationPolicy {
+            AppActivationPolicy.leave()
+            didEnterActivationPolicy = false
+        }
         Self.shared = nil
     }
 }
