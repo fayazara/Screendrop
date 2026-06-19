@@ -417,7 +417,7 @@ final class ScreenshotPreviewStack {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
         let kind = items[index].kind
 
-        if ScreendropPreferences.autoSave {
+        if ScreendropPreferences.saveButtonUsesConfiguredFolder {
             if items[index].autoSavedURL == nil {
                 items[index].autoSavedURL = kind == .video
                     ? saveVideoToDefaultLocation(from: items[index].url)
@@ -448,6 +448,7 @@ final class ScreenshotPreviewStack {
                 if let index = self?.items.firstIndex(where: { $0.id == id }) {
                     self?.items[index].autoSavedURL = destURL
                 }
+                self?.dismiss(id: id)
             } catch {
                 print("Failed to save preview: \(error)")
             }
