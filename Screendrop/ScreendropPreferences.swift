@@ -11,6 +11,7 @@ import UniformTypeIdentifiers
 
 enum ScreendropPreferences {
     static let autoSaveKey = "autoSaveScreenshots"
+    static let saveButtonUsesFolderKey = "saveButtonUsesConfiguredFolder"
     static let autoCopyKey = "autoCopyScreenshotsToClipboard"
     static let autoCompressKey = "autoCompressScreenshots"
     static let exportFormatKey = "exportFormat"
@@ -41,6 +42,13 @@ enum ScreendropPreferences {
     
     static var autoSave: Bool {
         UserDefaults.standard.bool(forKey: autoSaveKey)
+    }
+
+    static var saveButtonUsesConfiguredFolder: Bool {
+        if UserDefaults.standard.object(forKey: saveButtonUsesFolderKey) == nil {
+            return autoSave
+        }
+        return UserDefaults.standard.bool(forKey: saveButtonUsesFolderKey)
     }
     
     static var autoCopy: Bool {
