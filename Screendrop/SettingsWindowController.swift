@@ -52,7 +52,10 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         window.titleVisibility = .visible
         window.titlebarAppearsTransparent = false
         window.toolbarStyle = .automatic
-        window.isMovableByWindowBackground = true
+        // Keep the window movable only via its title bar. Background dragging
+        // makes the whole content area move the window, which both feels off and
+        // swallows in-content drag gestures (e.g. the overlay card editor).
+        window.isMovableByWindowBackground = false
         window.setFrameAutosaveName("SettingsWindow")
         window.minSize = NSSize(width: 620, height: 460)
         window.center()

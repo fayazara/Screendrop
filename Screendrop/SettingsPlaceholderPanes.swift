@@ -119,6 +119,12 @@ struct OverlaySettingsPane: View {
                 }
                 .toggleStyle(.switch)
             }
+
+            Section("Card Actions") {
+                OverlayCardEditor()
+                    .padding(.vertical, 8)
+                    .frame(maxWidth: .infinity)
+            }
         }
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)

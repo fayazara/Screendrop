@@ -24,6 +24,7 @@ struct PreviewCardView: View {
     let onEditVideo: () -> Void
     let onUpload: () -> Void
     let onPin: () -> Void
+    let onView: () -> Void
     let onCopyText: () -> Void
     let onDragBegan: () -> Void
     let onDragEnded: () -> Void
@@ -31,6 +32,7 @@ struct PreviewCardView: View {
     @State private var isHovered = false
     @State private var isPresented = false
     @State private var cloudUploader = CloudUploader.shared
+    @State private var layoutStore = OverlayCardLayoutStore.shared
     @State private var shakeOffset: CGFloat = 0
     @State private var showUploadFailed = false
     @State private var showCheckmark = false
@@ -135,6 +137,10 @@ struct PreviewCardView: View {
             }
     }
 
+    private var layout: OverlayCardLayout {
+        layoutStore.layout
+    }
+
     private var hoveredContent: some View {
         ZStack {
             Rectangle()
@@ -146,45 +152,92 @@ struct PreviewCardView: View {
             } else if showUploadFailed {
                 uploadFailedOverlay
             } else {
-                cornerButton(systemImage: "xmark.circle.fill", help: "Dismiss preview", action: onClose)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                    .padding(10)
+                cornerSlot(layout.topLeading, alignment: .topLeading)
+                cornerSlot(layout.topTrailing, alignment: .topTrailing)
+                cornerSlot(layout.bottomLeading, alignment: .bottomLeading)
+                cornerSlot(layout.bottomTrailing, alignment: .bottomTrailing)
 
-                cornerButton(
-                    systemImage: "trash.circle.fill",
-                    help: item.kind == .video ? "Delete recording" : "Delete screenshot",
-                    action: onDelete
-                )
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    .padding(10)
+                centerStack
+            }
+        }
+        .transition(.opacity)
+    }
 
-                cornerButton(
-                    systemImage: item.kind == .video ? "scissors.circle.fill" : "pencil.circle.fill",
-                    help: item.kind == .video ? "Edit recording" : "Annotate screenshot",
-                    action: item.kind == .video ? onEditVideo : onAnnotate
-                )
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-                    .padding(10)
+    /// Renders the action assigned to a corner, if any and currently available.
+    @ViewBuilder
+    private func cornerSlot(_ action: OverlayCardAction?, alignment: Alignment) -> some View {
+        if let action, isAvailable(action) {
+            cornerView(for: action)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: alignment)
+                .padding(10)
+        }
+    }
 
-                cloudUploadControl
+    @ViewBuilder
+    private func cornerView(for action: OverlayCardAction) -> some View {
+        if action == .upload {
+            cloudCornerButton
+        } else {
+            cornerButton(
+                systemImage: action.symbol(for: item.kind),
+                help: action.help(for: item.kind),
+                action: handler(for: action)
+            )
+        }
+    }
 
-                if cloudUploader.uploadingItems.contains(item.id) {
-                    ProgressView(value: cloudUploader.uploadProgress[item.id] ?? 0)
-                        .progressViewStyle(.linear)
-                        .tint(.white)
-                        .padding(.horizontal, 20)
-                } else {
-                    VStack(spacing: 8) {
-                        actionPill("Copy", action: onCopy)
-                        actionPill("Save", action: onSave)
-                        if item.kind == .image {
-                            actionPill("Pin", action: onPin)
-                        }
+    @ViewBuilder
+    private var centerStack: some View {
+        if cloudUploader.uploadingItems.contains(item.id) {
+            ProgressView(value: cloudUploader.uploadProgress[item.id] ?? 0)
+                .progressViewStyle(.linear)
+                .tint(.white)
+                .padding(.horizontal, 20)
+        } else {
+            let actions = layout.center.filter { isAvailable($0) }
+            if !actions.isEmpty {
+                VStack(spacing: 6) {
+                    ForEach(actions) { action in
+                        centerPill(for: action)
                     }
                 }
             }
         }
-        .transition(.opacity)
+    }
+
+    @ViewBuilder
+    private func centerPill(for action: OverlayCardAction) -> some View {
+        if action == .upload, cloudUploader.uploadedURLs[item.id] != nil {
+            actionPill("Copy Link", systemImage: "link", action: copyUploadedURL)
+        } else {
+            actionPill(
+                action.label(for: item.kind),
+                systemImage: action.symbol(for: item.kind),
+                action: handler(for: action)
+            )
+        }
+    }
+
+    /// Whether an action should be shown for the current item.
+    private func isAvailable(_ action: OverlayCardAction) -> Bool {
+        switch action {
+        case .pin: item.kind == .image
+        case .upload: cloudUploader.isConfigured
+        default: true
+        }
+    }
+
+    private func handler(for action: OverlayCardAction) -> () -> Void {
+        switch action {
+        case .copy: onCopy
+        case .save: onSave
+        case .pin: onPin
+        case .annotate: item.kind == .video ? onEditVideo : onAnnotate
+        case .view: onView
+        case .upload: onUpload
+        case .delete: onDelete
+        case .close: onClose
+        }
     }
 
     private var linkCopiedOverlay: some View {
@@ -218,26 +271,21 @@ struct PreviewCardView: View {
             .shadow(color: .black.opacity(0.28), radius: 8, x: 0, y: 2)
     }
 
+    /// The cloud action's corner button, whose icon/behaviour reflects the
+    /// current upload state. Availability (cloud configured) is gated by the
+    /// caller via `isAvailable(.upload)`.
     @ViewBuilder
-    private var cloudUploadControl: some View {
-        if cloudUploader.isConfigured {
-            if cloudUploader.uploadingItems.contains(item.id) {
-                cornerButton(
-                    systemImage: "stop.circle.fill",
-                    help: "Cancel upload",
-                    action: { cloudUploader.cancelUpload(for: item.id) }
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                .padding(10)
-            } else if cloudUploader.uploadedURLs[item.id] != nil {
-                cornerButton(systemImage: "link.circle.fill", help: "Copy share link", action: copyUploadedURL)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                    .padding(10)
-            } else {
-                cornerButton(systemImage: "cloud.circle.fill", help: "Upload to cloud", action: onUpload)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                    .padding(10)
-            }
+    private var cloudCornerButton: some View {
+        if cloudUploader.uploadingItems.contains(item.id) {
+            cornerButton(
+                systemImage: "stop.fill",
+                help: "Cancel upload",
+                action: { cloudUploader.cancelUpload(for: item.id) }
+            )
+        } else if cloudUploader.uploadedURLs[item.id] != nil {
+            cornerButton(systemImage: "link", help: "Copy share link", action: copyUploadedURL)
+        } else {
+            cornerButton(systemImage: "cloud", help: "Upload to cloud", action: onUpload)
         }
     }
 
@@ -259,21 +307,28 @@ struct PreviewCardView: View {
     private func cornerButton(systemImage: String, help: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .font(.title2)
-                .foregroundStyle(.black, .white)
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(.black)
+                .frame(width: 20, height: 20)
+                .background(.white, in: .circle)
+                .shadow(color: .black.opacity(0.22), radius: 2.5, x: 0, y: 1)
         }
         .buttonStyle(.plain)
         .help(help)
     }
 
-    private func actionPill(_ title: String, action: @escaping () -> Void) -> some View {
+    private func actionPill(_ title: String, systemImage: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Text(title)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.primary)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 5)
-                .background(.background.opacity(0.8), in: .capsule)
+            HStack(spacing: 4) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 9, weight: .semibold))
+                Text(title)
+                    .font(.system(size: 11, weight: .semibold))
+            }
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 4)
+            .background(.background.opacity(0.85), in: .capsule)
         }
         .buttonStyle(.plain)
     }
