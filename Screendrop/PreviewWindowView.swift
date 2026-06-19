@@ -200,6 +200,10 @@ struct PreviewWindowView: View {
                         PinnedScreenshotPresenter.shared.pin(url: item.url)
                         previewStack.dismiss(id: item.id)
                     },
+                    onView: {
+                        previewStack.markEngaged(id: item.id)
+                        QuickLookPreviewPresenter.show(url: item.url)
+                    },
                     onCopyText: {
                         previewStack.copyText(id: item.id)
                     },
