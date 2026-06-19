@@ -10,6 +10,7 @@
 //  preview updates immediately.
 //
 
+import AppKit
 import SwiftUI
 
 struct OverlayCardEditor: View {
@@ -46,11 +47,14 @@ struct OverlayCardEditor: View {
         // `.position` matches the gesture's reported location exactly.
         .overlay(alignment: .topLeading) {
             if let dragging {
-                ActionChip(action: dragging, style: chipStyle(for: hoveredZone ?? originZone), lifted: true)
-                    .position(dragLocation)
-                    .allowsHitTesting(false)
-                    .transition(.identity)
-                    .zIndex(100)
+                FloatingMorphChip(
+                    action: dragging,
+                    isCorner: chipStyle(for: hoveredZone ?? originZone).isCorner
+                )
+                .position(dragLocation)
+                .allowsHitTesting(false)
+                .transition(.identity)
+                .zIndex(100)
             }
         }
         .frame(maxWidth: .infinity)
@@ -97,7 +101,10 @@ struct OverlayCardEditor: View {
         }
         .frame(width: cardSize.width, height: cardSize.height)
         .animation(.spring(response: 0.42, dampingFraction: 0.78), value: layout)
-        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: hoveredZone)
+        // Slot-placeholder highlights animate on their own gentle curve. The
+        // floating chip's morph is driven solely by the curve in the drag
+        // handler, so it is not double-animated here.
+        .animation(.easeOut(duration: 0.18), value: hoveredZone)
     }
 
     private var cardBackground: some View {
@@ -247,7 +254,11 @@ struct OverlayCardEditor: View {
 
                 let resolved = resolveDrop(at: value.location) ?? originZone
                 if resolved != hoveredZone {
-                    withAnimation(.spring(response: 0.28, dampingFraction: 0.72)) {
+                    // Morphing on screen → strong ease-in-out, not a spring.
+                    // cubic-bezier(0.77, 0, 0.175, 1), ~260ms: no bounce, settles
+                    // cleanly, and SwiftUI still retargets it from the current
+                    // state if the drag crosses back over a boundary mid-morph.
+                    withAnimation(.timingCurve(0.77, 0, 0.175, 1, duration: 0.26)) {
                         hoveredZone = resolved
                     }
                 }
@@ -352,6 +363,64 @@ struct OverlayCardEditor: View {
     }
 }
 
+// MARK: - Floating morph chip
+
+/// The chip that follows the cursor while dragging and morphs between a corner
+/// circle and a center pill.
+///
+/// Center-origin is guaranteed structurally: the OUTER frame is a fixed size
+/// (always the full pill width), so `.position(_)` has a stable anchor and never
+/// drifts. The visible capsule lives INSIDE that fixed frame and is the only
+/// thing that resizes — and because it's centered in the fixed frame, it grows
+/// and shrinks symmetrically from the middle. The icon and label sit on top and
+/// trade places with opacity + a scale that collapses toward (or expands from)
+/// that same center point.
+private struct FloatingMorphChip: View {
+    let action: OverlayCardAction
+    let isCorner: Bool
+
+    private static let diameter: CGFloat = 32
+    private static let labelFont = NSFont.systemFont(ofSize: 12, weight: .semibold)
+
+    private var pillWidth: CGFloat {
+        let textWidth = (action.label() as NSString)
+            .size(withAttributes: [.font: Self.labelFont]).width
+        return max(Self.diameter, ceil(textWidth) + 24)
+    }
+
+    var body: some View {
+        let capsuleWidth = isCorner ? Self.diameter : pillWidth
+
+        Capsule()
+            .fill(.white)
+            .frame(width: capsuleWidth, height: Self.diameter)
+            .overlay {
+                ZStack {
+                    Image(systemName: action.symbol())
+                        .font(.system(size: 13, weight: .bold))
+                        .opacity(isCorner ? 1 : 0)
+                        .scaleEffect(isCorner ? 1 : 0.4, anchor: .center)
+
+                    Text(action.label())
+                        .font(.system(size: 12, weight: .semibold))
+                        .fixedSize()
+                        .opacity(isCorner ? 0 : 1)
+                        .scaleEffect(isCorner ? 0.4 : 1, anchor: .center)
+                }
+                .foregroundStyle(.black)
+            }
+            .clipShape(.capsule)
+            .overlay(
+                Capsule().strokeBorder(.black.opacity(0.06), lineWidth: 0.5)
+            )
+            // Fixed outer box (max width), centered — stable anchor for
+            // `.position`; the capsule above resizes within it from the center.
+            .frame(width: pillWidth, height: Self.diameter)
+            .shadow(color: .black.opacity(0.32), radius: 12, x: 0, y: 7)
+            .scaleEffect(1.08, anchor: .center)
+    }
+}
+
 // MARK: - Chip view
 
 enum ChipStyle: Equatable {
@@ -367,26 +436,51 @@ private struct ActionChip: View {
     let style: ChipStyle
     var lifted: Bool = false
 
-    var body: some View {
-        HStack(spacing: style.isCorner ? 0 : 5) {
-            Image(systemName: action.symbol())
-                .font(.system(size: style.isCorner ? 13 : 10, weight: style.isCorner ? .bold : .semibold))
+    private static let cornerDiameter: CGFloat = 32
+    private static let labelFont = NSFont.systemFont(ofSize: 12, weight: .semibold)
 
-            if !style.isCorner {
-                Text(action.label())
-                    .font(.system(size: 11, weight: .semibold))
-                    .fixedSize()
-            }
+    /// Explicit pill width (label + horizontal padding) so the capsule width
+    /// interpolates to a known target rather than snapping to an intrinsic
+    /// `nil` width at the end of the animation.
+    private var pillWidth: CGFloat {
+        let textWidth = (action.label() as NSString)
+            .size(withAttributes: [.font: Self.labelFont]).width
+        return max(Self.cornerDiameter, ceil(textWidth) + 24)
+    }
+
+    var body: some View {
+        let isCorner = style.isCorner
+
+        // The white capsule is the single, continuous "object": it just resizes
+        // between a circle (w == h) and a pill. The icon and label are layered
+        // at its center and blend with opacity + a gentle scale + a light 2px
+        // blur (Dynamic-Island style) so the swap reads as the same control
+        // changing modes rather than two things crossfading. One state (`style`)
+        // drives all of it, animated by a single ease-in-out curve in the
+        // parent, so a reversed drag retargets cleanly mid-morph.
+        ZStack {
+            Image(systemName: action.symbol())
+                .font(.system(size: 13, weight: .bold))
+                .opacity(isCorner ? 1 : 0)
+                .scaleEffect(isCorner ? 1 : 0.4, anchor: .center)
+                .blur(radius: isCorner ? 0 : 2)
+
+            Text(action.label())
+                .font(.system(size: 12, weight: .semibold))
+                .fixedSize()
+                .opacity(isCorner ? 0 : 1)
+                .scaleEffect(isCorner ? 0.4 : 1, anchor: .center)
+                .blur(radius: isCorner ? 2 : 0)
         }
         .foregroundStyle(.black)
-        .padding(.horizontal, style.isCorner ? 0 : 11)
-        .frame(width: style.isCorner ? 32 : nil, height: 32)
+        .frame(width: isCorner ? Self.cornerDiameter : pillWidth, height: Self.cornerDiameter, alignment: .center)
         .background(.white, in: .capsule)
+        .clipShape(.capsule)
         .overlay(
             Capsule().strokeBorder(.black.opacity(0.06), lineWidth: 0.5)
         )
         .shadow(color: .black.opacity(lifted ? 0.32 : 0.16), radius: lifted ? 12 : 4, x: 0, y: lifted ? 7 : 2)
-        .scaleEffect(lifted ? 1.08 : 1)
+        .scaleEffect(lifted ? 1.08 : 1, anchor: .center)
     }
 }
 

@@ -208,13 +208,9 @@ struct PreviewCardView: View {
     @ViewBuilder
     private func centerPill(for action: OverlayCardAction) -> some View {
         if action == .upload, cloudUploader.uploadedURLs[item.id] != nil {
-            actionPill("Copy Link", systemImage: "link", action: copyUploadedURL)
+            actionPill("Copy Link", action: copyUploadedURL)
         } else {
-            actionPill(
-                action.label(for: item.kind),
-                systemImage: action.symbol(for: item.kind),
-                action: handler(for: action)
-            )
+            actionPill(action.label(for: item.kind), action: handler(for: action))
         }
     }
 
@@ -317,18 +313,14 @@ struct PreviewCardView: View {
         .help(help)
     }
 
-    private func actionPill(_ title: String, systemImage: String, action: @escaping () -> Void) -> some View {
+    private func actionPill(_ title: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack(spacing: 4) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 9, weight: .semibold))
-                Text(title)
-                    .font(.system(size: 11, weight: .semibold))
-            }
-            .foregroundStyle(.primary)
-            .padding(.horizontal, 9)
-            .padding(.vertical, 4)
-            .background(.background.opacity(0.85), in: .capsule)
+            Text(title)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.primary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 5)
+                .background(.background.opacity(0.8), in: .capsule)
         }
         .buttonStyle(.plain)
     }
