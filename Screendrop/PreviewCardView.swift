@@ -322,6 +322,9 @@ struct PreviewCardView: View {
                 .padding(.vertical, 7)
                 .background(.background.opacity(0.85), in: .capsule)
                 .shadow(color: .black.opacity(0.22), radius: 2.5, x: 0, y: 1)
+                // Always render the pill in light mode (white capsule, dark text)
+                // to match the corner buttons, regardless of system appearance.
+                .environment(\.colorScheme, .light)
         }
         .buttonStyle(.plain)
     }
