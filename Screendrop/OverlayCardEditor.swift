@@ -158,19 +158,26 @@ struct OverlayCardEditor: View {
         let visibleCount = layout.center.filter { $0 != dragging }.count
 
         return VStack(spacing: 7) {
+            ForEach(layout.center) { action in
+                ZStack {
+                    chip(action, style: .pill)
+                        .opacity(action == dragging ? 0 : 1)
+
+                    // When the only remaining center item is the one being
+                    // dragged, overlay the empty-slot placeholder onto its
+                    // reserved row so it stays centered — rather than adding a
+                    // second row that pushes the placeholder below center.
+                    if action == dragging && visibleCount == 0 {
+                        slotPlaceholder(isCircle: false, highlighted: highlighted)
+                            .frame(width: 104, height: 30)
+                    }
+                }
+                .background(centerItemReporter(action))
+            }
+
             if layout.center.isEmpty {
                 slotPlaceholder(isCircle: false, highlighted: highlighted)
                     .frame(width: 104, height: 30)
-            } else {
-                ForEach(layout.center) { action in
-                    chip(action, style: .pill)
-                        .opacity(action == dragging ? 0 : 1)
-                        .background(centerItemReporter(action))
-                }
-                if visibleCount == 0 {
-                    slotPlaceholder(isCircle: false, highlighted: highlighted)
-                        .frame(width: 104, height: 30)
-                }
             }
         }
         .padding(8)
