@@ -318,9 +318,10 @@ struct PreviewCardView: View {
             Text(title)
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.primary)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 5)
-                .background(.background.opacity(0.8), in: .capsule)
+                .padding(.horizontal, 13)
+                .padding(.vertical, 7)
+                .background(.background.opacity(0.85), in: .capsule)
+                .shadow(color: .black.opacity(0.22), radius: 2.5, x: 0, y: 1)
         }
         .buttonStyle(.plain)
     }
