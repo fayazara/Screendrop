@@ -27,6 +27,29 @@
     -->
 
     <item>
+      <title>Version 0.21.2</title>
+      <sparkle:version>18</sparkle:version>
+      <sparkle:shortVersionString>0.21.2</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.4</sparkle:minimumSystemVersion>
+      <pubDate>Fri, 19 Jun 2026 18:32:11 +0000</pubDate>
+      <description><![CDATA[
+        <h2>What's New in 0.21.2</h2>
+        <ul>
+          <li>Customizable preview card actions in Overlay settings</li>
+          <li>Smoother preview overlay collapse, exit, and swipe-dismiss behavior</li>
+          <li>Fixed preview card action styling, shadows, and center placeholder layout</li>
+          <li>Fixed Settings activation state and annotation preview restoration</li>
+        </ul>
+      ]]></description>
+      <enclosure
+        url="https://github.com/fayazara/screendrop/releases/download/v0.21.2/Screendrop.dmg"
+        type="application/octet-stream"
+        sparkle:edSignature="CgcqyjVVB3HZMdZgEDVPKMOFc9NTwjJQ2egiQv6mAgH8tNE7WCVHpAPNwlvCW4QnOqugvb0+YnUOuQZS+LNBBQ=="
+        length="4126903"
+      />
+    </item>
+
+    <item>
       <title>Version 0.21.1</title>
       <sparkle:version>17</sparkle:version>
       <sparkle:shortVersionString>0.21.1</sparkle:shortVersionString>
