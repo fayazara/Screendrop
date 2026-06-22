@@ -343,8 +343,16 @@ private final class RecordingAreaSelectionView: NSView {
         }
     }
 
+    /// When an aspect preset is active only the 4 corner handles are shown;
+    /// edge-only handles (top/bottom/left/right) would break the ratio lock.
+    private var activeHandles: [Handle] {
+        aspect.locksAspect
+            ? [.topLeft, .topRight, .bottomLeft, .bottomRight]
+            : Handle.allCases
+    }
+
     private func drawHandles(for rect: CGRect) {
-        for handle in Handle.allCases {
+        for handle in activeHandles {
             let center = handlePoint(handle, in: rect)
             let sq = CGRect(
                 x: center.x - handleLength / 2,
@@ -503,7 +511,7 @@ private final class RecordingAreaSelectionView: NSView {
     }
 
     private func handle(at point: CGPoint, in rect: CGRect) -> Handle? {
-        Handle.allCases.first { handleHitRect($0, in: rect).contains(point) }
+        activeHandles.first { handleHitRect($0, in: rect).contains(point) }
     }
 
     private func resizedRect(anchor: CGRect, handle: Handle, to raw: CGPoint) -> CGRect {
@@ -617,7 +625,7 @@ private final class RecordingAreaSelectionView: NSView {
         addCursorRect(bounds, cursor: .annotationPlus)
         guard let selection, !isDrawing else { return }
         addCursorRect(selection, cursor: .openHand)
-        for handle in Handle.allCases {
+        for handle in activeHandles {
             addCursorRect(handleHitRect(handle, in: selection), cursor: cursorFor(handle))
         }
     }
