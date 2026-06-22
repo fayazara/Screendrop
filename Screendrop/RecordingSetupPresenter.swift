@@ -249,6 +249,7 @@ private final class RecordingSetupOverlayView: NSView {
     private var dragMode:     DragMode = .none
     private var moveOffset:   CGSize   = .zero
     private var resizeAnchor: CGRect   = .zero
+    private var trackingArea: NSTrackingArea?
 
     override var acceptsFirstResponder: Bool { true }
 
@@ -680,6 +681,28 @@ private final class RecordingSetupOverlayView: NSView {
         let cgX = viewPoint.x + panelOrigin.x
         let cgY = mainH - (viewPoint.y + panelOrigin.y)
         return windows.first { $0.frame.contains(CGPoint(x: cgX, y: cgY)) }
+    }
+
+    // MARK: - Tracking / key
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let trackingArea { removeTrackingArea(trackingArea) }
+        let area = NSTrackingArea(
+            rect: bounds,
+            options: [.activeAlways, .inVisibleRect, .mouseMoved, .mouseEnteredAndExited],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(area)
+        trackingArea = area
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        // Re-key the overlay whenever the cursor returns to it (e.g. after
+        // clicking the toolbar's mode picker), so the next click is a normal
+        // mouseDown instead of a swallowed first-mouse activation click.
+        window?.makeKey()
     }
 
     // MARK: - Cursor
