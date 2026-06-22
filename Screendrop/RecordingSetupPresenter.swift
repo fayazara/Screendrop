@@ -346,7 +346,7 @@ private final class RecordingSetupOverlayView: NSView {
     private func drawWindowMode() {
         let target = lockedWindow ?? hoveredWindow
         guard let target else {
-            drawHint("Hover over a window to select it")
+            drawHint("Move over a window, then click to record it")
             return
         }
         let vf = windowViewFrame(target)
@@ -357,9 +357,7 @@ private final class RecordingSetupOverlayView: NSView {
         path.lineWidth = 2
         path.stroke()
         drawWindowLabel(for: target, near: vf)
-        if lockedWindow != nil {
-            drawHint("Press Return or click Start to record")
-        }
+        drawHint("Click to record this window")
     }
 
     /// Corners only when an aspect preset is active — edge handles would
@@ -440,16 +438,15 @@ private final class RecordingSetupOverlayView: NSView {
         case .fullscreen:
             confirm()
         case .window:
-            if let win = windowAtPoint(point) {
-                if event.clickCount >= 2, win.windowID == lockedWindow?.windowID {
-                    confirm()
-                } else {
-                    lockedWindow  = win
-                    hoveredWindow = nil
-                    onWindowSelected?(win)
-                    needsDisplay = true
-                    window?.invalidateCursorRects(for: self)
-                }
+            // Consistent with the native screenshot window picker
+            // (screencapture -w) and with Full Screen mode above: clicking a
+            // window selects and starts recording it immediately. Fall back to
+            // the hovered window so a tiny cursor jitter on click can't miss.
+            if let win = windowAtPoint(point) ?? hoveredWindow {
+                lockedWindow  = win
+                hoveredWindow = nil
+                onWindowSelected?(win)
+                confirm()
             }
         case .area:
             areaMouseDown(at: point, clickCount: event.clickCount)
