@@ -9,29 +9,76 @@
 
 import CoreGraphics
 import Observation
+import ScreenCaptureKit
+
+// MARK: - Mode
+
+/// The three capture modes available in the recording setup HUD.
+enum RecordingSetupMode: String, CaseIterable, Identifiable {
+    case fullscreen
+    case area
+    case window
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .fullscreen: "Full Screen"
+        case .area:       "Area"
+        case .window:     "Window"
+        }
+    }
+}
+
+// MARK: - Model
 
 @MainActor
 @Observable
 final class RecordingSetupModel {
 
-    /// The active aspect-ratio constraint.  `.freeform` means unconstrained.
-    var aspect: CropAspectRatio = .freeform
+    // MARK: Mode
 
-    /// The committed selection rectangle in overlay-panel-local coordinates.
-    /// `nil` until the user draws a region; the Start button stays disabled
-    /// until this is set.
+    /// The active capture mode.  The toolbar mode picker writes this; the
+    /// overlay adapts its interaction accordingly.
+    var mode: RecordingSetupMode = .area
+
+    // MARK: Area
+
+    /// Committed selection rect (panel-local coordinates) for Area mode.
+    /// `nil` until the user completes a draw; drives the Start button.
     var selection: CGRect?
 
-    /// Point-to-pixel scale for the target display (used to show pixel dimensions).
+    /// Active aspect-ratio constraint for Area mode.
+    var aspect: CropAspectRatio = .freeform
+
+    // MARK: Window
+
+    /// Window the user has locked onto (Window mode).
+    var selectedWindow: SCWindow?
+
+    // MARK: Display
+
+    /// Point-to-pixel scale for the target display (used to show W×H).
     let pixelScale: CGSize
 
-    /// Live pixel dimensions of the current selection, or `nil` when none.
+    // MARK: Derived
+
+    /// Live pixel dimensions of the current area selection, or `nil` when none.
     var pixelSize: CGSize? {
         guard let rect = selection else { return nil }
         return CGSize(
             width:  (rect.width  * pixelScale.width).rounded(),
             height: (rect.height * pixelScale.height).rounded()
         )
+    }
+
+    /// Whether the Start button should be enabled for the current mode.
+    var canStart: Bool {
+        switch mode {
+        case .fullscreen: return true
+        case .area:       return selection != nil
+        case .window:     return selectedWindow != nil
+        }
     }
 
     init(pixelScale: CGSize) {

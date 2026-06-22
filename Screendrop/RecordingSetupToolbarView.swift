@@ -2,9 +2,10 @@
 //  RecordingSetupToolbarView.swift
 //  Screendrop
 //
-//  Floating toolbar shown during area-recording setup. Displays aspect-ratio
-//  preset chips, a live pixel-size readout, and Start / Cancel actions.
-//  Hosted in a borderless NSPanel by RecordingAreaSelectionPresenter.
+//  Floating toolbar shown during recording setup.  Hosts a mode picker
+//  (Full Screen / Area / Window), aspect-ratio chips (Area only), a live
+//  pixel-size readout, and Start / Cancel actions.
+//  Hosted in a borderless NSPanel by RecordingSetupPresenter.
 //
 
 import SwiftUI
@@ -13,13 +14,14 @@ struct RecordingSetupToolbarView: View {
 
     @Bindable var model: RecordingSetupModel
 
-    var onStart: () -> Void
-    var onCancel: () -> Void
-    /// Called when the user picks an aspect chip so the AppKit overlay can
-    /// apply the constraint to the current selection synchronously.
+    var onStart:        () -> Void
+    var onCancel:       () -> Void
+    /// Aspect chip tapped — lets the AppKit overlay apply the constraint synchronously.
     var onAspectChange: (CropAspectRatio) -> Void
+    /// Mode chip tapped — lets the AppKit overlay reset state for the new mode.
+    var onModeChange:   (RecordingSetupMode) -> Void
 
-    private let presets: [(aspect: CropAspectRatio, label: String)] = [
+    private let aspects: [(aspect: CropAspectRatio, label: String)] = [
         (.freeform,    "Freeform"),
         (.sixteenNine, "16:9"),
         (.nineSixteen, "9:16"),
@@ -30,34 +32,49 @@ struct RecordingSetupToolbarView: View {
     var body: some View {
         HStack(spacing: 10) {
 
-            // Aspect-ratio chips
-            HStack(spacing: 4) {
-                ForEach(presets, id: \.aspect.id) { item in
-                    Button(item.label) {
-                        model.aspect = item.aspect
-                        onAspectChange(item.aspect)
+            // ── Mode picker ───────────────────────────────────────────────
+            Picker("", selection: $model.mode) {
+                ForEach(RecordingSetupMode.allCases) { mode in
+                    Text(mode.title).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+            .fixedSize()
+            .onChange(of: model.mode) { _, newMode in
+                onModeChange(newMode)
+            }
+
+            // ── Aspect chips (Area only) ───────────────────────────────────
+            if model.mode == .area {
+                toolbarDivider
+
+                HStack(spacing: 4) {
+                    ForEach(aspects, id: \.aspect.id) { item in
+                        Button(item.label) {
+                            model.aspect = item.aspect
+                            onAspectChange(item.aspect)
+                        }
+                        .buttonStyle(AspectChipStyle(isActive: model.aspect == item.aspect))
                     }
-                    .buttonStyle(AspectChipStyle(isActive: model.aspect == item.aspect))
                 }
+
+                toolbarDivider
+
+                // Live pixel size
+                Group {
+                    if let size = model.pixelSize {
+                        Text("\(Int(size.width)) × \(Int(size.height))")
+                    } else {
+                        Text("W × H").foregroundStyle(.tertiary)
+                    }
+                }
+                .font(.system(size: 12, weight: .semibold).monospacedDigit())
+                .frame(minWidth: 76, alignment: .leading)
             }
 
             toolbarDivider
 
-            // Live pixel size
-            Group {
-                if let size = model.pixelSize {
-                    Text("\(Int(size.width)) × \(Int(size.height))")
-                } else {
-                    Text("W × H")
-                        .foregroundStyle(.tertiary)
-                }
-            }
-            .font(.system(size: 12, weight: .semibold).monospacedDigit())
-            .frame(minWidth: 76, alignment: .leading)
-
-            toolbarDivider
-
-            // Cancel / Start
+            // ── Cancel / Start ─────────────────────────────────────────────
             Button("Cancel", action: onCancel)
                 .foregroundStyle(.secondary)
 
@@ -66,7 +83,7 @@ struct RecordingSetupToolbarView: View {
             }
             .buttonStyle(.borderedProminent)
             .tint(.red)
-            .disabled(model.selection == nil)
+            .disabled(!model.canStart)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
@@ -80,7 +97,7 @@ struct RecordingSetupToolbarView: View {
                 .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 0.5)
         )
         .shadow(color: .black.opacity(0.22), radius: 10, y: 4)
-        .padding(10)   // give the shadow room to breathe
+        .padding(10)
     }
 
     private var toolbarDivider: some View {

@@ -138,9 +138,8 @@ final class RecordingAreaSelectionPresenter {
             model:          model,
             onStart:        { [weak self] in self?.finishWithModelSelection() },
             onCancel:       { [weak self] in self?.cancel() },
-            onAspectChange: { [weak self] aspect in
-                self?.selectionView?.applyAspect(aspect)
-            }
+            onAspectChange: { [weak self] aspect in self?.selectionView?.applyAspect(aspect) },
+            onModeChange:   { _ in }   // mode switching is handled by RecordingSetupPresenter
         )
 
         let hosting     = NSHostingView(rootView: toolbarView)
