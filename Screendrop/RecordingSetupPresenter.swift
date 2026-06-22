@@ -362,8 +362,16 @@ private final class RecordingSetupOverlayView: NSView {
         }
     }
 
+    /// Corners only when an aspect preset is active — edge handles would
+    /// silently break the ratio lock.
+    private var activeHandles: [Handle] {
+        aspect.locksAspect
+            ? [.topLeft, .topRight, .bottomLeft, .bottomRight]
+            : Handle.allCases
+    }
+
     private func drawHandles(for rect: CGRect) {
-        for handle in Handle.allCases {
+        for handle in activeHandles {
             let center = handlePoint(handle, in: rect)
             let sq = CGRect(
                 x: center.x - handleLength / 2, y: center.y - handleLength / 2,
@@ -577,7 +585,7 @@ private final class RecordingSetupOverlayView: NSView {
     }
 
     private func handle(at point: CGPoint, in rect: CGRect) -> Handle? {
-        Handle.allCases.first { handleHitRect($0, in: rect).contains(point) }
+        activeHandles.first { handleHitRect($0, in: rect).contains(point) }
     }
 
     private func resizedRect(anchor: CGRect, handle: Handle, to raw: CGPoint) -> CGRect {
@@ -646,24 +654,35 @@ private final class RecordingSetupOverlayView: NSView {
     }
 
     // MARK: - Window geometry
+    //
+    // SCWindow.frame uses Core Graphics screen coordinates:
+    //   origin = top-left of the primary display, y increases downward.
+    // The overlay NSView uses AppKit coordinates:
+    //   origin = bottom-left of its display, y increases upward.
+    // These must be converted before comparing or drawing.
 
     private func windowViewFrame(_ win: SCWindow) -> CGRect {
-        let origin = window?.frame.origin ?? .zero
+        // CG → AppKit: flip y using the primary display's height as the reference.
+        let mainH       = NSScreen.screens.first?.frame.height ?? bounds.height
+        let appKitX     = win.frame.minX
+        let appKitY     = mainH - win.frame.minY - win.frame.height
+        let panelOrigin = window?.frame.origin ?? .zero
         return CGRect(
-            x: win.frame.minX - origin.x,
-            y: win.frame.minY - origin.y,
-            width: win.frame.width,
+            x:      appKitX - panelOrigin.x,
+            y:      appKitY - panelOrigin.y,
+            width:  win.frame.width,
             height: win.frame.height
         )
     }
 
     private func windowAtPoint(_ viewPoint: CGPoint) -> SCWindow? {
+        // Convert the view-local point → CG screen coordinates for comparison
+        // with SCWindow.frame.
+        let mainH       = NSScreen.screens.first?.frame.height ?? bounds.height
         let panelOrigin = window?.frame.origin ?? .zero
-        let screenPoint = CGPoint(
-            x: viewPoint.x + panelOrigin.x,
-            y: viewPoint.y + panelOrigin.y
-        )
-        return windows.first { $0.frame.contains(screenPoint) }
+        let cgX = viewPoint.x + panelOrigin.x
+        let cgY = mainH - (viewPoint.y + panelOrigin.y)
+        return windows.first { $0.frame.contains(CGPoint(x: cgX, y: cgY)) }
     }
 
     // MARK: - Cursor
@@ -682,7 +701,7 @@ private final class RecordingSetupOverlayView: NSView {
             addCursorRect(bounds, cursor: .annotationPlus)
             guard let sel = selection, !isDrawing else { return }
             addCursorRect(sel, cursor: .openHand)
-            for h in Handle.allCases {
+            for h in activeHandles {
                 addCursorRect(handleHitRect(h, in: sel), cursor: cursorFor(h))
             }
         }
