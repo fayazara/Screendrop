@@ -92,7 +92,11 @@ final class RecordingAreaSelectionPresenter {
         installKeyMonitor()
         overlayPanel.makeKeyAndOrderFront(nil)
         overlayPanel.orderFrontRegardless()
-        toolbarPanel?.orderFrontRegardless()
+        // Attach toolbar as a child window so the window server keeps it above
+        // the overlay regardless of subsequent mouse interactions on the overlay.
+        if let tp = toolbarPanel {
+            overlayPanel.addChildWindow(tp, ordered: .above)
+        }
     }
 
     func cancel() {
@@ -108,7 +112,10 @@ final class RecordingAreaSelectionPresenter {
         model            = nil
         selectionView    = nil
         removeKeyMonitor()
-        toolbarPanel?.orderOut(nil)
+        if let tp = toolbarPanel {
+            panel?.removeChildWindow(tp)
+            tp.orderOut(nil)
+        }
         toolbarPanel = nil
         panel?.orderOut(nil)
         panel = nil
