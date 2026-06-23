@@ -13,6 +13,7 @@ struct AnnotationEditorWindow: View {
     @Binding var url: URL?
 
     @State private var model = AnnotationEditorModel()
+    @State private var wallpaperStore = AnnotationWallpaperStore.shared
     @State private var isInspectorPresented = true
     @State private var isFinishing = false
     @State private var isUploading = false
@@ -36,6 +37,7 @@ struct AnnotationEditorWindow: View {
                 model.load(url: url, dismiss: dismissWindow)
             }
             .onAppear {
+                Task { await wallpaperStore.reload() }
                 AnnotationEditorActivationPolicy.enter(hidePreview: true)
             }
             .onDisappear {
@@ -69,6 +71,7 @@ struct AnnotationEditorWindow: View {
             .inspector(isPresented: $isInspectorPresented) {
                 AnnotationEditorInspector(
                     model: model,
+                    wallpaperStore: wallpaperStore,
                     onPickWallpaper: pickCustomWallpaper
                 )
                 .disabled(model.isCropping)
@@ -274,6 +277,7 @@ struct AnnotationEditorWindow: View {
         panel.begin { response in
             guard response == .OK, let url = panel.url else { return }
             let wallpaper = AnnotationCustomWallpaper(url: url)
+            wallpaperStore.addRecentWallpaper(url)
             model.backgroundSettings.customWallpaper = wallpaper
             model.backgroundSettings.style = .customWallpaper(wallpaper)
         }

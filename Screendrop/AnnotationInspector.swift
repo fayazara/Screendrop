@@ -14,6 +14,7 @@ struct AnnotationEditorInspector: View {
     private static let maximumColumnWidth: CGFloat = 440
 
     @Bindable var model: AnnotationEditorModel
+    @Bindable var wallpaperStore: AnnotationWallpaperStore
     let onPickWallpaper: () -> Void
     @Environment(\.colorScheme) private var colorScheme
 
@@ -137,6 +138,7 @@ struct AnnotationEditorInspector: View {
                                 get: { model.backgroundSettings },
                                 set: { model.backgroundSettings = $0 }
                             ),
+                            wallpaperStore: wallpaperStore,
                             onPickWallpaper: onPickWallpaper
                         )
                     }

@@ -47,6 +47,7 @@ enum AnnotationBackgroundRenderer {
             }
 
             let fullRect = CGRect(x: 0, y: 0, width: width, height: height)
+            context.interpolationQuality = .none
             context.draw(contentImage, in: fullRect)
             canvasOverlay(
                 context,
@@ -78,9 +79,14 @@ enum AnnotationBackgroundRenderer {
         }
 
         let canvasRect = CGRect(x: 0, y: 0, width: width, height: height)
+        context.interpolationQuality = .high
         drawBackground(settings.style, in: canvasRect, context: context)
 
-        let imageRect = flipped(layout.imageRect, canvasHeight: CGFloat(height)).integral
+        let imageRect = pixelAlignedImageRect(
+            flipped(layout.imageRect, canvasHeight: CGFloat(height)),
+            contentSize: contentSize,
+            canvasSize: canvasRect.size
+        )
         let baseCornerRadius = settings.cornerRadius * min(imageRect.width, imageRect.height)
         let m = settings.alignment.cornerRadiusMultipliers
         let cornerRadii = PerCornerRadii(
@@ -93,6 +99,7 @@ enum AnnotationBackgroundRenderer {
         drawShadow(path: clipPath, strength: settings.shadow, context: context)
 
         context.saveGState()
+        context.interpolationQuality = .none
         context.addPath(clipPath)
         context.clip()
         context.draw(contentImage, in: imageRect)
@@ -153,31 +160,55 @@ enum AnnotationBackgroundRenderer {
         in rect: CGRect,
         context: CGContext
     ) {
-        guard let image = loadCGImage(at: wallpaper.url, maxPixelSize: max(rect.width, rect.height)) else {
+        guard let image = loadCGImageForAspectFill(at: wallpaper.url, fillSize: rect.size) else {
             drawMissingWallpaperFallback(in: rect, context: context)
             return
         }
 
+        context.interpolationQuality = .high
         context.draw(image, in: aspectFillRect(
             imageSize: CGSize(width: image.width, height: image.height),
             fillRect: rect
         ))
     }
 
-    private static func loadCGImage(at url: URL, maxPixelSize: CGFloat) -> CGImage? {
+    private static func loadCGImageForAspectFill(at url: URL, fillSize: CGSize) -> CGImage? {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, [
             kCGImageSourceShouldCache: false
         ] as CFDictionary) else {
             return nil
         }
 
+        guard let sourceSize = imageSize(from: source),
+              sourceSize.width > 0,
+              sourceSize.height > 0,
+              fillSize.width > 0,
+              fillSize.height > 0 else {
+            return CGImageSourceCreateImageAtIndex(source, 0, [
+                kCGImageSourceShouldCache: false
+            ] as CFDictionary)
+        }
+
+        let drawScale = max(fillSize.width / sourceSize.width, fillSize.height / sourceSize.height)
+        let requiredMaxPixelSize = max(sourceSize.width, sourceSize.height) * drawScale
+
         let options: [CFString: Any] = [
             kCGImageSourceShouldCache: false,
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: max(1, Int(maxPixelSize.rounded(.up)))
+            kCGImageSourceThumbnailMaxPixelSize: max(1, Int(requiredMaxPixelSize.rounded(.up)))
         ]
         return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+    }
+
+    private static func imageSize(from source: CGImageSource) -> CGSize? {
+        guard let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let width = properties[kCGImagePropertyPixelWidth] as? CGFloat,
+              let height = properties[kCGImagePropertyPixelHeight] as? CGFloat else {
+            return nil
+        }
+
+        return CGSize(width: width, height: height)
     }
 
     private static func aspectFillRect(imageSize: CGSize, fillRect: CGRect) -> CGRect {
@@ -231,6 +262,21 @@ enum AnnotationBackgroundRenderer {
             width: rect.width,
             height: rect.height
         )
+    }
+
+    private static func pixelAlignedImageRect(
+        _ rect: CGRect,
+        contentSize: CGSize,
+        canvasSize: CGSize
+    ) -> CGRect {
+        let width = min(contentSize.width, canvasSize.width)
+        let height = min(contentSize.height, canvasSize.height)
+        let maxX = max(0, canvasSize.width - width)
+        let maxY = max(0, canvasSize.height - height)
+        let x = min(max(0, rect.minX.rounded()), maxX)
+        let y = min(max(0, rect.minY.rounded()), maxY)
+
+        return CGRect(x: x, y: y, width: width, height: height)
     }
 
     private static func cgPoint(for unitPoint: UnitPoint, in rect: CGRect) -> CGPoint {

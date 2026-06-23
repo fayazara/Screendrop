@@ -527,7 +527,7 @@ private struct SetupStepView: View {
 }
 
 private struct SetupVideoPlayer: NSViewRepresentable {
-    private static let videoURL = URL(string: "https://static.fayazahmed.com/EE7DB82C-screendrop-setup.mp4")!
+    private static let videoURL = URL(string: "https://static.fayazahmed.com/8130A265-enable-cloud-screendrop.mp4")!
 
     func makeNSView(context: Context) -> AVPlayerView {
         let player = AVPlayer(url: Self.videoURL)

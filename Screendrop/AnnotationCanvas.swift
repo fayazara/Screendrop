@@ -359,29 +359,66 @@ private struct AnnotationBackgroundStageFill: View {
             )
 
         case .customWallpaper(let wallpaper):
-            AnnotationCustomWallpaperPreview(wallpaper: wallpaper)
+            AnnotationCustomWallpaperPreview(wallpaper: wallpaper, maxPixelSize: 2048)
         }
     }
 }
 
 struct AnnotationCustomWallpaperPreview: View {
     let wallpaper: AnnotationCustomWallpaper
+    var maxPixelSize: CGFloat = 900
+
+    @State private var image: CGImage?
+    @State private var isLoading = true
+    @State private var didFail = false
 
     var body: some View {
         GeometryReader { proxy in
-            if let image = ScreenshotImageLoader.downsampledImage(at: wallpaper.url, maxPixelSize: 900) {
-                Image(nsImage: image)
+            if let image {
+                Image(decorative: image, scale: 1, orientation: .up)
                     .resizable()
                     .scaledToFill()
                     .frame(width: proxy.size.width, height: proxy.size.height)
                     .clipped()
-            } else {
+            } else if didFail {
                 Color.black
                     .overlay {
                         Image(systemName: "exclamationmark.triangle")
                             .foregroundStyle(.secondary)
                     }
+            } else {
+                Color(nsColor: .controlBackgroundColor)
+                    .overlay {
+                        if isLoading {
+                            ProgressView()
+                                .controlSize(.small)
+                        }
+                    }
             }
         }
+        .task(id: cacheID) {
+            await loadImage()
+        }
+    }
+
+    private var cacheID: String {
+        AnnotationWallpaperPreviewCache.cacheID(for: wallpaper.url, maxPixelSize: maxPixelSize)
+    }
+
+    @MainActor
+    private func loadImage() async {
+        image = nil
+        isLoading = true
+        didFail = false
+
+        let loadedImage = await AnnotationWallpaperPreviewCache.shared.image(
+            for: wallpaper.url,
+            maxPixelSize: maxPixelSize
+        )
+
+        guard !Task.isCancelled else { return }
+        image = loadedImage
+        didFail = loadedImage == nil
+        isLoading = false
     }
 }
