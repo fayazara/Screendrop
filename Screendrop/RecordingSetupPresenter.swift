@@ -29,6 +29,8 @@ final class RecordingSetupPresenter {
     private var display:      SCDisplay?
     private var keyMonitor:   Any?
 
+    private let minimumRestoredAreaSize: CGFloat = 16
+
     private init() {}
 
     /// Resolve the active display and present the HUD.
@@ -92,6 +94,8 @@ final class RecordingSetupPresenter {
         ov.onCancel           = { [weak self] in self?.dismiss() }
         ov.onSelectionChanged = { [weak setupModel] rect in setupModel?.selection = rect }
 
+        restorePreferences(on: setupModel, overlay: ov, displayID: display.displayID)
+
         panel.contentView = ov
         panel.makeFirstResponder(ov)
         overlayPanel = panel
@@ -113,6 +117,7 @@ final class RecordingSetupPresenter {
     private func confirm() {
         guard let source = resolveSource() else { return }
         let mgr = ScreenRecordingManager.shared
+        saveCurrentSetup()
         dismiss()
         mgr.startRecording(source: source)
     }
@@ -139,6 +144,48 @@ final class RecordingSetupPresenter {
             guard let rect = model.selection else { return nil }
             return ScreenRecordingSource(kind: .area(display: display, rect: rect))
         }
+    }
+
+    private func restorePreferences(
+        on model: RecordingSetupModel,
+        overlay: RecordingSetupOverlayView,
+        displayID: CGDirectDisplayID
+    ) {
+        model.mode = ScreendropPreferences.recordingSetupDefaultMode
+        model.aspect = ScreendropPreferences.recordingSetupDefaultAspect
+        overlay.applyAspect(model.aspect)
+        overlay.applyMode(model.mode)
+
+        guard model.mode == .area,
+              ScreendropPreferences.rememberRecordingSetupAreaRegion,
+              ScreendropPreferences.recordingSetupLastAreaDisplayID == displayID,
+              let rect = validRestoredAreaRect(in: overlay.bounds) else {
+            return
+        }
+
+        overlay.restoreSelection(rect)
+    }
+
+    private func validRestoredAreaRect(in bounds: CGRect) -> CGRect? {
+        guard let rect = ScreendropPreferences.recordingSetupLastAreaRect?.standardized,
+              rect.width >= minimumRestoredAreaSize,
+              rect.height >= minimumRestoredAreaSize,
+              bounds.contains(rect) else {
+            return nil
+        }
+
+        return rect
+    }
+
+    private func saveCurrentSetup() {
+        guard let display, let model else { return }
+
+        ScreendropPreferences.saveRecordingSetup(
+            mode: model.mode,
+            aspect: model.aspect,
+            areaRect: model.mode == .area ? model.selection : nil,
+            displayID: display.displayID
+        )
     }
 
     // MARK: Private — toolbar panel
@@ -280,6 +327,13 @@ private final class RecordingSetupOverlayView: NSView {
             width: w, height: h
         )
         onSelectionChanged?(selection)
+        needsDisplay = true
+        window?.invalidateCursorRects(for: self)
+    }
+
+    func restoreSelection(_ rect: CGRect) {
+        selection = rect
+        onSelectionChanged?(rect)
         needsDisplay = true
         window?.invalidateCursorRects(for: self)
     }
