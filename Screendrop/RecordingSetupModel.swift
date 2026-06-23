@@ -9,15 +9,12 @@
 
 import CoreGraphics
 import Observation
-import ScreenCaptureKit
-
 // MARK: - Mode
 
-/// The three capture modes available in the recording setup HUD.
+/// Capture modes available in the recording setup HUD.
 enum RecordingSetupMode: String, CaseIterable, Identifiable {
     case fullscreen
     case area
-    case window
 
     var id: String { rawValue }
 
@@ -25,7 +22,6 @@ enum RecordingSetupMode: String, CaseIterable, Identifiable {
         switch self {
         case .fullscreen: "Full Screen"
         case .area:       "Area"
-        case .window:     "Window"
         }
     }
 }
@@ -51,11 +47,6 @@ final class RecordingSetupModel {
     /// Active aspect-ratio constraint for Area mode.
     var aspect: CropAspectRatio = .freeform
 
-    // MARK: Window
-
-    /// Window the user has locked onto (Window mode).
-    var selectedWindow: SCWindow?
-
     // MARK: Display
 
     /// Point-to-pixel scale for the target display (used to show W×H).
@@ -77,7 +68,6 @@ final class RecordingSetupModel {
         switch mode {
         case .fullscreen: return true
         case .area:       return selection != nil
-        case .window:     return selectedWindow != nil
         }
     }
 
