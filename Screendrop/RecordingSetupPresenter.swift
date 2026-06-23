@@ -229,6 +229,7 @@ private final class RecordingSetupOverlayView: NSView {
     private let windows:        [SCWindow]
     private var hoveredWindow:  SCWindow?
     private var lockedWindow:   SCWindow?
+    private var didConfirmWindow = false
 
     // Area mode
     var aspect: CropAspectRatio = .freeform
@@ -269,6 +270,7 @@ private final class RecordingSetupOverlayView: NSView {
         selection     = nil
         hoveredWindow = nil
         lockedWindow  = nil
+        didConfirmWindow = false
         drawStart     = nil
         drawCurrent   = nil
         dragMode      = .none
@@ -424,12 +426,22 @@ private final class RecordingSetupOverlayView: NSView {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override func mouseMoved(with event: NSEvent) {
-        guard mode == .window, lockedWindow == nil else { return }
+        guard mode == .window, !didConfirmWindow else { return }
+
+        // Hover is already proof the cursor is over the overlay. Re-key here
+        // instead of only in mouseEntered because moving from the child toolbar
+        // back to the overlay can continue delivering mouseMoved without a
+        // reliable enter transition.
+        window?.makeKey()
+
         let point    = convert(event.locationInWindow, from: nil)
         let newHover = windowAtPoint(point)
         if newHover?.windowID != hoveredWindow?.windowID {
             hoveredWindow = newHover
+            lockedWindow = newHover
+            onWindowSelected?(newHover)
             needsDisplay  = true
+            window?.invalidateCursorRects(for: self)
         }
     }
 
@@ -443,12 +455,7 @@ private final class RecordingSetupOverlayView: NSView {
             // (screencapture -w) and with Full Screen mode above: clicking a
             // window selects and starts recording it immediately. Fall back to
             // the hovered window so a tiny cursor jitter on click can't miss.
-            if let win = windowAtPoint(point) ?? hoveredWindow {
-                lockedWindow  = win
-                hoveredWindow = nil
-                onWindowSelected?(win)
-                confirm()
-            }
+            confirmWindow(windowAtPoint(point) ?? hoveredWindow ?? lockedWindow)
         case .area:
             areaMouseDown(at: point, clickCount: event.clickCount)
         }
@@ -460,8 +467,18 @@ private final class RecordingSetupOverlayView: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
-        guard mode == .area else { return }
-        areaMouseUp(at: convert(event.locationInWindow, from: nil))
+        let point = convert(event.locationInWindow, from: nil)
+
+        switch mode {
+        case .window:
+            // Fallback for first-mouse/key-window edge cases where AppKit
+            // delivers hover but swallows mouseDown.
+            confirmWindow(windowAtPoint(point) ?? hoveredWindow ?? lockedWindow)
+        case .area:
+            areaMouseUp(at: point)
+        case .fullscreen:
+            break
+        }
     }
 
     override func keyDown(with event: NSEvent) {
@@ -479,6 +496,16 @@ private final class RecordingSetupOverlayView: NSView {
         case .window where lockedWindow != nil: onConfirm?()
         default: break
         }
+    }
+
+    private func confirmWindow(_ window: SCWindow?) {
+        guard mode == .window, !didConfirmWindow, let window else { return }
+
+        didConfirmWindow = true
+        lockedWindow = window
+        hoveredWindow = nil
+        onWindowSelected?(window)
+        confirm()
     }
 
     // MARK: - Area mode helpers
@@ -717,6 +744,9 @@ private final class RecordingSetupOverlayView: NSView {
         switch mode {
         case .fullscreen, .window:
             addCursorRect(bounds, cursor: .arrow)
+            if mode == .window, let target = hoveredWindow ?? lockedWindow {
+                addCursorRect(windowViewFrame(target), cursor: .pointingHand)
+            }
         case .area:
             addCursorRect(bounds, cursor: .annotationPlus)
             guard let sel = selection, !isDrawing else { return }
