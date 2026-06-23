@@ -40,7 +40,7 @@ final class RecordingSetupPresenter {
         Task {
             do {
                 let content  = try await ScreenRecordingCapture.availableContent()
-                let windows  = RecordingSourceCatalog.filteredWindows(from: content)
+                let windows  = RecordingSourceCatalog.pickableWindows(from: content)
                 guard let display = content.displays.first(where: { $0.displayID == displayID })
                                  ?? content.displays.first else { return }
                 guard let screen = ActiveDisplayResolver.screen(for: display.displayID)
@@ -229,7 +229,6 @@ private final class RecordingSetupOverlayView: NSView {
     private let windows:        [SCWindow]
     private var hoveredWindow:  SCWindow?
     private var lockedWindow:   SCWindow?
-    private var didConfirmWindow = false
 
     // Area mode
     var aspect: CropAspectRatio = .freeform
@@ -270,7 +269,6 @@ private final class RecordingSetupOverlayView: NSView {
         selection     = nil
         hoveredWindow = nil
         lockedWindow  = nil
-        didConfirmWindow = false
         drawStart     = nil
         drawCurrent   = nil
         dragMode      = .none
@@ -347,20 +345,35 @@ private final class RecordingSetupOverlayView: NSView {
     }
 
     private func drawWindowMode() {
-        let target = lockedWindow ?? hoveredWindow
-        guard let target else {
+        guard hoveredWindow != nil || lockedWindow != nil else {
             drawHint("Move over a window, then click to record it")
             return
         }
-        let vf = windowViewFrame(target)
+
+        if let lockedWindow {
+            drawWindowOutline(for: lockedWindow, selected: true)
+        }
+
+        if let hoveredWindow, hoveredWindow.windowID != lockedWindow?.windowID {
+            drawWindowOutline(for: hoveredWindow, selected: false)
+        }
+
+        if lockedWindow != nil {
+            drawHint("Click Start or press Return to record selected window")
+        } else {
+            drawHint("Click to select this window")
+        }
+    }
+
+    private func drawWindowOutline(for window: SCWindow, selected: Bool) {
+        let vf = windowViewFrame(window)
         NSColor.clear.setFill()
         vf.fill(using: .clear)
-        NSColor.white.withAlphaComponent(0.96).setStroke()
+        (selected ? NSColor.controlAccentColor : NSColor.white).withAlphaComponent(0.96).setStroke()
         let path = NSBezierPath(roundedRect: vf, xRadius: 4, yRadius: 4)
-        path.lineWidth = 2
+        path.lineWidth = selected ? 3 : 2
         path.stroke()
-        drawWindowLabel(for: target, near: vf)
-        drawHint("Click to record this window")
+        drawWindowLabel(for: window, near: vf, selected: selected)
     }
 
     /// Corners only when an aspect preset is active — edge handles would
@@ -404,8 +417,10 @@ private final class RecordingSetupOverlayView: NSView {
         str.draw(at: CGPoint(x: bRect.minX + pad.width, y: bRect.minY + pad.height))
     }
 
-    private func drawWindowLabel(for win: SCWindow, near rect: CGRect) {
-        let text  = RecordingSourceCatalog.windowTitle(win)
+    private func drawWindowLabel(for win: SCWindow, near rect: CGRect, selected: Bool = false) {
+        let text = selected
+            ? "Selected · \(RecordingSourceCatalog.windowTitle(win))"
+            : RecordingSourceCatalog.windowTitle(win)
         let attrs: [NSAttributedString.Key: Any] = [
             .font:            NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold),
             .foregroundColor: NSColor.white
@@ -426,7 +441,7 @@ private final class RecordingSetupOverlayView: NSView {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override func mouseMoved(with event: NSEvent) {
-        guard mode == .window, !didConfirmWindow else { return }
+        guard mode == .window else { return }
 
         // Hover is already proof the cursor is over the overlay. Re-key here
         // instead of only in mouseEntered because moving from the child toolbar
@@ -438,8 +453,11 @@ private final class RecordingSetupOverlayView: NSView {
         let newHover = windowAtPoint(point)
         if newHover?.windowID != hoveredWindow?.windowID {
             hoveredWindow = newHover
-            lockedWindow = newHover
-            onWindowSelected?(newHover)
+            if newHover == nil {
+                NSCursor.arrow.set()
+            } else {
+                NSCursor.pointingHand.set()
+            }
             needsDisplay  = true
             window?.invalidateCursorRects(for: self)
         }
@@ -451,11 +469,14 @@ private final class RecordingSetupOverlayView: NSView {
         case .fullscreen:
             confirm()
         case .window:
-            // Consistent with the native screenshot window picker
-            // (screencapture -w) and with Full Screen mode above: clicking a
-            // window selects and starts recording it immediately. Fall back to
-            // the hovered window so a tiny cursor jitter on click can't miss.
-            confirmWindow(windowAtPoint(point) ?? hoveredWindow ?? lockedWindow)
+            if let win = windowAtPoint(point) ?? hoveredWindow {
+                selectWindow(win)
+                if event.clickCount >= 2 {
+                    confirm()
+                }
+            } else {
+                selectWindow(nil)
+            }
         case .area:
             areaMouseDown(at: point, clickCount: event.clickCount)
         }
@@ -472,8 +493,11 @@ private final class RecordingSetupOverlayView: NSView {
         switch mode {
         case .window:
             // Fallback for first-mouse/key-window edge cases where AppKit
-            // delivers hover but swallows mouseDown.
-            confirmWindow(windowAtPoint(point) ?? hoveredWindow ?? lockedWindow)
+            // delivers hover but swallows mouseDown. Do not record here;
+            // just lock selection so Start becomes enabled.
+            if lockedWindow == nil {
+                selectWindow(windowAtPoint(point) ?? hoveredWindow)
+            }
         case .area:
             areaMouseUp(at: point)
         case .fullscreen:
@@ -498,14 +522,11 @@ private final class RecordingSetupOverlayView: NSView {
         }
     }
 
-    private func confirmWindow(_ window: SCWindow?) {
-        guard mode == .window, !didConfirmWindow, let window else { return }
-
-        didConfirmWindow = true
+    private func selectWindow(_ window: SCWindow?) {
         lockedWindow = window
-        hoveredWindow = nil
         onWindowSelected?(window)
-        confirm()
+        needsDisplay = true
+        self.window?.invalidateCursorRects(for: self)
     }
 
     // MARK: - Area mode helpers
@@ -701,13 +722,21 @@ private final class RecordingSetupOverlayView: NSView {
     }
 
     private func windowAtPoint(_ viewPoint: CGPoint) -> SCWindow? {
-        // Convert the view-local point → CG screen coordinates for comparison
-        // with SCWindow.frame.
-        let mainH       = NSScreen.screens.first?.frame.height ?? bounds.height
-        let panelOrigin = window?.frame.origin ?? .zero
-        let cgX = viewPoint.x + panelOrigin.x
-        let cgY = mainH - (viewPoint.y + panelOrigin.y)
-        return windows.first { $0.frame.contains(CGPoint(x: cgX, y: cgY)) }
+        // Use the same local AppKit frame for hit-testing that we use for
+        // drawing the highlight. This keeps the visible target and clickable
+        // target identical, and filters windows not meaningfully visible on
+        // this overlay/display.
+        windows.first { window in
+            let frame = windowViewFrame(window)
+            guard isVisibleWindowFrame(frame) else { return false }
+            return frame.contains(viewPoint)
+        }
+    }
+
+    private func isVisibleWindowFrame(_ frame: CGRect) -> Bool {
+        guard frame.intersects(bounds) else { return false }
+        let visible = frame.intersection(bounds)
+        return visible.width >= 32 && visible.height >= 32
     }
 
     // MARK: - Tracking / key
@@ -744,7 +773,8 @@ private final class RecordingSetupOverlayView: NSView {
         switch mode {
         case .fullscreen, .window:
             addCursorRect(bounds, cursor: .arrow)
-            if mode == .window, let target = hoveredWindow ?? lockedWindow {
+            if mode == .window, let target = hoveredWindow ?? lockedWindow,
+               isVisibleWindowFrame(windowViewFrame(target)) {
                 addCursorRect(windowViewFrame(target), cursor: .pointingHand)
             }
         case .area:

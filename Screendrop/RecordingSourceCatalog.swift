@@ -52,24 +52,9 @@ final class RecordingSourceCatalog {
     }
 
     static func filteredWindows(from content: SCShareableContent) -> [SCWindow] {
-        let ownBundleID = Bundle.main.bundleIdentifier
         var seenKeys: Set<String> = []
 
-        return content.windows
-            .filter { window in
-                guard window.isOnScreen,
-                      window.windowLayer == 0,
-                      window.frame.width >= 160,
-                      window.frame.height >= 100,
-                      let app = window.owningApplication,
-                      app.bundleIdentifier != ownBundleID,
-                      !isBlockedApplication(app),
-                      !isBlockedTitle(window.title, app: app) else {
-                    return false
-                }
-
-                return true
-            }
+        return pickableWindows(from: content)
             .filter { window in
                 let key = dedupeKey(for: window)
                 guard !seenKeys.contains(key) else { return false }
@@ -80,6 +65,27 @@ final class RecordingSourceCatalog {
             .sorted { lhs, rhs in
                 windowTitle(lhs).localizedCaseInsensitiveCompare(windowTitle(rhs)) == .orderedAscending
             }
+    }
+
+    /// Windows suitable for spatial hit-testing in the recording setup overlay.
+    /// Preserves ScreenCaptureKit's source order instead of sorting by title.
+    static func pickableWindows(from content: SCShareableContent) -> [SCWindow] {
+        let ownBundleID = Bundle.main.bundleIdentifier
+
+        return content.windows.filter { window in
+            guard window.isOnScreen,
+                  window.windowLayer == 0,
+                  window.frame.width >= 160,
+                  window.frame.height >= 100,
+                  let app = window.owningApplication,
+                  app.bundleIdentifier != ownBundleID,
+                  !isBlockedApplication(app),
+                  !isBlockedTitle(window.title, app: app) else {
+                return false
+            }
+
+            return true
+        }
     }
 
     private static func isBlockedApplication(_ app: SCRunningApplication) -> Bool {
