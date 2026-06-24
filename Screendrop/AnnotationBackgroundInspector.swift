@@ -158,6 +158,8 @@ struct AnnotationBackgroundInspector: View {
                 } else {
                     wallpaperGrid(wallpapers, showsAddTile: false)
                 }
+
+                AnnotationWallpaperCreditView(pack: pack)
             }
         }
     }
@@ -267,6 +269,30 @@ private struct AnnotationAddWallpaperTile: View {
                 .contentShape(RoundedRectangle(cornerRadius: InspectorMetrics.tileRadius, style: .continuous))
         }
         .buttonStyle(.plain)
+    }
+}
+
+/// A tiny, unobtrusive credit linking to the wallpaper pack's author.
+private struct AnnotationWallpaperCreditView: View {
+    let pack: AnnotationWallpaperPack
+
+    @State private var isHovering = false
+
+    var body: some View {
+        Link(destination: pack.authorURL) {
+            HStack(spacing: 3) {
+                Text("Wallpapers by \(pack.authorName)")
+                    .underline(isHovering)
+                Image(systemName: "arrow.up.right")
+                    .font(.system(size: 8, weight: .semibold))
+            }
+            .font(.system(size: 10))
+            .foregroundStyle(.secondary)
+        }
+        .buttonStyle(.plain)
+        .help("Open \(pack.authorName) on X")
+        .onHover { isHovering = $0 }
+        .padding(.top, 2)
     }
 }
 

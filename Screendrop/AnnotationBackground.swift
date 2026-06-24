@@ -67,10 +67,15 @@ struct AnnotationBackgroundColor: Identifiable, Equatable, Hashable {
     static let blush = AnnotationBackgroundColor("blush", title: "Blush", red: 0.93, green: 0.66, blue: 0.62)
     static let mint = AnnotationBackgroundColor("mint", title: "Mint", red: 0.66, green: 0.90, blue: 0.73)
     static let sky = AnnotationBackgroundColor("sky", title: "Sky", red: 0.63, green: 0.79, blue: 0.94)
+    static let lavender = AnnotationBackgroundColor("lavender", title: "Lavender", red: 0.80, green: 0.76, blue: 0.92)
+    static let peach = AnnotationBackgroundColor("peach", title: "Peach", red: 0.98, green: 0.80, blue: 0.69)
+    static let sage = AnnotationBackgroundColor("sage", title: "Sage", red: 0.74, green: 0.82, blue: 0.70)
+    static let sand = AnnotationBackgroundColor("sand", title: "Sand", red: 0.91, green: 0.87, blue: 0.76)
 
     static let plainPresets: [AnnotationBackgroundColor] = [
         .black, .white, .graphite, .red, .orange, .yellow,
-        .green, .blue, .purple, .blush, .mint, .sky
+        .green, .blue, .purple, .blush, .mint, .sky,
+        .lavender, .peach, .sage, .sand
     ]
 }
 
