@@ -74,14 +74,20 @@ let previewPeekTabWidth: CGFloat = previewCardSize.width
 /// "x" clears it. Uses the system liquid-glass material so it matches the rest
 /// of the app and gets native interactive hover/press feedback.
 struct PreviewPeekTab: View {
+    /// Height of the pill's inner content row.
+    static let contentHeight: CGFloat = 24
+
+    /// Full pill height: content height plus the top/bottom insets. Exposed so
+    /// other surfaces (e.g. the annotation inspector) can reserve clearance for
+    /// the floating pill.
+    static let pillHeight: CGFloat = contentHeight + 18
+
     let title: String
     let onExpand: () -> Void
     let onDismissAll: () -> Void
 
-    private let contentHeight: CGFloat = 24
-
-    /// Full pill height: content height plus the top/bottom insets.
-    private var pillHeight: CGFloat { contentHeight + 18 }
+    private var contentHeight: CGFloat { Self.contentHeight }
+    private var pillHeight: CGFloat { Self.pillHeight }
 
     /// Trailing space reserved inside the expand button so the label clears the
     /// dismiss control that's overlaid on the trailing edge.

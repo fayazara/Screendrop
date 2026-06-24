@@ -11,19 +11,25 @@ struct AnnotationWallpaperPack: Identifiable, Equatable, Hashable {
     let title: String
     let subtitle: String
     let remoteURL: URL
+    let authorName: String
+    let authorURL: URL
 
     static let builtIn: [AnnotationWallpaperPack] = [
         AnnotationWallpaperPack(
             id: "uihssn",
             title: "UIHSSN",
             subtitle: "Wallpaper Pack",
-            remoteURL: URL(string: "https://static.fayazahmed.com/uihssn-wallpaper-pack.zip")!
+            remoteURL: URL(string: "https://static.fayazahmed.com/uihssn-wallpaper-pack.zip")!,
+            authorName: "Ahmed Hassan",
+            authorURL: URL(string: "https://x.com/uihssn")!
         ),
         AnnotationWallpaperPack(
             id: "fayaz",
             title: "Fayazara",
             subtitle: "Author Picks",
-            remoteURL: URL(string: "https://static.fayazahmed.com/fayaz-wallpaper-pack.zip")!
+            remoteURL: URL(string: "https://static.fayazahmed.com/fayaz-wallpaper-pack.zip")!,
+            authorName: "Fayaz Ahmed",
+            authorURL: URL(string: "https://x.com/fayazara")!
         )
     ]
 }

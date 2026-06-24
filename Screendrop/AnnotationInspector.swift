@@ -132,6 +132,9 @@ struct AnnotationEditorInspector: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
+            // Reserve clearance so the last control (aspect ratio) is never
+            // hidden behind the floating preview peek pill.
+            .padding(.bottom, PreviewPeekTab.pillHeight * 1.1)
         }
         .scrollContentBackground(.hidden)
         .scrollEdgeEffectSoftIfAvailable()
