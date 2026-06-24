@@ -16,7 +16,7 @@ struct AnnotationTextStyleControls: View {
     }()
 
     var body: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: InspectorMetrics.rowSpacing) {
             HStack(spacing: 6) {
                 fontFamilyMenu
                     .frame(minWidth: 0, maxWidth: .infinity)
@@ -31,7 +31,7 @@ struct AnnotationTextStyleControls: View {
 
                 Spacer()
 
-                AnnotationInspectorSegmentedToggles(
+                InspectorSegmented(
                     options: TextStyleSegment.allCases,
                     isSelected: { segment in
                         switch segment {
@@ -40,7 +40,7 @@ struct AnnotationTextStyleControls: View {
                         case .underline: model.selectedTextIsUnderline
                         }
                     },
-                    onToggle: { segment in
+                    onTap: { segment in
                         switch segment {
                         case .bold: model.selectedTextIsBold.toggle()
                         case .italic: model.selectedTextIsItalic.toggle()
@@ -53,18 +53,16 @@ struct AnnotationTextStyleControls: View {
                             .underline(segment == .underline)
                     }
                 )
-                .frame(width: 96)
+                .frame(width: 90)
             }
 
-            AnnotationInspectorSegmentedControl(
+            InspectorSegmented(
                 options: TextAlignmentSegment.allCases,
-                selection: Binding(
-                    get: { TextAlignmentSegment(model.selectedTextAlignment) },
-                    set: { model.selectedTextAlignment = $0.nsTextAlignment }
-                ),
+                isSelected: { $0 == TextAlignmentSegment(model.selectedTextAlignment) },
+                onTap: { model.selectedTextAlignment = $0.nsTextAlignment },
                 label: { segment in
                     Image(systemName: segment.systemImage)
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: 11, weight: .semibold))
                 }
             )
         }
@@ -104,8 +102,8 @@ struct AnnotationTextStyleControls: View {
         } label: {
             HStack(spacing: 6) {
                 Text(model.selectedTextFontName)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.primary.opacity(0.8))
+                    .font(.inspectorValue)
+                    .foregroundStyle(.primary.opacity(0.85))
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
@@ -115,16 +113,7 @@ struct AnnotationTextStyleControls: View {
                     .foregroundStyle(.tertiary)
             }
             .padding(.horizontal, 8)
-            .frame(height: 26)
-            .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(Color(nsColor: .controlBackgroundColor).opacity(0.5))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .stroke(Color(nsColor: .separatorColor).opacity(0.5), lineWidth: 0.5)
-            )
-            .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .inspectorField()
         }
         .menuStyle(.button)
         .buttonStyle(.plain)
@@ -138,44 +127,36 @@ struct AnnotationTextStyleControls: View {
             } label: {
                 Image(systemName: "minus")
                     .font(.system(size: 10, weight: .medium))
-                    .frame(width: 22, height: 24)
+                    .frame(width: 24, height: InspectorMetrics.controlHeight)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
 
-            Divider().frame(height: 14)
+            Divider().frame(height: 13)
 
             TextField("", text: $fontSizeText)
                 .focused($isFontSizeFieldFocused)
                 .onSubmit(commitFontSizeText)
                 .textFieldStyle(.plain)
                 .multilineTextAlignment(.center)
-                .font(.system(size: 12, weight: .medium, design: .monospaced))
-                .frame(width: 32)
+                .font(.inspectorNumeric)
+                .frame(width: 30)
 
-            Divider().frame(height: 14)
+            Divider().frame(height: 13)
 
             Button {
                 adjustFontSize(by: 1)
             } label: {
                 Image(systemName: "plus")
                     .font(.system(size: 10, weight: .medium))
-                    .frame(width: 22, height: 24)
+                    .frame(width: 24, height: InspectorMetrics.controlHeight)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
         }
-        .frame(height: 26)
-        .background(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.5))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .stroke(Color(nsColor: .separatorColor).opacity(0.5), lineWidth: 0.5)
-        )
+        .inspectorField()
     }
 
     private func syncFontSizeText() {
@@ -262,114 +243,5 @@ private enum TextAlignmentSegment: CaseIterable, Hashable {
         case .right: "text.alignright"
         case .justified: "text.justify.leading"
         }
-    }
-}
-
-private struct AnnotationInspectorSegmentedControl<Option: Hashable, Label: View>: View {
-    @Environment(\.colorScheme) private var colorScheme
-
-    let options: [Option]
-    @Binding var selection: Option
-    @ViewBuilder let label: (Option) -> Label
-
-    var body: some View {
-        HStack(spacing: 0) {
-            ForEach(options, id: \.self) { option in
-                segment(for: option)
-            }
-        }
-        .padding(3)
-        .frame(height: 34)
-        .background(Capsule().fill(controlBackground))
-        .overlay(Capsule().stroke(controlBorder, lineWidth: 0.5))
-    }
-
-    private func segment(for option: Option) -> some View {
-        let isSelected = selection == option
-
-        return Button {
-            selection = option
-        } label: {
-            label(option)
-                .frame(maxWidth: .infinity)
-                .frame(height: 28)
-                .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(isSelected ? Color.white : Color.primary)
-        .background {
-            if isSelected {
-                Capsule()
-                    .fill(Color.accentColor)
-            }
-        }
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
-    }
-
-    private var controlBackground: Color {
-        colorScheme == .dark
-            ? Color.white.opacity(0.07)
-            : Color(nsColor: .controlBackgroundColor).opacity(0.65)
-    }
-
-    private var controlBorder: Color {
-        colorScheme == .dark
-            ? Color.white.opacity(0.12)
-            : Color(nsColor: .separatorColor).opacity(0.45)
-    }
-}
-
-private struct AnnotationInspectorSegmentedToggles<Option: Hashable, Label: View>: View {
-    @Environment(\.colorScheme) private var colorScheme
-
-    let options: [Option]
-    let isSelected: (Option) -> Bool
-    let onToggle: (Option) -> Void
-    @ViewBuilder let label: (Option) -> Label
-
-    var body: some View {
-        HStack(spacing: 0) {
-            ForEach(options, id: \.self) { option in
-                segment(for: option)
-            }
-        }
-        .padding(3)
-        .frame(height: 34)
-        .background(Capsule().fill(controlBackground))
-        .overlay(Capsule().stroke(controlBorder, lineWidth: 0.5))
-    }
-
-    private func segment(for option: Option) -> some View {
-        let selected = isSelected(option)
-
-        return Button {
-            onToggle(option)
-        } label: {
-            label(option)
-                .frame(maxWidth: .infinity)
-                .frame(height: 28)
-                .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(selected ? Color.white : Color.primary)
-        .background {
-            if selected {
-                Capsule()
-                    .fill(Color.accentColor)
-            }
-        }
-        .accessibilityAddTraits(selected ? .isSelected : [])
-    }
-
-    private var controlBackground: Color {
-        colorScheme == .dark
-            ? Color.white.opacity(0.07)
-            : Color(nsColor: .controlBackgroundColor).opacity(0.65)
-    }
-
-    private var controlBorder: Color {
-        colorScheme == .dark
-            ? Color.white.opacity(0.12)
-            : Color(nsColor: .separatorColor).opacity(0.45)
     }
 }

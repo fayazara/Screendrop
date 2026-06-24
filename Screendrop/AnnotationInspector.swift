@@ -19,139 +19,122 @@ struct AnnotationEditorInspector: View {
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        VStack(spacing: 0) {
-            ScrollView(.vertical) {
-                VStack(alignment: .leading, spacing: 0) {
-                    // MARK: Tools
-                    VStack(alignment: .leading, spacing: 10) {
-                        AnnotationInspectorSectionHeader("TOOLS")
-                        AnnotationInspectorToolGrid(selectedTool: model.selectedTool) { tool in
-                            model.selectTool(tool)
+        ScrollView(.vertical) {
+            VStack(alignment: .leading, spacing: 0) {
+                InspectorSection("Tools") {
+                    AnnotationInspectorToolGrid(selectedTool: model.selectedTool) { tool in
+                        model.selectTool(tool)
+                    }
+                }
+
+                InspectorSectionDivider()
+
+                InspectorSection("Smart Redaction") {
+                    HStack(spacing: 8) {
+                        SmartRedactionButton(
+                            title: "Pixelate",
+                            systemImage: "app.background.dotted",
+                            isRunning: model.isSmartRedacting
+                        ) {
+                            model.smartRedact(using: .pixelate)
+                        }
+
+                        SmartRedactionButton(
+                            title: "Blur",
+                            systemImage: "drop.fill",
+                            isRunning: model.isSmartRedacting
+                        ) {
+                            model.smartRedact(using: .blur)
                         }
                     }
-                    .padding(.horizontal, 14)
-                    .padding(.top, 14)
-                    .padding(.bottom, 16)
 
-                    AnnotationInspectorDivider()
-
-                    VStack(alignment: .leading, spacing: 10) {
-                        AnnotationInspectorSectionHeader("SMART REDACTION")
-
-                        HStack(spacing: 8) {
-                            SmartRedactionButton(
-                                title: "Smart Pixelate",
-                                systemImage: "app.background.dotted",
-                                isRunning: model.isSmartRedacting
-                            ) {
-                                model.smartRedact(using: .pixelate)
-                            }
-
-                            SmartRedactionButton(
-                                title: "Smart Blur",
-                                systemImage: "drop.fill",
-                                isRunning: model.isSmartRedacting
-                            ) {
-                                model.smartRedact(using: .blur)
-                            }
-                        }
-
-                        if model.isSmartRedacting {
-                            HStack(spacing: 6) {
-                                ProgressView()
-                                    .controlSize(.small)
-                                Text("Scanning screenshot...")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        } else if let message = model.smartRedactionMessage {
-                            Text(message)
-                                .font(.caption)
+                    if model.isSmartRedacting {
+                        HStack(spacing: 6) {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("Scanning screenshot…")
+                                .font(.inspectorLabel)
                                 .foregroundStyle(.secondary)
                         }
+                    } else if let message = model.smartRedactionMessage {
+                        Text(message)
+                            .font(.inspectorLabel)
+                            .foregroundStyle(.secondary)
                     }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 14)
-
-                    if model.inspectedTool != nil {
-                        AnnotationInspectorDivider()
-
-                        // MARK: Style
-                        VStack(alignment: .leading, spacing: 10) {
-                            AnnotationInspectorSectionHeader("STYLE")
-
-                            if model.selectionCount > 1 {
-                                Text("\(model.selectionCount) annotations selected")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-
-                            AnnotationInspectorRow(title: "Color") {
-                                AnnotationColorMenu(selectedSwatch: model.selectedSwatch) { swatch in
-                                    model.setSwatch(swatch)
-                                }
-                            }
-
-                            if model.isStrokeStyleAvailable {
-                                AnnotationInspectorRow(title: "Stroke") {
-                                    AnnotationStrokeMenu(strokeWidth: model.strokeWidth) { strokeWidth in
-                                        model.setStrokeWidth(strokeWidth)
-                                    }
-                                }
-                            }
-
-                            if model.isRedactionStyleAvailable {
-                                AnnotationBackgroundSlider(
-                                    title: "Density",
-                                    value: Binding(
-                                        get: { model.redactionDensity },
-                                        set: { model.setRedactionDensity($0) }
-                                    ),
-                                    range: 0.15...1
-                                )
-                            }
-                        }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 14)
-                    }
-
-                    if model.isTextStyleAvailable {
-                        AnnotationInspectorDivider()
-
-                        // MARK: Text
-                        VStack(alignment: .leading, spacing: 10) {
-                            AnnotationInspectorSectionHeader("TEXT")
-                            AnnotationTextStyleControls(model: model)
-                        }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 14)
-                    }
-
-                    AnnotationInspectorDivider()
-
-                    // MARK: Background
-                    VStack(alignment: .leading, spacing: 12) {
-                        AnnotationInspectorSectionHeader("BACKGROUND")
-
-                        AnnotationBackgroundInspector(
-                            settings: Binding(
-                                get: { model.backgroundSettings },
-                                set: { model.backgroundSettings = $0 }
-                            ),
-                            wallpaperStore: wallpaperStore,
-                            onPickWallpaper: onPickWallpaper
-                        )
-                    }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 14)
                 }
-                .frame(maxWidth: .infinity, alignment: .topLeading)
+
+                if model.inspectedTool != nil {
+                    InspectorSectionDivider()
+
+                    InspectorSection("Style") {
+                        if model.selectionCount > 1 {
+                            Text("\(model.selectionCount) annotations selected")
+                                .font(.inspectorLabel)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        InspectorRow("Color") {
+                            AnnotationColorMenu(selectedSwatch: model.selectedSwatch) { swatch in
+                                model.setSwatch(swatch)
+                            }
+                        }
+
+                        if model.isStrokeStyleAvailable {
+                            InspectorRow("Stroke") {
+                                AnnotationStrokeMenu(strokeWidth: model.strokeWidth) { strokeWidth in
+                                    model.setStrokeWidth(strokeWidth)
+                                }
+                            }
+                        }
+
+                        if model.isRedactionStyleAvailable {
+                            InspectorSlider(
+                                "Density",
+                                value: Binding(
+                                    get: { model.redactionDensity },
+                                    set: { model.setRedactionDensity($0) }
+                                ),
+                                range: 0.15...1,
+                                formatted: { "\(Int(($0 * 100).rounded()))%" }
+                            )
+                        }
+                    }
+                }
+
+                if model.isTextStyleAvailable {
+                    InspectorSectionDivider()
+
+                    InspectorSection("Text") {
+                        AnnotationTextStyleControls(model: model)
+                    }
+                }
+
+                InspectorSectionDivider()
+
+                InspectorSection(
+                    title: "Background",
+                    accessory: {
+                        if model.backgroundSettings.style != .none {
+                            InspectorClearButton(help: "Remove background") {
+                                model.backgroundSettings.style = .none
+                            }
+                        }
+                    }
+                ) {
+                    AnnotationBackgroundInspector(
+                        settings: Binding(
+                            get: { model.backgroundSettings },
+                            set: { model.backgroundSettings = $0 }
+                        ),
+                        wallpaperStore: wallpaperStore,
+                        onPickWallpaper: onPickWallpaper
+                    )
+                }
             }
-            .scrollContentBackground(.hidden)
-            .scrollEdgeEffectSoftIfAvailable()
-            .background(sidebarBackground)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
+        .scrollContentBackground(.hidden)
+        .scrollEdgeEffectSoftIfAvailable()
         .background(sidebarBackground)
         .inspectorColumnWidth(
             min: Self.minimumColumnWidth,
@@ -171,101 +154,93 @@ struct AnnotationEditorInspector: View {
     }
 }
 
+// MARK: - Smart redaction
+
 private struct SmartRedactionButton: View {
     let title: String
     let systemImage: String
     let isRunning: Bool
     let action: () -> Void
 
+    @State private var isHovering = false
+
     var body: some View {
         Button(action: action) {
-            Label(title, systemImage: systemImage)
-                .font(.system(size: 12, weight: .medium))
-                .frame(maxWidth: .infinity)
+            HStack(spacing: 6) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 11, weight: .medium))
+                Text(title)
+                    .font(.inspectorValue)
+            }
+            .foregroundStyle(.primary.opacity(0.85))
+            .frame(maxWidth: .infinity)
+            .inspectorField(height: 28)
+            .overlay {
+                if isHovering && !isRunning {
+                    RoundedRectangle(cornerRadius: InspectorMetrics.fieldRadius, style: .continuous)
+                        .fill(Color.primary.opacity(0.04))
+                }
+            }
         }
-        .buttonStyle(.bordered)
-        .controlSize(.small)
+        .buttonStyle(.plain)
         .disabled(isRunning)
+        .opacity(isRunning ? 0.5 : 1)
+        .onHover { isHovering = $0 }
     }
 }
 
-private struct AnnotationInspectorSectionHeader: View {
-    let title: String
-
-    init(_ title: String) {
-        self.title = title
-    }
-
-    var body: some View {
-        Text(title)
-            .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(.tertiary)
-            .tracking(0.5)
-    }
-}
-
-private struct AnnotationInspectorDivider: View {
-    var body: some View {
-        Divider()
-            .padding(.horizontal, 14)
-    }
-}
-
-private struct AnnotationInspectorRow<Content: View>: View {
-    let title: String
-    @ViewBuilder let content: () -> Content
-
-    init(title: String, @ViewBuilder content: @escaping () -> Content) {
-        self.title = title
-        self.content = content
-    }
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Text(title)
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-                .frame(width: 52, alignment: .leading)
-
-            content()
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-}
+// MARK: - Tools
 
 private struct AnnotationInspectorToolGrid: View {
     let selectedTool: AnnotationTool
     let onSelect: (AnnotationTool) -> Void
 
     private let columns: [GridItem] = Array(
-        repeating: GridItem(.flexible(), spacing: 2), count: 6
+        repeating: GridItem(.flexible(), spacing: 4), count: 6
     )
 
     var body: some View {
-        LazyVGrid(columns: columns, spacing: 2) {
+        LazyVGrid(columns: columns, spacing: 4) {
             ForEach(AnnotationTool.allCases) { tool in
-                Button {
-                    onSelect(tool)
-                } label: {
-                    Image(systemName: tool.systemImage)
-                        .font(.system(size: 14, weight: .medium))
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 32)
-                        .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(selectedTool == tool ? Color.accentColor : .primary.opacity(0.7))
-                .background(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(selectedTool == tool ? Color.accentColor.opacity(0.15) : .clear)
+                AnnotationToolCell(
+                    tool: tool,
+                    isSelected: selectedTool == tool,
+                    action: { onSelect(tool) }
                 )
-                .help(tool.title)
             }
         }
-        .padding(4)
+    }
+}
+
+private struct AnnotationToolCell: View {
+    let tool: AnnotationTool
+    let isSelected: Bool
+    let action: () -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: tool.systemImage)
+                .font(.system(size: 13, weight: .medium))
+                .frame(maxWidth: .infinity)
+                .frame(height: 30)
+                .contentShape(RoundedRectangle(cornerRadius: InspectorMetrics.tileRadius, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(isSelected ? Color.accentColor : .primary.opacity(0.75))
         .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+            RoundedRectangle(cornerRadius: InspectorMetrics.tileRadius, style: .continuous)
+                .fill(background)
         )
+        .help(tool.title)
+        .onHover { isHovering = $0 }
+    }
+
+    private var background: Color {
+        if isSelected {
+            return Color.accentColor.opacity(0.16)
+        }
+        return isHovering ? Color.primary.opacity(0.07) : .clear
     }
 }

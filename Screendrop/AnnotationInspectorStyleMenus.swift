@@ -23,8 +23,8 @@ struct AnnotationColorMenu: View {
                     .overlay(Circle().stroke(.white.opacity(0.15), lineWidth: 0.5))
 
                 Text(selectedSwatch.title)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.primary.opacity(0.8))
+                    .font(.inspectorValue)
+                    .foregroundStyle(.primary.opacity(0.85))
 
                 Spacer()
 
@@ -33,16 +33,7 @@ struct AnnotationColorMenu: View {
                     .foregroundStyle(.tertiary)
             }
             .padding(.horizontal, 8)
-            .frame(height: 26)
-            .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(Color(nsColor: .controlBackgroundColor).opacity(0.5))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .stroke(Color(nsColor: .separatorColor).opacity(0.5), lineWidth: 0.5)
-            )
-            .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .inspectorField()
         }
         .buttonStyle(.plain)
         .popover(isPresented: $isPresented, arrowEdge: .trailing) {
@@ -75,8 +66,8 @@ struct AnnotationStrokeMenu: View {
                     .frame(width: 30, height: 16)
 
                 Text("\(Int(strokeWidth))px")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.primary.opacity(0.8))
+                    .font(.inspectorValue)
+                    .foregroundStyle(.primary.opacity(0.85))
                     .frame(minWidth: 28, alignment: .leading)
 
                 Spacer(minLength: 10)
@@ -87,16 +78,7 @@ struct AnnotationStrokeMenu: View {
                     .padding(.leading, 2)
             }
             .padding(.horizontal, 8)
-            .frame(height: 26)
-            .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(Color(nsColor: .controlBackgroundColor).opacity(0.5))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .stroke(Color(nsColor: .separatorColor).opacity(0.5), lineWidth: 0.5)
-            )
-            .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .inspectorField()
         }
         .buttonStyle(.plain)
         .popover(isPresented: $isPresented, arrowEdge: .trailing) {
@@ -123,10 +105,13 @@ struct AnnotationColorWellMenu: View {
         Button {
             isPresented.toggle()
         } label: {
-            RoundedRectangle(cornerRadius: 4, style: .continuous)
+            RoundedRectangle(cornerRadius: InspectorMetrics.fieldRadius, style: .continuous)
                 .fill(selectedSwatch.color)
-                .frame(width: 28, height: 20)
-                .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous).stroke(.white.opacity(0.15), lineWidth: 0.5))
+                .frame(width: 32, height: InspectorMetrics.controlHeight)
+                .overlay(
+                    RoundedRectangle(cornerRadius: InspectorMetrics.fieldRadius, style: .continuous)
+                        .stroke(.white.opacity(0.18), lineWidth: 0.5)
+                )
         }
         .buttonStyle(.plain)
         .popover(isPresented: $isPresented, arrowEdge: .trailing) {
