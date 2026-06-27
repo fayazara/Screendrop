@@ -8,6 +8,10 @@ import SwiftUI
 
 // MARK: - Inspector
 
+enum AnnotationEditorFocusedField: Hashable {
+    case watermarkText
+}
+
 struct AnnotationEditorInspector: View {
     private static let minimumColumnWidth: CGFloat = 260
     private static let idealColumnWidth: CGFloat = 280
@@ -15,6 +19,8 @@ struct AnnotationEditorInspector: View {
 
     @Bindable var model: AnnotationEditorModel
     @Bindable var wallpaperStore: AnnotationWallpaperStore
+    let focusedField: FocusState<AnnotationEditorFocusedField?>.Binding
+    let onEditorAction: () -> Void
     let onPickWallpaper: () -> Void
     @Environment(\.colorScheme) private var colorScheme
 
@@ -23,6 +29,7 @@ struct AnnotationEditorInspector: View {
             VStack(alignment: .leading, spacing: 0) {
                 InspectorSection("Tools") {
                     AnnotationInspectorToolGrid(selectedTool: model.selectedTool) { tool in
+                        onEditorAction()
                         model.selectTool(tool)
                     }
                 }
@@ -36,6 +43,7 @@ struct AnnotationEditorInspector: View {
                             systemImage: "app.background.dotted",
                             isRunning: model.isSmartRedacting
                         ) {
+                            onEditorAction()
                             model.smartRedact(using: .pixelate)
                         }
 
@@ -44,6 +52,7 @@ struct AnnotationEditorInspector: View {
                             systemImage: "drop.fill",
                             isRunning: model.isSmartRedacting
                         ) {
+                            onEditorAction()
                             model.smartRedact(using: .blur)
                         }
                     }
@@ -75,6 +84,7 @@ struct AnnotationEditorInspector: View {
 
                         InspectorRow("Color") {
                             AnnotationColorMenu(selectedSwatch: model.selectedSwatch) { swatch in
+                                onEditorAction()
                                 model.setSwatch(swatch)
                             }
                         }
@@ -82,6 +92,7 @@ struct AnnotationEditorInspector: View {
                         if model.isStrokeStyleAvailable {
                             InspectorRow("Stroke") {
                                 AnnotationStrokeMenu(strokeWidth: model.strokeWidth) { strokeWidth in
+                                    onEditorAction()
                                     model.setStrokeWidth(strokeWidth)
                                 }
                             }
@@ -92,7 +103,10 @@ struct AnnotationEditorInspector: View {
                                 "Density",
                                 value: Binding(
                                     get: { model.redactionDensity },
-                                    set: { model.setRedactionDensity($0) }
+                                    set: {
+                                        onEditorAction()
+                                        model.setRedactionDensity($0)
+                                    }
                                 ),
                                 range: 0.15...1,
                                 formatted: { "\(Int(($0 * 100).rounded()))%" }
@@ -116,6 +130,7 @@ struct AnnotationEditorInspector: View {
                     accessory: {
                         if model.backgroundSettings.style != .none {
                             InspectorClearButton(help: "Remove background") {
+                                onEditorAction()
                                 model.backgroundSettings.style = .none
                             }
                         }
@@ -127,7 +142,20 @@ struct AnnotationEditorInspector: View {
                             set: { model.backgroundSettings = $0 }
                         ),
                         wallpaperStore: wallpaperStore,
+                        onEditorAction: onEditorAction,
                         onPickWallpaper: onPickWallpaper
+                    )
+                }
+
+                InspectorSectionDivider()
+
+                InspectorSection("Watermark") {
+                    AnnotationWatermarkInspector(
+                        settings: Binding(
+                            get: { model.backgroundSettings.watermark },
+                            set: { model.backgroundSettings.watermark = $0 }
+                        ),
+                        focusedField: focusedField
                     )
                 }
             }

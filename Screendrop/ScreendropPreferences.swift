@@ -257,7 +257,22 @@ enum ScreenshotExportFormat: String, CaseIterable, Identifiable {
 }
 
 enum ScreenshotFileActions {
+    static func copyImageToClipboard(from url: URL) throws {
+        let contentType = UTType(filenameExtension: url.pathExtension)
+        let dataType: NSPasteboard.PasteboardType = if contentType?.conforms(to: .jpeg) == true {
+            NSPasteboard.PasteboardType(UTType.jpeg.identifier)
+        } else {
+            .png
+        }
+
+        try copyImageToClipboard(from: url, dataType: dataType)
+    }
+
     static func copyPNGToClipboard(from url: URL) throws {
+        try copyImageToClipboard(from: url, dataType: .png)
+    }
+
+    private static func copyImageToClipboard(from url: URL, dataType: NSPasteboard.PasteboardType) throws {
         let imageData = try Data(contentsOf: url, options: .mappedIfSafe)
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
@@ -267,14 +282,14 @@ enum ScreenshotFileActions {
         //
         // - `.fileURL`: terminals and apps that "paste a file" (e.g. opencode's
         //   terminal, editors, Slack) read the file reference from disk.
-        // - `.png` / `.tiff`: rich-text and web targets (Gmail, Notes, Mail,
-        //   image editors) read raw image data directly.
+        // - image data / `.tiff`: rich-text and web targets (Gmail, Notes, Mail,
+        //   image editors) read raw pixels directly.
         //
-        // Only providing `.png` data is why pasting worked in Gmail but not in
+        // Only providing image data is why pasting worked in Gmail but not in
         // terminal apps — those read the file URL flavor instead.
         let item = NSPasteboardItem()
         item.setString(url.absoluteString, forType: .fileURL)
-        item.setData(imageData, forType: .png)
+        item.setData(imageData, forType: dataType)
         if let tiffData = NSBitmapImageRep(data: imageData)?.tiffRepresentation
             ?? NSImage(data: imageData)?.tiffRepresentation {
             item.setData(tiffData, forType: .tiff)

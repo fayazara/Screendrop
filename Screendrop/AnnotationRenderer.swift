@@ -43,7 +43,7 @@ enum AnnotationRenderer {
         try autoreleasepool {
             let colorSpace = CGColorSpaceCreateDeviceRGB()
             let renderedImage: CGImage
-            if backgroundSettings.isEnabled {
+            if backgroundSettings.hasRenderableContent {
                 let sourceImage = try loadSourceImage(sourceURL: sourceURL)
                 renderedImage = try AnnotationBackgroundRenderer.compose(
                     contentImage: sourceImage,
@@ -56,6 +56,11 @@ enum AnnotationRenderer {
                         canvasSize: layout.canvasSize,
                         context: context,
                         colorSpace: colorSpace
+                    )
+                    AnnotationBackgroundRenderer.drawWatermark(
+                        backgroundSettings.watermark,
+                        in: CGRect(origin: .zero, size: layout.canvasSize),
+                        context: context
                     )
                 }
             } else {

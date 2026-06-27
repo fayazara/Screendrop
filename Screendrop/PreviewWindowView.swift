@@ -145,6 +145,8 @@ struct PreviewWindowView: View {
                     item: item,
                     isHidden: previewStack.draggingItemID == item.id,
                     isDismissing: previewStack.dismissingItemIDs.contains(item.id),
+                    isCompressing: previewStack.compressingItemIDs.contains(item.id),
+                    compressionResult: previewStack.compressionResultBadges[item.id],
                     slideDirection: slideDirection,
                     suppressHoverActions: isOverlayTransitioning,
                     onHoverChanged: { isHovered in
@@ -203,6 +205,9 @@ struct PreviewWindowView: View {
                     onView: {
                         previewStack.markEngaged(id: item.id)
                         QuickLookPreviewPresenter.show(url: item.url)
+                    },
+                    onCompress: {
+                        previewStack.compress(id: item.id)
                     },
                     onCopyText: {
                         previewStack.copyText(id: item.id)

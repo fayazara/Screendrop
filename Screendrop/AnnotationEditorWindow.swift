@@ -18,6 +18,7 @@ struct AnnotationEditorWindow: View {
     @State private var isFinishing = false
     @State private var isUploading = false
     @State private var didCopyLink = false
+    @FocusState private var focusedField: AnnotationEditorFocusedField?
     @Environment(\.dismiss) private var dismissWindow
 
     var body: some View {
@@ -34,6 +35,7 @@ struct AnnotationEditorWindow: View {
                 }
             }
             .task(id: url) {
+                clearInspectorFocus()
                 model.load(url: url, dismiss: dismissWindow)
             }
             .onAppear {
@@ -72,6 +74,8 @@ struct AnnotationEditorWindow: View {
                 AnnotationEditorInspector(
                     model: model,
                     wallpaperStore: wallpaperStore,
+                    focusedField: $focusedField,
+                    onEditorAction: clearInspectorFocus,
                     onPickWallpaper: pickCustomWallpaper
                 )
                 .disabled(model.isCropping)
@@ -126,6 +130,7 @@ struct AnnotationEditorWindow: View {
         .help("Finish editing and save")
 
         Button {
+            clearInspectorFocus()
             isInspectorPresented.toggle()
         } label: {
             Image(systemName: "sidebar.right")
@@ -151,6 +156,7 @@ struct AnnotationEditorWindow: View {
         .help("Aspect ratio")
 
         Button {
+            clearInspectorFocus()
             withAnimation(.snappy(duration: 0.18)) { model.resetCrop() }
         } label: {
             Text("Reset").padding(.horizontal, 6)
@@ -173,20 +179,24 @@ struct AnnotationEditorWindow: View {
         Binding(
             get: { model.cropAspect },
             set: { newValue in
+                clearInspectorFocus()
                 withAnimation(.snappy(duration: 0.18)) { model.setCropAspect(newValue) }
             }
         )
     }
 
     private func enterCrop() {
+        clearInspectorFocus()
         withAnimation(.snappy(duration: 0.22)) { model.beginCropping() }
     }
 
     private func exitCrop() {
+        clearInspectorFocus()
         withAnimation(.snappy(duration: 0.22)) { model.cancelCrop() }
     }
 
     private func applyCropAction() {
+        clearInspectorFocus()
         withAnimation(.snappy(duration: 0.22)) { model.applyCrop() }
     }
 
@@ -195,7 +205,11 @@ struct AnnotationEditorWindow: View {
             AnnotationEditorWorkspaceBackground()
 
             if let previewImage = model.previewImage, model.imageSize != .zero {
-                AnnotationCanvas(model: model, image: previewImage)
+                AnnotationCanvas(
+                    model: model,
+                    image: previewImage,
+                    onEditorInteraction: clearInspectorFocus
+                )
                     .padding(.horizontal, 34)
                     .padding(.vertical, 28)
             } else {
@@ -240,6 +254,7 @@ struct AnnotationEditorWindow: View {
     }
 
     private func saveAs() {
+        clearInspectorFocus()
         guard let sourceURL = model.sourceURL else { return }
         let baseURL = model.baseImageURL ?? sourceURL
 
@@ -267,6 +282,7 @@ struct AnnotationEditorWindow: View {
     }
 
     private func pickCustomWallpaper() {
+        clearInspectorFocus()
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.image]
         panel.allowsMultipleSelection = false
@@ -284,12 +300,13 @@ struct AnnotationEditorWindow: View {
     }
 
     private func uploadAnnotation() {
+        clearInspectorFocus()
         guard let sourceURL = model.sourceURL, !isUploading else { return }
 
         let baseURL = model.baseImageURL ?? sourceURL
         let items = model.items
         let backgroundSettings = model.backgroundSettings
-        let hasContent = !items.isEmpty || backgroundSettings.isEnabled || model.isCropped
+        let hasContent = !items.isEmpty || backgroundSettings.hasRenderableContent || model.isCropped
 
         isUploading = true
         Task {
@@ -338,6 +355,7 @@ struct AnnotationEditorWindow: View {
     }
 
     private func finishEditing() {
+        clearInspectorFocus()
         guard let sourceURL = model.sourceURL else {
             model.releaseEditorResources()
             dismissWindow()
@@ -349,7 +367,7 @@ struct AnnotationEditorWindow: View {
         let baseURL = model.baseImageURL ?? sourceURL
         let items = model.items
         let backgroundSettings = model.backgroundSettings
-        let hasContent = !items.isEmpty || backgroundSettings.isEnabled || model.isCropped
+        let hasContent = !items.isEmpty || backgroundSettings.hasRenderableContent || model.isCropped
         let hadDocument = ScreenshotHistoryStore.shared.hasEditDocument(for: sourceURL)
 
         // Nothing drawn and nothing previously saved -- just close.
@@ -394,5 +412,9 @@ struct AnnotationEditorWindow: View {
             isFinishing = false
             model.errorMessage = "Failed to finish annotation: \(error.localizedDescription)"
         }
+    }
+
+    private func clearInspectorFocus() {
+        focusedField = nil
     }
 }

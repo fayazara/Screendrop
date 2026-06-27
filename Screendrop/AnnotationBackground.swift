@@ -17,9 +17,14 @@ struct AnnotationBackgroundSettings: Equatable {
     var aspectRatio: AnnotationBackgroundAspectRatio = .auto
     var alignment: AnnotationBackgroundAlignment = .center
     var customWallpaper: AnnotationCustomWallpaper?
+    var watermark = AnnotationWatermarkSettings()
 
     var isEnabled: Bool {
         style != .none
+    }
+
+    var hasRenderableContent: Bool {
+        isEnabled || watermark.isVisible
     }
 }
 
@@ -275,6 +280,91 @@ struct AnnotationCustomWallpaper: Identifiable, Equatable, Hashable {
 
     var title: String {
         url.deletingPathExtension().lastPathComponent
+    }
+}
+
+struct AnnotationWatermarkSettings: Equatable {
+    var isEnabled = false
+    var text = ""
+    var density: CGFloat = 4
+    var fontSize: CGFloat = 72
+    var rotationDegrees: CGFloat = 45
+    var opacity: CGFloat = 0.18
+    var color: AnnotationWatermarkColor = .mercury
+
+    var isVisible: Bool {
+        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && opacity > 0
+    }
+}
+
+enum AnnotationWatermarkTypography {
+    private static let compactFontNames = [
+        "SFCompact-Semibold",
+        "SFCompactDisplay-Semibold",
+        "SFCompactText-Semibold"
+    ]
+
+    private static let compactFontName = compactFontNames.first {
+        NSFont(name: $0, size: 12) != nil
+    }
+
+    static func font(size: CGFloat) -> Font {
+        let clampedSize = max(1, size)
+        guard let compactFontName else {
+            return .system(size: clampedSize, weight: .semibold)
+        }
+
+        return .custom(compactFontName, size: clampedSize)
+    }
+
+    static func nsFont(size: CGFloat) -> NSFont {
+        let clampedSize = max(1, size)
+        guard let compactFontName,
+              let font = NSFont(name: compactFontName, size: clampedSize) else {
+            return NSFont.systemFont(ofSize: clampedSize, weight: .semibold)
+        }
+
+        return font
+    }
+}
+
+struct AnnotationWatermarkColor: Equatable, Hashable {
+    var red: CGFloat
+    var green: CGFloat
+    var blue: CGFloat
+    var alpha: CGFloat
+
+    init(red: CGFloat, green: CGFloat, blue: CGFloat, alpha: CGFloat = 1) {
+        self.red = red
+        self.green = green
+        self.blue = blue
+        self.alpha = alpha
+    }
+
+    var color: Color {
+        Color(.sRGB, red: red, green: green, blue: blue, opacity: alpha)
+    }
+
+    var nsColor: NSColor {
+        NSColor(srgbRed: red, green: green, blue: blue, alpha: alpha)
+    }
+
+    static let mercury = AnnotationWatermarkColor(red: 0.90, green: 0.90, blue: 0.90)
+    static let white = AnnotationWatermarkColor(red: 0.96, green: 0.96, blue: 0.96)
+
+    static func custom(from color: Color) -> AnnotationWatermarkColor {
+        custom(from: NSColor(color))
+    }
+
+    static func custom(from nsColor: NSColor) -> AnnotationWatermarkColor {
+        let converted = nsColor.usingColorSpace(.sRGB) ?? nsColor
+        return AnnotationWatermarkColor(
+            red: converted.redComponent,
+            green: converted.greenComponent,
+            blue: converted.blueComponent,
+            alpha: converted.alphaComponent
+        )
     }
 }
 

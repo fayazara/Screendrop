@@ -10,6 +10,8 @@ struct PreviewCardView: View {
     let item: ScreenshotPreviewItem
     let isHidden: Bool
     let isDismissing: Bool
+    let isCompressing: Bool
+    let compressionResult: ScreenshotCompressionResult?
     var slideDirection: CGFloat = 1
     /// Suppresses the hover action overlay while the whole stack is animating
     /// in or out (collapsing to / expanding from the peek tab), so actions don't
@@ -25,6 +27,7 @@ struct PreviewCardView: View {
     let onUpload: () -> Void
     let onPin: () -> Void
     let onView: () -> Void
+    let onCompress: () -> Void
     let onCopyText: () -> Void
     let onDragBegan: () -> Void
     let onDragEnded: () -> Void
@@ -147,20 +150,31 @@ struct PreviewCardView: View {
                 .fill(.ultraThinMaterial)
                 .environment(\.colorScheme, .dark)
 
-            if showCheckmark {
-                linkCopiedOverlay
-            } else if showUploadFailed {
-                uploadFailedOverlay
+            if isCompressing {
+                compressionProgressOverlay
+            } else if let compressionResult {
+                compressionResultOverlay(compressionResult)
             } else {
-                cornerSlot(layout.topLeading, alignment: .topLeading)
-                cornerSlot(layout.topTrailing, alignment: .topTrailing)
-                cornerSlot(layout.bottomLeading, alignment: .bottomLeading)
-                cornerSlot(layout.bottomTrailing, alignment: .bottomTrailing)
-
-                centerStack
+                normalHoverContent
             }
         }
         .transition(.opacity)
+    }
+
+    @ViewBuilder
+    private var normalHoverContent: some View {
+        if showCheckmark {
+            linkCopiedOverlay
+        } else if showUploadFailed {
+            uploadFailedOverlay
+        } else {
+            cornerSlot(layout.topLeading, alignment: .topLeading)
+            cornerSlot(layout.topTrailing, alignment: .topTrailing)
+            cornerSlot(layout.bottomLeading, alignment: .bottomLeading)
+            cornerSlot(layout.bottomTrailing, alignment: .bottomTrailing)
+
+            centerStack
+        }
     }
 
     /// Renders the action assigned to a corner, if any and currently available.
@@ -217,7 +231,7 @@ struct PreviewCardView: View {
     /// Whether an action should be shown for the current item.
     private func isAvailable(_ action: OverlayCardAction) -> Bool {
         switch action {
-        case .pin: item.kind == .image
+        case .pin, .compress: item.kind == .image
         case .upload: cloudUploader.isConfigured
         default: true
         }
@@ -226,6 +240,7 @@ struct PreviewCardView: View {
     private func handler(for action: OverlayCardAction) -> () -> Void {
         switch action {
         case .copy: onCopy
+        case .compress: onCompress
         case .save: onSave
         case .pin: onPin
         case .annotate: item.kind == .video ? onEditVideo : onAnnotate
@@ -260,6 +275,35 @@ struct PreviewCardView: View {
         }
     }
 
+    private var compressionProgressOverlay: some View {
+        VStack(spacing: 8) {
+            ProgressView()
+                .controlSize(.small)
+                .tint(.white)
+
+            Text("Compressing")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(.white)
+        }
+    }
+
+    private func compressionResultOverlay(_ result: ScreenshotCompressionResult) -> some View {
+        VStack(spacing: 6) {
+            Image(systemName: "checkmark")
+                .font(.system(size: 26, weight: .semibold))
+                .foregroundStyle(.white)
+
+            Text("JPG ready")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(.white)
+
+            Text(result.displaySummary)
+                .font(.system(size: 12, weight: .semibold))
+                .monospacedDigit()
+                .foregroundStyle(.white.opacity(0.78))
+        }
+    }
+
     private var videoPlayIndicator: some View {
         Image(systemName: "play.circle.fill")
             .font(.system(size: 34, weight: .semibold))
@@ -290,6 +334,8 @@ struct PreviewCardView: View {
         || cloudUploader.uploadingItems.contains(item.id)
         || showCheckmark
         || showUploadFailed
+        || isCompressing
+        || compressionResult != nil
     }
 
     private var cornerRadius: CGFloat {

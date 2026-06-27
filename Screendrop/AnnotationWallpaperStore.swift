@@ -93,16 +93,10 @@ final class AnnotationWallpaperStore {
         Self.isSupportedImageFile(wallpaper.url)
     }
 
-    func isDownloadedPackWallpaper(_ wallpaper: AnnotationCustomWallpaper) -> Bool {
-        Self.isDownloadedPackWallpaperURL(wallpaper.url, wallpapersDirectory: Self.wallpapersDirectory)
-    }
-
     func addRecentWallpaper(_ url: URL) {
-        let wallpapersDirectory = Self.wallpapersDirectory
         let standardizedPath = url.standardizedFileURL.path
         let standardizedURL = URL(fileURLWithPath: standardizedPath)
-        guard Self.isSupportedImageFile(standardizedURL),
-              !Self.isDownloadedPackWallpaperURL(standardizedURL, wallpapersDirectory: wallpapersDirectory) else { return }
+        guard Self.isSupportedImageFile(standardizedURL) else { return }
 
         var paths = UserDefaults.standard.stringArray(forKey: Self.recentWallpaperPathsKey) ?? []
         paths.removeAll { $0 == standardizedPath }
@@ -112,11 +106,12 @@ final class AnnotationWallpaperStore {
             .filter { path in
                 let url = URL(fileURLWithPath: path)
                 return Self.isSupportedImageFile(url)
-                    && !Self.isDownloadedPackWallpaperURL(url, wallpapersDirectory: wallpapersDirectory)
             }
             .prefix(Self.maxRecentWallpaperCount)
+        let recentPaths = Array(filteredPaths)
 
-        UserDefaults.standard.set(Array(filteredPaths), forKey: Self.recentWallpaperPathsKey)
+        UserDefaults.standard.set(recentPaths, forKey: Self.recentWallpaperPathsKey)
+        recentWallpapers = recentPaths.map { AnnotationCustomWallpaper(url: URL(fileURLWithPath: $0)) }
         Task { await reload() }
     }
 
@@ -159,16 +154,16 @@ final class AnnotationWallpaperStore {
             (id, wallpaperURLs(in: directory))
         })
         return WallpaperURLSnapshot(
-            recent: loadRecentWallpaperURLs(wallpapersDirectory: wallpapersDirectory),
+            recent: loadRecentWallpaperURLs(),
             installed: installed
         )
     }
 
-    nonisolated private static func loadRecentWallpaperURLs(wallpapersDirectory: URL) -> [URL] {
+    nonisolated private static func loadRecentWallpaperURLs() -> [URL] {
         let paths = UserDefaults.standard.stringArray(forKey: recentWallpaperPathsKey) ?? []
         let availablePaths = paths.filter { path in
             let url = URL(fileURLWithPath: path)
-            return isSupportedImageFile(url) && !isDownloadedPackWallpaperURL(url, wallpapersDirectory: wallpapersDirectory)
+            return isSupportedImageFile(url)
         }
 
         if availablePaths != paths {
@@ -276,11 +271,6 @@ final class AnnotationWallpaperStore {
         return supportedImageExtensions.contains(url.pathExtension.lowercased())
     }
 
-    nonisolated private static func isDownloadedPackWallpaperURL(_ url: URL, wallpapersDirectory: URL) -> Bool {
-        let wallpaperPath = url.standardizedFileURL.path
-        let directoryPath = wallpapersDirectory.standardizedFileURL.path
-        return wallpaperPath == directoryPath || wallpaperPath.hasPrefix(directoryPath + "/")
-    }
 }
 
 nonisolated private enum AnnotationWallpaperStoreError: LocalizedError {

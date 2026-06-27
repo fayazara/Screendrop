@@ -112,6 +112,67 @@ enum AnnotationBackgroundRenderer {
         return renderedImage
     }
 
+    static func drawWatermark(
+        _ settings: AnnotationWatermarkSettings,
+        in rect: CGRect,
+        context: CGContext
+    ) {
+        let text = settings.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard settings.isVisible,
+              !text.isEmpty,
+              rect.width > 1,
+              rect.height > 1 else {
+            return
+        }
+
+        let rows = max(2, Int(round(settings.density)))
+        let spacingY = rect.height / CGFloat(rows)
+        let spacingX = max(1, spacingY * 2.2)
+        let diagonal = hypot(rect.width, rect.height)
+        let columnCount = max(2, Int(ceil(diagonal / spacingX)))
+        let rowCount = max(2, Int(ceil(diagonal / spacingY)))
+        let originX = rect.midX - CGFloat(columnCount) * spacingX / 2
+        let originY = rect.midY - CGFloat(rowCount) * spacingY / 2
+
+        let font = AnnotationWatermarkTypography.nsFont(size: settings.fontSize)
+        let color = settings.color.nsColor.withAlphaComponent(min(0.75, max(0, settings.opacity)))
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: color
+        ]
+        let attributedText = NSAttributedString(string: text, attributes: attributes)
+        let measuredSize = attributedText.size()
+        guard measuredSize.width > 0, measuredSize.height > 0 else { return }
+
+        context.saveGState()
+        context.clip(to: rect)
+        context.translateBy(x: rect.midX, y: rect.midY)
+        context.rotate(by: -settings.rotationDegrees * .pi / 180)
+        context.translateBy(x: -rect.midX, y: -rect.midY)
+
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+        for row in 0...rowCount {
+            for column in 0...columnCount {
+                let center = CGPoint(
+                    x: originX + CGFloat(column) * spacingX,
+                    y: originY + CGFloat(row) * spacingY
+                )
+                attributedText.draw(
+                    with: CGRect(
+                        x: center.x - measuredSize.width / 2,
+                        y: center.y - measuredSize.height / 2,
+                        width: measuredSize.width,
+                        height: measuredSize.height
+                    ),
+                    options: [.usesLineFragmentOrigin, .usesFontLeading]
+                )
+            }
+        }
+        NSGraphicsContext.restoreGraphicsState()
+        context.restoreGState()
+    }
+
     private static func drawBackground(
         _ style: AnnotationBackgroundStyle,
         in rect: CGRect,

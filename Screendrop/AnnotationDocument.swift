@@ -106,6 +106,7 @@ struct StoredBackground: Codable, Equatable {
     var aspectRatio: String
     var alignment: String
     var customWallpaperPath: String?
+    var watermark: StoredWatermark?
 
     init(_ settings: AnnotationBackgroundSettings) {
         switch settings.style {
@@ -125,6 +126,7 @@ struct StoredBackground: Codable, Equatable {
         aspectRatio = settings.aspectRatio.rawValue
         alignment = settings.alignment.rawValue
         customWallpaperPath = settings.customWallpaper?.url.path
+        watermark = StoredWatermark(settings.watermark)
     }
 
     var settings: AnnotationBackgroundSettings {
@@ -147,6 +149,9 @@ struct StoredBackground: Codable, Equatable {
         output.alignment = AnnotationBackgroundAlignment(rawValue: alignment) ?? .center
         if let customWallpaperPath {
             output.customWallpaper = AnnotationCustomWallpaper(url: URL(fileURLWithPath: customWallpaperPath))
+        }
+        if let watermark {
+            output.watermark = watermark.settings
         }
         return output
     }
@@ -214,6 +219,61 @@ struct StoredGradient: Codable, Equatable {
             colors: colors.map(\.backgroundColor),
             startPoint: UnitPoint(x: CGFloat(startX), y: CGFloat(startY)),
             endPoint: UnitPoint(x: CGFloat(endX), y: CGFloat(endY))
+        )
+    }
+}
+
+struct StoredWatermark: Codable, Equatable {
+    var isEnabled: Bool
+    var text: String
+    var density: Double
+    var fontSize: Double
+    var rotationDegrees: Double
+    var opacity: Double
+    var color: StoredWatermarkColor
+
+    init(_ settings: AnnotationWatermarkSettings) {
+        isEnabled = settings.isEnabled
+        text = settings.text
+        density = Double(settings.density)
+        fontSize = Double(settings.fontSize)
+        rotationDegrees = Double(settings.rotationDegrees)
+        opacity = Double(settings.opacity)
+        color = StoredWatermarkColor(settings.color)
+    }
+
+    var settings: AnnotationWatermarkSettings {
+        AnnotationWatermarkSettings(
+            isEnabled: isEnabled,
+            text: text,
+            density: CGFloat(density),
+            fontSize: CGFloat(fontSize),
+            rotationDegrees: CGFloat(rotationDegrees),
+            opacity: CGFloat(opacity),
+            color: color.watermarkColor
+        )
+    }
+}
+
+struct StoredWatermarkColor: Codable, Equatable {
+    var red: Double
+    var green: Double
+    var blue: Double
+    var alpha: Double
+
+    init(_ color: AnnotationWatermarkColor) {
+        red = Double(color.red)
+        green = Double(color.green)
+        blue = Double(color.blue)
+        alpha = Double(color.alpha)
+    }
+
+    var watermarkColor: AnnotationWatermarkColor {
+        AnnotationWatermarkColor(
+            red: CGFloat(red),
+            green: CGFloat(green),
+            blue: CGFloat(blue),
+            alpha: CGFloat(alpha)
         )
     }
 }

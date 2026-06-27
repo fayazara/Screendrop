@@ -16,6 +16,7 @@ import Foundation
 /// Every action that can be placed on the preview card.
 enum OverlayCardAction: String, CaseIterable, Codable, Identifiable {
     case copy
+    case compress
     case save
     case pin
     case annotate
@@ -30,6 +31,7 @@ enum OverlayCardAction: String, CaseIterable, Codable, Identifiable {
     func symbol(for kind: PreviewMediaKind = .image) -> String {
         switch self {
         case .copy: "doc.on.doc"
+        case .compress: "arrow.down.right.and.arrow.up.left"
         case .save: "square.and.arrow.down"
         case .pin: "pin.fill"
         case .annotate: kind == .video ? "scissors" : "pencil.tip"
@@ -45,6 +47,7 @@ enum OverlayCardAction: String, CaseIterable, Codable, Identifiable {
     func label(for kind: PreviewMediaKind = .image) -> String {
         switch self {
         case .copy: "Copy"
+        case .compress: "Compress"
         case .save: "Save"
         case .pin: "Pin"
         case .annotate: kind == .video ? "Edit" : "Annotate"
@@ -59,6 +62,7 @@ enum OverlayCardAction: String, CaseIterable, Codable, Identifiable {
     func help(for kind: PreviewMediaKind = .image) -> String {
         switch self {
         case .copy: "Copy to clipboard"
+        case .compress: "Copy a compressed JPG"
         case .save: "Save to disk"
         case .pin: "Pin to screen"
         case .annotate: kind == .video ? "Edit recording" : "Annotate screenshot"
@@ -73,6 +77,7 @@ enum OverlayCardAction: String, CaseIterable, Codable, Identifiable {
     var detail: String {
         switch self {
         case .copy: "Copy the capture to the clipboard"
+        case .compress: "Copy a smaller JPG to the clipboard"
         case .save: "Save the capture to your export folder"
         case .pin: "Pin the screenshot as a floating window"
         case .annotate: "Open the annotation / video editor"
@@ -123,7 +128,7 @@ struct OverlayCardLayout: Codable, Equatable {
         bottomLeading: .annotate,
         bottomTrailing: .upload,
         center: [.copy, .save, .pin],
-        hidden: [.view]
+        hidden: [.view, .compress]
     )
 
     // MARK: - Reads

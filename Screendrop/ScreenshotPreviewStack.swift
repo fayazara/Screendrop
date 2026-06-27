@@ -16,6 +16,8 @@ final class ScreenshotPreviewStack {
     var hoveredItemID: ScreenshotPreviewItem.ID?
     var draggingItemID: ScreenshotPreviewItem.ID?
     var dismissingItemIDs: Set<ScreenshotPreviewItem.ID> = []
+    private(set) var compressingItemIDs: Set<ScreenshotPreviewItem.ID> = []
+    private(set) var compressionResultBadges: [ScreenshotPreviewItem.ID: ScreenshotCompressionResult] = [:]
     var isExiting = false
 
     /// Items the user has explicitly engaged with via a high-intent action
@@ -37,6 +39,8 @@ final class ScreenshotPreviewStack {
     var interactiveRects: [CGRect] = []
 
     @ObservationIgnored private var overlayExitTask: Task<Void, Never>?
+    @ObservationIgnored private var compressionTasks: [ScreenshotPreviewItem.ID: Task<Void, Never>] = [:]
+    @ObservationIgnored private var compressionBadgeTasks: [ScreenshotPreviewItem.ID: Task<Void, Never>] = [:]
     private var visibleCapacity: Int?
 
     var itemIDs: [ScreenshotPreviewItem.ID] {
@@ -253,6 +257,7 @@ final class ScreenshotPreviewStack {
         if QuickLookPreviewPresenter.isShown
             || hoveredItemID == id
             || draggingItemID == id
+            || compressingItemIDs.contains(id)
             || CloudUploader.shared.uploadingItems.contains(id) {
             Task {
                 try? await Task.sleep(for: .seconds(2))
@@ -343,7 +348,7 @@ final class ScreenshotPreviewStack {
         dismissOldestStableItems(count: overflowCount)
     }
 
-    private func prepareForInsertedPreview() {
+    private func prepareForInsertedPreview(preserving preservedID: ScreenshotPreviewItem.ID? = nil) {
         clearPendingOverlayExitForNewPreview()
 
         // A freshly captured (or re-previewed) item should always be visible,
@@ -354,15 +359,15 @@ final class ScreenshotPreviewStack {
 
         let stableItemCount = items.filter { !dismissingItemIDs.contains($0.id) }.count
         let overflowCount = stableItemCount + 1 - visibleCapacity
-        dismissOldestStableItems(count: overflowCount)
+        dismissOldestStableItems(count: overflowCount, preserving: preservedID)
     }
 
-    private func dismissOldestStableItems(count: Int) {
+    private func dismissOldestStableItems(count: Int, preserving preservedID: ScreenshotPreviewItem.ID? = nil) {
         guard count > 0 else { return }
 
         let overflowItems = items
             .reversed()
-            .filter { !dismissingItemIDs.contains($0.id) }
+            .filter { !dismissingItemIDs.contains($0.id) && $0.id != preservedID }
             .prefix(count)
 
         for item in overflowItems {
@@ -382,6 +387,73 @@ final class ScreenshotPreviewStack {
         }
         guard didCopy else { return }
         dismiss(id: id)
+    }
+
+    func compress(id: ScreenshotPreviewItem.ID) {
+        guard let item = items.first(where: { $0.id == id }), item.kind == .image else { return }
+        guard !compressingItemIDs.contains(id) else { return }
+
+        markEngaged(id: id)
+        QuickLookPreviewPresenter.dismiss()
+        compressionTasks[id]?.cancel()
+        compressingItemIDs.insert(id)
+
+        let sourceURL = item.url
+        let quality = ScreenshotCompressionService.defaultJPEGQuality
+        compressionTasks[id] = Task {
+            do {
+                try await Task.sleep(for: .milliseconds(120))
+                let result = try await Task.detached(priority: .userInitiated) {
+                    try ScreenshotCompressionService.compressToTemporaryJPEG(
+                        sourceURL: sourceURL,
+                        quality: quality
+                    )
+                }.value
+                try Task.checkCancellation()
+
+                compressionTasks[id] = nil
+                compressingItemIDs.remove(id)
+                insertCompressedPreview(sourceID: id, result: result)
+            } catch is CancellationError {
+                compressionTasks[id] = nil
+                compressingItemIDs.remove(id)
+            } catch {
+                print("Failed to compress screenshot: \(error)")
+                compressionTasks[id] = nil
+                compressingItemIDs.remove(id)
+            }
+        }
+    }
+
+    private func insertCompressedPreview(sourceID: ScreenshotPreviewItem.ID, result: ScreenshotCompressionResult) {
+        guard let image = ScreenshotImageLoader.downsampledImage(at: result.outputURL, maxPixelSize: 520) else {
+            return
+        }
+
+        var compressedItem = ScreenshotPreviewItem(url: result.outputURL, previewImage: image)
+        let compressedID = compressedItem.id
+        compressedItem.autoSavedURL = nil
+
+        prepareForInsertedPreview(preserving: sourceID)
+
+        let insertIndex = items.firstIndex { $0.id == sourceID } ?? 0
+        withAnimation(previewStackAnimation) {
+            items.insert(compressedItem, at: insertIndex)
+            compressionResultBadges[compressedID] = result
+        }
+        scheduleCompressionBadgeRemoval(id: compressedID)
+    }
+
+    private func scheduleCompressionBadgeRemoval(id: ScreenshotPreviewItem.ID) {
+        compressionBadgeTasks[id]?.cancel()
+        compressionBadgeTasks[id] = Task {
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.25)) {
+                compressionResultBadges[id] = nil
+            }
+            compressionBadgeTasks[id] = nil
+        }
     }
 
     /// Runs OCR on the item's image and copies the recognised text to the
@@ -541,6 +613,7 @@ final class ScreenshotPreviewStack {
         items.removeAll { $0.id == id }
         dismissingItemIDs.remove(id)
         engagedItemIDs.remove(id)
+        clearCompressionState(for: id)
 
         if hoveredItemID == id {
             hoveredItemID = nil
@@ -591,6 +664,7 @@ final class ScreenshotPreviewStack {
         items.removeAll()
         dismissingItemIDs.removeAll()
         engagedItemIDs.removeAll()
+        clearAllCompressionState()
         hoveredItemID = nil
         draggingItemID = nil
         isCollapsed = false
@@ -606,6 +680,7 @@ final class ScreenshotPreviewStack {
         items.removeAll()
         dismissingItemIDs.removeAll()
         engagedItemIDs.removeAll()
+        clearAllCompressionState()
         hoveredItemID = nil
         draggingItemID = nil
         isCollapsed = false
@@ -631,9 +706,32 @@ final class ScreenshotPreviewStack {
         deleteFile(at: url)
     }
 
+    private func clearCompressionState(for id: ScreenshotPreviewItem.ID) {
+        compressionTasks[id]?.cancel()
+        compressionTasks[id] = nil
+        compressionBadgeTasks[id]?.cancel()
+        compressionBadgeTasks[id] = nil
+        compressingItemIDs.remove(id)
+        compressionResultBadges[id] = nil
+    }
+
+    private func clearAllCompressionState() {
+        for task in compressionTasks.values {
+            task.cancel()
+        }
+        for task in compressionBadgeTasks.values {
+            task.cancel()
+        }
+
+        compressionTasks.removeAll()
+        compressionBadgeTasks.removeAll()
+        compressingItemIDs.removeAll()
+        compressionResultBadges.removeAll()
+    }
+
     private func copyURLToClipboard(_ url: URL) -> Bool {
         do {
-            try ScreenshotFileActions.copyPNGToClipboard(from: url)
+            try ScreenshotFileActions.copyImageToClipboard(from: url)
             return true
         } catch {
             print("Failed to copy screenshot: \(error)")

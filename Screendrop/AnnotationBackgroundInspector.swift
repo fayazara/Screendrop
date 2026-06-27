@@ -9,9 +9,12 @@ import SwiftUI
 struct AnnotationBackgroundInspector: View {
     @Binding var settings: AnnotationBackgroundSettings
     @Bindable var wallpaperStore: AnnotationWallpaperStore
+    let onEditorAction: () -> Void
     let onPickWallpaper: () -> Void
 
     private let swatchColumns = Array(repeating: GridItem(.flexible(), spacing: 6), count: 8)
+    private static let maxVisibleRecentWallpapers = 4
+    private let recentWallpaperColumns = Array(repeating: GridItem(.flexible(), spacing: 6), count: 5)
     private let wallpaperColumns = Array(repeating: GridItem(.flexible(), spacing: 7), count: 3)
     private let alignmentColumns = Array(repeating: GridItem(.fixed(30), spacing: 5), count: 3)
     @State private var selectedWallpaperSourceID = AnnotationWallpaperSource.recentID
@@ -22,6 +25,7 @@ struct AnnotationBackgroundInspector: View {
             swatchGroup("Color") {
                 ForEach(AnnotationBackgroundColor.plainPresets) { color in
                     InspectorTile(isSelected: settings.style == .solid(color)) {
+                        onEditorAction()
                         settings.style = .solid(color)
                     } content: {
                         Rectangle().fill(color.color)
@@ -33,6 +37,7 @@ struct AnnotationBackgroundInspector: View {
             swatchGroup("Gradient") {
                 ForEach(AnnotationBackgroundGradient.presets) { gradient in
                     InspectorTile(isSelected: settings.style == .gradient(gradient)) {
+                        onEditorAction()
                         settings.style = .gradient(gradient)
                     } content: {
                         Rectangle().fill(LinearGradient(
@@ -79,6 +84,7 @@ struct AnnotationBackgroundInspector: View {
                 LazyVGrid(columns: alignmentColumns, spacing: 5) {
                     ForEach(AnnotationBackgroundAlignment.allCases) { alignment in
                         Button {
+                            onEditorAction()
                             settings.alignment = alignment
                         } label: {
                             AlignmentGlyph(alignment: alignment, isSelected: settings.alignment == alignment)
@@ -95,7 +101,10 @@ struct AnnotationBackgroundInspector: View {
                 InspectorSegmented(
                     options: AnnotationBackgroundAspectRatio.allCases,
                     isSelected: { $0 == settings.aspectRatio },
-                    onTap: { settings.aspectRatio = $0 },
+                    onTap: {
+                        onEditorAction()
+                        settings.aspectRatio = $0
+                    },
                     label: { ratio in
                         Text(ratio.title)
                             .font(.system(size: 11, weight: .medium))
@@ -131,6 +140,7 @@ struct AnnotationBackgroundInspector: View {
                 options: wallpaperSources.map(\.id),
                 isSelected: { $0 == selectedWallpaperSourceID },
                 onTap: { id in
+                    onEditorAction()
                     withAnimation(.snappy(duration: 0.16)) {
                         selectedWallpaperSourceID = id
                     }
@@ -144,7 +154,7 @@ struct AnnotationBackgroundInspector: View {
             )
 
             if selectedWallpaperSourceID == AnnotationWallpaperSource.recentID {
-                wallpaperGrid(visibleRecentWallpapers, showsAddTile: true)
+                recentWallpaperGrid
             } else if let pack = selectedPack {
                 let wallpapers = wallpaperStore.wallpapers(for: pack)
                 if wallpapers.isEmpty {
@@ -156,7 +166,7 @@ struct AnnotationBackgroundInspector: View {
                         Task { await wallpaperStore.installPack(pack) }
                     }
                 } else {
-                    wallpaperGrid(wallpapers, showsAddTile: false)
+                    wallpaperGrid(wallpapers)
                 }
 
                 AnnotationWallpaperCreditView(pack: pack)
@@ -165,7 +175,7 @@ struct AnnotationBackgroundInspector: View {
     }
 
     private var wallpaperSources: [AnnotationWallpaperSourceOption] {
-        [AnnotationWallpaperSourceOption.local]
+        [AnnotationWallpaperSourceOption.recent]
         + AnnotationWallpaperPack.builtIn.map { pack in
             AnnotationWallpaperSourceOption(id: pack.id, title: pack.title)
         }
@@ -181,38 +191,59 @@ struct AnnotationBackgroundInspector: View {
 
     private var visibleRecentWallpapers: [AnnotationCustomWallpaper] {
         var wallpapers = wallpaperStore.recentWallpapers
-        if let customWallpaper,
-           wallpaperStore.isAvailable(customWallpaper),
-           !wallpaperStore.isDownloadedPackWallpaper(customWallpaper),
-           !wallpapers.contains(where: { $0.url.standardizedFileURL == customWallpaper.url.standardizedFileURL }) {
-            wallpapers.insert(customWallpaper, at: 0)
+        if let customWallpaper, wallpaperStore.isAvailable(customWallpaper) {
+            let selectedURL = customWallpaper.url.standardizedFileURL
+            if let selectedIndex = wallpapers.firstIndex(where: {
+                $0.url.standardizedFileURL == selectedURL
+            }) {
+                if selectedIndex >= Self.maxVisibleRecentWallpapers {
+                    wallpapers.remove(at: selectedIndex)
+                    wallpapers.insert(customWallpaper, at: 0)
+                }
+            } else {
+                wallpapers.insert(customWallpaper, at: 0)
+            }
         }
-        return wallpapers
+        return Array(wallpapers.prefix(Self.maxVisibleRecentWallpapers))
+    }
+
+    private var recentWallpaperGrid: some View {
+        LazyVGrid(columns: recentWallpaperColumns, spacing: 6) {
+            wallpaperTiles(visibleRecentWallpapers)
+
+            AnnotationAddWallpaperTile {
+                onEditorAction()
+                onPickWallpaper()
+            }
+                .help("Choose wallpaper")
+        }
     }
 
     @ViewBuilder
-    private func wallpaperGrid(_ wallpapers: [AnnotationCustomWallpaper], showsAddTile: Bool) -> some View {
+    private func wallpaperGrid(_ wallpapers: [AnnotationCustomWallpaper]) -> some View {
         LazyVGrid(columns: wallpaperColumns, spacing: 7) {
-            ForEach(wallpapers) { wallpaper in
-                InspectorTile(
-                    aspectRatio: 1.35,
-                    isSelected: isSelectedWallpaper(wallpaper)
-                ) {
-                    selectWallpaper(wallpaper)
-                } content: {
-                    AnnotationCustomWallpaperPreview(wallpaper: wallpaper)
-                }
-                .help(wallpaper.title)
-            }
+            wallpaperTiles(wallpapers)
+        }
+    }
 
-            if showsAddTile {
-                AnnotationAddWallpaperTile(action: onPickWallpaper)
-                    .help("Choose wallpaper")
+    @ViewBuilder
+    private func wallpaperTiles(_ wallpapers: [AnnotationCustomWallpaper]) -> some View {
+        ForEach(wallpapers) { wallpaper in
+            InspectorTile(
+                aspectRatio: 1.35,
+                isSelected: isSelectedWallpaper(wallpaper)
+            ) {
+                selectWallpaper(wallpaper)
+            } content: {
+                AnnotationCustomWallpaperPreview(wallpaper: wallpaper)
             }
+            .help(wallpaper.title)
         }
     }
 
     private func selectWallpaper(_ wallpaper: AnnotationCustomWallpaper) {
+        onEditorAction()
+        wallpaperStore.addRecentWallpaper(wallpaper.url)
         settings.customWallpaper = wallpaper
         settings.style = .customWallpaper(wallpaper)
     }
@@ -237,6 +268,111 @@ struct AnnotationBackgroundInspector: View {
     }
 }
 
+struct AnnotationWatermarkInspector: View {
+    @Binding var settings: AnnotationWatermarkSettings
+    let focusedField: FocusState<AnnotationEditorFocusedField?>.Binding
+
+    private var watermarkText: Binding<String> {
+        Binding(
+            get: { settings.text },
+            set: { text in
+                settings.text = text
+                settings.isEnabled = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
+        )
+    }
+
+    private var watermarkColor: Binding<Color> {
+        Binding(
+            get: { settings.color.color },
+            set: { settings.color = .custom(from: $0) }
+        )
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            TextField("Watermark text", text: watermarkText)
+                .focused(focusedField, equals: .watermarkText)
+                .onSubmit(clearFocus)
+                .textFieldStyle(.plain)
+                .font(.inspectorValue)
+                .padding(.horizontal, 8)
+                .inspectorField(height: 26)
+
+            if hasWatermarkText {
+                HStack(alignment: .top, spacing: 14) {
+                    InspectorSlider(
+                        "Density",
+                        value: $settings.density,
+                        range: 2...10,
+                        formatted: wholeNumberText
+                    )
+
+                    InspectorSlider(
+                        "Size",
+                        value: $settings.fontSize,
+                        range: 8...160,
+                        formatted: pixelText
+                    )
+                }
+
+                HStack(alignment: .top, spacing: 14) {
+                    InspectorSlider(
+                        "Angle",
+                        value: $settings.rotationDegrees,
+                        range: -90...90,
+                        formatted: degreeText
+                    )
+
+                    InspectorSlider(
+                        "Opacity",
+                        value: $settings.opacity,
+                        range: 0...0.75,
+                        formatted: percentText
+                    )
+                }
+
+                HStack(spacing: 10) {
+                    Text("Color")
+                        .font(.inspectorLabel)
+                        .foregroundStyle(.secondary)
+
+                    Spacer(minLength: 0)
+
+                    ColorPicker("", selection: watermarkColor, supportsOpacity: false)
+                        .labelsHidden()
+                        .controlSize(.small)
+                }
+                .frame(maxWidth: .infinity)
+            }
+        }
+    }
+
+    private var hasWatermarkText: Bool {
+        !settings.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func clearFocus() {
+        focusedField.wrappedValue = nil
+    }
+
+    private func percentText(_ value: CGFloat) -> String {
+        "\(Int((value * 100).rounded()))%"
+    }
+
+    private func wholeNumberText(_ value: CGFloat) -> String {
+        "\(Int(value.rounded()))"
+    }
+
+    private func pixelText(_ value: CGFloat) -> String {
+        "\(Int(value.rounded())) px"
+    }
+
+    private func degreeText(_ value: CGFloat) -> String {
+        "\(Int(value.rounded())) deg"
+    }
+}
+
 private enum AnnotationWallpaperSource {
     static let recentID = "recent"
 }
@@ -245,9 +381,9 @@ private struct AnnotationWallpaperSourceOption: Identifiable, Hashable {
     let id: String
     let title: String
 
-    static let local = AnnotationWallpaperSourceOption(
+    static let recent = AnnotationWallpaperSourceOption(
         id: AnnotationWallpaperSource.recentID,
-        title: "Local"
+        title: "Recent"
     )
 }
 
@@ -261,8 +397,8 @@ private struct AnnotationAddWallpaperTile: View {
                 .foregroundStyle(.quaternary)
                 .aspectRatio(1.35, contentMode: .fit)
                 .overlay {
-                    Image(systemName: "photo.badge.plus")
-                        .font(.system(size: 11, weight: .semibold))
+                    Image(systemName: "plus")
+                        .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(.tertiary)
                 }
                 .padding(2.5)
