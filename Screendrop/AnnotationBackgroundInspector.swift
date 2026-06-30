@@ -271,6 +271,9 @@ struct AnnotationBackgroundInspector: View {
 struct AnnotationWatermarkInspector: View {
     @Binding var settings: AnnotationWatermarkSettings
     let focusedField: FocusState<AnnotationEditorFocusedField?>.Binding
+    let onFocusCleared: () -> Void
+
+    @State private var isTextEditing = false
 
     private var watermarkText: Binding<String> {
         Binding(
@@ -291,13 +294,11 @@ struct AnnotationWatermarkInspector: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            TextField("Watermark text", text: watermarkText)
-                .focused(focusedField, equals: .watermarkText)
-                .onSubmit(clearFocus)
-                .textFieldStyle(.plain)
-                .font(.inspectorValue)
-                .padding(.horizontal, 8)
-                .inspectorField(height: 26)
+            if isTextEditing {
+                watermarkTextField
+            } else {
+                watermarkActivationButton
+            }
 
             if hasWatermarkText {
                 HStack(alignment: .top, spacing: 14) {
@@ -346,14 +347,64 @@ struct AnnotationWatermarkInspector: View {
                 .frame(maxWidth: .infinity)
             }
         }
+        .onChange(of: focusedField.wrappedValue) { _, newValue in
+            guard newValue != .watermarkText else { return }
+            isTextEditing = false
+        }
+    }
+
+    private var watermarkActivationButton: some View {
+        Button(action: beginTextEditing) {
+            HStack(spacing: 7) {
+                Image(systemName: hasWatermarkText ? "textformat" : "plus")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 12)
+
+                Text(hasWatermarkText ? settings.text : "Add watermark")
+                    .font(.inspectorValue)
+                    .foregroundColor(hasWatermarkText ? Color.primary.opacity(0.85) : Color.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                Image(systemName: hasWatermarkText ? "pencil" : "chevron.right")
+                    .font(.system(size: hasWatermarkText ? 10 : 8, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 8)
+            .inspectorField(height: 26)
+        }
+        .buttonStyle(.plain)
+        .help(hasWatermarkText ? "Edit watermark text" : "Add watermark")
+    }
+
+    private var watermarkTextField: some View {
+        TextField("Watermark text", text: watermarkText)
+            .focused(focusedField, equals: .watermarkText)
+            .onSubmit(finishTextEditing)
+            .textFieldStyle(.plain)
+            .font(.inspectorValue)
+            .padding(.horizontal, 8)
+            .inspectorField(height: 26)
+            .onAppear {
+                focusedField.wrappedValue = .watermarkText
+            }
+            .onClickOutside(enabled: true, perform: finishTextEditing)
     }
 
     private var hasWatermarkText: Bool {
         !settings.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    private func clearFocus() {
+    private func beginTextEditing() {
+        isTextEditing = true
+    }
+
+    private func finishTextEditing() {
+        isTextEditing = false
         focusedField.wrappedValue = nil
+        onFocusCleared()
     }
 
     private func percentText(_ value: CGFloat) -> String {

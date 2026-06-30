@@ -155,7 +155,8 @@ struct AnnotationEditorInspector: View {
                             get: { model.backgroundSettings.watermark },
                             set: { model.backgroundSettings.watermark = $0 }
                         ),
-                        focusedField: focusedField
+                        focusedField: focusedField,
+                        onFocusCleared: onEditorAction
                     )
                 }
             }
