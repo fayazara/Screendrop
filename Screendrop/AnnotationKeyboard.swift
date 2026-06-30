@@ -243,5 +243,4 @@ final class AnnotationKeyCommandHandlerView: NSView {
         default: return nil
         }
     }
-            }
-
+}
