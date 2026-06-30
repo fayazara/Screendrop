@@ -2,6 +2,10 @@ import AppKit
 import SwiftUI
 
 struct VideoSettingsPane: View {
+    @AppStorage(ScreendropPreferences.showRecordingSetupHUDKey) private var showSetupHUD = true
+    @AppStorage(ScreendropPreferences.recordingSetupDefaultModeKey) private var defaultRecordingMode = RecordingSetupMode.area.rawValue
+    @AppStorage(ScreendropPreferences.recordingSetupDefaultAspectKey) private var defaultAreaAspect = CropAspectRatio.freeform.rawValue
+    @AppStorage(ScreendropPreferences.rememberRecordingSetupAreaRegionKey) private var rememberAreaRegion = false
     @AppStorage(ScreendropPreferences.showRecordingMouseIndicatorsKey) private var showMouseIndicators = true
     @AppStorage(ScreendropPreferences.showRecordingKeyPressCaptionsKey) private var showKeyPressCaptions = false
     @AppStorage(ScreendropPreferences.recordingMouseIndicatorColorKey) private var mouseIndicatorColor = ScreendropPreferences.defaultRecordingMouseIndicatorColor
@@ -22,6 +26,54 @@ struct VideoSettingsPane: View {
 
     var body: some View {
         Form {
+            Section("Recording Setup") {
+                Toggle(isOn: $showSetupHUD) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Show options before recording")
+                        Text("Opens a mode and region selector before recording starts. Turn off to record the full screen immediately.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .toggleStyle(.switch)
+
+                Picker(selection: $defaultRecordingMode) {
+                    ForEach(RecordingSetupMode.allCases) { mode in
+                        Text(mode.title).tag(mode.rawValue)
+                    }
+                } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Default recording mode")
+                        Text("Which mode the setup HUD opens with.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Picker(selection: $defaultAreaAspect) {
+                    ForEach(ScreendropPreferences.recordingSetupAreaAspects) { aspect in
+                        Text(aspect.title).tag(aspect.rawValue)
+                    }
+                } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Default area aspect")
+                        Text("Aspect ratio selected when Area mode is active.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Toggle(isOn: $rememberAreaRegion) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Remember last area region")
+                        Text("Restores the previous Area rectangle on the same display.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .toggleStyle(.switch)
+            }
+
             CaptureHotkeySettingsSection(actions: [.screenRecording])
 
             AfterCaptureActionsSection(type: .recording, title: "After Recording")
