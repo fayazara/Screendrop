@@ -49,14 +49,12 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     private func configureWindow() {
         guard let window else { return }
 
-        window.title = "Settings"
-        window.titleVisibility = .visible
-        window.titlebarAppearsTransparent = false
-        window.toolbarStyle = .automatic
+        configureWindowChrome()
         // Keep the window movable only via its title bar. Background dragging
         // makes the whole content area move the window, which both feels off and
         // swallows in-content drag gestures (e.g. the overlay card editor).
         window.isMovableByWindowBackground = false
+        window.isReleasedWhenClosed = false
         window.setFrameAutosaveName("SettingsWindow")
         window.minSize = NSSize(width: 620, height: 460)
         window.center()
@@ -66,7 +64,21 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         window.contentViewController = hostingController
     }
 
+    private func configureWindowChrome() {
+        guard let window else { return }
+
+        window.styleMask.insert(.fullSizeContentView)
+        window.title = "Settings"
+        window.titleVisibility = .visible
+        window.titlebarAppearsTransparent = false
+        window.toolbarStyle = .automatic
+        if #available(macOS 11.0, *) {
+            window.titlebarSeparatorStyle = .none
+        }
+    }
+
     override func showWindow(_ sender: Any?) {
+        configureWindowChrome()
         super.showWindow(sender)
         window?.makeKeyAndOrderFront(nil)
         if !didEnterActivationPolicy {
@@ -81,6 +93,5 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
             AppActivationPolicy.leave()
             didEnterActivationPolicy = false
         }
-        Self.shared = nil
     }
 }
