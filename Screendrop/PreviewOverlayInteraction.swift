@@ -19,6 +19,20 @@ import SwiftUI
 /// SwiftUI layer and return `nil` from `hitTest` for any point outside them, so
 /// the panel is "transparent" to clicks except where there's something to hit.
 final class PassthroughPreviewHostingView<Content: View>: NSHostingView<Content> {
+    required init(rootView: Content) {
+        super.init(rootView: rootView)
+        configureForPreviewPanel()
+    }
+
+    required dynamic init?(coder aDecoder: NSCoder) {
+        super.init(coder: aDecoder)
+        configureForPreviewPanel()
+    }
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric)
+    }
+
     override func hitTest(_ point: NSPoint) -> NSView? {
         let rects = ScreenshotPreviewStack.shared.interactiveRects
 
@@ -34,6 +48,16 @@ final class PassthroughPreviewHostingView<Content: View>: NSHostingView<Content>
         let isInteractive = rects.contains { $0.insetBy(dx: -3, dy: -3).contains(local) }
 
         return isInteractive ? super.hitTest(point) : nil
+    }
+
+    private func configureForPreviewPanel() {
+        sizingOptions = []
+        translatesAutoresizingMaskIntoConstraints = true
+        autoresizingMask = [.width, .height]
+        setContentHuggingPriority(.defaultLow, for: .horizontal)
+        setContentHuggingPriority(.defaultLow, for: .vertical)
+        setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        setContentCompressionResistancePriority(.defaultLow, for: .vertical)
     }
 }
 
