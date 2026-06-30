@@ -194,9 +194,17 @@ private struct HistoryItemRow: View {
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 10)
-        .task(id: item.updatedAt) {
-            thumbnail = nil
-            thumbnail = await HistoryThumbnailStore.thumbnail(for: item)
+        .task(id: item.fileName) {
+            let url = item.url
+            let isVideo = item.isVideo
+            let image = await Task.detached(priority: .userInitiated) {
+                if isVideo {
+                    return await VideoPreviewImageLoader.thumbnail(at: url, maxPixelSize: 160)
+                } else {
+                    return ScreenshotImageLoader.downsampledImage(at: url, maxPixelSize: 160)
+                }
+            }.value
+            thumbnail = image
         }
     }
 

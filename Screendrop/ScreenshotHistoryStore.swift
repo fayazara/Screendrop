@@ -24,7 +24,7 @@ struct ScreenshotHistoryItem: Identifiable, Codable, Equatable {
     var hasEdits: Bool
 
     var url: URL {
-        ScreendropApplicationPaths.historyDirectory.appendingPathComponent(fileName)
+        ScreenshotHistoryStore.historyDirectory.appendingPathComponent(fileName)
     }
 
     var isVideo: Bool { kind == .video }
@@ -76,11 +76,13 @@ final class ScreenshotHistoryStore {
     static let shared = ScreenshotHistoryStore()
 
     static var applicationSupportDirectory: URL {
-        ScreendropApplicationPaths.applicationSupportDirectory
+        let baseURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support", isDirectory: true)
+        return baseURL.appendingPathComponent("Screendrop", isDirectory: true)
     }
 
     static var historyDirectory: URL {
-        ScreendropApplicationPaths.historyDirectory
+        applicationSupportDirectory.appendingPathComponent("History", isDirectory: true)
     }
 
     private static var metadataURL: URL {
@@ -151,7 +153,6 @@ final class ScreenshotHistoryStore {
             )
             items.insert(item, at: 0)
             saveMetadata()
-            HistoryThumbnailStore.generateThumbnail(for: item)
             return destinationURL
         } catch {
             print("Failed to import screenshot into history: \(error)")
@@ -210,7 +211,6 @@ final class ScreenshotHistoryStore {
             )
             items.insert(item, at: 0)
             saveMetadata()
-            HistoryThumbnailStore.generateThumbnail(for: item)
             return destinationURL
         } catch {
             print("Failed to import video into history: \(error)")
@@ -278,7 +278,6 @@ final class ScreenshotHistoryStore {
                 items[index].pixelHeight = Int(imageSize.height)
                 items[index].hasEdits = true
                 saveMetadata()
-                HistoryThumbnailStore.regenerateThumbnail(for: items[index])
             }
 
             return displayURL
@@ -317,7 +316,6 @@ final class ScreenshotHistoryStore {
                 items[index].pixelHeight = Int(imageSize.height)
                 items[index].hasEdits = false
                 saveMetadata()
-                HistoryThumbnailStore.regenerateThumbnail(for: items[index])
             }
         } catch {
             print("Failed to remove annotations: \(error)")
@@ -343,7 +341,6 @@ final class ScreenshotHistoryStore {
 
         items.removeAll { $0.id == item.id }
         saveMetadata()
-        HistoryThumbnailStore.deleteThumbnail(for: item)
     }
 
     @discardableResult
