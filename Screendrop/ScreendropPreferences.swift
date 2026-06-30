@@ -35,6 +35,7 @@ enum ScreendropPreferences {
     static let overlayCardLayoutKey = "overlayCardLayout"
     static let lowResolutionEditorPreviewKey = "lowResolutionEditorPreview"
     static let trimFullscreenMenuBarKey = "trimFullscreenMenuBar"
+    static let showRecordingSetupHUDKey = "showRecordingSetupHUD"
 
     private static let defaultCompressionQuality = 0.8
     static let defaultRecordingMouseIndicatorColor = "#007AFF"
@@ -171,6 +172,15 @@ enum ScreendropPreferences {
         return UserDefaults.standard.bool(forKey: lowResolutionEditorPreviewKey)
     }
     
+    /// Whether the recording setup HUD (mode picker + region selection) is shown
+    /// before a recording starts.  Defaults to on.
+    static var showRecordingSetupHUD: Bool {
+        if UserDefaults.standard.object(forKey: showRecordingSetupHUDKey) == nil {
+            return true
+        }
+        return UserDefaults.standard.bool(forKey: showRecordingSetupHUDKey)
+    }
+
     /// Whether fullscreen captures on notched displays trim the empty black
     /// menu-bar strip at the top. The strip is only removed when it's solid
     /// black (menu bar hidden); a revealed menu bar is preserved. Defaults to on.
