@@ -27,6 +27,30 @@
     -->
 
     <item>
+      <title>Version 0.22.0</title>
+      <sparkle:version>20</sparkle:version>
+      <sparkle:shortVersionString>0.22.0</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.4</sparkle:minimumSystemVersion>
+      <pubDate>Fri, 03 Jul 2026 16:24:32 +0000</pubDate>
+      <description><![CDATA[
+        <h2>What's New in 0.22.0</h2>
+        <ul>
+          <li>Added UIHSSN's wallpaper pack for screenshot backgrounds, with credit to UIHSSN: https://x.com/uihssn</li>
+          <li>Added tiled watermarks with custom text, density, size, angle, opacity, and color controls.</li>
+          <li>Added one-click JPG compression from preview cards, creating a separate draggable JPG with size-savings feedback.</li>
+          <li>Redesigned the annotation inspector around a cleaner shared control system.</li>
+          <li>Fixed preview overlay sizing so screenshot cards fill the hover surface correctly.</li>
+        </ul>
+      ]]></description>
+      <enclosure
+        url="https://github.com/fayazara/screendrop/releases/download/v0.22.0/Screendrop.dmg"
+        type="application/octet-stream"
+        sparkle:edSignature="E5mgyaHwQObvLYdf3E/XRh0tejB2u6M+tlGk8Ms6vv84dyzs8wT3OCou+uwFnN+Qd/zVQjeTthX5KRqqrFYWDw=="
+        length="4313757"
+      />
+    </item>
+
+    <item>
       <title>Version 0.21.3</title>
       <sparkle:version>19</sparkle:version>
       <sparkle:shortVersionString>0.21.3</sparkle:shortVersionString>
