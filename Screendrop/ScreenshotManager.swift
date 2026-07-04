@@ -6,7 +6,6 @@
 //
 
 import SwiftUI
-import ScreenCaptureKit
 import CoreGraphics
 import ImageIO
 
@@ -20,40 +19,39 @@ final class ScreenshotManager {
     
     // MARK: - Fullscreen Capture
     
-    /// Captures the requested display at full native (Retina) resolution
-    /// using ScreenCaptureKit.
+    /// Captures the requested display at full native (Retina) resolution using
+    /// the native `screencapture` tool.
+    ///
+    /// ScreenCaptureKit's display capture re-composites windows itself and drops
+    /// the WindowServer's inter-window drop shadows, so windows over a light
+    /// background lose their edges. `screencapture` captures the real on-screen
+    /// composite (shadows included), matching the window/area capture paths.
     func captureFullscreen(displayID: CGDirectDisplayID?) async -> URL? {
-        do {
-            let availableContent = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
-            
-            guard let display = availableContent.displays.first(where: { $0.displayID == displayID }) ?? availableContent.displays.first else {
-                print("No display found")
-                return nil
-            }
-            
-            let filter = SCContentFilter(display: display, excludingWindows: [])
-            let config = SCStreamConfiguration()
-            // SCDisplay dimensions are points; SCStreamConfiguration expects pixels.
-            let pixelScale = CGFloat(filter.pointPixelScale)
-            config.width = Int(CGFloat(display.width) * pixelScale)
-            config.height = Int(CGFloat(display.height) * pixelScale)
-            config.scalesToFit = false
-            config.showsCursor = false
-            
-            let image = try await SCScreenshotManager.captureImage(
-                contentFilter: filter,
-                configuration: config
-            )
+        let displayIndex = Self.screencaptureDisplayIndex(for: displayID)
+        guard let url = await runScreencapture(args: ["-D", "\(displayIndex)"]) else { return nil }
 
-            // On notched displays, drop the empty black menu-bar strip left by
-            // fullscreen apps (kept when the menu bar is actually visible).
-            let trimmed = NotchBarTrimmer.trimmingEmptyMenuBar(image, displayID: display.displayID)
+        // On notched Macs, a fullscreen capture with the menu bar hidden leaves a
+        // solid black strip across the top. Trim it (no-op when it isn't black).
+        trimEmptyMenuBarIfNeeded(at: url, displayID: displayID)
+        return url
+    }
 
-            return saveImage(trimmed)
-        } catch {
-            print("Fullscreen capture failed: \(error)")
-            return nil
+    /// Maps a `CGDirectDisplayID` to the 1-based index `screencapture -D`
+    /// expects (1 = main display, 2 = secondary, …). `CGGetActiveDisplayList`
+    /// returns the main display first, matching that ordering.
+    private static func screencaptureDisplayIndex(for displayID: CGDirectDisplayID?) -> Int {
+        guard let displayID else { return 1 }
+
+        var count: UInt32 = 0
+        guard CGGetActiveDisplayList(0, nil, &count) == .success, count > 0 else { return 1 }
+
+        var displays = [CGDirectDisplayID](repeating: 0, count: Int(count))
+        guard CGGetActiveDisplayList(count, &displays, &count) == .success else { return 1 }
+
+        if let index = displays.firstIndex(of: displayID) {
+            return index + 1
         }
+        return 1
     }
     
     // MARK: - Window Capture
@@ -116,32 +114,39 @@ final class ScreenshotManager {
         }
     }
     
-    // MARK: - Helpers
-    
-    /// Saves a CGImage as a lossless PNG to a temporary file.
-    private func saveImage(_ cgImage: CGImage) -> URL? {
-        let filePath = generateTempPath(extension: "png")
-        let fileURL = URL(fileURLWithPath: filePath)
-        
+    // MARK: - Notch trimming
+
+    /// Loads the PNG at `url`, trims the empty black menu-bar strip left on
+    /// notched displays, and rewrites the file in place when a trim happened.
+    /// Preserves the original image properties (e.g. DPI) written by
+    /// `screencapture`. A no-op when there's nothing to trim or the feature is
+    /// disabled.
+    private func trimEmptyMenuBarIfNeeded(at url: URL, displayID: CGDirectDisplayID?) {
+        guard let displayID,
+              let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+            return
+        }
+
+        let trimmed = NotchBarTrimmer.trimmingEmptyMenuBar(image, displayID: displayID)
+        // Same reference back means nothing was trimmed — leave the file as-is.
+        guard trimmed !== image else { return }
+
+        let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil)
         guard let destination = CGImageDestinationCreateWithURL(
-            fileURL as CFURL,
+            url as CFURL,
             "public.png" as CFString,
             1,
             nil
         ) else {
-            print("Failed to create image destination")
-            return nil
+            return
         }
-        
-        CGImageDestinationAddImage(destination, cgImage, nil)
-        
-        guard CGImageDestinationFinalize(destination) else {
-            print("Failed to write image to disk")
-            return nil
-        }
-        
-        return fileURL
+
+        CGImageDestinationAddImage(destination, trimmed, properties)
+        CGImageDestinationFinalize(destination)
     }
+
+    // MARK: - Helpers
     
     /// Generates a unique temp file path for screenshots.
     private func generateTempPath(extension ext: String) -> String {
