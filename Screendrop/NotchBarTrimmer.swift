@@ -42,14 +42,24 @@ enum NotchBarTrimmer {
 
         guard topStripIsBlack(image, stripHeight: stripHeight) else { return image }
 
+        // Hack: the captured black bar sits a hair taller than the safe-area
+        // inset, leaving a thin (1–2px) black line after a pixel-exact crop.
+        // Shave a couple of extra pixels to kill it. The black check above still
+        // gates trimming, so a visible menu bar is never cropped.
+        let trimHeight = min(stripHeight + Self.extraTrimPixels, image.height - 1)
+
         let cropRect = CGRect(
             x: 0,
-            y: stripHeight,
+            y: trimHeight,
             width: image.width,
-            height: image.height - stripHeight
+            height: image.height - trimHeight
         )
         return image.cropping(to: cropRect) ?? image
     }
+
+    /// Extra pixel rows shaved below the computed safe-area strip to remove the
+    /// leftover thin black notch line.
+    private static let extraTrimPixels = 2
 
     /// Whether the top `stripHeight` pixel rows of `image` are essentially solid
     /// black.
