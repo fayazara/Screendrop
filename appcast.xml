@@ -27,6 +27,27 @@
     -->
 
     <item>
+      <title>Version 0.22.1</title>
+      <sparkle:version>21</sparkle:version>
+      <sparkle:shortVersionString>0.22.1</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.4</sparkle:minimumSystemVersion>
+      <pubDate>Sat, 04 Jul 2026 08:14:52 +0000</pubDate>
+      <description><![CDATA[
+        <h2>What's New in 0.22.1</h2>
+        <ul>
+          <li>Fixed missing window shadows in fullscreen screenshots</li>
+          <li>Fixed leftover thin black line after notch trimming on notched MacBooks</li>
+        </ul>
+      ]]></description>
+      <enclosure
+        url="https://github.com/fayazara/screendrop/releases/download/v0.22.1/Screendrop.dmg"
+        type="application/octet-stream"
+        sparkle:edSignature="myXDSaWJHMk/fGUb5Q0bHuDhx7LAproSccNdtfBAfJPI2Kn8pWhqbmj5pFqr9ksGKXHl46zPXai0dlzi+2obDA=="
+        length="4311996"
+      />
+    </item>
+
+    <item>
       <title>Version 0.22.0</title>
       <sparkle:version>20</sparkle:version>
       <sparkle:shortVersionString>0.22.0</sparkle:shortVersionString>
