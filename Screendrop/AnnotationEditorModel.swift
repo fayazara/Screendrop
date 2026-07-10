@@ -105,20 +105,33 @@ final class AnnotationEditorModel {
         selectedItem?.tool ?? selectedItems.first?.tool ?? (selectedTool.createsAnnotation ? selectedTool : nil)
     }
 
-    var isStrokeStyleAvailable: Bool {
-        if selectedItems.isEmpty {
-            return inspectedTool != .numberedCircle
-        }
+    var isColorStyleAvailable: Bool {
+        isStyleAvailable { $0.supportsColorStyle }
+    }
 
-        return selectedItems.contains { $0.tool != .numberedCircle }
+    var isStrokeStyleAvailable: Bool {
+        isStyleAvailable { $0.supportsStrokeStyle }
     }
 
     var isRedactionStyleAvailable: Bool {
+        isStyleAvailable { $0.supportsRedactionDensityStyle }
+    }
+
+    var hasInspectorStyleControls: Bool {
+        isTextStyleAvailable
+            || isColorStyleAvailable
+            || isStrokeStyleAvailable
+            || isRedactionStyleAvailable
+    }
+
+    private func isStyleAvailable(
+        _ supportsStyle: (AnnotationTool) -> Bool
+    ) -> Bool {
         if selectedItems.isEmpty {
-            return inspectedTool?.isRedactionTool == true
+            return inspectedTool.map(supportsStyle) ?? false
         }
 
-        return selectedItems.contains { $0.tool.isRedactionTool }
+        return selectedItems.contains { supportsStyle($0.tool) }
     }
 
     // Text style defaults (applied to new text items, updated when selecting existing text)
@@ -304,16 +317,26 @@ final class AnnotationEditorModel {
             return
         }
 
-        beginDraftItem(at: point, within: annotationBounds(for: imageFrame, boundaryFrame: boundaryFrame))
+        let canvasBounds = annotationBounds(for: imageFrame, boundaryFrame: boundaryFrame)
+        let drawingBounds = allowedBounds(for: selectedTool, within: canvasBounds)
+        guard drawingBounds.contains(point) else {
+            interaction = nil
+            statePath = AnnotationToolState.idle.path(for: selectedTool)
+            return
+        }
+
+        beginDraftItem(at: point, within: drawingBounds)
     }
 
     func updateInteraction(to location: CGPoint, imageFrame: CGRect, boundaryFrame: CGRect) {
         guard !isCropping else { return }
         guard let interaction,
-              let point = normalizedPoint(location, in: imageFrame, boundedBy: boundaryFrame, clamped: true) else {
+              let unconstrainedPoint = normalizedPoint(location, in: imageFrame, boundedBy: boundaryFrame, clamped: true) else {
             return
         }
-        let allowedBounds = annotationBounds(for: imageFrame, boundaryFrame: boundaryFrame)
+        let canvasBounds = annotationBounds(for: imageFrame, boundaryFrame: boundaryFrame)
+        let allowedBounds = allowedBounds(for: interaction, within: canvasBounds)
+        let point = clampedPoint(unconstrainedPoint, within: allowedBounds)
 
         switch interaction {
         case .drawing(let startPoint):
@@ -333,7 +356,14 @@ final class AnnotationEditorModel {
             let clampedDelta = clampedDelta(delta, for: groupBounds(for: originalItems), within: allowedBounds)
 
             for item in originalItems where ids.contains(item.id) {
-                updateItem(id: item.id, item: item.offsetBy(clampedDelta))
+                let itemDelta = item.tool == .highlight
+                    ? self.clampedDelta(
+                        clampedDelta,
+                        for: item.bounds,
+                        within: self.allowedBounds(for: item.tool, within: canvasBounds)
+                    )
+                    : clampedDelta
+                updateItem(id: item.id, item: item.offsetBy(itemDelta))
             }
 
         case .resizing(let id, let handle, let originalItem):
@@ -359,11 +389,13 @@ final class AnnotationEditorModel {
         defer { interaction = nil }
 
         guard let interaction,
-              let point = normalizedPoint(location, in: imageFrame, boundedBy: boundaryFrame, clamped: true) else {
+              let unconstrainedPoint = normalizedPoint(location, in: imageFrame, boundedBy: boundaryFrame, clamped: true) else {
             draftItem = nil
             return
         }
-        let allowedBounds = annotationBounds(for: imageFrame, boundaryFrame: boundaryFrame)
+        let canvasBounds = annotationBounds(for: imageFrame, boundaryFrame: boundaryFrame)
+        let allowedBounds = allowedBounds(for: interaction, within: canvasBounds)
+        let point = clampedPoint(unconstrainedPoint, within: allowedBounds)
 
         switch interaction {
         case .drawing(let startPoint):
@@ -515,7 +547,7 @@ final class AnnotationEditorModel {
             itemRect = defaultTextRect(at: point, lineHeight: textLineHeight, within: allowedBounds)
         case .numberedCircle:
             itemRect = AnnotationNumberedCircleMetrics.defaultRect(centeredAt: point, imageSize: imageSize, within: allowedBounds)
-        case .rectangle, .filledRectangle, .ellipse, .line, .arrow, .freehand, .pixelate, .blur:
+        case .rectangle, .filledRectangle, .ellipse, .line, .arrow, .freehand, .pixelate, .blur, .highlight:
             itemRect = CGRect(origin: point, size: .zero)
         }
         let itemText = selectedTool == .numberedCircle ? "\(nextNumberedCircleValue)" : ""
@@ -546,11 +578,13 @@ final class AnnotationEditorModel {
         if !selectedItemIDs.isEmpty {
             registerItemEdit()
             updateSelectedItems { item in
-                item.swatch = swatch
+                if item.tool.supportsColorStyle {
+                    item.swatch = swatch
+                }
             }
         }
 
-        if var draftItem {
+        if var draftItem, draftItem.tool.supportsColorStyle {
             draftItem.swatch = swatch
             self.draftItem = draftItem
         }
@@ -563,11 +597,13 @@ final class AnnotationEditorModel {
         if !selectedItemIDs.isEmpty {
             registerItemEdit()
             updateSelectedItems { item in
-                item.strokeWidth = strokeWidth
+                if item.tool.supportsStrokeStyle {
+                    item.strokeWidth = strokeWidth
+                }
             }
         }
 
-        if var draftItem {
+        if var draftItem, draftItem.tool.supportsStrokeStyle {
             draftItem.strokeWidth = strokeWidth
             self.draftItem = draftItem
         }
@@ -580,11 +616,13 @@ final class AnnotationEditorModel {
         if !selectedItemIDs.isEmpty {
             registerItemEdit()
             updateSelectedItems { item in
-                item.redactionDensity = redactionDensity
+                if item.tool.supportsRedactionDensityStyle {
+                    item.redactionDensity = redactionDensity
+                }
             }
         }
 
-        if var draftItem {
+        if var draftItem, draftItem.tool.supportsRedactionDensityStyle {
             draftItem.redactionDensity = redactionDensity
             self.draftItem = draftItem
         }
@@ -755,7 +793,7 @@ final class AnnotationEditorModel {
             draftItem.rect = boundingRect(for: draftItem.points)
         case .numberedCircle:
             draftItem.rect = AnnotationNumberedCircleMetrics.defaultRect(centeredAt: startPoint, imageSize: imageSize, within: allowedBounds)
-        case .rectangle, .filledRectangle, .ellipse, .pixelate, .blur:
+        case .rectangle, .filledRectangle, .ellipse, .pixelate, .blur, .highlight:
             let aspectRatio = selectedTool.supportsAspectLock && lockAspectRatio ? squareAspectRatio : nil
             draftItem.rect = rect(from: startPoint, to: point, aspectRatio: aspectRatio)
         case .text:
@@ -794,9 +832,7 @@ final class AnnotationEditorModel {
         if let selectedItem {
             applyStyleFromItem(selectedItem, updateSelectedTool: !preservingSelectedTool)
         } else if !selectedItemIDs.isEmpty {
-            selectedSwatch = item.swatch
-            strokeWidth = item.strokeWidth
-            redactionDensity = item.redactionDensity
+            applyStyleFromItem(item, updateSelectedTool: false)
         }
     }
 
@@ -847,9 +883,15 @@ final class AnnotationEditorModel {
         if updateSelectedTool {
             selectedTool = item.tool
         }
-        selectedSwatch = item.swatch
-        strokeWidth = item.strokeWidth
-        redactionDensity = item.redactionDensity
+        if item.tool.supportsColorStyle {
+            selectedSwatch = item.swatch
+        }
+        if item.tool.supportsStrokeStyle {
+            strokeWidth = item.strokeWidth
+        }
+        if item.tool.supportsRedactionDensityStyle {
+            redactionDensity = item.redactionDensity
+        }
         if item.tool == .text {
             textFontName = item.fontName
             textFontSize = AnnotationTextMetrics.renderedFontSize(
@@ -932,6 +974,41 @@ final class AnnotationEditorModel {
             y: (boundaryFrame.minY - imageFrame.minY) / imageFrame.height,
             width: boundaryFrame.width / imageFrame.width,
             height: boundaryFrame.height / imageFrame.height
+        )
+    }
+
+    private func allowedBounds(
+        for tool: AnnotationTool,
+        within canvasBounds: CGRect
+    ) -> CGRect {
+        guard tool == .highlight else { return canvasBounds }
+        return canvasBounds.intersection(CropRectEditor.unit)
+    }
+
+    private func allowedBounds(
+        for interaction: AnnotationInteraction,
+        within canvasBounds: CGRect
+    ) -> CGRect {
+        switch interaction {
+        case .drawing:
+            return allowedBounds(for: selectedTool, within: canvasBounds)
+        case .moving(_, _, let originalItem), .resizing(_, _, let originalItem):
+            return allowedBounds(for: originalItem.tool, within: canvasBounds)
+        case .movingSelection(_, _, let originalItems):
+            let containsOnlyHighlights = !originalItems.isEmpty
+                && originalItems.allSatisfy { $0.tool == .highlight }
+            return containsOnlyHighlights
+                ? allowedBounds(for: .highlight, within: canvasBounds)
+                : canvasBounds
+        case .selecting:
+            return canvasBounds
+        }
+    }
+
+    private func clampedPoint(_ point: CGPoint, within bounds: CGRect) -> CGPoint {
+        CGPoint(
+            x: min(max(point.x, bounds.minX), bounds.maxX),
+            y: min(max(point.y, bounds.minY), bounds.maxY)
         )
     }
 
@@ -1066,7 +1143,7 @@ final class AnnotationEditorModel {
             [point, point, point]
         case .freehand:
             [point]
-        case .rectangle, .filledRectangle, .ellipse, .numberedCircle, .pixelate, .blur, .text:
+        case .rectangle, .filledRectangle, .ellipse, .numberedCircle, .pixelate, .blur, .text, .highlight:
             []
         }
     }

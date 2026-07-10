@@ -46,7 +46,10 @@ extension AnnotationEditorModel {
     }
 
     var isTextStyleAvailable: Bool {
-        selectedTool == .text || selectedTextItem != nil
+        if !selectedItemIDs.isEmpty {
+            return selectedTextItem != nil
+        }
+        return selectedTool == .text
     }
 
     private var selectedTextItem: AnnotationItem? {

@@ -340,14 +340,14 @@ struct InspectorSlider: View {
     }
 
     private var trackFill: Color {
-        colorScheme == .dark ? Color.white.opacity(0.055) : Color.black.opacity(0.04)
+        InspectorControlPalette.trackFill(for: colorScheme)
     }
 
     private var positionFill: Color {
         if isDragging || focusedPart == .track {
             return Color.accentColor.opacity(colorScheme == .dark ? 0.18 : 0.12)
         }
-        return Color.primary.opacity(colorScheme == .dark ? 0.10 : 0.075)
+        return InspectorControlPalette.selectionFill(for: colorScheme)
     }
 
     private func trackStroke(revealsMarkers: Bool) -> Color {

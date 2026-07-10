@@ -50,13 +50,14 @@ enum AnnotationRenderer {
                     contentImage: sourceImage,
                     settings: backgroundSettings,
                     colorSpace: colorSpace,
-                    foregroundOverlay: { context, layout, imageRect in
+                    foregroundOverlay: { context, layout, imageRect, imageClipPath in
                         drawAnnotations(
                             items,
                             in: imageRect,
                             canvasSize: layout.canvasSize,
                             context: context,
-                            colorSpace: colorSpace
+                            colorSpace: colorSpace,
+                            highlightClipPath: imageClipPath
                         )
                     },
                     canvasOverlay: { context, layout, _ in
@@ -145,7 +146,8 @@ enum AnnotationRenderer {
             in: fullRect,
             canvasSize: fullRect.size,
             context: context,
-            colorSpace: colorSpace
+            colorSpace: colorSpace,
+            highlightClipPath: nil
         )
 
         guard let renderedImage = context.makeImage() else {
@@ -160,109 +162,147 @@ enum AnnotationRenderer {
         in imageRect: CGRect,
         canvasSize: CGSize,
         context: CGContext,
-        colorSpace: CGColorSpace
+        colorSpace: CGColorSpace,
+        highlightClipPath: CGPath?
     ) {
         context.setLineCap(.round)
         context.setLineJoin(.round)
-        for item in items {
-            autoreleasepool {
-                context.setStrokeColor(item.swatch.nsColor.cgColor)
-                context.setFillColor(item.swatch.nsColor.cgColor)
 
-                let lineWidth = renderedLineWidth(for: item, imageSize: imageRect.size)
-                context.setLineWidth(lineWidth)
+        // Redactions transform screenshot pixels, so they belong below the
+        // spotlight layer. Draw ordinary annotations afterward so callouts and
+        // text stay legible over the dimmed image.
+        for item in items where item.tool.isRedactionTool {
+            drawAnnotation(
+                item,
+                in: imageRect,
+                canvasSize: canvasSize,
+                context: context,
+                colorSpace: colorSpace
+            )
+        }
 
-                switch item.tool {
-                case .select:
+        drawHighlightOverlay(
+            items,
+            in: imageRect,
+            context: context,
+            clipPath: highlightClipPath
+        )
+
+        for item in items where !item.tool.isRedactionTool && item.tool != .highlight {
+            drawAnnotation(
+                item,
+                in: imageRect,
+                canvasSize: canvasSize,
+                context: context,
+                colorSpace: colorSpace
+            )
+        }
+    }
+
+    private static func drawAnnotation(
+        _ item: AnnotationItem,
+        in imageRect: CGRect,
+        canvasSize: CGSize,
+        context: CGContext,
+        colorSpace: CGColorSpace
+    ) {
+        autoreleasepool {
+            context.setStrokeColor(item.swatch.nsColor.cgColor)
+            context.setFillColor(item.swatch.nsColor.cgColor)
+
+            let lineWidth = renderedLineWidth(for: item, imageSize: imageRect.size)
+            context.setLineWidth(lineWidth)
+
+            switch item.tool {
+            case .select, .highlight:
+                return
+
+            case .rectangle:
+                context.stroke(renderedRect(item.bounds, in: imageRect))
+
+            case .filledRectangle:
+                let rect = renderedRect(item.bounds, in: imageRect)
+                context.addPath(CGPath(
+                    roundedRect: rect,
+                    cornerWidth: AnnotationFilledRectangleMetrics.cornerRadius(for: rect),
+                    cornerHeight: AnnotationFilledRectangleMetrics.cornerRadius(for: rect),
+                    transform: nil
+                ))
+                context.fillPath()
+
+            case .ellipse:
+                context.strokeEllipse(in: renderedRect(item.bounds, in: imageRect))
+
+            case .numberedCircle:
+                drawNumberedCircle(
+                    item,
+                    in: renderedRect(item.bounds, in: imageRect),
+                    context: context
+                )
+
+            case .pixelate:
+                applyPixelation(
+                    in: renderedRect(item.bounds, in: imageRect),
+                    context: context,
+                    canvasSize: canvasSize,
+                    colorSpace: colorSpace,
+                    density: item.redactionDensity
+                )
+
+            case .blur:
+                applyBlur(
+                    in: renderedRect(item.bounds, in: imageRect),
+                    context: context,
+                    canvasSize: canvasSize,
+                    density: item.redactionDensity
+                )
+
+            case .text:
+                drawText(
+                    item,
+                    in: renderedRect(item.bounds, in: imageRect),
+                    imageHeight: imageRect.height,
+                    context: context
+                )
+
+            case .line:
+                guard let first = item.points.first,
+                      let last = item.points.last else {
                     return
-
-                case .rectangle:
-                    context.stroke(renderedRect(item.bounds, in: imageRect))
-
-                case .filledRectangle:
-                    let rect = renderedRect(item.bounds, in: imageRect)
-                    context.addPath(CGPath(
-                        roundedRect: rect,
-                        cornerWidth: AnnotationFilledRectangleMetrics.cornerRadius(for: rect),
-                        cornerHeight: AnnotationFilledRectangleMetrics.cornerRadius(for: rect),
-                        transform: nil
-                    ))
-                    context.fillPath()
-
-                case .ellipse:
-                    context.strokeEllipse(in: renderedRect(item.bounds, in: imageRect))
-
-                case .numberedCircle:
-                    drawNumberedCircle(
-                        item,
-                        in: renderedRect(item.bounds, in: imageRect),
-                        context: context
-                    )
-
-                case .pixelate:
-                    applyPixelation(
-                        in: renderedRect(item.bounds, in: imageRect),
-                        context: context,
-                        canvasSize: canvasSize,
-                        colorSpace: colorSpace,
-                        density: item.redactionDensity
-                    )
-
-                case .blur:
-                    applyBlur(
-                        in: renderedRect(item.bounds, in: imageRect),
-                        context: context,
-                        canvasSize: canvasSize,
-                        density: item.redactionDensity
-                    )
-
-                case .text:
-                    drawText(
-                        item,
-                        in: renderedRect(item.bounds, in: imageRect),
-                        imageHeight: imageRect.height,
-                        context: context
-                    )
-
-                case .line:
-                    guard let first = item.points.first,
-                          let last = item.points.last else {
-                        return
-                    }
-
-                    let start = renderedPoint(first, in: imageRect)
-                    let end = renderedPoint(last, in: imageRect)
-                    context.beginPath()
-                    context.move(to: start)
-                    context.addLine(to: end)
-                    context.strokePath()
-
-                case .freehand:
-                    drawFreehand(
-                        points: item.points,
-                        imageRect: imageRect,
-                        context: context
-                    )
-
-                case .arrow:
-                    guard let first = item.points.first,
-                          let control = item.controlPoint,
-                          let last = item.points.last,
-                          let geometry = AnnotationArrowGeometry(
-                            start: renderedPoint(first, in: imageRect),
-                            control: renderedPoint(control, in: imageRect),
-                            end: renderedPoint(last, in: imageRect),
-                            lineWidth: lineWidth
-                          ) else {
-                        return
-                    }
-
-                    context.beginPath()
-                    context.move(to: renderedPoint(first, in: imageRect))
-                    context.addQuadCurve(to: geometry.tip, control: geometry.shaftControl)
-                    context.strokePath()
-                    drawArrowHead(geometry, context: context)
                 }
+
+                let start = renderedPoint(first, in: imageRect)
+                let end = renderedPoint(last, in: imageRect)
+                context.beginPath()
+                context.move(to: start)
+                context.addLine(to: end)
+                context.strokePath()
+
+            case .freehand:
+                drawFreehand(
+                    points: item.points,
+                    imageRect: imageRect,
+                    context: context
+                )
+
+            case .arrow:
+                guard let first = item.points.first,
+                      let control = item.controlPoint,
+                      let last = item.points.last,
+                      let geometry = AnnotationArrowGeometry(
+                        start: renderedPoint(first, in: imageRect),
+                        control: renderedPoint(control, in: imageRect),
+                        end: renderedPoint(last, in: imageRect),
+                        lineWidth: lineWidth
+                      ) else {
+                    return
+                }
+
+                context.beginPath()
+                context.move(to: renderedPoint(first, in: imageRect))
+                context.addQuadCurve(to: geometry.tip, control: geometry.shaftControl)
+                context.strokePath()
+                drawArrowHead(geometry, context: context)
             }
         }
     }
@@ -274,6 +314,50 @@ enum AnnotationRenderer {
             width: rect.width * imageRect.width,
             height: rect.height * imageRect.height
         )
+    }
+
+    private static func drawHighlightOverlay(
+        _ items: [AnnotationItem],
+        in imageRect: CGRect,
+        context: CGContext,
+        clipPath: CGPath?
+    ) {
+        let highlightItems = items.filter { item in
+            item.tool == .highlight
+                && item.bounds.width > 0
+                && item.bounds.height > 0
+        }
+        guard !highlightItems.isEmpty else { return }
+
+        context.saveGState()
+        if let clipPath {
+            context.addPath(clipPath)
+            context.clip()
+        } else {
+            context.clip(to: imageRect)
+        }
+
+        context.beginTransparencyLayer(auxiliaryInfo: nil)
+        context.setBlendMode(.normal)
+        context.setFillColor(
+            NSColor.black
+                .withAlphaComponent(AnnotationHighlightMetrics.overlayOpacity)
+                .cgColor
+        )
+        context.fill(imageRect)
+
+        context.saveGState()
+        context.setBlendMode(.clear)
+        for item in highlightItems {
+            let hole = renderedRect(item.bounds, in: imageRect).intersection(imageRect)
+            if !hole.isNull {
+                context.fill(hole)
+            }
+        }
+        context.restoreGState()
+
+        context.endTransparencyLayer()
+        context.restoreGState()
     }
 
     private static func renderedPoint(_ point: CGPoint, in imageRect: CGRect) -> CGPoint {

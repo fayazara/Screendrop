@@ -82,7 +82,7 @@ struct AnnotationEditorInspector: View {
                     }
                 }
 
-                if model.inspectedTool != nil {
+                if model.hasInspectorStyleControls {
                     InspectorSectionDivider()
 
                     InspectorSection("Style") {
@@ -95,10 +95,12 @@ struct AnnotationEditorInspector: View {
                         if model.isTextStyleAvailable {
                             AnnotationTextStyleControls(model: model)
                         } else {
-                            InspectorRow("Color") {
-                                AnnotationColorMenu(selectedSwatch: model.selectedSwatch) { swatch in
-                                    onEditorAction()
-                                    model.setSwatch(swatch)
+                            if model.isColorStyleAvailable {
+                                InspectorRow("Color") {
+                                    AnnotationColorMenu(selectedSwatch: model.selectedSwatch) { swatch in
+                                        onEditorAction()
+                                        model.setSwatch(swatch)
+                                    }
                                 }
                             }
 
@@ -113,7 +115,7 @@ struct AnnotationEditorInspector: View {
 
                             if model.isRedactionStyleAvailable {
                                 InspectorSlider(
-                                    "Density",
+                                    "Strength",
                                     value: Binding(
                                         get: { model.redactionDensity },
                                         set: {
@@ -345,8 +347,14 @@ private struct AnnotationInspectorToolGrid: View {
     private let columns: [GridItem] = Array(
         repeating: GridItem(.flexible(), spacing: 4), count: 6
     )
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
+        let shape = RoundedRectangle(
+            cornerRadius: InspectorMetrics.sliderRadius,
+            style: .continuous
+        )
+
         LazyVGrid(columns: columns, spacing: 4) {
             ForEach(AnnotationTool.allCases) { tool in
                 AnnotationToolCell(
@@ -356,6 +364,12 @@ private struct AnnotationInspectorToolGrid: View {
                 )
             }
         }
+        .frame(maxWidth: 280)
+        .frame(maxWidth: .infinity)
+        .padding(2)
+        .background(shape.fill(InspectorControlPalette.trackFill(for: colorScheme)))
+        .overlay(shape.stroke(InspectorControlPalette.border, lineWidth: 0.5))
+        .clipShape(shape)
     }
 }
 
@@ -365,29 +379,43 @@ private struct AnnotationToolCell: View {
     let action: () -> Void
 
     @State private var isHovering = false
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: tool.systemImage)
-                .font(.system(size: 13, weight: .medium))
-                .frame(maxWidth: .infinity)
-                .frame(height: 30)
-                .contentShape(RoundedRectangle(cornerRadius: InspectorMetrics.tileRadius, style: .continuous))
+            ZStack {
+                Color.clear
+
+                Image(systemName: tool.systemImage)
+                    .font(.system(size: 13, weight: .medium))
+            }
+            .aspectRatio(1, contentMode: .fit)
+            .contentShape(RoundedRectangle(cornerRadius: InspectorMetrics.tileRadius, style: .continuous))
         }
         .buttonStyle(.plain)
-        .foregroundStyle(isSelected ? Color.accentColor : .primary.opacity(0.75))
-        .background(
+        .focusEffectDisabled()
+        .foregroundStyle(isSelected ? InspectorControlPalette.selectedForeground : Color.secondary)
+        .background {
             RoundedRectangle(cornerRadius: InspectorMetrics.tileRadius, style: .continuous)
                 .fill(background)
-        )
-        .help(tool.title)
+                .overlay {
+                    if isSelected {
+                        RoundedRectangle(cornerRadius: InspectorMetrics.tileRadius, style: .continuous)
+                            .stroke(InspectorControlPalette.border, lineWidth: 0.5)
+                    }
+                }
+        }
+        .help(tool.helpText)
         .onHover { isHovering = $0 }
+        .accessibilityLabel(tool.title)
+        .accessibilityHint(tool.helpText)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     private var background: Color {
         if isSelected {
-            return Color.accentColor.opacity(0.16)
+            return InspectorControlPalette.selectionFill(for: colorScheme)
         }
-        return isHovering ? Color.primary.opacity(0.07) : .clear
+        return isHovering ? InspectorControlPalette.hoverFill : .clear
     }
 }

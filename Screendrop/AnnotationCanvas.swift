@@ -343,45 +343,66 @@ struct AnnotationCanvas: View {
                 clipCorners: clipCorners
             )
 
-            ForEach(model.items) { item in
-                AnnotationItemView(
-                    item: item,
-                    image: displayedImage,
-                    originalImageSize: model.imageSize,
+            // Redactions alter the screenshot itself, so keep them beneath the
+            // spotlight mask. Vector annotations remain crisp above the mask.
+            ForEach(model.items.filter { $0.tool.isRedactionTool }) { item in
+                committedAnnotationView(
+                    item,
+                    displayedImage: displayedImage,
                     imageFrame: imageFrame,
-                    isSelected: model.selectedItemIDs.contains(item.id),
-                    showsResizeHandles: model.selectionCount == 1,
-                    isEditingText: item.id == model.editingTextItemID,
-                    allowsRedactionPreviewCaching: !(model.isTransformingExistingAnnotation && model.selectedItemIDs.contains(item.id)),
-                    text: Binding(
-                        get: { item.text },
-                        set: { model.setText($0, for: item.id) }
-                    ),
-                    onCommitText: model.commitTextEditing,
-                    onTextSizeChange: { size in
-                        model.setTextViewContentSize(
-                            size,
-                            for: item.id,
-                            imageFrame: imageFrame,
-                            allowedBounds: allowedBounds
-                        )
-                    }
+                    allowedBounds: allowedBounds,
+                    isSelected: false,
+                    rendersContent: true
                 )
             }
 
-            if let draftItem = model.draftItem {
-                AnnotationItemView(
-                    item: draftItem,
-                    image: displayedImage,
-                    originalImageSize: model.imageSize,
+            if let draftItem = model.draftItem, draftItem.tool.isRedactionTool {
+                draftAnnotationView(
+                    draftItem,
+                    displayedImage: displayedImage,
                     imageFrame: imageFrame,
-                    isSelected: false,
-                    showsResizeHandles: false,
-                    isEditingText: false,
-                    allowsRedactionPreviewCaching: false,
-                    text: .constant(draftItem.text),
-                    onCommitText: {},
-                    onTextSizeChange: { _ in }
+                    rendersContent: true
+                )
+            }
+
+            AnnotationHighlightOverlay(
+                items: visibleHighlightItems,
+                imageFrame: imageFrame,
+                cornerRadii: clipCorners
+            )
+
+            ForEach(model.items.filter { !$0.tool.isRedactionTool }) { item in
+                committedAnnotationView(
+                    item,
+                    displayedImage: displayedImage,
+                    imageFrame: imageFrame,
+                    allowedBounds: allowedBounds,
+                    isSelected: model.selectedItemIDs.contains(item.id),
+                    rendersContent: true
+                )
+            }
+
+            if let draftItem = model.draftItem, !draftItem.tool.isRedactionTool {
+                draftAnnotationView(
+                    draftItem,
+                    displayedImage: displayedImage,
+                    imageFrame: imageFrame,
+                    rendersContent: true
+                )
+            }
+
+            // Selection chrome always sits above the spotlight, even though a
+            // redaction's image effect is intentionally below it.
+            ForEach(model.items.filter {
+                $0.tool.isRedactionTool && model.selectedItemIDs.contains($0.id)
+            }) { item in
+                committedAnnotationView(
+                    item,
+                    displayedImage: displayedImage,
+                    imageFrame: imageFrame,
+                    allowedBounds: allowedBounds,
+                    isSelected: true,
+                    rendersContent: false
                 )
             }
 
@@ -402,6 +423,71 @@ struct AnnotationCanvas: View {
             }
         }
         .frame(width: viewportSize.width, height: viewportSize.height, alignment: .topLeading)
+    }
+
+    private func committedAnnotationView(
+        _ item: AnnotationItem,
+        displayedImage: NSImage,
+        imageFrame: CGRect,
+        allowedBounds: CGRect,
+        isSelected: Bool,
+        rendersContent: Bool
+    ) -> some View {
+        AnnotationItemView(
+            item: item,
+            image: displayedImage,
+            originalImageSize: model.imageSize,
+            imageFrame: imageFrame,
+            isSelected: isSelected,
+            showsResizeHandles: model.selectionCount == 1,
+            isEditingText: item.id == model.editingTextItemID,
+            allowsRedactionPreviewCaching: rendersContent
+                && !(model.isTransformingExistingAnnotation && model.selectedItemIDs.contains(item.id)),
+            rendersContent: rendersContent,
+            text: Binding(
+                get: { item.text },
+                set: { model.setText($0, for: item.id) }
+            ),
+            onCommitText: model.commitTextEditing,
+            onTextSizeChange: { size in
+                model.setTextViewContentSize(
+                    size,
+                    for: item.id,
+                    imageFrame: imageFrame,
+                    allowedBounds: allowedBounds
+                )
+            }
+        )
+    }
+
+    private func draftAnnotationView(
+        _ item: AnnotationItem,
+        displayedImage: NSImage,
+        imageFrame: CGRect,
+        rendersContent: Bool
+    ) -> some View {
+        AnnotationItemView(
+            item: item,
+            image: displayedImage,
+            originalImageSize: model.imageSize,
+            imageFrame: imageFrame,
+            isSelected: false,
+            showsResizeHandles: false,
+            isEditingText: false,
+            allowsRedactionPreviewCaching: false,
+            rendersContent: rendersContent,
+            text: .constant(item.text),
+            onCommitText: {},
+            onTextSizeChange: { _ in }
+        )
+    }
+
+    private var visibleHighlightItems: [AnnotationItem] {
+        var highlightItems = model.items.filter { $0.tool == .highlight }
+        if let draftItem = model.draftItem, draftItem.tool == .highlight {
+            highlightItems.append(draftItem)
+        }
+        return highlightItems
     }
 
     private func screenshot(

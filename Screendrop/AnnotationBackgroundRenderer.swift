@@ -9,7 +9,12 @@ import ImageIO
 import SwiftUI
 
 enum AnnotationBackgroundRenderer {
-    typealias ForegroundOverlay = (_ context: CGContext, _ layout: AnnotationBackgroundLayout, _ imageRect: CGRect) -> Void
+    typealias ForegroundOverlay = (
+        _ context: CGContext,
+        _ layout: AnnotationBackgroundLayout,
+        _ imageRect: CGRect,
+        _ imageClipPath: CGPath
+    ) -> Void
     typealias CanvasOverlay = (_ context: CGContext, _ layout: AnnotationBackgroundLayout, _ imageRect: CGRect) -> Void
 
     static func compose(
@@ -95,7 +100,7 @@ enum AnnotationBackgroundRenderer {
 
             drawShadow(path: clipPath, strength: settings.shadow, context: foregroundContext)
             drawImage(displayedImage, in: imageRect, clippedTo: clipPath, context: foregroundContext)
-            foregroundOverlay?(foregroundContext, layout, imageRect)
+            foregroundOverlay?(foregroundContext, layout, imageRect, clipPath)
 
             guard let foregroundImage = foregroundContext.makeImage() else {
                 throw CocoaError(.fileWriteUnknown)
@@ -120,7 +125,7 @@ enum AnnotationBackgroundRenderer {
                 drawShadow(path: clipPath, strength: settings.shadow, context: context)
             }
             drawImage(displayedImage, in: imageRect, clippedTo: clipPath, context: context)
-            foregroundOverlay?(context, layout, imageRect)
+            foregroundOverlay?(context, layout, imageRect, clipPath)
         }
 
         if usesSceneBlur {

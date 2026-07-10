@@ -43,6 +43,20 @@ enum InspectorMetrics {
     static let labelColumnWidth: CGFloat = 58
 }
 
+enum InspectorControlPalette {
+    static func trackFill(for colorScheme: ColorScheme) -> Color {
+        colorScheme == .dark ? Color.white.opacity(0.055) : Color.black.opacity(0.04)
+    }
+
+    static func selectionFill(for colorScheme: ColorScheme) -> Color {
+        Color.primary.opacity(colorScheme == .dark ? 0.10 : 0.075)
+    }
+
+    static var hoverFill: Color { Color.primary.opacity(0.04) }
+    static var border: Color { Color.primary.opacity(0.10) }
+    static var selectedForeground: Color { Color.primary.opacity(0.92) }
+}
+
 // MARK: - Typography
 
 extension Font {
@@ -335,7 +349,7 @@ struct InspectorSegmented<Option: Hashable, Label: View>: View {
         .padding(2)
         .frame(height: height)
         .background(shape.fill(trackFill))
-        .overlay(shape.stroke(Color.primary.opacity(0.10), lineWidth: 0.5))
+        .overlay(shape.stroke(InspectorControlPalette.border, lineWidth: 0.5))
         .clipShape(shape)
     }
 
@@ -354,14 +368,14 @@ struct InspectorSegmented<Option: Hashable, Label: View>: View {
                 .contentShape(RoundedRectangle(cornerRadius: segmentRadius, style: .continuous))
         }
         .buttonStyle(.plain)
-        .foregroundStyle(selected ? Color.primary.opacity(0.92) : Color.secondary)
+        .foregroundStyle(selected ? InspectorControlPalette.selectedForeground : Color.secondary)
         .background {
             RoundedRectangle(cornerRadius: segmentRadius, style: .continuous)
                 .fill(segmentFill(isSelected: selected, isHovering: isHovering))
                 .overlay {
                     if selected {
                         RoundedRectangle(cornerRadius: segmentRadius, style: .continuous)
-                            .stroke(Color.primary.opacity(0.10), lineWidth: 0.5)
+                            .stroke(InspectorControlPalette.border, lineWidth: 0.5)
                     }
                 }
         }
@@ -376,14 +390,14 @@ struct InspectorSegmented<Option: Hashable, Label: View>: View {
     }
 
     private var trackFill: Color {
-        colorScheme == .dark ? Color.white.opacity(0.055) : Color.black.opacity(0.04)
+        InspectorControlPalette.trackFill(for: colorScheme)
     }
 
     private func segmentFill(isSelected: Bool, isHovering: Bool) -> Color {
         if isSelected {
-            return Color.primary.opacity(colorScheme == .dark ? 0.10 : 0.075)
+            return InspectorControlPalette.selectionFill(for: colorScheme)
         }
-        return isHovering ? Color.primary.opacity(0.04) : .clear
+        return isHovering ? InspectorControlPalette.hoverFill : .clear
     }
 }
 

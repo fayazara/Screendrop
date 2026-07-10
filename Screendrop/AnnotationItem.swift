@@ -72,7 +72,7 @@ struct AnnotationItem: Identifiable, Equatable {
                 rect.union(CGRect(origin: point, size: .zero))
             }
             return bounds.standardized
-        case .rectangle, .filledRectangle, .ellipse, .numberedCircle, .pixelate, .blur, .text:
+        case .rectangle, .filledRectangle, .ellipse, .numberedCircle, .pixelate, .blur, .text, .highlight:
             return rect.standardized
         }
     }
@@ -136,7 +136,7 @@ struct AnnotationItem: Identifiable, Equatable {
         case .freehand:
             guard points.count >= 2 else { return false }
             return pathLength(points) >= minimumSize
-        case .rectangle, .filledRectangle, .ellipse, .numberedCircle, .pixelate, .blur:
+        case .rectangle, .filledRectangle, .ellipse, .numberedCircle, .pixelate, .blur, .highlight:
             return bounds.width >= minimumSize && bounds.height >= minimumSize
         case .text:
             return bounds.width >= minimumSize
@@ -176,7 +176,7 @@ struct AnnotationItem: Identifiable, Equatable {
 
             return distance(from: point, toQuadraticFrom: start, control: controlPoint, to: end) <= tolerance
 
-        case .rectangle, .filledRectangle, .pixelate, .blur, .text:
+        case .rectangle, .filledRectangle, .pixelate, .blur, .text, .highlight:
             return bounds.insetBy(dx: -tolerance, dy: -tolerance).contains(point)
 
         case .ellipse, .numberedCircle:

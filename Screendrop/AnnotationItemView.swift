@@ -15,6 +15,7 @@ struct AnnotationItemView: View {
     let showsResizeHandles: Bool
     let isEditingText: Bool
     let allowsRedactionPreviewCaching: Bool
+    let rendersContent: Bool
     let text: Binding<String>
     let onCommitText: () -> Void
     let onTextSizeChange: (CGSize) -> Void
@@ -25,38 +26,42 @@ struct AnnotationItemView: View {
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            if item.tool.isRedactionTool {
-                RedactionPreview(
-                    image: image,
-                    item: item,
-                    originalImageSize: originalImageSize,
-                    imageFrame: imageFrame,
-                    viewBounds: viewBounds,
-                    allowsCaching: allowsRedactionPreviewCaching
-                )
-            } else if item.tool.isFilledShape {
-                itemPath
-                    .fill(fillStyle)
-            } else if item.tool == .numberedCircle {
-                NumberedCircleAnnotationView(item: item, viewBounds: viewBounds)
-            } else if item.tool == .text {
-                AnnotationTextItemView(
-                    item: item,
-                    text: text,
-                    viewBounds: viewBounds,
-                    imageFrameHeight: imageFrame.height,
-                    isEditing: isEditingText,
-                    onCommit: onCommitText,
-                    onSizeChange: onTextSizeChange
-                )
-            } else {
-                itemPath
-                    .stroke(item.swatch.color, style: StrokeStyle(lineWidth: item.strokeWidth, lineCap: .round, lineJoin: .round))
-            }
+            if rendersContent {
+                if item.tool == .highlight {
+                    EmptyView()
+                } else if item.tool.isRedactionTool {
+                    RedactionPreview(
+                        image: image,
+                        item: item,
+                        originalImageSize: originalImageSize,
+                        imageFrame: imageFrame,
+                        viewBounds: viewBounds,
+                        allowsCaching: allowsRedactionPreviewCaching
+                    )
+                } else if item.tool.isFilledShape {
+                    itemPath
+                        .fill(fillStyle)
+                } else if item.tool == .numberedCircle {
+                    NumberedCircleAnnotationView(item: item, viewBounds: viewBounds)
+                } else if item.tool == .text {
+                    AnnotationTextItemView(
+                        item: item,
+                        text: text,
+                        viewBounds: viewBounds,
+                        imageFrameHeight: imageFrame.height,
+                        isEditing: isEditingText,
+                        onCommit: onCommitText,
+                        onSizeChange: onTextSizeChange
+                    )
+                } else {
+                    itemPath
+                        .stroke(item.swatch.color, style: StrokeStyle(lineWidth: item.strokeWidth, lineCap: .round, lineJoin: .round))
+                }
 
-            if let arrowHeadPath {
-                arrowHeadPath
-                    .stroke(item.swatch.color, style: StrokeStyle(lineWidth: item.strokeWidth, lineCap: .round, lineJoin: .round))
+                if let arrowHeadPath {
+                    arrowHeadPath
+                        .stroke(item.swatch.color, style: StrokeStyle(lineWidth: item.strokeWidth, lineCap: .round, lineJoin: .round))
+                }
             }
 
             if isSelected {
@@ -70,7 +75,7 @@ struct AnnotationItemView: View {
         let rect = viewRect(item.bounds)
 
         switch item.tool {
-        case .select:
+        case .select, .highlight:
             return Path()
 
         case .rectangle:

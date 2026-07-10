@@ -53,7 +53,7 @@ brew upgrade --cask screendrop
 - Capture the full screen, a selected window, or a selected area.
 - Record the full screen, a selected window, or a selected area.
 - Preview recent captures in a floating stack.
-- Annotate screenshots with shapes, arrows, freehand drawing, text, numbered markers, blur, pixelate, and background styling.
+- Annotate screenshots with shapes, arrows, freehand drawing, text, numbered markers, highlights, blur, pixelate, and background styling.
 - Trim and compress screen recordings.
 - Save captures automatically to your chosen folder.
 - Copy screenshots or recordings to the clipboard.
