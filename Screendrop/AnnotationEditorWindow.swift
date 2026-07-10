@@ -14,6 +14,7 @@ struct AnnotationEditorWindow: View {
 
     @State private var model = AnnotationEditorModel()
     @State private var wallpaperStore = AnnotationWallpaperStore.shared
+    @State private var backgroundPresetStore = AnnotationBackgroundPresetStore.shared
     @State private var isInspectorPresented = true
     @State private var isFinishing = false
     @State private var isUploading = false
@@ -74,6 +75,7 @@ struct AnnotationEditorWindow: View {
                 AnnotationEditorInspector(
                     model: model,
                     wallpaperStore: wallpaperStore,
+                    backgroundPresetStore: backgroundPresetStore,
                     focusedField: $focusedField,
                     onEditorAction: clearInspectorFocus,
                     onPickWallpaper: pickCustomWallpaper

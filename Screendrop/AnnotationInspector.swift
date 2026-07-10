@@ -19,6 +19,7 @@ struct AnnotationEditorInspector: View {
 
     @Bindable var model: AnnotationEditorModel
     @Bindable var wallpaperStore: AnnotationWallpaperStore
+    @Bindable var backgroundPresetStore: AnnotationBackgroundPresetStore
     let focusedField: FocusState<AnnotationEditorFocusedField?>.Binding
     let onEditorAction: () -> Void
     let onPickWallpaper: () -> Void
@@ -164,6 +165,20 @@ struct AnnotationEditorInspector: View {
             // Reserve clearance so the last control (aspect ratio) is never
             // hidden behind the floating preview peek pill.
             .padding(.bottom, PreviewPeekTab.pillHeight * 1.1)
+        }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            VStack(spacing: 0) {
+                AnnotationBackgroundPresetBar(
+                    model: model,
+                    presetStore: backgroundPresetStore,
+                    onEditorAction: onEditorAction
+                )
+
+                Rectangle()
+                    .fill(Color(nsColor: .separatorColor).opacity(0.45))
+                    .frame(height: 0.5)
+            }
+            .background(sidebarBackground)
         }
         .scrollContentBackground(.hidden)
         .scrollEdgeEffectSoftIfAvailable()

@@ -45,6 +45,7 @@ final class AnnotationEditorModel {
     var strokeWidth: CGFloat = 4
     var redactionDensity: CGFloat = 0.55
     var backgroundSettings = AnnotationBackgroundSettings()
+    var appliedBackgroundPresetID: AnnotationBackgroundPreset.ID?
     var errorMessage: String?
     var isSmartRedacting = false
     var smartRedactionMessage: String?
@@ -173,10 +174,20 @@ final class AnnotationEditorModel {
             renderSourceURL = candidateBaseURL
             items = document.annotationItems
             backgroundSettings = document.backgroundSettings
+            appliedBackgroundPresetID = nil
         } else {
             renderSourceURL = url
             items = []
-            backgroundSettings = AnnotationBackgroundSettings()
+            let presetStore = AnnotationBackgroundPresetStore.shared
+            let storedActivePreset = presetStore.preset(id: presetStore.activePresetID)
+            let activePreset = storedActivePreset?.hasMissingWallpaper == false
+                ? storedActivePreset
+                : nil
+            if storedActivePreset?.hasMissingWallpaper == true {
+                presetStore.setActivePreset(id: nil)
+            }
+            backgroundSettings = activePreset?.settings ?? AnnotationBackgroundSettings()
+            appliedBackgroundPresetID = activePreset?.id
         }
 
         baseImageURL = renderSourceURL
@@ -235,6 +246,7 @@ final class AnnotationEditorModel {
         isTextPlacementArmed = false
         selectionRect = nil
         backgroundSettings = AnnotationBackgroundSettings()
+        appliedBackgroundPresetID = nil
         interaction = nil
         history.reset()
         isCropping = false
@@ -1168,6 +1180,14 @@ final class AnnotationEditorModel {
             textAlignmentRawValue: textAlignment.rawValue
         )
         AnnotationPresetStore.save(preset)
+    }
+
+    /// Applies the complete reusable background recipe to this editor.
+    /// Annotation items and editor interaction state are intentionally left
+    /// untouched; the future-screenshot default is selected separately.
+    func applyBackgroundPreset(_ preset: AnnotationBackgroundPreset) {
+        backgroundSettings = preset.settings
+        appliedBackgroundPresetID = preset.id
     }
 
     private func midpoint(_ lhs: CGPoint, _ rhs: CGPoint) -> CGPoint {
