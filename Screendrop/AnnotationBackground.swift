@@ -47,7 +47,7 @@ struct AnnotationCameraSettings: Equatable {
     /// Translation as a fraction of the final canvas dimensions.
     var panX: CGFloat = 0
     var panY: CGFloat = 0
-    /// Camera/vanishing-plane tilt, expressed in degrees.
+    /// Horizontal/vertical camera orbit around the card center, in degrees.
     var tiltXDegrees: CGFloat = 0
     var tiltYDegrees: CGFloat = 0
     /// Local card rotation around its horizontal and vertical axes.
@@ -56,19 +56,23 @@ struct AnnotationCameraSettings: Equatable {
     /// Rotation around the viewing axis.
     var rollDegrees: CGFloat = 0
     /// Lens angle controlling the strength of perspective.
-    var fieldOfViewDegrees: CGFloat = 45
-    /// Final scale after the rotated card is auto-fitted into its layout slot.
+    var fieldOfViewDegrees: CGFloat = 24
+    /// Explicit final scale around the card center. Rotation never changes it.
     var zoom: CGFloat = 1
+    /// Version 1 used shear-based Tilt and hidden angle-dependent auto-fit.
+    /// Version 2 uses center-origin camera orbit and explicit-only Zoom.
+    var projectionVersion: Int = 2
 
     var isDefault: Bool {
-        isApproximatelyZero(panX)
+        let defaultFieldOfView: CGFloat = projectionVersion < 2 ? 45 : 24
+        return isApproximatelyZero(panX)
             && isApproximatelyZero(panY)
             && isApproximatelyZero(tiltXDegrees)
             && isApproximatelyZero(tiltYDegrees)
             && isApproximatelyZero(rotationXDegrees)
             && isApproximatelyZero(rotationYDegrees)
             && isApproximatelyZero(rollDegrees)
-            && abs(fieldOfViewDegrees - 45) <= 0.0001
+            && abs(fieldOfViewDegrees - defaultFieldOfView) <= 0.0001
             && abs(zoom - 1) <= 0.0001
     }
 
@@ -85,6 +89,14 @@ struct AnnotationCameraSettings: Equatable {
 
     private func isApproximatelyZero(_ value: CGFloat) -> Bool {
         abs(value) <= 0.0001
+    }
+
+    mutating func upgradeProjectionIfNeeded() {
+        guard projectionVersion < 2 else { return }
+        projectionVersion = 2
+        if abs(fieldOfViewDegrees - 45) <= 0.0001 {
+            fieldOfViewDegrees = 24
+        }
     }
 }
 

@@ -168,6 +168,7 @@ struct StoredBackground: Codable, Equatable {
 }
 
 struct StoredCameraSettings: Codable, Equatable {
+    var projectionVersion: Int?
     var panX: Double
     var panY: Double
     var tiltXDegrees: Double
@@ -179,6 +180,7 @@ struct StoredCameraSettings: Codable, Equatable {
     var zoom: Double
 
     init(_ settings: AnnotationCameraSettings) {
+        projectionVersion = settings.projectionVersion
         panX = Double(settings.panX)
         panY = Double(settings.panY)
         tiltXDegrees = Double(settings.tiltXDegrees)
@@ -191,7 +193,7 @@ struct StoredCameraSettings: Codable, Equatable {
     }
 
     var settings: AnnotationCameraSettings {
-        AnnotationCameraSettings(
+        return AnnotationCameraSettings(
             panX: CGFloat(panX),
             panY: CGFloat(panY),
             tiltXDegrees: CGFloat(tiltXDegrees),
@@ -200,7 +202,8 @@ struct StoredCameraSettings: Codable, Equatable {
             rotationYDegrees: CGFloat(rotationYDegrees),
             rollDegrees: CGFloat(rollDegrees),
             fieldOfViewDegrees: CGFloat(fieldOfViewDegrees),
-            zoom: CGFloat(zoom)
+            zoom: CGFloat(zoom),
+            projectionVersion: projectionVersion ?? 1
         )
     }
 }
