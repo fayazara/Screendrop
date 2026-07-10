@@ -9,6 +9,7 @@ import ImageIO
 import SwiftUI
 
 enum AnnotationBackgroundRenderer {
+    typealias ForegroundOverlay = (_ context: CGContext, _ layout: AnnotationBackgroundLayout, _ imageRect: CGRect) -> Void
     typealias CanvasOverlay = (_ context: CGContext, _ layout: AnnotationBackgroundLayout, _ imageRect: CGRect) -> Void
 
     static func compose(
@@ -27,40 +28,9 @@ enum AnnotationBackgroundRenderer {
         contentImage: CGImage,
         settings: AnnotationBackgroundSettings,
         colorSpace: CGColorSpace,
+        foregroundOverlay: ForegroundOverlay? = nil,
         canvasOverlay: CanvasOverlay? = nil
     ) throws -> CGImage {
-        guard settings.isEnabled else {
-            guard let canvasOverlay else { return contentImage }
-
-            let width = contentImage.width
-            let height = contentImage.height
-            guard let context = CGContext(
-                data: nil,
-                width: width,
-                height: height,
-                bitsPerComponent: 8,
-                bytesPerRow: 0,
-                space: colorSpace,
-                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-            ) else {
-                throw CocoaError(.fileWriteUnknown)
-            }
-
-            let fullRect = CGRect(x: 0, y: 0, width: width, height: height)
-            context.interpolationQuality = .none
-            context.draw(contentImage, in: fullRect)
-            canvasOverlay(
-                context,
-                AnnotationBackgroundLayout(canvasSize: fullRect.size, imageRect: fullRect, padding: 0),
-                fullRect
-            )
-
-            guard let renderedImage = context.makeImage() else {
-                throw CocoaError(.fileWriteUnknown)
-            }
-            return renderedImage
-        }
-
         let contentSize = CGSize(width: contentImage.width, height: contentImage.height)
         let layout = AnnotationBackgroundLayout.make(contentSize: contentSize, settings: settings)
         let width = max(1, Int(ceil(layout.canvasSize.width)))
@@ -87,8 +57,10 @@ enum AnnotationBackgroundRenderer {
             contentSize: contentSize,
             canvasSize: canvasRect.size
         )
-        let baseCornerRadius = settings.cornerRadius * min(imageRect.width, imageRect.height)
-        let m = settings.alignment.cornerRadiusMultipliers
+        let baseCornerRadius = settings.usesCanvasLayout
+            ? settings.cornerRadius * min(imageRect.width, imageRect.height)
+            : 0
+        let m = settings.effectiveCanvasAlignment.cornerRadiusMultipliers
         let cornerRadii = PerCornerRadii(
             topLeft: baseCornerRadius * m.topLeft,
             topRight: baseCornerRadius * m.topRight,
@@ -96,20 +68,75 @@ enum AnnotationBackgroundRenderer {
             bottomRight: baseCornerRadius * m.bottomRight
         )
         let clipPath = PerCornerRadii.path(in: imageRect, radii: cornerRadii)
-        drawShadow(path: clipPath, strength: settings.shadow, context: context)
+        let displayedImage = try AnnotationMockupEffectsRenderer.progressiveBlur(
+            contentImage,
+            settings: settings.progressiveBlur,
+            colorSpace: colorSpace
+        )
 
-        context.saveGState()
-        context.interpolationQuality = .none
-        context.addPath(clipPath)
-        context.clip()
-        context.draw(contentImage, in: imageRect)
-        context.restoreGState()
+        if settings.camera.hasEffect {
+            guard let foregroundContext = CGContext(
+                data: nil,
+                width: width,
+                height: height,
+                bitsPerComponent: 8,
+                bytesPerRow: 0,
+                space: colorSpace,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ) else {
+                throw CocoaError(.fileWriteUnknown)
+            }
+
+            drawShadow(path: clipPath, strength: settings.shadow, context: foregroundContext)
+            drawImage(displayedImage, in: imageRect, clippedTo: clipPath, context: foregroundContext)
+            foregroundOverlay?(foregroundContext, layout, imageRect)
+
+            guard let foregroundImage = foregroundContext.makeImage() else {
+                throw CocoaError(.fileWriteUnknown)
+            }
+
+            let topLeftImageRect = flipped(imageRect, canvasHeight: CGFloat(height))
+            let projection = AnnotationCameraGeometry.projection(
+                sourceRect: canvasRect,
+                imageRect: topLeftImageRect,
+                canvasSize: canvasRect.size,
+                settings: settings.camera
+            )
+            try AnnotationMockupEffectsRenderer.drawProjectedForeground(
+                foregroundImage,
+                projection: projection,
+                canvasSize: canvasRect.size,
+                colorSpace: colorSpace,
+                into: context
+            )
+        } else {
+            if settings.isEnabled {
+                drawShadow(path: clipPath, strength: settings.shadow, context: context)
+            }
+            drawImage(displayedImage, in: imageRect, clippedTo: clipPath, context: context)
+            foregroundOverlay?(context, layout, imageRect)
+        }
+
         canvasOverlay?(context, layout, imageRect)
 
         guard let renderedImage = context.makeImage() else {
             throw CocoaError(.fileWriteUnknown)
         }
         return renderedImage
+    }
+
+    private static func drawImage(
+        _ image: CGImage,
+        in rect: CGRect,
+        clippedTo path: CGPath,
+        context: CGContext
+    ) {
+        context.saveGState()
+        context.interpolationQuality = .none
+        context.addPath(path)
+        context.clip()
+        context.draw(image, in: rect)
+        context.restoreGState()
     }
 
     static func drawWatermark(
@@ -180,8 +207,7 @@ enum AnnotationBackgroundRenderer {
     ) {
         switch style {
         case .none:
-            NSColor.clear.setFill()
-            context.fill(rect)
+            context.clear(rect)
 
         case .solid(let color):
             context.setFillColor(color.nsColor.cgColor)

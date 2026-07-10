@@ -106,6 +106,8 @@ struct StoredBackground: Codable, Equatable {
     var aspectRatio: String
     var alignment: String
     var customWallpaperPath: String?
+    var camera: StoredCameraSettings?
+    var progressiveBlur: StoredProgressiveBlurSettings?
     var watermark: StoredWatermark?
 
     init(_ settings: AnnotationBackgroundSettings) {
@@ -126,6 +128,8 @@ struct StoredBackground: Codable, Equatable {
         aspectRatio = settings.aspectRatio.rawValue
         alignment = settings.alignment.rawValue
         customWallpaperPath = settings.customWallpaper?.url.path
+        camera = StoredCameraSettings(settings.camera)
+        progressiveBlur = StoredProgressiveBlurSettings(settings.progressiveBlur)
         watermark = StoredWatermark(settings.watermark)
     }
 
@@ -150,10 +154,91 @@ struct StoredBackground: Codable, Equatable {
         if let customWallpaperPath {
             output.customWallpaper = AnnotationCustomWallpaper(url: URL(fileURLWithPath: customWallpaperPath))
         }
+        if let camera {
+            output.camera = camera.settings
+        }
+        if let progressiveBlur {
+            output.progressiveBlur = progressiveBlur.settings
+        }
         if let watermark {
             output.watermark = watermark.settings
         }
         return output
+    }
+}
+
+struct StoredCameraSettings: Codable, Equatable {
+    var panX: Double
+    var panY: Double
+    var tiltXDegrees: Double
+    var tiltYDegrees: Double
+    var rotationXDegrees: Double
+    var rotationYDegrees: Double
+    var rollDegrees: Double
+    var fieldOfViewDegrees: Double
+    var zoom: Double
+
+    init(_ settings: AnnotationCameraSettings) {
+        panX = Double(settings.panX)
+        panY = Double(settings.panY)
+        tiltXDegrees = Double(settings.tiltXDegrees)
+        tiltYDegrees = Double(settings.tiltYDegrees)
+        rotationXDegrees = Double(settings.rotationXDegrees)
+        rotationYDegrees = Double(settings.rotationYDegrees)
+        rollDegrees = Double(settings.rollDegrees)
+        fieldOfViewDegrees = Double(settings.fieldOfViewDegrees)
+        zoom = Double(settings.zoom)
+    }
+
+    var settings: AnnotationCameraSettings {
+        AnnotationCameraSettings(
+            panX: CGFloat(panX),
+            panY: CGFloat(panY),
+            tiltXDegrees: CGFloat(tiltXDegrees),
+            tiltYDegrees: CGFloat(tiltYDegrees),
+            rotationXDegrees: CGFloat(rotationXDegrees),
+            rotationYDegrees: CGFloat(rotationYDegrees),
+            rollDegrees: CGFloat(rollDegrees),
+            fieldOfViewDegrees: CGFloat(fieldOfViewDegrees),
+            zoom: CGFloat(zoom)
+        )
+    }
+}
+
+struct StoredProgressiveBlurSettings: Codable, Equatable {
+    var isEnabled: Bool
+    var mode: String
+    var strength: Double
+    var falloff: Double
+    var focusSize: Double?
+    var focusX: Double
+    var focusY: Double
+    var directionDegrees: Double
+    var isBokehEnabled: Bool
+
+    init(_ settings: AnnotationProgressiveBlurSettings) {
+        isEnabled = settings.isEnabled
+        mode = settings.mode.rawValue
+        strength = Double(settings.strength)
+        falloff = Double(settings.falloff)
+        focusSize = Double(settings.focusSize)
+        focusX = Double(settings.focusPosition.x)
+        focusY = Double(settings.focusPosition.y)
+        directionDegrees = Double(settings.directionDegrees)
+        isBokehEnabled = settings.isBokehEnabled
+    }
+
+    var settings: AnnotationProgressiveBlurSettings {
+        AnnotationProgressiveBlurSettings(
+            isEnabled: isEnabled,
+            mode: AnnotationProgressiveBlurMode(rawValue: mode) ?? .radial,
+            strength: CGFloat(strength),
+            falloff: CGFloat(falloff),
+            focusSize: CGFloat(focusSize ?? 0.45),
+            focusPosition: CGPoint(x: CGFloat(focusX), y: CGFloat(focusY)),
+            directionDegrees: CGFloat(directionDegrees),
+            isBokehEnabled: isBokehEnabled
+        )
     }
 }
 

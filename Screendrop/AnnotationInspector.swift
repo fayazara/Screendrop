@@ -127,6 +127,70 @@ struct AnnotationEditorInspector: View {
                 InspectorSectionDivider()
 
                 InspectorSection(
+                    title: "Camera",
+                    accessory: {
+                        if !model.backgroundSettings.camera.isDefault {
+                            InspectorClearButton(help: "Reset camera") {
+                                onEditorAction()
+                                withAnimation(.snappy(duration: 0.2)) {
+                                    model.backgroundSettings.camera = AnnotationCameraSettings()
+                                }
+                            }
+                        }
+                    }
+                ) {
+                    AnnotationCameraInspector(
+                        settings: Binding(
+                            get: { model.backgroundSettings.camera },
+                            set: { model.backgroundSettings.camera = $0 }
+                        ),
+                        onEditorAction: onEditorAction
+                    )
+                }
+
+                InspectorSectionDivider()
+
+                InspectorSection(
+                    title: "Progressive Blur",
+                    accessory: {
+                        HStack(spacing: 5) {
+                            if model.backgroundSettings.progressiveBlur != AnnotationProgressiveBlurSettings() {
+                                InspectorClearButton(help: "Reset progressive blur") {
+                                    onEditorAction()
+                                    model.backgroundSettings.progressiveBlur = AnnotationProgressiveBlurSettings()
+                                }
+                            }
+
+                            Toggle(
+                                "Enable progressive blur",
+                                isOn: Binding(
+                                    get: { model.backgroundSettings.progressiveBlur.isEnabled },
+                                    set: { value in
+                                        onEditorAction()
+                                        model.backgroundSettings.progressiveBlur.isEnabled = value
+                                    }
+                                )
+                            )
+                            .labelsHidden()
+                            .toggleStyle(.switch)
+                            .controlSize(.mini)
+                        }
+                    }
+                ) {
+                    AnnotationProgressiveBlurInspector(
+                        settings: Binding(
+                            get: { model.backgroundSettings.progressiveBlur },
+                            set: { model.backgroundSettings.progressiveBlur = $0 }
+                        ),
+                        onEditorAction: onEditorAction
+                    )
+                    .disabled(!model.backgroundSettings.progressiveBlur.isEnabled)
+                    .opacity(model.backgroundSettings.progressiveBlur.isEnabled ? 1 : 0.48)
+                }
+
+                InspectorSectionDivider()
+
+                InspectorSection(
                     title: "Background",
                     accessory: {
                         if model.backgroundSettings.style != .none {
@@ -162,7 +226,7 @@ struct AnnotationEditorInspector: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
-            // Reserve clearance so the last control (aspect ratio) is never
+            // Reserve clearance so the final inspector controls are never
             // hidden behind the floating preview peek pill.
             .padding(.bottom, PreviewPeekTab.pillHeight * 1.1)
         }

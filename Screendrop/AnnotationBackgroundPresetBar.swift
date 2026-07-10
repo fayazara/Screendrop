@@ -138,7 +138,7 @@ struct AnnotationBackgroundPresetBar: View {
         if let activePreset = presetStore.activePreset {
             return "Choose a preset. \(activePreset.name) is applied to new screenshots."
         }
-        return "Choose a background, layout, and watermark preset"
+        return "Choose a background, layout, camera, blur, and watermark preset"
     }
 
     private var presetAccessibilityValue: String {
@@ -158,7 +158,7 @@ struct AnnotationBackgroundPresetBar: View {
                 Text("New Preset")
                     .font(.system(size: 14, weight: .semibold))
 
-                Text("Save the current background, layout, and watermark settings. It will be used for new screenshots.")
+                Text("Save the current background, layout, camera, blur, and watermark settings. It will be used for new screenshots.")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

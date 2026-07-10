@@ -15,7 +15,7 @@ struct AnnotationBackgroundLayout {
             return AnnotationBackgroundLayout(canvasSize: .zero, imageRect: .zero, padding: 0)
         }
 
-        guard settings.isEnabled else {
+        guard settings.usesCanvasLayout else {
             return AnnotationBackgroundLayout(
                 canvasSize: contentSize,
                 imageRect: CGRect(origin: .zero, size: contentSize),
@@ -23,9 +23,10 @@ struct AnnotationBackgroundLayout {
             )
         }
 
-        let alignment = settings.alignment
+        let alignment = settings.effectiveCanvasAlignment
         let shortestEdge = min(contentSize.width, contentSize.height)
-        let padding = max(0, shortestEdge * settings.padding)
+        let normalizedPadding = settings.isEnabled ? settings.padding : max(settings.padding, 0.18)
+        let padding = max(0, shortestEdge * normalizedPadding)
 
         // Per-edge padding: stuck edges get zero padding
         let paddingTop: CGFloat = alignment.sticksToTop ? 0 : padding

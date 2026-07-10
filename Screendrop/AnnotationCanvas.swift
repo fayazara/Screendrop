@@ -35,6 +35,8 @@ struct AnnotationCanvas: View {
     @State private var hasActiveInteraction = false
     @State private var hoveredLocation: CGPoint?
     @State private var currentCursor: AnnotationCanvasCursor = .arrow
+    @State private var progressivelyBlurredImage: NSImage?
+    @State private var progressivelyBlurredSourceID: ObjectIdentifier?
 
     var body: some View {
         GeometryReader { proxy in
@@ -45,7 +47,7 @@ struct AnnotationCanvas: View {
             let canvasFrame = model.displayCanvasFrame(in: proxy.size)
             let displayLayout = backgroundLayout.scaled(to: canvasFrame)
             let imageFrame = displayLayout.imageFrame
-            let boundaryFrame = model.backgroundSettings.isEnabled ? displayLayout.canvasFrame : imageFrame
+            let boundaryFrame = model.backgroundSettings.usesCanvasLayout ? displayLayout.canvasFrame : imageFrame
             let allowedBounds = model.annotationBounds(for: imageFrame, boundaryFrame: boundaryFrame)
             let cornerRadii = screenshotCornerRadii(for: imageFrame)
             let clipCorners = RectangleCornerRadii(
@@ -54,6 +56,24 @@ struct AnnotationCanvas: View {
                 bottomTrailing: cornerRadii.bottomRight,
                 topTrailing: cornerRadii.topRight
             )
+            let effectiveCamera = model.isCropping || model.editingTextItemID != nil
+                ? AnnotationCameraSettings()
+                : model.backgroundSettings.camera
+            let projection = AnnotationCameraGeometry.projection(
+                sourceRect: CGRect(origin: .zero, size: proxy.size),
+                imageRect: imageFrame,
+                canvasSize: displayLayout.canvasFrame.size,
+                settings: effectiveCamera
+            )
+            let blurPreviewKey = AnnotationProgressiveBlurPreviewKey(
+                image: image,
+                settings: model.backgroundSettings.progressiveBlur
+            )
+            let displayedImage = model.backgroundSettings.progressiveBlur.isActive
+                && !model.isCropping
+                && progressivelyBlurredSourceID == ObjectIdentifier(image)
+                ? progressivelyBlurredImage ?? image
+                : image
 
             ZStack(alignment: .topLeading) {
                 if model.backgroundSettings.isEnabled {
@@ -62,49 +82,28 @@ struct AnnotationCanvas: View {
                         .position(x: displayLayout.canvasFrame.midX, y: displayLayout.canvasFrame.midY)
                 }
 
-                screenshotShadow(imageFrame: imageFrame, cornerRadii: clipCorners)
-
-                Image(nsImage: image)
-                    .resizable()
-                    .frame(width: imageFrame.width, height: imageFrame.height)
-                    .clipShape(UnevenRoundedRectangle(cornerRadii: clipCorners, style: .continuous))
-                    .position(x: imageFrame.midX, y: imageFrame.midY)
-
-                ForEach(model.items) { item in
-                    AnnotationItemView(
-                        item: item,
-                        image: image,
-                        originalImageSize: model.imageSize,
-                        imageFrame: imageFrame,
-                        isSelected: model.selectedItemIDs.contains(item.id),
-                        showsResizeHandles: model.selectionCount == 1,
-                        isEditingText: item.id == model.editingTextItemID,
-                        allowsRedactionPreviewCaching: !(model.isTransformingExistingAnnotation && model.selectedItemIDs.contains(item.id)),
-                        text: Binding(
-                            get: { item.text },
-                            set: { model.setText($0, for: item.id) }
-                        ),
-                        onCommitText: model.commitTextEditing,
-                        onTextSizeChange: { size in
-                            model.setTextViewContentSize(size, for: item.id, imageFrame: imageFrame, allowedBounds: allowedBounds)
-                        }
-                    )
-                }
-
-                if let draftItem = model.draftItem {
-                    AnnotationItemView(
-                        item: draftItem,
-                        image: image,
-                        originalImageSize: model.imageSize,
-                        imageFrame: imageFrame,
-                        isSelected: false,
-                        showsResizeHandles: false,
-                        isEditingText: false,
-                        allowsRedactionPreviewCaching: false,
-                        text: .constant(draftItem.text),
-                        onCommitText: {},
-                        onTextSizeChange: { _ in }
-                    )
+                cameraForeground(
+                    viewportSize: proxy.size,
+                    imageFrame: imageFrame,
+                    allowedBounds: allowedBounds,
+                    clipCorners: clipCorners,
+                    displayedImage: displayedImage
+                )
+                .projectionEffect(projection.swiftUITransform)
+                .mask {
+                    if effectiveCamera.hasEffect {
+                        Rectangle()
+                            .frame(
+                                width: displayLayout.canvasFrame.width,
+                                height: displayLayout.canvasFrame.height
+                            )
+                            .position(
+                                x: displayLayout.canvasFrame.midX,
+                                y: displayLayout.canvasFrame.midY
+                            )
+                    } else {
+                        Rectangle()
+                    }
                 }
 
                 if model.backgroundSettings.watermark.isVisible {
@@ -116,22 +115,6 @@ struct AnnotationCanvas: View {
                     .position(x: boundaryFrame.midX, y: boundaryFrame.midY)
                     .allowsHitTesting(false)
                 }
-
-                if let selectionRect = model.selectionRect {
-                    AnnotationMarqueeSelectionView()
-                        .frame(
-                            width: max(viewRect(selectionRect, in: imageFrame).width, 1),
-                            height: max(viewRect(selectionRect, in: imageFrame).height, 1)
-                        )
-                        .position(
-                            x: viewRect(selectionRect, in: imageFrame).midX,
-                            y: viewRect(selectionRect, in: imageFrame).midY
-                        )
-                }
-
-                if model.isCropping {
-                    AnnotationCropOverlay(model: model, imageFrame: imageFrame)
-                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .coordinateSpace(.named(AnnotationCanvasCoordinateSpace.name))
@@ -142,7 +125,12 @@ struct AnnotationCanvas: View {
                     onZoom: { factor in model.zoomBy(factor) }
                 )
             )
-            .gesture(interactionGesture(imageFrame: imageFrame, boundaryFrame: boundaryFrame))
+            .gesture(interactionGesture(
+                imageFrame: imageFrame,
+                boundaryFrame: boundaryFrame,
+                projection: projection,
+                visibleCanvasFrame: effectiveCamera.hasEffect ? displayLayout.canvasFrame : nil
+            ))
             .onAppear {
                 model.viewportSize = proxy.size
                 model.displayScale = displayScale
@@ -156,8 +144,14 @@ struct AnnotationCanvas: View {
             .onContinuousHover { phase in
                 switch phase {
                 case .active(let location):
-                    hoveredLocation = location
-                    updateCursor(at: location, imageFrame: imageFrame, boundaryFrame: boundaryFrame)
+                    if effectiveCamera.hasEffect && !displayLayout.canvasFrame.contains(location) {
+                        hoveredLocation = nil
+                        setCursor(.arrow)
+                        return
+                    }
+                    let mappedLocation = projection.unproject(location)
+                    hoveredLocation = mappedLocation
+                    updateCursor(at: mappedLocation, imageFrame: imageFrame, boundaryFrame: boundaryFrame)
                 case .ended:
                     hoveredLocation = nil
                     setCursor(.arrow)
@@ -175,13 +169,155 @@ struct AnnotationCanvas: View {
             .onDisappear {
                 setCursor(.arrow)
             }
+            .task(id: blurPreviewKey) {
+                await updateProgressiveBlurPreview(
+                    for: image,
+                    settings: model.backgroundSettings.progressiveBlur
+                )
+            }
         }
+    }
+
+    private func cameraForeground(
+        viewportSize: CGSize,
+        imageFrame: CGRect,
+        allowedBounds: CGRect,
+        clipCorners: RectangleCornerRadii,
+        displayedImage: NSImage
+    ) -> some View {
+        ZStack(alignment: .topLeading) {
+            screenshotShadow(imageFrame: imageFrame, cornerRadii: clipCorners)
+
+            screenshot(
+                displayedImage,
+                imageFrame: imageFrame,
+                clipCorners: clipCorners
+            )
+
+            ForEach(model.items) { item in
+                AnnotationItemView(
+                    item: item,
+                    image: displayedImage,
+                    originalImageSize: model.imageSize,
+                    imageFrame: imageFrame,
+                    isSelected: model.selectedItemIDs.contains(item.id),
+                    showsResizeHandles: model.selectionCount == 1,
+                    isEditingText: item.id == model.editingTextItemID,
+                    allowsRedactionPreviewCaching: !(model.isTransformingExistingAnnotation && model.selectedItemIDs.contains(item.id)),
+                    text: Binding(
+                        get: { item.text },
+                        set: { model.setText($0, for: item.id) }
+                    ),
+                    onCommitText: model.commitTextEditing,
+                    onTextSizeChange: { size in
+                        model.setTextViewContentSize(
+                            size,
+                            for: item.id,
+                            imageFrame: imageFrame,
+                            allowedBounds: allowedBounds
+                        )
+                    }
+                )
+            }
+
+            if let draftItem = model.draftItem {
+                AnnotationItemView(
+                    item: draftItem,
+                    image: displayedImage,
+                    originalImageSize: model.imageSize,
+                    imageFrame: imageFrame,
+                    isSelected: false,
+                    showsResizeHandles: false,
+                    isEditingText: false,
+                    allowsRedactionPreviewCaching: false,
+                    text: .constant(draftItem.text),
+                    onCommitText: {},
+                    onTextSizeChange: { _ in }
+                )
+            }
+
+            if let selectionRect = model.selectionRect {
+                AnnotationMarqueeSelectionView()
+                    .frame(
+                        width: max(viewRect(selectionRect, in: imageFrame).width, 1),
+                        height: max(viewRect(selectionRect, in: imageFrame).height, 1)
+                    )
+                    .position(
+                        x: viewRect(selectionRect, in: imageFrame).midX,
+                        y: viewRect(selectionRect, in: imageFrame).midY
+                    )
+            }
+
+            if model.isCropping {
+                AnnotationCropOverlay(model: model, imageFrame: imageFrame)
+            }
+        }
+        .frame(width: viewportSize.width, height: viewportSize.height, alignment: .topLeading)
+    }
+
+    private func screenshot(
+        _ displayedImage: NSImage,
+        imageFrame: CGRect,
+        clipCorners: RectangleCornerRadii
+    ) -> some View {
+        Image(nsImage: displayedImage)
+            .resizable()
+            .frame(width: imageFrame.width, height: imageFrame.height)
+            .clipShape(UnevenRoundedRectangle(cornerRadii: clipCorners, style: .continuous))
+            .position(x: imageFrame.midX, y: imageFrame.midY)
+    }
+
+    @MainActor
+    private func updateProgressiveBlurPreview(
+        for sourceImage: NSImage,
+        settings: AnnotationProgressiveBlurSettings
+    ) async {
+        guard settings.isActive else {
+            progressivelyBlurredImage = nil
+            progressivelyBlurredSourceID = nil
+            return
+        }
+
+        // Coalesce high-frequency focus-pad and slider updates before entering
+        // the serialized Core Image worker.
+        do {
+            try await Task.sleep(for: .milliseconds(12))
+        } catch {
+            return
+        }
+        guard !Task.isCancelled,
+              let source = sourceImage.cgImage(
+                forProposedRect: nil,
+                context: nil,
+                hints: nil
+              ) else {
+            return
+        }
+
+        let colorSpace = source.colorSpace ?? CGColorSpaceCreateDeviceRGB()
+        guard let output = await AnnotationProgressiveBlurPreviewWorker.shared.render(
+            source: source,
+            settings: settings,
+            colorSpace: colorSpace
+        ) else {
+            if !Task.isCancelled {
+                progressivelyBlurredImage = nil
+                progressivelyBlurredSourceID = nil
+            }
+            return
+        }
+        guard !Task.isCancelled else {
+            return
+        }
+
+        progressivelyBlurredImage = NSImage(cgImage: output, size: sourceImage.size)
+        progressivelyBlurredSourceID = ObjectIdentifier(sourceImage)
     }
 
     @ViewBuilder
     private func screenshotShadow(imageFrame: CGRect, cornerRadii: RectangleCornerRadii) -> some View {
         let settings = model.backgroundSettings
-        let opacity = settings.isEnabled ? Double(settings.shadow) * 0.50 : 0.26
+        let opacity = settings.usesCanvasLayout ? Double(settings.shadow) * 0.50 : 0.26
         if opacity > 0 {
             UnevenRoundedRectangle(cornerRadii: cornerRadii, style: .continuous)
                 .fill(Color.black.opacity(0.18))
@@ -189,36 +325,48 @@ struct AnnotationCanvas: View {
                 .position(x: imageFrame.midX, y: imageFrame.midY)
                 .shadow(
                     color: .black.opacity(opacity),
-                    radius: settings.isEnabled ? 16 + settings.shadow * 40 : 18,
+                    radius: settings.usesCanvasLayout ? 16 + settings.shadow * 40 : 18,
                     x: 0,
-                    y: settings.isEnabled ? 8 + settings.shadow * 26 : 8
+                    y: settings.usesCanvasLayout ? 8 + settings.shadow * 26 : 8
                 )
         }
     }
 
     private func screenshotCornerRadii(for imageFrame: CGRect) -> (topLeft: CGFloat, topRight: CGFloat, bottomLeft: CGFloat, bottomRight: CGFloat) {
-        guard model.backgroundSettings.isEnabled else { return (0, 0, 0, 0) }
+        guard model.backgroundSettings.usesCanvasLayout else { return (0, 0, 0, 0) }
         let base = model.backgroundSettings.cornerRadius * min(imageFrame.width, imageFrame.height)
-        let m = model.backgroundSettings.alignment.cornerRadiusMultipliers
+        let m = model.backgroundSettings.effectiveCanvasAlignment.cornerRadiusMultipliers
         return (base * m.topLeft, base * m.topRight, base * m.bottomLeft, base * m.bottomRight)
     }
 
-    private func interactionGesture(imageFrame: CGRect, boundaryFrame: CGRect) -> some Gesture {
+    private func interactionGesture(
+        imageFrame: CGRect,
+        boundaryFrame: CGRect,
+        projection: AnnotationCameraProjection,
+        visibleCanvasFrame: CGRect?
+    ) -> some Gesture {
         DragGesture(minimumDistance: 0, coordinateSpace: .local)
             .onChanged { value in
+                guard hasActiveInteraction || visibleCanvasFrame?.contains(value.startLocation) != false else {
+                    return
+                }
+                let startLocation = projection.unproject(value.startLocation)
+                let location = projection.unproject(value.location)
                 if !hasActiveInteraction {
                     hasActiveInteraction = true
                     onEditorInteraction()
-                    model.beginInteraction(at: value.startLocation, imageFrame: imageFrame, boundaryFrame: boundaryFrame)
+                    model.beginInteraction(at: startLocation, imageFrame: imageFrame, boundaryFrame: boundaryFrame)
                 }
 
-                model.updateInteraction(to: value.location, imageFrame: imageFrame, boundaryFrame: boundaryFrame)
-                updateCursor(at: value.location, imageFrame: imageFrame, boundaryFrame: boundaryFrame)
+                model.updateInteraction(to: location, imageFrame: imageFrame, boundaryFrame: boundaryFrame)
+                updateCursor(at: location, imageFrame: imageFrame, boundaryFrame: boundaryFrame)
             }
             .onEnded { value in
-                model.endInteraction(at: value.location, imageFrame: imageFrame, boundaryFrame: boundaryFrame)
+                guard hasActiveInteraction else { return }
+                let location = projection.unproject(value.location)
+                model.endInteraction(at: location, imageFrame: imageFrame, boundaryFrame: boundaryFrame)
                 hasActiveInteraction = false
-                updateCursor(at: value.location, imageFrame: imageFrame, boundaryFrame: boundaryFrame)
+                updateCursor(at: location, imageFrame: imageFrame, boundaryFrame: boundaryFrame)
             }
     }
 
@@ -349,6 +497,32 @@ private struct AnnotationMarqueeSelectionView: View {
                         style: StrokeStyle(lineWidth: 1.5, dash: [5, 4])
                     )
             }
+    }
+}
+
+private struct AnnotationProgressiveBlurPreviewKey: Hashable {
+    let sourceID: ObjectIdentifier
+    let isEnabled: Bool
+    let mode: AnnotationProgressiveBlurMode
+    let strength: CGFloat
+    let falloff: CGFloat
+    let focusSize: CGFloat
+    let focusX: CGFloat
+    let focusY: CGFloat
+    let directionDegrees: CGFloat
+    let isBokehEnabled: Bool
+
+    init(image: NSImage, settings: AnnotationProgressiveBlurSettings) {
+        sourceID = ObjectIdentifier(image)
+        isEnabled = settings.isEnabled
+        mode = settings.mode
+        strength = settings.strength
+        falloff = settings.falloff
+        focusSize = settings.focusSize
+        focusX = settings.focusPosition.x
+        focusY = settings.focusPosition.y
+        directionDegrees = settings.directionDegrees
+        isBokehEnabled = settings.isBokehEnabled
     }
 }
 

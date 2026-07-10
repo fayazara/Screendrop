@@ -38,6 +38,7 @@ enum AnnotationRenderer {
     ) throws {
         defer {
             ciContext.clearCaches()
+            AnnotationMockupEffectsRenderer.clearCaches()
         }
 
         try autoreleasepool {
@@ -48,21 +49,24 @@ enum AnnotationRenderer {
                 renderedImage = try AnnotationBackgroundRenderer.compose(
                     contentImage: sourceImage,
                     settings: backgroundSettings,
-                    colorSpace: colorSpace
-                ) { context, layout, imageRect in
-                    drawAnnotations(
-                        items,
-                        in: imageRect,
-                        canvasSize: layout.canvasSize,
-                        context: context,
-                        colorSpace: colorSpace
-                    )
-                    AnnotationBackgroundRenderer.drawWatermark(
-                        backgroundSettings.watermark,
-                        in: CGRect(origin: .zero, size: layout.canvasSize),
-                        context: context
-                    )
-                }
+                    colorSpace: colorSpace,
+                    foregroundOverlay: { context, layout, imageRect in
+                        drawAnnotations(
+                            items,
+                            in: imageRect,
+                            canvasSize: layout.canvasSize,
+                            context: context,
+                            colorSpace: colorSpace
+                        )
+                    },
+                    canvasOverlay: { context, layout, _ in
+                        AnnotationBackgroundRenderer.drawWatermark(
+                            backgroundSettings.watermark,
+                            in: CGRect(origin: .zero, size: layout.canvasSize),
+                            context: context
+                        )
+                    }
+                )
             } else {
                 renderedImage = try renderAnnotatedImage(sourceURL: sourceURL, items: items, colorSpace: colorSpace)
             }

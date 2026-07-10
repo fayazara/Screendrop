@@ -17,14 +17,109 @@ struct AnnotationBackgroundSettings: Equatable {
     var aspectRatio: AnnotationBackgroundAspectRatio = .auto
     var alignment: AnnotationBackgroundAlignment = .center
     var customWallpaper: AnnotationCustomWallpaper?
+    var camera = AnnotationCameraSettings()
+    var progressiveBlur = AnnotationProgressiveBlurSettings()
     var watermark = AnnotationWatermarkSettings()
 
     var isEnabled: Bool {
         style != .none
     }
 
+    /// Camera transforms need a stage even without an explicit background so
+    /// rotated content has transparent breathing room instead of being cropped
+    /// to the original screenshot bounds.
+    var usesCanvasLayout: Bool {
+        isEnabled || camera.hasEffect
+    }
+
+    /// Once the card leaves the flat plane, "stuck" edges no longer describe
+    /// the projected geometry. Camera pan replaces alignment for that mode.
+    var effectiveCanvasAlignment: AnnotationBackgroundAlignment {
+        camera.hasEffect ? .center : alignment
+    }
+
     var hasRenderableContent: Bool {
-        isEnabled || watermark.isVisible
+        isEnabled || camera.hasEffect || progressiveBlur.isActive || watermark.isVisible
+    }
+}
+
+struct AnnotationCameraSettings: Equatable {
+    /// Translation as a fraction of the final canvas dimensions.
+    var panX: CGFloat = 0
+    var panY: CGFloat = 0
+    /// Camera/vanishing-plane tilt, expressed in degrees.
+    var tiltXDegrees: CGFloat = 0
+    var tiltYDegrees: CGFloat = 0
+    /// Local card rotation around its horizontal and vertical axes.
+    var rotationXDegrees: CGFloat = 0
+    var rotationYDegrees: CGFloat = 0
+    /// Rotation around the viewing axis.
+    var rollDegrees: CGFloat = 0
+    /// Lens angle controlling the strength of perspective.
+    var fieldOfViewDegrees: CGFloat = 45
+    /// Final scale after the rotated card is auto-fitted into its layout slot.
+    var zoom: CGFloat = 1
+
+    var isDefault: Bool {
+        isApproximatelyZero(panX)
+            && isApproximatelyZero(panY)
+            && isApproximatelyZero(tiltXDegrees)
+            && isApproximatelyZero(tiltYDegrees)
+            && isApproximatelyZero(rotationXDegrees)
+            && isApproximatelyZero(rotationYDegrees)
+            && isApproximatelyZero(rollDegrees)
+            && abs(fieldOfViewDegrees - 45) <= 0.0001
+            && abs(zoom - 1) <= 0.0001
+    }
+
+    var hasEffect: Bool {
+        !isApproximatelyZero(panX)
+            || !isApproximatelyZero(panY)
+            || !isApproximatelyZero(tiltXDegrees)
+            || !isApproximatelyZero(tiltYDegrees)
+            || !isApproximatelyZero(rotationXDegrees)
+            || !isApproximatelyZero(rotationYDegrees)
+            || !isApproximatelyZero(rollDegrees)
+            || abs(zoom - 1) > 0.0001
+    }
+
+    private func isApproximatelyZero(_ value: CGFloat) -> Bool {
+        abs(value) <= 0.0001
+    }
+}
+
+enum AnnotationProgressiveBlurMode: String, CaseIterable, Identifiable, Sendable {
+    case radial
+    case directional
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .radial: "Radial"
+        case .directional: "Directional"
+        }
+    }
+}
+
+struct AnnotationProgressiveBlurSettings: Equatable, Sendable {
+    var isEnabled = false
+    var mode: AnnotationProgressiveBlurMode = .radial
+    /// Maximum blur radius, normalized by the preview/export scale at render time.
+    var strength: CGFloat = 18
+    /// Width of the transition from sharp to blurred, normalized to 0...1.
+    var falloff: CGFloat = 0.55
+    /// Size of the sharp focal area, normalized from a small detail to the
+    /// farthest image edge. A larger default keeps the screenshot as the hero.
+    var focusSize: CGFloat = 0.45
+    /// Top-left-origin normalized focal point within the screenshot.
+    var focusPosition = CGPoint(x: 0.5, y: 0.5)
+    /// Direction of the in-focus band. Zero degrees is horizontal.
+    var directionDegrees: CGFloat = 0
+    var isBokehEnabled = false
+
+    var isActive: Bool {
+        isEnabled && strength > 0.01
     }
 }
 
