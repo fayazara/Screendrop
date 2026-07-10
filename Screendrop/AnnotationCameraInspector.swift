@@ -26,70 +26,80 @@ struct AnnotationCameraInspector: View {
                 )
             }
 
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
                 InspectorGroupLabel("Camera angle")
 
-                pairedSliders(
-                    leftTitle: "Tilt X",
-                    leftValue: binding(\.tiltXDegrees),
-                    leftRange: -45...45,
-                    rightTitle: "Tilt Y",
-                    rightValue: binding(\.tiltYDegrees),
-                    rightRange: -45...45,
-                    formatter: degrees
+                InspectorSlider(
+                    "Tilt X",
+                    value: binding(\.tiltXDegrees),
+                    range: -45...45,
+                    format: .degrees(signed: true)
+                )
+
+                InspectorSlider(
+                    "Tilt Y",
+                    value: binding(\.tiltYDegrees),
+                    range: -45...45,
+                    format: .degrees(signed: true)
                 )
 
                 InspectorSlider(
                     "Roll",
                     value: binding(\.rollDegrees),
                     range: -45...45,
-                    formatted: degrees
+                    format: .degrees(signed: true)
                 )
             }
             .help("Orbit the camera around the card center, then roll the view")
 
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
                 InspectorGroupLabel("Framing")
 
-                HStack(alignment: .top, spacing: 14) {
-                    InspectorSlider(
-                        "FOV",
-                        value: binding(\.fieldOfViewDegrees),
-                        range: 18...80,
-                        formatted: { "\(Int($0.rounded()))°" }
-                    )
+                InspectorSlider(
+                    "FOV",
+                    value: binding(\.fieldOfViewDegrees),
+                    range: 18...80,
+                    format: .degrees()
+                )
 
-                    InspectorSlider(
-                        "Zoom",
-                        value: binding(\.zoom),
-                        range: 0.4...2.5,
-                        formatted: { String(format: "%.2f×", Double($0)) }
-                    )
-                }
+                InspectorSlider(
+                    "Zoom",
+                    value: binding(\.zoom),
+                    range: 0.4...2.5,
+                    format: .magnification(fractionDigits: 2)
+                )
 
-                pairedSliders(
-                    leftTitle: "Pan X",
-                    leftValue: binding(\.panX),
-                    leftRange: -0.5...0.5,
-                    rightTitle: "Pan Y",
-                    rightValue: binding(\.panY),
-                    rightRange: -0.5...0.5,
-                    formatter: signedPercent
+                InspectorSlider(
+                    "Pan X",
+                    value: binding(\.panX),
+                    range: -0.5...0.5,
+                    format: .percent(signed: true)
+                )
+
+                InspectorSlider(
+                    "Pan Y",
+                    value: binding(\.panY),
+                    range: -0.5...0.5,
+                    format: .percent(signed: true)
                 )
             }
             .help("Use a lower FOV for a calmer lens, then frame with Zoom and Pan")
 
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
                 InspectorGroupLabel("Card rotation")
 
-                pairedSliders(
-                    leftTitle: "Rotate X",
-                    leftValue: binding(\.rotationXDegrees),
-                    leftRange: -60...60,
-                    rightTitle: "Rotate Y",
-                    rightValue: binding(\.rotationYDegrees),
-                    rightRange: -60...60,
-                    formatter: degrees
+                InspectorSlider(
+                    "Rotate X",
+                    value: binding(\.rotationXDegrees),
+                    range: -60...60,
+                    format: .degrees(signed: true)
+                )
+
+                InspectorSlider(
+                    "Rotate Y",
+                    value: binding(\.rotationYDegrees),
+                    range: -60...60,
+                    format: .degrees(signed: true)
                 )
             }
             .help("Rotate the card around its own horizontal and vertical center axes")
@@ -116,41 +126,6 @@ struct AnnotationCameraInspector: View {
         }
     }
 
-    private func signedPercent(_ value: CGFloat) -> String {
-        let percent = Int((value * 100).rounded())
-        return percent > 0 ? "+\(percent)%" : "\(percent)%"
-    }
-
-    private func degrees(_ value: CGFloat) -> String {
-        let rounded = Int(value.rounded())
-        return rounded > 0 ? "+\(rounded)°" : "\(rounded)°"
-    }
-
-    private func pairedSliders(
-        leftTitle: String,
-        leftValue: Binding<CGFloat>,
-        leftRange: ClosedRange<CGFloat>,
-        rightTitle: String,
-        rightValue: Binding<CGFloat>,
-        rightRange: ClosedRange<CGFloat>,
-        formatter: @escaping (CGFloat) -> String
-    ) -> some View {
-        HStack(alignment: .top, spacing: 14) {
-            InspectorSlider(
-                leftTitle,
-                value: leftValue,
-                range: leftRange,
-                formatted: formatter
-            )
-
-            InspectorSlider(
-                rightTitle,
-                value: rightValue,
-                range: rightRange,
-                formatted: formatter
-            )
-        }
-    }
 }
 
 private enum AnnotationCameraViewPreset: String, CaseIterable, Identifiable {

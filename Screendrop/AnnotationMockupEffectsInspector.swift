@@ -57,42 +57,42 @@ struct AnnotationProgressiveBlurInspector: View {
                 )
             }
 
-            HStack(alignment: .top, spacing: 14) {
+            VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
                 InspectorSlider(
                     "Strength",
                     value: binding(\.strength),
                     range: 0...40,
-                    formatted: { "\(Int($0.rounded()))" }
+                    format: .integer
                 )
 
                 InspectorSlider(
                     "Falloff",
                     value: binding(\.falloff),
                     range: 0...1,
-                    formatted: { String(format: "%.2f", Double($0)) }
+                    format: .decimal(fractionDigits: 2)
                 )
-            }
 
-            InspectorSlider(
-                "Focus Size",
-                value: binding(\.focusSize),
-                range: 0...1,
-                formatted: { "\(Int(($0 * 100).rounded()))%" }
-            )
-            .help(
-                settings.edgeMode == .clipped
-                    ? "Choose the size of the sharp area inside the frame"
-                    : "Choose the size of the sharp area across the scene"
-            )
-
-            if settings.mode == .directional {
                 InspectorSlider(
-                    "Direction",
-                    value: binding(\.directionDegrees),
-                    range: 0...180,
-                    formatted: { "\(Int($0.rounded()))°" }
+                    "Focus Size",
+                    value: binding(\.focusSize),
+                    range: 0...1,
+                    format: .percent()
                 )
-                .transition(.opacity.combined(with: .move(edge: .top)))
+                .help(
+                    settings.edgeMode == .clipped
+                        ? "Choose the size of the sharp area inside the frame"
+                        : "Choose the size of the sharp area across the scene"
+                )
+
+                if settings.mode == .directional {
+                    InspectorSlider(
+                        "Direction",
+                        value: binding(\.directionDegrees),
+                        range: 0...180,
+                        format: .degrees()
+                    )
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                }
             }
 
             VStack(alignment: .leading, spacing: InspectorMetrics.groupLabelSpacing) {

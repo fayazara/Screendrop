@@ -29,8 +29,13 @@ enum InspectorMetrics {
     /// The one true height for every interactive field (menus, steppers,
     /// pickers, segmented controls).
     static let controlHeight: CGFloat = 24
+    /// Taller scrubber rows give the embedded label and editable value enough
+    /// breathing room without making the inspector feel loose.
+    static let sliderHeight: CGFloat = 32
+    static let sliderValueWidth: CGFloat = 60
     /// Corner radius for fields and segmented tracks.
     static let fieldRadius: CGFloat = 5
+    static let sliderRadius: CGFloat = 8
     /// Corner radius for square tiles (swatches, tool cells, wallpapers).
     static let tileRadius: CGFloat = 6
 
@@ -127,6 +132,103 @@ struct InspectorSection<Content: View, Accessory: View>: View {
 extension InspectorSection where Accessory == EmptyView {
     init(_ title: String, @ViewBuilder content: @escaping () -> Content) {
         self.init(title: title, accessory: { EmptyView() }, content: content)
+    }
+}
+
+/// A compact accordion section for the inspector's heavier control groups.
+/// The title and chevron toggle expansion while header accessories keep their
+/// own independent hit targets.
+struct InspectorDisclosureSection<Content: View, Accessory: View>: View {
+    let title: String
+    @Binding var isExpanded: Bool
+    @ViewBuilder var accessory: () -> Accessory
+    @ViewBuilder var content: () -> Content
+
+    @State private var isHeaderHovering = false
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 6) {
+                Button(action: toggleExpansion) {
+                    HStack(spacing: 6) {
+                        Text(title)
+                            .font(.inspectorSectionHeader)
+                            .foregroundStyle(.primary.opacity(0.88))
+
+                        Spacer(minLength: 0)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(title)
+                .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
+                .accessibilityHint(isExpanded ? "Collapse section" : "Expand section")
+
+                accessory()
+
+                Button(action: toggleExpansion) {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 18, height: 18)
+                        .rotationEffect(.degrees(isExpanded ? 0 : -90))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .focusable(false)
+                .accessibilityHidden(true)
+            }
+            .padding(.horizontal, InspectorMetrics.horizontalPadding)
+            .frame(height: 38)
+            .background(isHeaderHovering ? Color.primary.opacity(0.025) : .clear)
+            .onHover { isHeaderHovering = $0 }
+
+            VStack(alignment: .leading, spacing: 0) {
+                if isExpanded {
+                    content()
+                        .padding(.horizontal, InspectorMetrics.horizontalPadding)
+                        .padding(.top, 4)
+                        .padding(.bottom, InspectorMetrics.sectionVerticalPadding)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            // SwiftUI can paint a moving transition beyond its interpolated
+            // layout height. Keep the disclosure body inside its own animated
+            // bounds so it never overlaps the header or neighboring sections.
+            .clipped()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(Color(nsColor: .separatorColor).opacity(0.45))
+                .frame(height: 0.5)
+                .padding(.horizontal, InspectorMetrics.horizontalPadding)
+        }
+    }
+
+    private func toggleExpansion() {
+        withAnimation(accessibilityReduceMotion ? nil : .snappy(duration: 0.18)) {
+            isExpanded.toggle()
+        }
+    }
+}
+
+extension InspectorDisclosureSection where Accessory == EmptyView {
+    init(
+        _ title: String,
+        isExpanded: Binding<Bool>,
+        @ViewBuilder content: @escaping () -> Content
+    ) {
+        self.init(
+            title: title,
+            isExpanded: isExpanded,
+            accessory: { EmptyView() },
+            content: content
+        )
     }
 }
 
@@ -256,51 +358,6 @@ struct InspectorSegmented<Option: Hashable, Label: View>: View {
             }
         }
         .accessibilityAddTraits(selected ? .isSelected : [])
-    }
-}
-
-// MARK: - Slider
-
-/// A labeled slider with an optional right-aligned numeric readout, matching
-/// the pro-panel convention of always surfacing the underlying value.
-struct InspectorSlider: View {
-    let title: String
-    @Binding var value: CGFloat
-    let range: ClosedRange<CGFloat>
-    var formatted: ((CGFloat) -> String)?
-
-    init(
-        _ title: String,
-        value: Binding<CGFloat>,
-        range: ClosedRange<CGFloat>,
-        formatted: ((CGFloat) -> String)? = nil
-    ) {
-        self.title = title
-        self._value = value
-        self.range = range
-        self.formatted = formatted
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 6) {
-                Text(title)
-                    .font(.inspectorLabel)
-                    .foregroundStyle(.secondary)
-
-                Spacer(minLength: 0)
-
-                if let formatted {
-                    Text(formatted(value))
-                        .font(.inspectorNumeric)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            Slider(value: $value, in: range)
-                .controlSize(.mini)
-                .tint(.accentColor)
-        }
     }
 }
 
