@@ -25,11 +25,13 @@ struct AnnotationBackgroundSettings: Equatable {
         style != .none
     }
 
-    /// Camera transforms need a stage even without an explicit background so
-    /// rotated content has transparent breathing room instead of being cropped
-    /// to the original screenshot bounds.
+    /// Camera transforms and scene blur need a stage even without an explicit
+    /// background so their pixels have transparent breathing room instead of
+    /// being cropped to the original screenshot bounds.
     var usesCanvasLayout: Bool {
-        isEnabled || camera.hasEffect
+        isEnabled
+            || camera.hasEffect
+            || (progressiveBlur.isActive && progressiveBlur.edgeMode == .bleed)
     }
 
     /// Once the card leaves the flat plane, "stuck" edges no longer describe
@@ -114,8 +116,23 @@ enum AnnotationProgressiveBlurMode: String, CaseIterable, Identifiable, Sendable
     }
 }
 
+enum AnnotationProgressiveBlurEdgeMode: String, CaseIterable, Identifiable, Sendable {
+    case clipped
+    case bleed
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .clipped: "Screenshot"
+        case .bleed: "Scene"
+        }
+    }
+}
+
 struct AnnotationProgressiveBlurSettings: Equatable, Sendable {
     var isEnabled = false
+    var edgeMode: AnnotationProgressiveBlurEdgeMode = .bleed
     var mode: AnnotationProgressiveBlurMode = .radial
     /// Maximum blur radius, normalized by the preview/export scale at render time.
     var strength: CGFloat = 18
@@ -124,11 +141,10 @@ struct AnnotationProgressiveBlurSettings: Equatable, Sendable {
     /// Size of the sharp focal area, normalized from a small detail to the
     /// farthest image edge. A larger default keeps the screenshot as the hero.
     var focusSize: CGFloat = 0.45
-    /// Top-left-origin normalized focal point within the screenshot.
+    /// Top-left-origin normalized focal point within the active blur layer.
     var focusPosition = CGPoint(x: 0.5, y: 0.5)
     /// Direction of the in-focus band. Zero degrees is horizontal.
     var directionDegrees: CGFloat = 0
-    var isBokehEnabled = false
 
     var isActive: Bool {
         isEnabled && strength > 0.01

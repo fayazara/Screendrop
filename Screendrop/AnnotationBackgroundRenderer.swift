@@ -68,11 +68,17 @@ enum AnnotationBackgroundRenderer {
             bottomRight: baseCornerRadius * m.bottomRight
         )
         let clipPath = PerCornerRadii.path(in: imageRect, radii: cornerRadii)
-        let displayedImage = try AnnotationMockupEffectsRenderer.progressiveBlur(
-            contentImage,
-            settings: settings.progressiveBlur,
-            colorSpace: colorSpace
-        )
+        let usesSceneBlur = settings.progressiveBlur.isActive
+            && settings.progressiveBlur.edgeMode == .bleed
+        let displayedImage = if settings.progressiveBlur.edgeMode == .clipped {
+            try AnnotationMockupEffectsRenderer.progressiveBlur(
+                contentImage,
+                settings: settings.progressiveBlur,
+                colorSpace: colorSpace
+            )
+        } else {
+            contentImage
+        }
 
         if settings.camera.hasEffect {
             guard let foregroundContext = CGContext(
@@ -115,6 +121,20 @@ enum AnnotationBackgroundRenderer {
             }
             drawImage(displayedImage, in: imageRect, clippedTo: clipPath, context: context)
             foregroundOverlay?(context, layout, imageRect)
+        }
+
+        if usesSceneBlur {
+            guard let sceneImage = context.makeImage() else {
+                throw CocoaError(.fileWriteUnknown)
+            }
+            context.clear(canvasRect)
+            try AnnotationMockupEffectsRenderer.drawProgressivelyBlurredScene(
+                sceneImage,
+                canvasSize: canvasRect.size,
+                colorSpace: colorSpace,
+                progressiveBlurSettings: settings.progressiveBlur,
+                into: context
+            )
         }
 
         canvasOverlay?(context, layout, imageRect)

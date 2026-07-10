@@ -210,6 +210,7 @@ struct StoredCameraSettings: Codable, Equatable {
 
 struct StoredProgressiveBlurSettings: Codable, Equatable {
     var isEnabled: Bool
+    var edgeMode: String?
     var mode: String
     var strength: Double
     var falloff: Double
@@ -217,10 +218,13 @@ struct StoredProgressiveBlurSettings: Codable, Equatable {
     var focusX: Double
     var focusY: Double
     var directionDegrees: Double
-    var isBokehEnabled: Bool
+    /// Retained as `false` so documents remain readable by builds that exposed
+    /// the abandoned highlight-bloom control.
+    var isBokehEnabled: Bool?
 
     init(_ settings: AnnotationProgressiveBlurSettings) {
         isEnabled = settings.isEnabled
+        edgeMode = settings.edgeMode.rawValue
         mode = settings.mode.rawValue
         strength = Double(settings.strength)
         falloff = Double(settings.falloff)
@@ -228,19 +232,20 @@ struct StoredProgressiveBlurSettings: Codable, Equatable {
         focusX = Double(settings.focusPosition.x)
         focusY = Double(settings.focusPosition.y)
         directionDegrees = Double(settings.directionDegrees)
-        isBokehEnabled = settings.isBokehEnabled
+        isBokehEnabled = false
     }
 
     var settings: AnnotationProgressiveBlurSettings {
         AnnotationProgressiveBlurSettings(
             isEnabled: isEnabled,
+            edgeMode: edgeMode.flatMap(AnnotationProgressiveBlurEdgeMode.init(rawValue:))
+                ?? (isEnabled ? .clipped : .bleed),
             mode: AnnotationProgressiveBlurMode(rawValue: mode) ?? .radial,
             strength: CGFloat(strength),
             falloff: CGFloat(falloff),
             focusSize: CGFloat(focusSize ?? 0.45),
             focusPosition: CGPoint(x: CGFloat(focusX), y: CGFloat(focusY)),
-            directionDegrees: CGFloat(directionDegrees),
-            isBokehEnabled: isBokehEnabled
+            directionDegrees: CGFloat(directionDegrees)
         )
     }
 }

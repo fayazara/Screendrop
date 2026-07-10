@@ -216,6 +216,34 @@ struct AnnotationProgressiveBlurInspector: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: InspectorMetrics.groupLabelSpacing) {
+                InspectorGroupLabel("Apply to")
+
+                InspectorSegmented(
+                    options: AnnotationProgressiveBlurEdgeMode.allCases,
+                    isSelected: { $0 == settings.edgeMode },
+                    onTap: { edgeMode in
+                        onEditorAction()
+                        settings.edgeMode = edgeMode
+                    },
+                    label: { edgeMode in
+                        Label(
+                            edgeMode.title,
+                            systemImage: edgeMode == .clipped
+                                ? "photo"
+                                : "rectangle.stack"
+                        )
+                        .font(.system(size: 10.5, weight: .medium))
+                        .labelStyle(.titleAndIcon)
+                        .help(
+                            edgeMode == .clipped
+                                ? "Blur only the screenshot content inside its frame"
+                                : "Blur the transformed screenshot together with its background"
+                        )
+                    }
+                )
+            }
+
+            VStack(alignment: .leading, spacing: InspectorMetrics.groupLabelSpacing) {
                 InspectorGroupLabel("Mode")
 
                 InspectorSegmented(
@@ -255,7 +283,11 @@ struct AnnotationProgressiveBlurInspector: View {
                 range: 0...1,
                 formatted: { "\(Int(($0 * 100).rounded()))%" }
             )
-            .help("Choose how much of the screenshot stays sharp")
+            .help(
+                settings.edgeMode == .clipped
+                    ? "Choose the size of the sharp area inside the frame"
+                    : "Choose the size of the sharp area across the scene"
+            )
 
             if settings.mode == .directional {
                 InspectorSlider(
@@ -265,23 +297,6 @@ struct AnnotationProgressiveBlurInspector: View {
                     formatted: { "\(Int($0.rounded()))°" }
                 )
                 .transition(.opacity.combined(with: .move(edge: .top)))
-            }
-
-            InspectorRow("Bokeh") {
-                Toggle(
-                    "Bokeh highlights",
-                    isOn: Binding(
-                        get: { settings.isBokehEnabled },
-                        set: { value in
-                            onEditorAction()
-                            settings.isBokehEnabled = value
-                        }
-                    )
-                )
-                .labelsHidden()
-                .toggleStyle(.switch)
-                .controlSize(.mini)
-                .help("Use a softer lens-style blur with brighter highlight rings")
             }
 
             VStack(alignment: .leading, spacing: InspectorMetrics.groupLabelSpacing) {

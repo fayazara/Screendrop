@@ -27,43 +27,13 @@ enum AnnotationMockupEffectsRenderer {
 
         let input = CIImage(cgImage: image)
         let extent = input.extent
-        guard extent.width > 0, extent.height > 0,
-              let mask = blurMask(for: extent, settings: settings) else {
-            throw AnnotationMockupEffectsError.progressiveBlurFailed
-        }
-
-        let shortestEdge = min(extent.width, extent.height)
-        let radius = max(0.5, settings.strength * shortestEdge / 1000)
-        let output: CIImage?
-
-        if settings.isBokehEnabled {
-            let blur = CIFilter.bokehBlur()
-            blur.inputImage = input.clampedToExtent()
-            blur.radius = Float(radius)
-            blur.ringAmount = 0.22
-            blur.ringSize = 0.12
-            blur.softness = 1
-
-            let blend = CIFilter.blendWithMask()
-            blend.inputImage = blur.outputImage?.cropped(to: extent)
-            blend.backgroundImage = input
-            blend.maskImage = mask
-            output = blend.outputImage?.cropped(to: extent)
-        } else {
-            let blur = CIFilter.maskedVariableBlur()
-            blur.inputImage = input.clampedToExtent()
-            blur.mask = mask
-            blur.radius = Float(radius)
-            output = blur.outputImage?.cropped(to: extent)
-        }
-
-        guard let output,
-              let renderedImage = context.createCGImage(
-                output,
-                from: extent,
-                format: .RGBA8,
-                colorSpace: colorSpace
-              ) else {
+        let output = try progressiveBlurCIImage(input, settings: settings)
+        guard let renderedImage = context.createCGImage(
+            output,
+            from: extent,
+            format: .RGBA8,
+            colorSpace: colorSpace
+        ) else {
             throw AnnotationMockupEffectsError.progressiveBlurFailed
         }
         return renderedImage
@@ -76,25 +46,49 @@ enum AnnotationMockupEffectsRenderer {
         colorSpace: CGColorSpace,
         into destinationContext: CGContext
     ) throws {
-        guard canvasSize.width > 0, canvasSize.height > 0 else {
-            throw AnnotationMockupEffectsError.cameraProjectionFailed
-        }
-
-        let input = CIImage(cgImage: image)
-        let filter = CIFilter.perspectiveTransform()
-        filter.inputImage = input
-        filter.topLeft = coreImagePoint(projection.quad.topLeft, canvasHeight: canvasSize.height)
-        filter.topRight = coreImagePoint(projection.quad.topRight, canvasHeight: canvasSize.height)
-        filter.bottomRight = coreImagePoint(projection.quad.bottomRight, canvasHeight: canvasSize.height)
-        filter.bottomLeft = coreImagePoint(projection.quad.bottomLeft, canvasHeight: canvasSize.height)
-
         let canvasRect = CGRect(origin: .zero, size: canvasSize)
-        guard let output = filter.outputImage?.cropped(to: canvasRect) else {
-            throw AnnotationMockupEffectsError.cameraProjectionFailed
-        }
+        let output = try projectedForegroundCIImage(
+            image,
+            projection: projection,
+            canvasSize: canvasSize
+        )
 
+        draw(
+            output,
+            in: canvasRect,
+            colorSpace: colorSpace,
+            into: destinationContext
+        )
+    }
+
+    static func drawProgressivelyBlurredScene(
+        _ image: CGImage,
+        canvasSize: CGSize,
+        colorSpace: CGColorSpace,
+        progressiveBlurSettings: AnnotationProgressiveBlurSettings,
+        into destinationContext: CGContext
+    ) throws {
+        let canvasRect = CGRect(origin: .zero, size: canvasSize)
+        let output = try progressiveBlurCIImage(
+            CIImage(cgImage: image),
+            settings: progressiveBlurSettings
+        )
+        draw(
+            output,
+            in: canvasRect,
+            colorSpace: colorSpace,
+            into: destinationContext
+        )
+    }
+
+    private static func draw(
+        _ image: CIImage,
+        in canvasRect: CGRect,
+        colorSpace: CGColorSpace,
+        into destinationContext: CGContext
+    ) {
         // Render directly into the already-allocated final canvas. This avoids
-        // a third full-canvas RGBA bitmap for large 5K/square compositions.
+        // materializing another full-canvas RGBA bitmap for large compositions.
         let destination = CIContext(
             cgContext: destinationContext,
             options: [
@@ -103,7 +97,7 @@ enum AnnotationMockupEffectsRenderer {
                 .outputColorSpace: colorSpace
             ]
         )
-        destination.draw(output, in: canvasRect, from: canvasRect)
+        destination.draw(image, in: canvasRect, from: canvasRect)
     }
 
     static func clearCaches() {
@@ -181,12 +175,7 @@ enum AnnotationMockupEffectsRenderer {
             baseMask = maximum.outputImage
         }
 
-        guard let baseMask else { return nil }
-        let gamma = CIFilter.gammaAdjust()
-        gamma.inputImage = baseMask.cropped(to: extent)
-        // 1 is neutral; lower falloff values make the blur arrive sooner.
-        gamma.power = Float(0.45 + falloff * 1.55)
-        return gamma.outputImage?.cropped(to: extent)
+        return baseMask?.cropped(to: extent)
     }
 
     nonisolated private static func directionalGradient(from start: CGPoint, to end: CGPoint) -> CIImage? {
@@ -228,6 +217,53 @@ enum AnnotationMockupEffectsRenderer {
 
     private static func coreImagePoint(_ point: CGPoint, canvasHeight: CGFloat) -> CGPoint {
         CGPoint(x: point.x, y: canvasHeight - point.y)
+    }
+
+    private static func projectedForegroundCIImage(
+        _ image: CGImage,
+        projection: AnnotationCameraProjection,
+        canvasSize: CGSize
+    ) throws -> CIImage {
+        guard canvasSize.width > 0, canvasSize.height > 0 else {
+            throw AnnotationMockupEffectsError.cameraProjectionFailed
+        }
+
+        let filter = CIFilter.perspectiveTransform()
+        filter.inputImage = CIImage(cgImage: image)
+        filter.topLeft = coreImagePoint(projection.quad.topLeft, canvasHeight: canvasSize.height)
+        filter.topRight = coreImagePoint(projection.quad.topRight, canvasHeight: canvasSize.height)
+        filter.bottomRight = coreImagePoint(projection.quad.bottomRight, canvasHeight: canvasSize.height)
+        filter.bottomLeft = coreImagePoint(projection.quad.bottomLeft, canvasHeight: canvasSize.height)
+
+        let canvasRect = CGRect(origin: .zero, size: canvasSize)
+        guard let output = filter.outputImage?.cropped(to: canvasRect) else {
+            throw AnnotationMockupEffectsError.cameraProjectionFailed
+        }
+        return output
+    }
+
+    nonisolated private static func progressiveBlurCIImage(
+        _ input: CIImage,
+        settings: AnnotationProgressiveBlurSettings
+    ) throws -> CIImage {
+        guard settings.isActive else { return input }
+
+        let extent = input.extent
+        guard extent.width > 0, extent.height > 0,
+              let mask = blurMask(for: extent, settings: settings) else {
+            throw AnnotationMockupEffectsError.progressiveBlurFailed
+        }
+
+        let shortestEdge = min(extent.width, extent.height)
+        let radius = max(0.5, settings.strength * shortestEdge / 1000)
+        let blur = CIFilter.maskedVariableBlur()
+        blur.inputImage = input.clampedToExtent()
+        blur.mask = mask
+        blur.radius = Float(radius)
+        guard let output = blur.outputImage?.cropped(to: extent) else {
+            throw AnnotationMockupEffectsError.progressiveBlurFailed
+        }
+        return output
     }
 }
 

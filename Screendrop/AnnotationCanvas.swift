@@ -69,42 +69,33 @@ struct AnnotationCanvas: View {
                 image: image,
                 settings: model.backgroundSettings.progressiveBlur
             )
+            let usesSceneBlur = model.backgroundSettings.progressiveBlur.isActive
+                && model.backgroundSettings.progressiveBlur.edgeMode == .bleed
+                && !model.isCropping
+                && model.editingTextItemID == nil
             let displayedImage = model.backgroundSettings.progressiveBlur.isActive
+                && model.backgroundSettings.progressiveBlur.edgeMode == .clipped
                 && !model.isCropping
                 && progressivelyBlurredSourceID == ObjectIdentifier(image)
                 ? progressivelyBlurredImage ?? image
                 : image
 
             ZStack(alignment: .topLeading) {
-                if model.backgroundSettings.isEnabled {
-                    AnnotationBackgroundStageFill(style: model.backgroundSettings.style)
-                        .frame(width: displayLayout.canvasFrame.width, height: displayLayout.canvasFrame.height)
-                        .position(x: displayLayout.canvasFrame.midX, y: displayLayout.canvasFrame.midY)
-                }
-
-                cameraForeground(
+                sceneStage(
                     viewportSize: proxy.size,
+                    canvasFrame: displayLayout.canvasFrame,
+                    backgroundStyle: model.backgroundSettings.style,
+                    showsBackground: model.backgroundSettings.isEnabled,
                     imageFrame: imageFrame,
                     allowedBounds: allowedBounds,
                     clipCorners: clipCorners,
-                    displayedImage: displayedImage
+                    displayedImage: displayedImage,
+                    projection: projection,
+                    clipsForegroundToCanvas: effectiveCamera.hasEffect || usesSceneBlur,
+                    sceneBlurSettings: usesSceneBlur
+                        ? model.backgroundSettings.progressiveBlur
+                        : nil
                 )
-                .projectionEffect(projection.swiftUITransform)
-                .mask {
-                    if effectiveCamera.hasEffect {
-                        Rectangle()
-                            .frame(
-                                width: displayLayout.canvasFrame.width,
-                                height: displayLayout.canvasFrame.height
-                            )
-                            .position(
-                                x: displayLayout.canvasFrame.midX,
-                                y: displayLayout.canvasFrame.midY
-                            )
-                    } else {
-                        Rectangle()
-                    }
-                }
 
                 if model.backgroundSettings.watermark.isVisible {
                     AnnotationWatermarkOverlay(
@@ -176,6 +167,164 @@ struct AnnotationCanvas: View {
                 )
             }
         }
+    }
+
+    @ViewBuilder
+    private func sceneStage(
+        viewportSize: CGSize,
+        canvasFrame: CGRect,
+        backgroundStyle: AnnotationBackgroundStyle,
+        showsBackground: Bool,
+        imageFrame: CGRect,
+        allowedBounds: CGRect,
+        clipCorners: RectangleCornerRadii,
+        displayedImage: NSImage,
+        projection: AnnotationCameraProjection,
+        clipsForegroundToCanvas: Bool,
+        sceneBlurSettings: AnnotationProgressiveBlurSettings?
+    ) -> some View {
+        if let sceneBlurSettings {
+            let blurRadius = max(
+                0.5,
+                sceneBlurSettings.strength * min(canvasFrame.width, canvasFrame.height) / 1000
+            )
+
+            ZStack(alignment: .topLeading) {
+                sceneContent(
+                    viewportSize: viewportSize,
+                    canvasFrame: canvasFrame,
+                    backgroundStyle: backgroundStyle,
+                    showsBackground: showsBackground,
+                    imageFrame: imageFrame,
+                    allowedBounds: allowedBounds,
+                    clipCorners: clipCorners,
+                    displayedImage: displayedImage,
+                    projection: projection,
+                    clipsForegroundToCanvas: true
+                )
+
+                ForEach(0..<3, id: \.self) { level in
+                    sceneContent(
+                        viewportSize: viewportSize,
+                        canvasFrame: canvasFrame,
+                        backgroundStyle: backgroundStyle,
+                        showsBackground: showsBackground,
+                        imageFrame: imageFrame,
+                        allowedBounds: allowedBounds,
+                        clipCorners: clipCorners,
+                        displayedImage: displayedImage,
+                        projection: projection,
+                        clipsForegroundToCanvas: true
+                    )
+                    .compositingGroup()
+                    .blur(radius: blurRadius * CGFloat(level + 1) / 3)
+                    .mask {
+                        progressiveBlurBlendMask(
+                            settings: sceneBlurSettings,
+                            canvasFrame: canvasFrame,
+                            level: level,
+                            levelCount: 3
+                        )
+                    }
+                    .allowsHitTesting(false)
+                }
+            }
+            .mask {
+                Rectangle()
+                    .frame(width: canvasFrame.width, height: canvasFrame.height)
+                    .position(x: canvasFrame.midX, y: canvasFrame.midY)
+            }
+        } else {
+            sceneContent(
+                viewportSize: viewportSize,
+                canvasFrame: canvasFrame,
+                backgroundStyle: backgroundStyle,
+                showsBackground: showsBackground,
+                imageFrame: imageFrame,
+                allowedBounds: allowedBounds,
+                clipCorners: clipCorners,
+                displayedImage: displayedImage,
+                projection: projection,
+                clipsForegroundToCanvas: clipsForegroundToCanvas
+            )
+        }
+    }
+
+    private func sceneContent(
+        viewportSize: CGSize,
+        canvasFrame: CGRect,
+        backgroundStyle: AnnotationBackgroundStyle,
+        showsBackground: Bool,
+        imageFrame: CGRect,
+        allowedBounds: CGRect,
+        clipCorners: RectangleCornerRadii,
+        displayedImage: NSImage,
+        projection: AnnotationCameraProjection,
+        clipsForegroundToCanvas: Bool
+    ) -> some View {
+        ZStack(alignment: .topLeading) {
+            if showsBackground {
+                AnnotationBackgroundStageFill(style: backgroundStyle)
+                    .frame(width: canvasFrame.width, height: canvasFrame.height)
+                    .position(x: canvasFrame.midX, y: canvasFrame.midY)
+            }
+
+            transformedCameraForeground(
+                viewportSize: viewportSize,
+                imageFrame: imageFrame,
+                allowedBounds: allowedBounds,
+                clipCorners: clipCorners,
+                displayedImage: displayedImage,
+                projection: projection,
+                canvasFrame: canvasFrame,
+                clipsToCanvas: clipsForegroundToCanvas
+            )
+        }
+        .frame(width: viewportSize.width, height: viewportSize.height, alignment: .topLeading)
+    }
+
+    private func transformedCameraForeground(
+        viewportSize: CGSize,
+        imageFrame: CGRect,
+        allowedBounds: CGRect,
+        clipCorners: RectangleCornerRadii,
+        displayedImage: NSImage,
+        projection: AnnotationCameraProjection,
+        canvasFrame: CGRect,
+        clipsToCanvas: Bool
+    ) -> some View {
+        cameraForeground(
+            viewportSize: viewportSize,
+            imageFrame: imageFrame,
+            allowedBounds: allowedBounds,
+            clipCorners: clipCorners,
+            displayedImage: displayedImage
+        )
+        .projectionEffect(projection.swiftUITransform)
+        .mask {
+            if clipsToCanvas {
+                Rectangle()
+                    .frame(width: canvasFrame.width, height: canvasFrame.height)
+                    .position(x: canvasFrame.midX, y: canvasFrame.midY)
+            } else {
+                Rectangle()
+            }
+        }
+    }
+
+    private func progressiveBlurBlendMask(
+        settings: AnnotationProgressiveBlurSettings,
+        canvasFrame: CGRect,
+        level: Int,
+        levelCount: Int
+    ) -> some View {
+        AnnotationProgressiveBlurBlendMask(
+            settings: settings,
+            level: level,
+            levelCount: levelCount
+        )
+        .frame(width: canvasFrame.width, height: canvasFrame.height)
+        .position(x: canvasFrame.midX, y: canvasFrame.midY)
     }
 
     private func cameraForeground(
@@ -272,7 +421,7 @@ struct AnnotationCanvas: View {
         for sourceImage: NSImage,
         settings: AnnotationProgressiveBlurSettings
     ) async {
-        guard settings.isActive else {
+        guard settings.isActive, settings.edgeMode == .clipped else {
             progressivelyBlurredImage = nil
             progressivelyBlurredSourceID = nil
             return
@@ -318,7 +467,7 @@ struct AnnotationCanvas: View {
     private func screenshotShadow(imageFrame: CGRect, cornerRadii: RectangleCornerRadii) -> some View {
         let settings = model.backgroundSettings
         let opacity = settings.usesCanvasLayout ? Double(settings.shadow) * 0.50 : 0.26
-        if opacity > 0 {
+        if (settings.isEnabled || settings.camera.hasEffect) && opacity > 0 {
             UnevenRoundedRectangle(cornerRadii: cornerRadii, style: .continuous)
                 .fill(Color.black.opacity(0.18))
                 .frame(width: imageFrame.width, height: imageFrame.height)
@@ -500,9 +649,145 @@ private struct AnnotationMarqueeSelectionView: View {
     }
 }
 
+private struct AnnotationProgressiveBlurBlendMask: View {
+    let settings: AnnotationProgressiveBlurSettings
+    let level: Int
+    let levelCount: Int
+
+    var body: some View {
+        GeometryReader { proxy in
+            let size = proxy.size
+            let focus = CGPoint(
+                x: min(max(settings.focusPosition.x, 0), 1) * size.width,
+                y: min(max(settings.focusPosition.y, 0), 1) * size.height
+            )
+
+            switch settings.mode {
+            case .radial:
+                radialMask(focus: focus, size: size)
+            case .directional:
+                directionalMask(focus: focus, size: size)
+            }
+        }
+    }
+
+    private func radialMask(focus: CGPoint, size: CGSize) -> some View {
+        let shortestEdge = min(size.width, size.height)
+        let minimumRadius = shortestEdge * 0.04
+        let maximumRadius = corners(in: size).map { corner in
+            hypot(corner.x - focus.x, corner.y - focus.y)
+        }.max() ?? minimumRadius
+        let focusRadius = minimumRadius
+            + min(max(settings.focusSize, 0), 1) * max(0, maximumRadius - minimumRadius)
+        let transitionWidth = shortestEdge * (0.10 + min(max(settings.falloff, 0), 1) * 0.48)
+        let transitionStart = focusRadius + transitionWidth * levelStart
+        let transitionEnd = focusRadius + transitionWidth * levelEnd
+
+        return RadialGradient(
+            colors: [sharpMaskColor, blurMaskColor],
+            center: UnitPoint(
+                x: focus.x / max(size.width, 1),
+                y: focus.y / max(size.height, 1)
+            ),
+            startRadius: transitionStart,
+            endRadius: transitionEnd
+        )
+    }
+
+    private func directionalMask(focus: CGPoint, size: CGSize) -> some View {
+        let radians = settings.directionDegrees * .pi / 180
+        let normal = CGVector(dx: -sin(radians), dy: cos(radians))
+        let distances = corners(in: size).map { corner in
+            (corner.x - focus.x) * normal.dx + (corner.y - focus.y) * normal.dy
+        }
+        let minimumDistance = distances.min() ?? -1
+        let maximumDistance = distances.max() ?? 1
+        let distanceRange = max(maximumDistance - minimumDistance, 1)
+        let shortestEdge = min(size.width, size.height)
+        let minimumHalfWidth = shortestEdge * 0.025
+        let maximumHalfWidth = distances.map(abs).max() ?? minimumHalfWidth
+        let focusHalfWidth = minimumHalfWidth
+            + min(max(settings.focusSize, 0), 1) * max(0, maximumHalfWidth - minimumHalfWidth)
+        let transitionWidth = shortestEdge * (0.10 + min(max(settings.falloff, 0), 1) * 0.48)
+        let transitionStart = transitionWidth * levelStart
+        let transitionEnd = transitionWidth * levelEnd
+
+        func location(for distance: CGFloat) -> CGFloat {
+            min(max((distance - minimumDistance) / distanceRange, 0), 1)
+        }
+
+        let start = CGPoint(
+            x: focus.x + normal.dx * minimumDistance,
+            y: focus.y + normal.dy * minimumDistance
+        )
+        let end = CGPoint(
+            x: focus.x + normal.dx * maximumDistance,
+            y: focus.y + normal.dy * maximumDistance
+        )
+        let stops = [
+            Gradient.Stop(color: blurMaskColor, location: 0),
+            Gradient.Stop(
+                color: blurMaskColor,
+                location: location(for: -focusHalfWidth - transitionEnd)
+            ),
+            Gradient.Stop(
+                color: sharpMaskColor,
+                location: location(for: -focusHalfWidth - transitionStart)
+            ),
+            Gradient.Stop(
+                color: sharpMaskColor,
+                location: location(for: focusHalfWidth + transitionStart)
+            ),
+            Gradient.Stop(
+                color: blurMaskColor,
+                location: location(for: focusHalfWidth + transitionEnd)
+            ),
+            Gradient.Stop(color: blurMaskColor, location: 1)
+        ]
+
+        return LinearGradient(
+            gradient: Gradient(stops: stops),
+            startPoint: UnitPoint(
+                x: start.x / max(size.width, 1),
+                y: start.y / max(size.height, 1)
+            ),
+            endPoint: UnitPoint(
+                x: end.x / max(size.width, 1),
+                y: end.y / max(size.height, 1)
+            )
+        )
+    }
+
+    private var sharpMaskColor: Color {
+        .clear
+    }
+
+    private var blurMaskColor: Color {
+        .white
+    }
+
+    private var levelStart: CGFloat {
+        CGFloat(min(max(level, 0), max(levelCount - 1, 0))) / CGFloat(max(levelCount, 1))
+    }
+
+    private var levelEnd: CGFloat {
+        CGFloat(min(max(level + 1, 1), max(levelCount, 1))) / CGFloat(max(levelCount, 1))
+    }
+
+    private func corners(in size: CGSize) -> [CGPoint] {
+        [
+            .zero,
+            CGPoint(x: size.width, y: 0),
+            CGPoint(x: size.width, y: size.height),
+            CGPoint(x: 0, y: size.height)
+        ]
+    }
+}
+
 private struct AnnotationProgressiveBlurPreviewKey: Hashable {
     let sourceID: ObjectIdentifier
     let isEnabled: Bool
+    let edgeMode: AnnotationProgressiveBlurEdgeMode
     let mode: AnnotationProgressiveBlurMode
     let strength: CGFloat
     let falloff: CGFloat
@@ -510,11 +795,11 @@ private struct AnnotationProgressiveBlurPreviewKey: Hashable {
     let focusX: CGFloat
     let focusY: CGFloat
     let directionDegrees: CGFloat
-    let isBokehEnabled: Bool
 
     init(image: NSImage, settings: AnnotationProgressiveBlurSettings) {
         sourceID = ObjectIdentifier(image)
         isEnabled = settings.isEnabled
+        edgeMode = settings.edgeMode
         mode = settings.mode
         strength = settings.strength
         falloff = settings.falloff
@@ -522,7 +807,6 @@ private struct AnnotationProgressiveBlurPreviewKey: Hashable {
         focusX = settings.focusPosition.x
         focusY = settings.focusPosition.y
         directionDegrees = settings.directionDegrees
-        isBokehEnabled = settings.isBokehEnabled
     }
 }
 
