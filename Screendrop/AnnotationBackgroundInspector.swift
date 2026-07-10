@@ -30,7 +30,6 @@ struct AnnotationBackgroundInspector: View {
     private static let maxVisibleRecentWallpapers = 4
     private let recentWallpaperColumns = Array(repeating: GridItem(.flexible(), spacing: 6), count: 5)
     private let wallpaperColumns = Array(repeating: GridItem(.flexible(), spacing: 7), count: 3)
-    private let alignmentColumns = Array(repeating: GridItem(.fixed(30), spacing: 5), count: 3)
     @State private var selectedWallpaperSourceID = AnnotationWallpaperSource.recentID
     @State private var selectedFillLibrary = AnnotationBackgroundFillLibrary.color
 
@@ -89,19 +88,18 @@ struct AnnotationBackgroundInspector: View {
             VStack(alignment: .leading, spacing: InspectorMetrics.groupLabelSpacing) {
                 InspectorGroupLabel("Alignment")
 
-                LazyVGrid(columns: alignmentColumns, spacing: 5) {
-                    ForEach(AnnotationBackgroundAlignment.allCases) { alignment in
-                        Button {
-                            onEditorAction()
-                            settings.alignment = alignment
-                        } label: {
-                            AlignmentGlyph(alignment: alignment, isSelected: settings.alignment == alignment)
-                        }
-                        .buttonStyle(.plain)
-                        .help(alignment.title)
-                    }
+                AlignmentPlacementPad(
+                    alignment: $settings.alignment,
+                    isEnabled: !settings.camera.hasEffect,
+                    onEditorAction: onEditorAction
+                )
+
+                if settings.camera.hasEffect {
+                    Text("Reset Camera to use alignment.")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                .frame(maxWidth: .infinity, alignment: .center)
             }
 
             VStack(alignment: .leading, spacing: InspectorMetrics.groupLabelSpacing) {
@@ -567,45 +565,165 @@ private struct AnnotationWallpaperPackInstallView: View {
     }
 }
 
-private struct AlignmentGlyph: View {
-    let alignment: AnnotationBackgroundAlignment
-    let isSelected: Bool
+private struct AlignmentPlacementPad: View {
+    @Binding var alignment: AnnotationBackgroundAlignment
+    let isEnabled: Bool
+    let onEditorAction: () -> Void
 
-    private let size = CGSize(width: 30, height: 24)
-    private let marker = CGSize(width: 9, height: 7)
-    private let inset: CGFloat = 4
+    private let stageInset: CGFloat = 16
+    private let markerSize = CGSize(width: 56, height: 42)
+
+    @State private var hoveredAlignment: AnnotationBackgroundAlignment?
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: InspectorMetrics.tileRadius, style: .continuous)
-                .fill(isSelected ? Color.accentColor : Color.primary.opacity(0.06))
-                .overlay(
-                    RoundedRectangle(cornerRadius: InspectorMetrics.tileRadius, style: .continuous)
-                        .strokeBorder(
-                            isSelected ? Color.clear : Color.primary.opacity(0.10),
-                            lineWidth: 0.5
-                        )
-                )
+        GeometryReader { proxy in
+            let size = proxy.size
+            let shape = RoundedRectangle(
+                cornerRadius: 12,
+                style: .continuous
+            )
 
-            RoundedRectangle(cornerRadius: 1.5, style: .continuous)
-                .fill(isSelected ? Color.white : Color.secondary.opacity(0.55))
-                .frame(width: marker.width, height: marker.height)
-                .position(markerPosition)
+            ZStack {
+                shape.fill(InspectorControlPalette.trackFill(for: colorScheme))
+
+                ForEach(AnnotationBackgroundAlignment.allCases) { option in
+                    landingDot(for: option)
+                        .position(markerPosition(for: option, in: size))
+                }
+
+                miniatureImage
+                    .position(markerPosition(for: displayedAlignment, in: size))
+                    .scaleEffect(isDisplayedCardActive ? 1.03 : 1)
+                    .animation(movementAnimation, value: displayedAlignment)
+                    .animation(hoverAnimation, value: hoveredAlignment)
+
+                ForEach(AnnotationBackgroundAlignment.allCases) { option in
+                    Button {
+                        onEditorAction()
+                        withAnimation(movementAnimation) {
+                            alignment = option
+                        }
+                    } label: {
+                        Color.clear
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .focusEffectDisabled()
+                    .frame(
+                        width: size.width / 3,
+                        height: size.height / 3
+                    )
+                    .position(hitTargetPosition(for: option, in: size))
+                    .disabled(!isEnabled)
+                    .help(option.title)
+                    .onHover { isHovering in
+                        guard isEnabled else {
+                            hoveredAlignment = nil
+                            return
+                        }
+                        withAnimation(accessibilityReduceMotion ? nil : .easeOut(duration: 0.10)) {
+                            if isHovering {
+                                hoveredAlignment = option
+                            } else if hoveredAlignment == option {
+                                hoveredAlignment = nil
+                            }
+                        }
+                    }
+                    .accessibilityLabel("\(option.title) alignment")
+                    .accessibilityValue(alignment == option ? "Selected" : "")
+                    .accessibilityAddTraits(alignment == option ? .isSelected : [])
+                }
+            }
+            .overlay(shape.stroke(InspectorControlPalette.border, lineWidth: 0.5))
+            .clipShape(shape)
         }
-        .frame(width: size.width, height: size.height)
-        .contentShape(RoundedRectangle(cornerRadius: InspectorMetrics.tileRadius, style: .continuous))
+        .aspectRatio(4.0 / 3.0, contentMode: .fit)
+        .frame(maxWidth: .infinity)
+        .opacity(isEnabled ? 1 : 0.46)
+        .onChange(of: isEnabled) { _, enabled in
+            if !enabled {
+                hoveredAlignment = nil
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Image alignment")
     }
 
-    /// Anchors the marker at the alignment point with symmetric insets so it
-    /// never crowds an edge, and lands dead-center for `.center`.
-    private var markerPosition: CGPoint {
-        let minX = inset + marker.width / 2
-        let maxX = size.width - inset - marker.width / 2
-        let minY = inset + marker.height / 2
-        let maxY = size.height - inset - marker.height / 2
+    private var displayedAlignment: AnnotationBackgroundAlignment {
+        isEnabled ? alignment : .center
+    }
+
+    private var isDisplayedCardActive: Bool {
+        hoveredAlignment == displayedAlignment
+    }
+
+    private var movementAnimation: Animation? {
+        accessibilityReduceMotion
+            ? nil
+            : .spring(response: 0.30, dampingFraction: 0.70)
+    }
+
+    private var hoverAnimation: Animation? {
+        accessibilityReduceMotion ? nil : .easeOut(duration: 0.12)
+    }
+
+    private var miniatureImage: some View {
+        RoundedRectangle(cornerRadius: 6, style: .continuous)
+            .fill(Color.primary.opacity(colorScheme == .dark ? 0.56 : 0.48))
+            .frame(width: markerSize.width, height: markerSize.height)
+            .overlay {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .stroke(Color.primary.opacity(0.16), lineWidth: 0.5)
+            }
+            .shadow(
+                color: .black.opacity(colorScheme == .dark ? 0.24 : 0.12),
+                radius: 2,
+                y: 1
+            )
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+
+    private func landingDot(for option: AnnotationBackgroundAlignment) -> some View {
+        let isHovered = hoveredAlignment == option
+
+        return Circle()
+            .fill(
+                isHovered
+                    ? Color.primary.opacity(0.50)
+                    : Color.primary.opacity(0.24)
+            )
+            .frame(width: isHovered ? 7 : 5, height: isHovered ? 7 : 5)
+            .frame(width: 16, height: 16)
+            .animation(hoverAnimation, value: isHovered)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+
+    private func markerPosition(
+        for option: AnnotationBackgroundAlignment,
+        in size: CGSize
+    ) -> CGPoint {
+        let minX = stageInset + markerSize.width / 2
+        let maxX = size.width - stageInset - markerSize.width / 2
+        let minY = stageInset + markerSize.height / 2
+        let maxY = size.height - stageInset - markerSize.height / 2
         return CGPoint(
-            x: minX + alignment.xFactor * (maxX - minX),
-            y: minY + alignment.yFactor * (maxY - minY)
+            x: minX + option.xFactor * max(0, maxX - minX),
+            y: minY + option.yFactor * max(0, maxY - minY)
         )
     }
+
+    private func hitTargetPosition(
+        for option: AnnotationBackgroundAlignment,
+        in size: CGSize
+    ) -> CGPoint {
+        CGPoint(
+            x: size.width / 6 + option.xFactor * size.width * 2 / 3,
+            y: size.height / 6 + option.yFactor * size.height * 2 / 3
+        )
+    }
+
 }
