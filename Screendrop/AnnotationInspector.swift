@@ -32,7 +32,7 @@ struct AnnotationEditorInspector: View {
     let onPickWallpaper: () -> Void
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
-    @State private var expandedAdvancedSection: AnnotationInspectorAdvancedSection?
+    @State private var expandedAdvancedSections: Set<AnnotationInspectorAdvancedSection> = []
 
     var body: some View {
         ScrollView(.vertical) {
@@ -163,9 +163,9 @@ struct AnnotationEditorInspector: View {
                                 InspectorClearButton(help: "Reset progressive blur") {
                                     onEditorAction()
                                     model.backgroundSettings.progressiveBlur = AnnotationProgressiveBlurSettings()
-                                    if expandedAdvancedSection == .progressiveBlur {
+                                    if expandedAdvancedSections.contains(.progressiveBlur) {
                                         withAnimation(sectionAnimation) {
-                                            expandedAdvancedSection = nil
+                                            expandedAdvancedSections.remove(.progressiveBlur)
                                         }
                                     }
                                 }
@@ -180,9 +180,9 @@ struct AnnotationEditorInspector: View {
                                         model.backgroundSettings.progressiveBlur.isEnabled = value
                                         withAnimation(sectionAnimation) {
                                             if value {
-                                                expandedAdvancedSection = .progressiveBlur
-                                            } else if expandedAdvancedSection == .progressiveBlur {
-                                                expandedAdvancedSection = nil
+                                                expandedAdvancedSections.insert(.progressiveBlur)
+                                            } else {
+                                                expandedAdvancedSections.remove(.progressiveBlur)
                                             }
                                         }
                                     }
@@ -289,12 +289,12 @@ struct AnnotationEditorInspector: View {
         for section: AnnotationInspectorAdvancedSection
     ) -> Binding<Bool> {
         Binding(
-            get: { expandedAdvancedSection == section },
+            get: { expandedAdvancedSections.contains(section) },
             set: { isExpanded in
                 if isExpanded {
-                    expandedAdvancedSection = section
-                } else if expandedAdvancedSection == section {
-                    expandedAdvancedSection = nil
+                    expandedAdvancedSections.insert(section)
+                } else {
+                    expandedAdvancedSections.remove(section)
                 }
             }
         )
