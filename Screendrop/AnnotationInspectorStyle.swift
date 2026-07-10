@@ -306,38 +306,43 @@ struct InspectorSectionDivider: View {
 
 // MARK: - Segmented control
 
-/// One unified segmented control used for every segmented picker in the panel
-/// (text style, alignment, wallpaper source). The track uses liquid glass at
-/// the standard field radius so the "glass" treatment is applied consistently,
-/// and the active segment is filled with the accent color.
+/// One unified segmented control used for every segmented picker in the panel.
+/// It shares the slider's height, radius, neutral track and value fill so choice
+/// controls and numeric controls read as one inspector system.
 struct InspectorSegmented<Option: Hashable, Label: View>: View {
     let options: [Option]
     let isSelected: (Option) -> Bool
     let onTap: (Option) -> Void
     @ViewBuilder let label: (Option) -> Label
 
-    var height: CGFloat = InspectorMetrics.controlHeight
+    var height: CGFloat = InspectorMetrics.sliderHeight
     var equalWidths: Bool = true
 
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var hoveredOption: Option?
+
     var body: some View {
-        GlassEffectContainer(spacing: 0) {
-            HStack(spacing: 0) {
-                ForEach(options, id: \.self) { option in
-                    segment(for: option)
-                }
+        let shape = RoundedRectangle(
+            cornerRadius: InspectorMetrics.sliderRadius,
+            style: .continuous
+        )
+
+        HStack(spacing: 0) {
+            ForEach(options, id: \.self) { option in
+                segment(for: option)
             }
-            .padding(2)
-            .glassEffect(
-                .regular,
-                in: RoundedRectangle(cornerRadius: InspectorMetrics.fieldRadius, style: .continuous)
-            )
         }
+        .padding(2)
         .frame(height: height)
+        .background(shape.fill(trackFill))
+        .overlay(shape.stroke(Color.primary.opacity(0.10), lineWidth: 0.5))
+        .clipShape(shape)
     }
 
     private func segment(for option: Option) -> some View {
         let selected = isSelected(option)
-        let segmentRadius = InspectorMetrics.fieldRadius - 2
+        let isHovering = hoveredOption == option
+        let segmentRadius = InspectorMetrics.sliderRadius - 2
 
         return Button {
             onTap(option)
@@ -349,15 +354,36 @@ struct InspectorSegmented<Option: Hashable, Label: View>: View {
                 .contentShape(RoundedRectangle(cornerRadius: segmentRadius, style: .continuous))
         }
         .buttonStyle(.plain)
-        .foregroundStyle(selected ? Color.white : Color.primary.opacity(0.8))
+        .foregroundStyle(selected ? Color.primary.opacity(0.92) : Color.secondary)
         .background {
-            if selected {
-                RoundedRectangle(cornerRadius: segmentRadius, style: .continuous)
-                    .fill(Color.accentColor)
-                    .padding(1)
+            RoundedRectangle(cornerRadius: segmentRadius, style: .continuous)
+                .fill(segmentFill(isSelected: selected, isHovering: isHovering))
+                .overlay {
+                    if selected {
+                        RoundedRectangle(cornerRadius: segmentRadius, style: .continuous)
+                            .stroke(Color.primary.opacity(0.10), lineWidth: 0.5)
+                    }
+                }
+        }
+        .onHover { isHovering in
+            if isHovering {
+                hoveredOption = option
+            } else if hoveredOption == option {
+                hoveredOption = nil
             }
         }
         .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private var trackFill: Color {
+        colorScheme == .dark ? Color.white.opacity(0.055) : Color.black.opacity(0.04)
+    }
+
+    private func segmentFill(isSelected: Bool, isHovering: Bool) -> Color {
+        if isSelected {
+            return Color.primary.opacity(colorScheme == .dark ? 0.10 : 0.075)
+        }
+        return isHovering ? Color.primary.opacity(0.04) : .clear
     }
 }
 
