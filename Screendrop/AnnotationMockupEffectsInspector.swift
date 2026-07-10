@@ -5,210 +5,6 @@
 
 import SwiftUI
 
-struct AnnotationCameraInspector: View {
-    @Binding var settings: AnnotationCameraSettings
-    let onEditorAction: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: InspectorMetrics.groupLabelSpacing) {
-                InspectorGroupLabel("Quick views")
-
-                InspectorSegmented(
-                    options: AnnotationCameraViewPreset.allCases,
-                    isSelected: { $0.matches(settings) },
-                    onTap: applyPreset,
-                    label: { preset in
-                        Text(preset.title)
-                            .font(.system(size: 10.5, weight: .medium))
-                            .lineLimit(1)
-                    }
-                )
-            }
-
-            VStack(alignment: .leading, spacing: 10) {
-                InspectorGroupLabel("Camera angle")
-
-                pairedSliders(
-                    leftTitle: "Tilt X",
-                    leftValue: binding(\.tiltXDegrees),
-                    leftRange: -45...45,
-                    rightTitle: "Tilt Y",
-                    rightValue: binding(\.tiltYDegrees),
-                    rightRange: -45...45,
-                    formatter: degrees
-                )
-
-                InspectorSlider(
-                    "Roll",
-                    value: binding(\.rollDegrees),
-                    range: -45...45,
-                    formatted: degrees
-                )
-            }
-            .help("Orbit the camera around the card center, then roll the view")
-
-            VStack(alignment: .leading, spacing: 10) {
-                InspectorGroupLabel("Framing")
-
-                HStack(alignment: .top, spacing: 14) {
-                    InspectorSlider(
-                        "FOV",
-                        value: binding(\.fieldOfViewDegrees),
-                        range: 18...80,
-                        formatted: { "\(Int($0.rounded()))°" }
-                    )
-
-                    InspectorSlider(
-                        "Zoom",
-                        value: binding(\.zoom),
-                        range: 0.4...2.5,
-                        formatted: { String(format: "%.2f×", Double($0)) }
-                    )
-                }
-
-                pairedSliders(
-                    leftTitle: "Pan X",
-                    leftValue: binding(\.panX),
-                    leftRange: -0.5...0.5,
-                    rightTitle: "Pan Y",
-                    rightValue: binding(\.panY),
-                    rightRange: -0.5...0.5,
-                    formatter: signedPercent
-                )
-            }
-            .help("Use a lower FOV for a calmer lens, then frame with Zoom and Pan")
-
-            VStack(alignment: .leading, spacing: 10) {
-                InspectorGroupLabel("Card rotation")
-
-                pairedSliders(
-                    leftTitle: "Rotate X",
-                    leftValue: binding(\.rotationXDegrees),
-                    leftRange: -60...60,
-                    rightTitle: "Rotate Y",
-                    rightValue: binding(\.rotationYDegrees),
-                    rightRange: -60...60,
-                    formatter: degrees
-                )
-            }
-            .help("Rotate the card around its own horizontal and vertical center axes")
-        }
-    }
-
-    private func binding(_ keyPath: WritableKeyPath<AnnotationCameraSettings, CGFloat>) -> Binding<CGFloat> {
-        Binding(
-            get: { settings[keyPath: keyPath] },
-            set: { value in
-                onEditorAction()
-                var updatedSettings = settings
-                updatedSettings.upgradeProjectionIfNeeded()
-                updatedSettings[keyPath: keyPath] = value
-                settings = updatedSettings
-            }
-        )
-    }
-
-    private func applyPreset(_ preset: AnnotationCameraViewPreset) {
-        onEditorAction()
-        withAnimation(.snappy(duration: 0.2)) {
-            settings = preset.settings
-        }
-    }
-
-    private func signedPercent(_ value: CGFloat) -> String {
-        let percent = Int((value * 100).rounded())
-        return percent > 0 ? "+\(percent)%" : "\(percent)%"
-    }
-
-    private func degrees(_ value: CGFloat) -> String {
-        let rounded = Int(value.rounded())
-        return rounded > 0 ? "+\(rounded)°" : "\(rounded)°"
-    }
-
-    private func pairedSliders(
-        leftTitle: String,
-        leftValue: Binding<CGFloat>,
-        leftRange: ClosedRange<CGFloat>,
-        rightTitle: String,
-        rightValue: Binding<CGFloat>,
-        rightRange: ClosedRange<CGFloat>,
-        formatter: @escaping (CGFloat) -> String
-    ) -> some View {
-        HStack(alignment: .top, spacing: 14) {
-            InspectorSlider(
-                leftTitle,
-                value: leftValue,
-                range: leftRange,
-                formatted: formatter
-            )
-
-            InspectorSlider(
-                rightTitle,
-                value: rightValue,
-                range: rightRange,
-                formatted: formatter
-            )
-        }
-    }
-}
-
-private enum AnnotationCameraViewPreset: String, CaseIterable, Identifiable {
-    case flat
-    case left
-    case right
-    case hero
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .flat: "Front"
-        case .left: "Left"
-        case .right: "Right"
-        case .hero: "Hero"
-        }
-    }
-
-    var settings: AnnotationCameraSettings {
-        switch self {
-        case .flat:
-            AnnotationCameraSettings()
-        case .left:
-            AnnotationCameraSettings(
-                rotationXDegrees: 4,
-                rotationYDegrees: -28,
-                rollDegrees: -2,
-                fieldOfViewDegrees: 30,
-                zoom: 1.05
-            )
-        case .right:
-            AnnotationCameraSettings(
-                rotationXDegrees: 4,
-                rotationYDegrees: 28,
-                rollDegrees: 2,
-                fieldOfViewDegrees: 30,
-                zoom: 1.05
-            )
-        case .hero:
-            AnnotationCameraSettings(
-                panY: -0.03,
-                tiltXDegrees: -6,
-                tiltYDegrees: 5,
-                rotationXDegrees: -10,
-                rotationYDegrees: -18,
-                rollDegrees: -3,
-                fieldOfViewDegrees: 28,
-                zoom: 1.12
-            )
-        }
-    }
-
-    func matches(_ candidate: AnnotationCameraSettings) -> Bool {
-        self == .flat ? candidate.isDefault : settings == candidate
-    }
-}
-
 struct AnnotationProgressiveBlurInspector: View {
     @Binding var settings: AnnotationProgressiveBlurSettings
     let onEditorAction: () -> Void
@@ -349,12 +145,16 @@ private struct AnnotationFocusPositionPad: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let point = CGPoint(
-                x: min(max(position.x, 0), 1) * proxy.size.width,
-                y: min(max(position.y, 0), 1) * proxy.size.height
+            let geometry = AnnotationProgressiveBlurGeometry(
+                extent: CGRect(origin: .zero, size: proxy.size),
+                focusPosition: position,
+                focusSize: focusSize,
+                falloff: 0,
+                directionDegrees: directionDegrees,
+                strength: 0,
+                coordinateOrigin: .topLeft
             )
-            let radialRadius = radialFocusRadius(at: point, in: proxy.size)
-            let directionalHalfWidth = directionalFocusHalfWidth(at: point, in: proxy.size)
+            let point = geometry.focus
 
             ZStack(alignment: .topLeading) {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -370,7 +170,10 @@ private struct AnnotationFocusPositionPad: View {
                             Circle()
                                 .stroke(Color.accentColor.opacity(0.34), lineWidth: 1)
                         }
-                        .frame(width: radialRadius * 2, height: radialRadius * 2)
+                        .frame(
+                            width: geometry.radialFocusRadius * 2,
+                            height: geometry.radialFocusRadius * 2
+                        )
                         .position(point)
                 } else {
                     RoundedRectangle(cornerRadius: 3, style: .continuous)
@@ -381,7 +184,7 @@ private struct AnnotationFocusPositionPad: View {
                         }
                         .frame(
                             width: hypot(proxy.size.width, proxy.size.height) * 2,
-                            height: max(2, directionalHalfWidth * 2)
+                            height: max(2, geometry.directionalFocusHalfWidth * 2)
                         )
                         .rotationEffect(.degrees(Double(directionDegrees)))
                         .position(point)
@@ -437,34 +240,6 @@ private struct AnnotationFocusPositionPad: View {
         .help("Drag to move the sharp focal area. Double-click to center.")
     }
 
-    private func radialFocusRadius(at point: CGPoint, in size: CGSize) -> CGFloat {
-        let minimumRadius = min(size.width, size.height) * 0.04
-        let maximumRadius = corners(in: size).map { corner in
-            hypot(corner.x - point.x, corner.y - point.y)
-        }.max() ?? minimumRadius
-        return minimumRadius
-            + min(max(focusSize, 0), 1) * max(0, maximumRadius - minimumRadius)
-    }
-
-    private func directionalFocusHalfWidth(at point: CGPoint, in size: CGSize) -> CGFloat {
-        let radians = directionDegrees * .pi / 180
-        let normal = CGVector(dx: -sin(radians), dy: cos(radians))
-        let minimumHalfWidth = min(size.width, size.height) * 0.025
-        let maximumHalfWidth = corners(in: size).map { corner in
-            abs((corner.x - point.x) * normal.dx + (corner.y - point.y) * normal.dy)
-        }.max() ?? minimumHalfWidth
-        return minimumHalfWidth
-            + min(max(focusSize, 0), 1) * max(0, maximumHalfWidth - minimumHalfWidth)
-    }
-
-    private func corners(in size: CGSize) -> [CGPoint] {
-        [
-            .zero,
-            CGPoint(x: size.width, y: 0),
-            CGPoint(x: size.width, y: size.height),
-            CGPoint(x: 0, y: size.height)
-        ]
-    }
 }
 
 private struct FocusPadGrid: Shape {

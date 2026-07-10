@@ -325,6 +325,33 @@ enum ScreenshotFileActions {
             try exportImage(from: sourceURL, to: destinationURL, contentType: ScreendropPreferences.exportFormat.contentType)
         }
     }
+
+    /// Updates an already-associated export without changing its file format.
+    /// The replacement is staged beside the destination and atomically swapped
+    /// in only after encoding succeeds, so the last good export is never deleted
+    /// first. Pixel dimensions are preserved; PNG-to-PNG updates copy bytes.
+    static func replaceExistingExport(from sourceURL: URL, at destinationURL: URL) throws {
+        guard let destinationType = exportContentType(for: destinationURL) else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+
+        let stagingURL = destinationURL
+            .deletingLastPathComponent()
+            .appendingPathComponent(".Screendrop-\(UUID().uuidString)-\(destinationURL.lastPathComponent)")
+        defer { try? FileManager.default.removeItem(at: stagingURL) }
+
+        if destinationType == .png, actualImageContentType(at: sourceURL) == .png {
+            try FileManager.default.copyItem(at: sourceURL, to: stagingURL)
+        } else {
+            try exportImage(from: sourceURL, to: stagingURL, contentType: destinationType)
+        }
+
+        if FileManager.default.fileExists(atPath: destinationURL.path) {
+            _ = try FileManager.default.replaceItemAt(destinationURL, withItemAt: stagingURL)
+        } else {
+            try FileManager.default.moveItem(at: stagingURL, to: destinationURL)
+        }
+    }
     
     static func exportFileName(for sourceURL: URL) -> String {
         return sourceURL
@@ -367,6 +394,29 @@ enum ScreenshotFileActions {
         guard CGImageDestinationFinalize(destination) else {
             throw CocoaError(.fileWriteUnknown)
         }
+    }
+
+    private static func exportContentType(for url: URL) -> UTType? {
+        guard let type = UTType(filenameExtension: url.pathExtension) else { return nil }
+        if type.conforms(to: .png) { return .png }
+        if type.conforms(to: .jpeg) { return .jpeg }
+        if type.conforms(to: .heic) { return .heic }
+        return nil
+    }
+
+    private static func actualImageContentType(at url: URL) -> UTType? {
+        guard let source = CGImageSourceCreateWithURL(
+            url as CFURL,
+            [kCGImageSourceShouldCache: false] as CFDictionary
+        ), let identifier = CGImageSourceGetType(source) else {
+            return nil
+        }
+
+        guard let type = UTType(identifier as String) else { return nil }
+        if type.conforms(to: .png) { return .png }
+        if type.conforms(to: .jpeg) { return .jpeg }
+        if type.conforms(to: .heic) { return .heic }
+        return type
     }
     
     private static func uniqueDestinationURL(for fileName: String, in directory: URL) -> URL {

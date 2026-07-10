@@ -28,10 +28,24 @@ struct AnnotationCameraProjection {
         sourceRect: CGRect,
         quad: AnnotationCameraQuad
     ) {
-        self.quad = quad
-        let transform = AnnotationHomography.mapping(sourceRect, to: quad) ?? .identity
-        forward = transform
-        inverse = transform.inverted() ?? .identity
+        if let transform = AnnotationHomography.mapping(sourceRect, to: quad),
+           let inverted = transform.inverted() {
+            self.quad = quad
+            forward = transform
+            inverse = inverted
+        } else {
+            // Preview hit-testing and export must fail as one unit. Keeping a
+            // transformed quad with identity homographies would make them render
+            // and interact with different geometry.
+            self.quad = AnnotationCameraQuad(
+                topLeft: CGPoint(x: sourceRect.minX, y: sourceRect.minY),
+                topRight: CGPoint(x: sourceRect.maxX, y: sourceRect.minY),
+                bottomRight: CGPoint(x: sourceRect.maxX, y: sourceRect.maxY),
+                bottomLeft: CGPoint(x: sourceRect.minX, y: sourceRect.maxY)
+            )
+            forward = .identity
+            inverse = .identity
+        }
     }
 
     var swiftUITransform: ProjectionTransform {

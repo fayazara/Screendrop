@@ -105,67 +105,50 @@ enum AnnotationMockupEffectsRenderer {
     }
 
     nonisolated private static func blurMask(
-        for extent: CGRect,
+        geometry: AnnotationProgressiveBlurGeometry,
         settings: AnnotationProgressiveBlurSettings
     ) -> CIImage? {
-        let focus = CGPoint(
-            x: extent.minX + min(max(settings.focusPosition.x, 0), 1) * extent.width,
-            y: extent.minY + (1 - min(max(settings.focusPosition.y, 0), 1)) * extent.height
-        )
-        let shortestEdge = min(extent.width, extent.height)
-        let falloff = min(max(settings.falloff, 0), 1)
-        let focusSize = min(max(settings.focusSize, 0), 1)
-        let transitionWidth = shortestEdge * (0.10 + falloff * 0.48)
         let baseMask: CIImage?
 
         switch settings.mode {
         case .radial:
-            let minimumRadius = shortestEdge * 0.04
-            let maximumRadius = radialMaximumDistance(from: focus, to: extent)
-            let focusRadius = minimumRadius
-                + focusSize * max(0, maximumRadius - minimumRadius)
             let gradient = CIFilter.radialGradient()
-            gradient.center = focus
-            gradient.radius0 = Float(focusRadius)
-            gradient.radius1 = Float(focusRadius + transitionWidth)
+            gradient.center = geometry.focus
+            gradient.radius0 = Float(geometry.radialFocusRadius)
+            gradient.radius1 = Float(geometry.radialFocusRadius + geometry.transitionWidth)
             gradient.color0 = CIColor(red: 0, green: 0, blue: 0, alpha: 1)
             gradient.color1 = CIColor(red: 1, green: 1, blue: 1, alpha: 1)
             baseMask = gradient.outputImage
 
         case .directional:
-            let angle = settings.directionDegrees * .pi / 180
-            // The angle describes the sharp band, so gradients run along its normal.
-            // The stored angle is clockwise in top-left UI coordinates. Core
-            // Image uses a bottom-left origin, so its normal flips horizontally.
-            let normal = CGVector(dx: sin(angle), dy: cos(angle))
-            let minimumHalfWidth = shortestEdge * 0.025
-            let maximumHalfWidth = directionalMaximumDistance(
-                from: focus,
-                along: normal,
-                to: extent
-            )
-            let focusHalfWidth = minimumHalfWidth
-                + focusSize * max(0, maximumHalfWidth - minimumHalfWidth)
             let positiveFocusEdge = CGPoint(
-                x: focus.x + normal.dx * focusHalfWidth,
-                y: focus.y + normal.dy * focusHalfWidth
+                x: geometry.focus.x
+                    + geometry.directionNormal.dx * geometry.directionalFocusHalfWidth,
+                y: geometry.focus.y
+                    + geometry.directionNormal.dy * geometry.directionalFocusHalfWidth
             )
             let negativeFocusEdge = CGPoint(
-                x: focus.x - normal.dx * focusHalfWidth,
-                y: focus.y - normal.dy * focusHalfWidth
+                x: geometry.focus.x
+                    - geometry.directionNormal.dx * geometry.directionalFocusHalfWidth,
+                y: geometry.focus.y
+                    - geometry.directionNormal.dy * geometry.directionalFocusHalfWidth
             )
             let positive = directionalGradient(
                 from: positiveFocusEdge,
                 to: CGPoint(
-                    x: positiveFocusEdge.x + normal.dx * transitionWidth,
-                    y: positiveFocusEdge.y + normal.dy * transitionWidth
+                    x: positiveFocusEdge.x
+                        + geometry.directionNormal.dx * geometry.transitionWidth,
+                    y: positiveFocusEdge.y
+                        + geometry.directionNormal.dy * geometry.transitionWidth
                 )
             )
             let negative = directionalGradient(
                 from: negativeFocusEdge,
                 to: CGPoint(
-                    x: negativeFocusEdge.x - normal.dx * transitionWidth,
-                    y: negativeFocusEdge.y - normal.dy * transitionWidth
+                    x: negativeFocusEdge.x
+                        - geometry.directionNormal.dx * geometry.transitionWidth,
+                    y: negativeFocusEdge.y
+                        - geometry.directionNormal.dy * geometry.transitionWidth
                 )
             )
 
@@ -175,7 +158,7 @@ enum AnnotationMockupEffectsRenderer {
             baseMask = maximum.outputImage
         }
 
-        return baseMask?.cropped(to: extent)
+        return baseMask?.cropped(to: geometry.extent)
     }
 
     nonisolated private static func directionalGradient(from start: CGPoint, to end: CGPoint) -> CIImage? {
@@ -185,34 +168,6 @@ enum AnnotationMockupEffectsRenderer {
         gradient.color0 = CIColor(red: 0, green: 0, blue: 0, alpha: 1)
         gradient.color1 = CIColor(red: 1, green: 1, blue: 1, alpha: 1)
         return gradient.outputImage
-    }
-
-    nonisolated private static func radialMaximumDistance(
-        from focus: CGPoint,
-        to extent: CGRect
-    ) -> CGFloat {
-        corners(of: extent).map { corner in
-            hypot(corner.x - focus.x, corner.y - focus.y)
-        }.max() ?? 0
-    }
-
-    nonisolated private static func directionalMaximumDistance(
-        from focus: CGPoint,
-        along normal: CGVector,
-        to extent: CGRect
-    ) -> CGFloat {
-        corners(of: extent).map { corner in
-            abs((corner.x - focus.x) * normal.dx + (corner.y - focus.y) * normal.dy)
-        }.max() ?? 0
-    }
-
-    nonisolated private static func corners(of rect: CGRect) -> [CGPoint] {
-        [
-            CGPoint(x: rect.minX, y: rect.minY),
-            CGPoint(x: rect.maxX, y: rect.minY),
-            CGPoint(x: rect.maxX, y: rect.maxY),
-            CGPoint(x: rect.minX, y: rect.maxY)
-        ]
     }
 
     private static func coreImagePoint(_ point: CGPoint, canvasHeight: CGFloat) -> CGPoint {
@@ -249,37 +204,23 @@ enum AnnotationMockupEffectsRenderer {
         guard settings.isActive else { return input }
 
         let extent = input.extent
+        let geometry = AnnotationProgressiveBlurGeometry(
+            extent: extent,
+            settings: settings,
+            coordinateOrigin: .bottomLeft
+        )
         guard extent.width > 0, extent.height > 0,
-              let mask = blurMask(for: extent, settings: settings) else {
+              let mask = blurMask(geometry: geometry, settings: settings) else {
             throw AnnotationMockupEffectsError.progressiveBlurFailed
         }
 
-        let shortestEdge = min(extent.width, extent.height)
-        let radius = max(0.5, settings.strength * shortestEdge / 1000)
         let blur = CIFilter.maskedVariableBlur()
         blur.inputImage = input.clampedToExtent()
         blur.mask = mask
-        blur.radius = Float(radius)
+        blur.radius = Float(geometry.renderRadius)
         guard let output = blur.outputImage?.cropped(to: extent) else {
             throw AnnotationMockupEffectsError.progressiveBlurFailed
         }
         return output
-    }
-}
-
-actor AnnotationProgressiveBlurPreviewWorker {
-    static let shared = AnnotationProgressiveBlurPreviewWorker()
-
-    func render(
-        source: CGImage,
-        settings: AnnotationProgressiveBlurSettings,
-        colorSpace: CGColorSpace
-    ) -> CGImage? {
-        guard !Task.isCancelled else { return nil }
-        return try? AnnotationMockupEffectsRenderer.progressiveBlur(
-            source,
-            settings: settings,
-            colorSpace: colorSpace
-        )
     }
 }
