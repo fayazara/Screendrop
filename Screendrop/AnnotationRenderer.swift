@@ -14,7 +14,42 @@ enum AnnotationRenderer {
     /// render calls (same contract as `AnnotationMockupEffectsRenderer`).
     nonisolated(unsafe) private static let ciContext = CIContext(options: [.cacheIntermediates: false])
 
-    static func renderToTemporaryFile(
+    /// Off-main variants: large exports (full-resolution compose + Core Image
+    /// blur) are slow enough to beachball the UI, and the whole render graph
+    /// is nonisolated, so hop to a background thread and await the result.
+    static func renderInBackground(
+        sourceURL: URL,
+        items: [AnnotationItem],
+        backgroundSettings: AnnotationBackgroundSettings = AnnotationBackgroundSettings(),
+        destinationURL: URL,
+        contentType: UTType
+    ) async throws {
+        try await Task.detached(priority: .userInitiated) {
+            try render(
+                sourceURL: sourceURL,
+                items: items,
+                backgroundSettings: backgroundSettings,
+                destinationURL: destinationURL,
+                contentType: contentType
+            )
+        }.value
+    }
+
+    static func renderToTemporaryFileInBackground(
+        sourceURL: URL,
+        items: [AnnotationItem],
+        backgroundSettings: AnnotationBackgroundSettings = AnnotationBackgroundSettings()
+    ) async throws -> URL {
+        try await Task.detached(priority: .userInitiated) {
+            try renderToTemporaryFile(
+                sourceURL: sourceURL,
+                items: items,
+                backgroundSettings: backgroundSettings
+            )
+        }.value
+    }
+
+    nonisolated static func renderToTemporaryFile(
         sourceURL: URL,
         items: [AnnotationItem],
         backgroundSettings: AnnotationBackgroundSettings = AnnotationBackgroundSettings()
@@ -31,7 +66,7 @@ enum AnnotationRenderer {
         return destinationURL
     }
 
-    static func render(
+    nonisolated static func render(
         sourceURL: URL,
         items: [AnnotationItem],
         backgroundSettings: AnnotationBackgroundSettings = AnnotationBackgroundSettings(),
@@ -44,10 +79,13 @@ enum AnnotationRenderer {
         }
 
         try autoreleasepool {
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let sourceImage = try loadSourceImage(sourceURL: sourceURL)
+            // Keep the screenshot's own (typically Display P3) color space so
+            // wide-gamut colors survive the export instead of being pulled
+            // down to device RGB. Previews already render this way.
+            let colorSpace = exportColorSpace(for: sourceImage)
             let renderedImage: CGImage
             if backgroundSettings.hasRenderableContent {
-                let sourceImage = try loadSourceImage(sourceURL: sourceURL)
                 renderedImage = try AnnotationBackgroundRenderer.compose(
                     contentImage: sourceImage,
                     settings: backgroundSettings,
@@ -71,7 +109,7 @@ enum AnnotationRenderer {
                     }
                 )
             } else {
-                renderedImage = try renderAnnotatedImage(sourceURL: sourceURL, items: items, colorSpace: colorSpace)
+                renderedImage = try renderAnnotatedImage(sourceImage, items: items, colorSpace: colorSpace)
             }
 
             if FileManager.default.fileExists(atPath: destinationURL.path) {
@@ -103,7 +141,7 @@ enum AnnotationRenderer {
 
     }
 
-    private static func loadSourceImage(sourceURL: URL) throws -> CGImage {
+    nonisolated private static func loadSourceImage(sourceURL: URL) throws -> CGImage {
         guard let source = CGImageSourceCreateWithURL(
             sourceURL as CFURL,
             [kCGImageSourceShouldCache: false] as CFDictionary
@@ -119,13 +157,31 @@ enum AnnotationRenderer {
         return cgImage
     }
 
-    private static func renderAnnotatedImage(
-        sourceURL: URL,
+    nonisolated private static func exportColorSpace(for image: CGImage) -> CGColorSpace {
+        // Fall back to device RGB unless the source space can actually back
+        // the 8-bit premultiplied contexts the render pipeline creates —
+        // otherwise an exotic embedded profile would fail the whole export.
+        guard let colorSpace = image.colorSpace,
+              colorSpace.model == .rgb,
+              CGContext(
+                data: nil,
+                width: 1,
+                height: 1,
+                bitsPerComponent: 8,
+                bytesPerRow: 0,
+                space: colorSpace,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+              ) != nil else {
+            return CGColorSpaceCreateDeviceRGB()
+        }
+        return colorSpace
+    }
+
+    nonisolated private static func renderAnnotatedImage(
+        _ cgImage: CGImage,
         items: [AnnotationItem],
         colorSpace: CGColorSpace
     ) throws -> CGImage {
-        let cgImage = try loadSourceImage(sourceURL: sourceURL)
-
         let width = cgImage.width
         let height = cgImage.height
 

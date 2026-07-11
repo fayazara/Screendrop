@@ -66,9 +66,16 @@ struct AnnotationCanvas: View {
                 canvasSize: displayLayout.canvasFrame.size,
                 settings: effectiveCamera
             )
+            let previewPixelWidth = previewContentPixelWidth(
+                imageFrame: imageFrame,
+                canvasFrame: displayLayout.canvasFrame,
+                viewportSize: proxy.size,
+                projection: projection
+            )
             let blurPreviewKey = AnnotationProgressiveBlurPreviewKey(
                 image: image,
-                settings: model.backgroundSettings.progressiveBlur
+                settings: model.backgroundSettings.progressiveBlur,
+                contentPixelWidth: previewPixelWidth
             )
             let usesSceneBlur = model.backgroundSettings.progressiveBlur.isActive
                 && model.backgroundSettings.progressiveBlur.edgeMode == .bleed
@@ -84,12 +91,7 @@ struct AnnotationCanvas: View {
                 sourceID: ObjectIdentifier(image),
                 items: model.items,
                 settings: model.backgroundSettings,
-                contentPixelWidth: sceneSettleContentPixelWidth(
-                    imageFrame: imageFrame,
-                    canvasFrame: displayLayout.canvasFrame,
-                    viewportSize: proxy.size,
-                    projection: projection
-                ),
+                contentPixelWidth: previewPixelWidth,
                 isEligible: usesSceneBlur
                     && !hasActiveInteraction
                     && model.draftItem == nil
@@ -183,7 +185,8 @@ struct AnnotationCanvas: View {
             .task(id: blurPreviewKey) {
                 await updateProgressiveBlurPreview(
                     for: image,
-                    settings: model.backgroundSettings.progressiveBlur
+                    settings: model.backgroundSettings.progressiveBlur,
+                    contentPixelWidth: blurPreviewKey.contentPixelWidth
                 )
             }
             .task(id: sceneSettleKey) {
@@ -542,7 +545,8 @@ struct AnnotationCanvas: View {
     @MainActor
     private func updateProgressiveBlurPreview(
         for sourceImage: NSImage,
-        settings: AnnotationProgressiveBlurSettings
+        settings: AnnotationProgressiveBlurSettings,
+        contentPixelWidth: CGFloat
     ) async {
         guard settings.isActive, settings.edgeMode == .clipped else {
             progressivelyBlurredImage = nil
@@ -570,6 +574,7 @@ struct AnnotationCanvas: View {
         guard let output = await AnnotationProgressiveBlurPreviewWorker.shared.render(
             source: source,
             settings: settings,
+            contentPixelWidth: contentPixelWidth,
             colorSpace: colorSpace
         ) else {
             if !Task.isCancelled {
@@ -586,12 +591,12 @@ struct AnnotationCanvas: View {
         progressivelyBlurredSourceID = ObjectIdentifier(sourceImage)
     }
 
-    /// Pixel width for the settled scene's content image: exactly the pixels
-    /// the image occupies on screen, including any enlargement from the camera
-    /// projection, so the settled frame is indistinguishable from the live
-    /// view. A generous budget only guards pathological canvas sizes; the
-    /// render happens once per settle, never per frame.
-    private func sceneSettleContentPixelWidth(
+    /// Pixel width for preview renders (settled scene and clipped blur):
+    /// exactly the pixels the image occupies on screen, including any
+    /// enlargement from the camera projection, so rendered previews are
+    /// indistinguishable from the live view. A generous budget only guards
+    /// pathological canvas sizes; renders are debounced, never per frame.
+    private func previewContentPixelWidth(
         imageFrame: CGRect,
         canvasFrame: CGRect,
         viewportSize: CGSize,

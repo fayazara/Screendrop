@@ -9,6 +9,16 @@ import ImageIO
 import SwiftUI
 
 nonisolated enum AnnotationBackgroundRenderer {
+    /// Decoded wallpapers are reused across settled previews and exports so
+    /// compose doesn't pay a disk read + full decode per render. NSCache is
+    /// thread-safe and evicts under memory pressure.
+    nonisolated(unsafe) private static let wallpaperCache: NSCache<NSString, WallpaperCacheBox> = {
+        let cache = NSCache<NSString, WallpaperCacheBox>()
+        cache.countLimit = 4
+        cache.totalCostLimit = 192 * 1024 * 1024
+        return cache
+    }()
+
     typealias ForegroundOverlay = (
         _ context: CGContext,
         _ layout: AnnotationBackgroundLayout,
@@ -303,14 +313,33 @@ nonisolated enum AnnotationBackgroundRenderer {
 
         let drawScale = max(fillSize.width / sourceSize.width, fillSize.height / sourceSize.height)
         let requiredMaxPixelSize = max(sourceSize.width, sourceSize.height) * drawScale
+        // Bucket the decode size so settled previews and exports of similar
+        // sizes share one cache entry instead of decoding near-duplicates.
+        let bucketedMaxPixelSize = (requiredMaxPixelSize / 512).rounded(.up) * 512
+        let cacheKey = AnnotationWallpaperPreviewCache.cacheID(
+            for: url,
+            maxPixelSize: bucketedMaxPixelSize
+        ) as NSString
+        if let cached = wallpaperCache.object(forKey: cacheKey) {
+            return cached.image
+        }
 
         let options: [CFString: Any] = [
             kCGImageSourceShouldCache: false,
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: max(1, Int(requiredMaxPixelSize.rounded(.up)))
+            kCGImageSourceThumbnailMaxPixelSize: max(1, Int(bucketedMaxPixelSize))
         ]
-        return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+            return nil
+        }
+
+        wallpaperCache.setObject(
+            WallpaperCacheBox(image),
+            forKey: cacheKey,
+            cost: image.width * image.height * 4
+        )
+        return image
     }
 
     private static func imageSize(from source: CGImageSource) -> CGSize? {
@@ -396,5 +425,13 @@ nonisolated enum AnnotationBackgroundRenderer {
             x: rect.minX + unitPoint.x * rect.width,
             y: rect.minY + (1 - unitPoint.y) * rect.height
         )
+    }
+}
+
+nonisolated private final class WallpaperCacheBox {
+    let image: CGImage
+
+    init(_ image: CGImage) {
+        self.image = image
     }
 }

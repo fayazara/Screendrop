@@ -136,8 +136,13 @@ struct AnnotationProgressiveBlurPreviewKey: Hashable {
     let focusX: CGFloat
     let focusY: CGFloat
     let directionDegrees: CGFloat
+    let contentPixelWidth: CGFloat
 
-    init(image: NSImage, settings: AnnotationProgressiveBlurSettings) {
+    init(
+        image: NSImage,
+        settings: AnnotationProgressiveBlurSettings,
+        contentPixelWidth: CGFloat
+    ) {
         sourceID = ObjectIdentifier(image)
         isEnabled = settings.isEnabled
         edgeMode = settings.edgeMode
@@ -148,6 +153,7 @@ struct AnnotationProgressiveBlurPreviewKey: Hashable {
         focusX = settings.focusPosition.x
         focusY = settings.focusPosition.y
         directionDegrees = settings.directionDegrees
+        self.contentPixelWidth = contentPixelWidth
     }
 }
 
@@ -162,11 +168,30 @@ actor AnnotationProgressiveBlurPreviewWorker {
     func render(
         source: CGImage,
         settings: AnnotationProgressiveBlurSettings,
+        contentPixelWidth: CGFloat,
         colorSpace: CGColorSpace
     ) -> CGImage? {
         guard !Task.isCancelled else { return nil }
-        return try? AnnotationMockupEffectsRenderer.progressiveBlur(
+
+        // Blur at the resolution the image occupies on screen, not full
+        // source resolution: the geometry is proportional, so the result is
+        // visually identical while the per-tick cost drops several-fold on
+        // large screenshots.
+        let scale = min(1, contentPixelWidth / CGFloat(source.width))
+        let input: CGImage
+        if scale < 1,
+           let downscaled = try? AnnotationScenePreviewRenderer.downscaled(
             source,
+            scale: scale,
+            colorSpace: colorSpace
+           ) {
+            input = downscaled
+        } else {
+            input = source
+        }
+
+        return try? AnnotationMockupEffectsRenderer.progressiveBlur(
+            input,
             settings: settings,
             colorSpace: colorSpace
         )
@@ -241,7 +266,7 @@ nonisolated enum AnnotationScenePreviewRenderer {
         )
     }
 
-    private static func downscaled(
+    static func downscaled(
         _ source: CGImage,
         scale: CGFloat,
         colorSpace: CGColorSpace

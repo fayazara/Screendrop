@@ -269,16 +269,18 @@ struct AnnotationEditorWindow: View {
         panel.begin { response in
             guard response == .OK, let destinationURL = panel.url else { return }
 
-            do {
-                try AnnotationRenderer.render(
-                    sourceURL: baseURL,
-                    items: model.items,
-                    backgroundSettings: model.backgroundSettings,
-                    destinationURL: destinationURL,
-                    contentType: ScreenshotFileActions.exportContentType
-                )
-            } catch {
-                model.errorMessage = "Failed to save annotation: \(error.localizedDescription)"
+            Task {
+                do {
+                    try await AnnotationRenderer.renderInBackground(
+                        sourceURL: baseURL,
+                        items: model.items,
+                        backgroundSettings: model.backgroundSettings,
+                        destinationURL: destinationURL,
+                        contentType: ScreenshotFileActions.exportContentType
+                    )
+                } catch {
+                    model.errorMessage = "Failed to save annotation: \(error.localizedDescription)"
+                }
             }
         }
     }
@@ -319,7 +321,7 @@ struct AnnotationEditorWindow: View {
                 // editor stays open.
                 let resultURL: URL
                 if hasContent {
-                    let annotatedURL = try AnnotationRenderer.renderToTemporaryFile(
+                    let annotatedURL = try await AnnotationRenderer.renderToTemporaryFileInBackground(
                         sourceURL: baseURL,
                         items: items,
                         backgroundSettings: backgroundSettings
@@ -380,39 +382,41 @@ struct AnnotationEditorWindow: View {
         }
 
         isFinishing = true
-        do {
-            let resultURL: URL
-            if hasContent {
-                let annotatedURL = try AnnotationRenderer.renderToTemporaryFile(
-                    sourceURL: baseURL,
-                    items: items,
-                    backgroundSettings: backgroundSettings
-                )
-                let document = AnnotationDocument(items: items, background: backgroundSettings)
-                resultURL = ScreenshotHistoryStore.shared.commitAnnotations(
-                    displayURL: sourceURL,
-                    baseURL: baseURL,
-                    renderedURL: annotatedURL,
-                    document: document
-                )
-            } else {
-                // All annotations were cleared on a previously-edited image:
-                // restore the untouched original.
-                resultURL = ScreenshotHistoryStore.shared.removeAnnotations(displayURL: sourceURL)
-            }
+        Task {
+            do {
+                let resultURL: URL
+                if hasContent {
+                    let annotatedURL = try await AnnotationRenderer.renderToTemporaryFileInBackground(
+                        sourceURL: baseURL,
+                        items: items,
+                        backgroundSettings: backgroundSettings
+                    )
+                    let document = AnnotationDocument(items: items, background: backgroundSettings)
+                    resultURL = ScreenshotHistoryStore.shared.commitAnnotations(
+                        displayURL: sourceURL,
+                        baseURL: baseURL,
+                        renderedURL: annotatedURL,
+                        document: document
+                    )
+                } else {
+                    // All annotations were cleared on a previously-edited image:
+                    // restore the untouched original.
+                    resultURL = ScreenshotHistoryStore.shared.removeAnnotations(displayURL: sourceURL)
+                }
 
-            let updatedExistingPreview = ScreenshotPreviewStack.shared.applyAnnotation(
-                originalURL: sourceURL,
-                historyURL: resultURL
-            )
-            if !updatedExistingPreview {
-                PreviewPanelPresenter.shared.show(displayID: nil)
+                let updatedExistingPreview = ScreenshotPreviewStack.shared.applyAnnotation(
+                    originalURL: sourceURL,
+                    historyURL: resultURL
+                )
+                if !updatedExistingPreview {
+                    PreviewPanelPresenter.shared.show(displayID: nil)
+                }
+                model.releaseEditorResources()
+                dismissWindow()
+            } catch {
+                isFinishing = false
+                model.errorMessage = "Failed to finish annotation: \(error.localizedDescription)"
             }
-            model.releaseEditorResources()
-            dismissWindow()
-        } catch {
-            isFinishing = false
-            model.errorMessage = "Failed to finish annotation: \(error.localizedDescription)"
         }
     }
 
