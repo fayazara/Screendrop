@@ -10,7 +10,9 @@ import ImageIO
 import UniformTypeIdentifiers
 
 enum AnnotationRenderer {
-    private static let ciContext = CIContext(options: [.cacheIntermediates: false])
+    /// `CIContext` is immutable after creation and documented for reuse across
+    /// render calls (same contract as `AnnotationMockupEffectsRenderer`).
+    nonisolated(unsafe) private static let ciContext = CIContext(options: [.cacheIntermediates: false])
 
     static func renderToTemporaryFile(
         sourceURL: URL,
@@ -157,7 +159,7 @@ enum AnnotationRenderer {
         return renderedImage
     }
 
-    private static func drawAnnotations(
+    nonisolated static func drawAnnotations(
         _ items: [AnnotationItem],
         in imageRect: CGRect,
         canvasSize: CGSize,
@@ -199,7 +201,7 @@ enum AnnotationRenderer {
         }
     }
 
-    private static func drawAnnotation(
+    nonisolated private static func drawAnnotation(
         _ item: AnnotationItem,
         in imageRect: CGRect,
         canvasSize: CGSize,
@@ -307,7 +309,7 @@ enum AnnotationRenderer {
         }
     }
 
-    private static func renderedRect(_ rect: CGRect, in imageRect: CGRect) -> CGRect {
+    nonisolated private static func renderedRect(_ rect: CGRect, in imageRect: CGRect) -> CGRect {
         CGRect(
             x: imageRect.minX + rect.minX * imageRect.width,
             y: imageRect.minY + (1 - rect.maxY) * imageRect.height,
@@ -316,7 +318,7 @@ enum AnnotationRenderer {
         )
     }
 
-    private static func drawHighlightOverlay(
+    nonisolated private static func drawHighlightOverlay(
         _ items: [AnnotationItem],
         in imageRect: CGRect,
         context: CGContext,
@@ -360,14 +362,14 @@ enum AnnotationRenderer {
         context.restoreGState()
     }
 
-    private static func renderedPoint(_ point: CGPoint, in imageRect: CGRect) -> CGPoint {
+    nonisolated private static func renderedPoint(_ point: CGPoint, in imageRect: CGRect) -> CGPoint {
         CGPoint(
             x: imageRect.minX + point.x * imageRect.width,
             y: imageRect.minY + (1 - point.y) * imageRect.height
         )
     }
 
-    private static func drawArrowHead(_ geometry: AnnotationArrowGeometry, context: CGContext) {
+    nonisolated private static func drawArrowHead(_ geometry: AnnotationArrowGeometry, context: CGContext) {
         context.beginPath()
         context.move(to: geometry.firstWing)
         context.addLine(to: geometry.tip)
@@ -375,7 +377,7 @@ enum AnnotationRenderer {
         context.strokePath()
     }
 
-    private static func drawNumberedCircle(_ item: AnnotationItem, in rect: CGRect, context: CGContext) {
+    nonisolated private static func drawNumberedCircle(_ item: AnnotationItem, in rect: CGRect, context: CGContext) {
         let diameter = min(rect.width, rect.height)
         guard diameter > 1 else { return }
 
@@ -420,7 +422,7 @@ enum AnnotationRenderer {
         NSGraphicsContext.restoreGraphicsState()
     }
 
-    private static func drawFreehand(points: [CGPoint], imageRect: CGRect, context: CGContext) {
+    nonisolated private static func drawFreehand(points: [CGPoint], imageRect: CGRect, context: CGContext) {
         let renderedPoints = points.map { renderedPoint($0, in: imageRect) }
         guard let first = renderedPoints.first else { return }
 
@@ -444,11 +446,11 @@ enum AnnotationRenderer {
         context.strokePath()
     }
 
-    private static func midpoint(_ lhs: CGPoint, _ rhs: CGPoint) -> CGPoint {
+    nonisolated private static func midpoint(_ lhs: CGPoint, _ rhs: CGPoint) -> CGPoint {
         CGPoint(x: (lhs.x + rhs.x) / 2, y: (lhs.y + rhs.y) / 2)
     }
 
-    private static func drawText(
+    nonisolated private static func drawText(
         _ item: AnnotationItem,
         in rect: CGRect,
         imageHeight: CGFloat,
@@ -490,7 +492,7 @@ enum AnnotationRenderer {
         NSGraphicsContext.restoreGraphicsState()
     }
 
-    private static func applyPixelation(
+    nonisolated private static func applyPixelation(
         in rect: CGRect,
         context: CGContext,
         canvasSize: CGSize,
@@ -533,7 +535,7 @@ enum AnnotationRenderer {
         context.restoreGState()
     }
 
-    private static func applyBlur(
+    nonisolated private static func applyBlur(
         in rect: CGRect,
         context: CGContext,
         canvasSize: CGSize,
@@ -563,11 +565,11 @@ enum AnnotationRenderer {
         context.restoreGState()
     }
 
-    private static func renderedLineWidth(for item: AnnotationItem, imageSize: CGSize) -> CGFloat {
+    nonisolated private static func renderedLineWidth(for item: AnnotationItem, imageSize: CGSize) -> CGFloat {
         max(1.5, item.strokeWidth * max(imageSize.width, imageSize.height) / 900)
     }
 
-    private static func imageCropRect(for contextRect: CGRect, imageHeight: CGFloat) -> CGRect {
+    nonisolated private static func imageCropRect(for contextRect: CGRect, imageHeight: CGFloat) -> CGRect {
         CGRect(
             x: contextRect.minX,
             y: imageHeight - contextRect.maxY,

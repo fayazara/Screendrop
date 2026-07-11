@@ -7,7 +7,7 @@ import CoreGraphics
 import QuartzCore
 import SwiftUI
 
-struct AnnotationCameraQuad {
+nonisolated struct AnnotationCameraQuad {
     let topLeft: CGPoint
     let topRight: CGPoint
     let bottomRight: CGPoint
@@ -18,7 +18,7 @@ struct AnnotationCameraQuad {
     }
 }
 
-struct AnnotationCameraProjection {
+nonisolated struct AnnotationCameraProjection {
     let quad: AnnotationCameraQuad
 
     private let forward: AnnotationHomography
@@ -61,7 +61,7 @@ struct AnnotationCameraProjection {
     }
 }
 
-enum AnnotationCameraGeometry {
+nonisolated enum AnnotationCameraGeometry {
     static func projection(
         sourceRect: CGRect,
         imageRect: CGRect,
@@ -274,7 +274,7 @@ enum AnnotationCameraGeometry {
     }
 }
 
-private struct AnnotationHomography {
+nonisolated private struct AnnotationHomography {
     let a: CGFloat
     let b: CGFloat
     let c: CGFloat

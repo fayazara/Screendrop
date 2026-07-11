@@ -37,6 +37,7 @@ struct AnnotationCanvas: View {
     @State private var currentCursor: AnnotationCanvasCursor = .arrow
     @State private var progressivelyBlurredImage: NSImage?
     @State private var progressivelyBlurredSourceID: ObjectIdentifier?
+    @State private var settledScene: AnnotationSceneSettleResult?
 
     var body: some View {
         GeometryReader { proxy in
@@ -79,6 +80,22 @@ struct AnnotationCanvas: View {
                 && progressivelyBlurredSourceID == ObjectIdentifier(image)
                 ? progressivelyBlurredImage ?? image
                 : image
+            let sceneSettleKey = AnnotationSceneSettleKey(
+                sourceID: ObjectIdentifier(image),
+                items: model.items,
+                settings: model.backgroundSettings,
+                contentPixelWidth: sceneSettleContentPixelWidth(
+                    imageFrame: imageFrame,
+                    canvasFrame: displayLayout.canvasFrame,
+                    viewportSize: proxy.size,
+                    projection: projection
+                ),
+                isEligible: usesSceneBlur
+                    && !hasActiveInteraction
+                    && model.draftItem == nil
+                    && model.selectedItemIDs.isEmpty
+                    && model.selectionRect == nil
+            )
 
             ZStack(alignment: .topLeading) {
                 sceneStage(
@@ -94,7 +111,10 @@ struct AnnotationCanvas: View {
                     clipsForegroundToCanvas: effectiveCamera.hasEffect || usesSceneBlur,
                     sceneBlurSettings: usesSceneBlur
                         ? model.backgroundSettings.progressiveBlur
-                        : nil
+                        : nil,
+                    settledSceneImage: settledScene.flatMap {
+                        $0.key == sceneSettleKey ? $0.image : nil
+                    }
                 )
 
                 if model.backgroundSettings.watermark.isVisible {
@@ -166,6 +186,9 @@ struct AnnotationCanvas: View {
                     settings: model.backgroundSettings.progressiveBlur
                 )
             }
+            .task(id: sceneSettleKey) {
+                await updateSceneSettlePreview(for: image, key: sceneSettleKey)
+            }
         }
     }
 
@@ -181,7 +204,8 @@ struct AnnotationCanvas: View {
         displayedImage: NSImage,
         projection: AnnotationCameraProjection,
         clipsForegroundToCanvas: Bool,
-        sceneBlurSettings: AnnotationProgressiveBlurSettings?
+        sceneBlurSettings: AnnotationProgressiveBlurSettings?,
+        settledSceneImage: NSImage? = nil
     ) -> some View {
         if let sceneBlurSettings {
             let blurRadius = max(
@@ -227,6 +251,19 @@ struct AnnotationCanvas: View {
                         )
                     }
                     .allowsHitTesting(false)
+                }
+
+                // Export-exact frame rendered off-main once editing settles.
+                // The gradient-band approximation above stays live underneath
+                // so interaction never waits on a Core Image render.
+                if let settledSceneImage {
+                    Image(nsImage: settledSceneImage)
+                        .resizable()
+                        .interpolation(.high)
+                        .frame(width: canvasFrame.width, height: canvasFrame.height)
+                        .position(x: canvasFrame.midX, y: canvasFrame.midY)
+                        .allowsHitTesting(false)
+                        .transition(.opacity)
                 }
             }
             .mask {
@@ -547,6 +584,101 @@ struct AnnotationCanvas: View {
 
         progressivelyBlurredImage = NSImage(cgImage: output, size: sourceImage.size)
         progressivelyBlurredSourceID = ObjectIdentifier(sourceImage)
+    }
+
+    /// Pixel width for the settled scene's content image: exactly the pixels
+    /// the image occupies on screen, including any enlargement from the camera
+    /// projection, so the settled frame is indistinguishable from the live
+    /// view. A generous budget only guards pathological canvas sizes; the
+    /// render happens once per settle, never per frame.
+    private func sceneSettleContentPixelWidth(
+        imageFrame: CGRect,
+        canvasFrame: CGRect,
+        viewportSize: CGSize,
+        projection: AnnotationCameraProjection
+    ) -> CGFloat {
+        // The projection maps the viewport rect onto a quad; the ratio of the
+        // quad's edges to the viewport approximates how much the camera
+        // magnifies the content on screen.
+        let quad = projection.quad
+        let topWidth = hypot(
+            quad.topRight.x - quad.topLeft.x,
+            quad.topRight.y - quad.topLeft.y
+        )
+        let bottomWidth = hypot(
+            quad.bottomRight.x - quad.bottomLeft.x,
+            quad.bottomRight.y - quad.bottomLeft.y
+        )
+        let leftHeight = hypot(
+            quad.bottomLeft.x - quad.topLeft.x,
+            quad.bottomLeft.y - quad.topLeft.y
+        )
+        let rightHeight = hypot(
+            quad.bottomRight.x - quad.topRight.x,
+            quad.bottomRight.y - quad.topRight.y
+        )
+        let magnification = min(3, max(
+            1,
+            max(topWidth, bottomWidth) / max(viewportSize.width, 1),
+            max(leftHeight, rightHeight) / max(viewportSize.height, 1)
+        ))
+
+        let renderScale = displayScale * magnification
+        let canvasPixelArea = canvasFrame.width * canvasFrame.height * renderScale * renderScale
+        let budget: CGFloat = 12_000_000
+        let budgetScale = min(1, (budget / max(canvasPixelArea, 1)).squareRoot())
+        return max(1, (imageFrame.width * renderScale * budgetScale).rounded())
+    }
+
+    @MainActor
+    private func updateSceneSettlePreview(
+        for sourceImage: NSImage,
+        key: AnnotationSceneSettleKey
+    ) async {
+        guard key.isEligible else {
+            settledScene = nil
+            return
+        }
+
+        // Let slider and focus-pad streams go quiet before paying for an
+        // export-exact render; every keystroke restarts this task.
+        do {
+            try await Task.sleep(for: .milliseconds(200))
+        } catch {
+            return
+        }
+        guard !Task.isCancelled,
+              let source = sourceImage.cgImage(
+                forProposedRect: nil,
+                context: nil,
+                hints: nil
+              ) else {
+            return
+        }
+
+        let colorSpace = source.colorSpace ?? CGColorSpaceCreateDeviceRGB()
+        guard let output = await AnnotationProgressiveBlurPreviewWorker.shared.renderScene(
+            source: source,
+            items: key.items,
+            settings: key.settings,
+            contentPixelWidth: key.contentPixelWidth,
+            colorSpace: colorSpace
+        ), !Task.isCancelled else {
+            return
+        }
+
+        withAnimation(.easeOut(duration: 0.18)) {
+            settledScene = AnnotationSceneSettleResult(
+                key: key,
+                image: NSImage(
+                    cgImage: output,
+                    size: NSSize(
+                        width: CGFloat(output.width) / displayScale,
+                        height: CGFloat(output.height) / displayScale
+                    )
+                )
+            )
+        }
     }
 
     @ViewBuilder

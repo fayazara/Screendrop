@@ -366,7 +366,7 @@ private struct AnnotationInspectorToolGrid: View {
         }
         .frame(maxWidth: 280)
         .frame(maxWidth: .infinity)
-        .padding(2)
+        .padding(InspectorMetrics.controlInset)
         .background(shape.fill(InspectorControlPalette.trackFill(for: colorScheme)))
         .overlay(shape.stroke(InspectorControlPalette.border, lineWidth: 0.5))
         .clipShape(shape)

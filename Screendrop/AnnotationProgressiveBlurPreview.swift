@@ -5,6 +5,7 @@
 
 import AppKit
 import CoreGraphics
+import os
 import SwiftUI
 
 struct AnnotationProgressiveBlurBlendMask: View {
@@ -153,6 +154,11 @@ struct AnnotationProgressiveBlurPreviewKey: Hashable {
 actor AnnotationProgressiveBlurPreviewWorker {
     static let shared = AnnotationProgressiveBlurPreviewWorker()
 
+    private let signposter = OSSignposter(
+        subsystem: "com.fayazahmed.Screendrop",
+        category: "SceneBlurPreview"
+    )
+
     func render(
         source: CGImage,
         settings: AnnotationProgressiveBlurSettings,
@@ -164,5 +170,101 @@ actor AnnotationProgressiveBlurPreviewWorker {
             settings: settings,
             colorSpace: colorSpace
         )
+    }
+
+    func renderScene(
+        source: CGImage,
+        items: [AnnotationItem],
+        settings: AnnotationBackgroundSettings,
+        contentPixelWidth: CGFloat,
+        colorSpace: CGColorSpace
+    ) -> CGImage? {
+        guard !Task.isCancelled else { return nil }
+        let state = signposter.beginInterval("settleRender")
+        defer { signposter.endInterval("settleRender", state) }
+        return try? AnnotationScenePreviewRenderer.render(
+            source: source,
+            items: items,
+            settings: settings,
+            contentPixelWidth: contentPixelWidth,
+            colorSpace: colorSpace
+        )
+    }
+}
+
+/// Identity of one settled scene render. The canvas shows a settled frame only
+/// while the key it was rendered for still matches the live editing state, so
+/// any change hides the frame instantly instead of showing stale output.
+struct AnnotationSceneSettleKey: Equatable {
+    let sourceID: ObjectIdentifier
+    let items: [AnnotationItem]
+    let settings: AnnotationBackgroundSettings
+    let contentPixelWidth: CGFloat
+    let isEligible: Bool
+}
+
+struct AnnotationSceneSettleResult {
+    let key: AnnotationSceneSettleKey
+    let image: NSImage
+}
+
+/// Renders the exact export composition at display resolution for the settled
+/// scene preview. The background layout and blur geometry are proportional to
+/// their extent, so this matches the full-resolution export apart from scale.
+nonisolated enum AnnotationScenePreviewRenderer {
+    static func render(
+        source: CGImage,
+        items: [AnnotationItem],
+        settings: AnnotationBackgroundSettings,
+        contentPixelWidth: CGFloat,
+        colorSpace: CGColorSpace
+    ) throws -> CGImage {
+        let scale = min(1, contentPixelWidth / CGFloat(source.width))
+        let contentImage = scale < 1
+            ? try downscaled(source, scale: scale, colorSpace: colorSpace)
+            : source
+
+        return try AnnotationBackgroundRenderer.compose(
+            contentImage: contentImage,
+            settings: settings,
+            colorSpace: colorSpace,
+            foregroundOverlay: { context, layout, imageRect, imageClipPath in
+                AnnotationRenderer.drawAnnotations(
+                    items,
+                    in: imageRect,
+                    canvasSize: layout.canvasSize,
+                    context: context,
+                    colorSpace: colorSpace,
+                    highlightClipPath: imageClipPath
+                )
+            }
+        )
+    }
+
+    private static func downscaled(
+        _ source: CGImage,
+        scale: CGFloat,
+        colorSpace: CGColorSpace
+    ) throws -> CGImage {
+        let width = max(1, Int((CGFloat(source.width) * scale).rounded()))
+        let height = max(1, Int((CGFloat(source.height) * scale).rounded()))
+        guard let context = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+
+        context.interpolationQuality = .high
+        context.draw(source, in: CGRect(x: 0, y: 0, width: width, height: height))
+        guard let image = context.makeImage() else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        return image
     }
 }

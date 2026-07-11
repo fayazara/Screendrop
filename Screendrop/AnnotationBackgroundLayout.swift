@@ -5,7 +5,7 @@
 
 import CoreGraphics
 
-struct AnnotationBackgroundLayout {
+nonisolated struct AnnotationBackgroundLayout {
     let canvasSize: CGSize
     let imageRect: CGRect
     let padding: CGFloat

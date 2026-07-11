@@ -12,7 +12,7 @@ enum AnnotationMockupEffectsError: Error {
     case cameraProjectionFailed
 }
 
-enum AnnotationMockupEffectsRenderer {
+nonisolated enum AnnotationMockupEffectsRenderer {
     /// `CIContext` is immutable after creation and documented for reuse across
     /// render calls. Access is serialized for previews by the worker below;
     /// exports run on the editor's actor.

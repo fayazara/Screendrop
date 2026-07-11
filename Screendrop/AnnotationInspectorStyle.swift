@@ -36,6 +36,9 @@ enum InspectorMetrics {
     /// Corner radius for fields and segmented tracks.
     static let fieldRadius: CGFloat = 5
     static let sliderRadius: CGFloat = 8
+    /// Shared inner inset for compound controls such as segmented pickers,
+    /// tool grids, and placement surfaces.
+    static let controlInset: CGFloat = 2
     /// Corner radius for square tiles (swatches, tool cells, wallpapers).
     static let tileRadius: CGFloat = 6
 
@@ -346,7 +349,7 @@ struct InspectorSegmented<Option: Hashable, Label: View>: View {
                 segment(for: option)
             }
         }
-        .padding(2)
+        .padding(InspectorMetrics.controlInset)
         .frame(height: height)
         .background(shape.fill(trackFill))
         .overlay(shape.stroke(InspectorControlPalette.border, lineWidth: 0.5))
@@ -356,7 +359,7 @@ struct InspectorSegmented<Option: Hashable, Label: View>: View {
     private func segment(for option: Option) -> some View {
         let selected = isSelected(option)
         let isHovering = hoveredOption == option
-        let segmentRadius = InspectorMetrics.sliderRadius - 2
+        let segmentRadius = InspectorMetrics.sliderRadius - InspectorMetrics.controlInset
 
         return Button {
             onTap(option)

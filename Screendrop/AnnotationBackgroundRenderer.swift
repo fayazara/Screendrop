@@ -8,7 +8,7 @@ import CoreGraphics
 import ImageIO
 import SwiftUI
 
-enum AnnotationBackgroundRenderer {
+nonisolated enum AnnotationBackgroundRenderer {
     typealias ForegroundOverlay = (
         _ context: CGContext,
         _ layout: AnnotationBackgroundLayout,
