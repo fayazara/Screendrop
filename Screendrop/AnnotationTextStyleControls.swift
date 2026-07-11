@@ -17,13 +17,11 @@ struct AnnotationTextStyleControls: View {
 
     var body: some View {
         VStack(spacing: InspectorMetrics.rowSpacing) {
-            HStack(spacing: 6) {
-                fontFamilyMenu
-                    .frame(minWidth: 0, maxWidth: .infinity)
+            fontFamilyMenu
+                .frame(minWidth: 0, maxWidth: .infinity)
 
-                AnnotationColorWellMenu(selectedSwatch: model.selectedSwatch) { swatch in
-                    model.setSwatch(swatch)
-                }
+            AnnotationSwatchStrip(selectedSwatch: model.selectedSwatch) { swatch in
+                model.setSwatch(swatch)
             }
 
             HStack(spacing: 6) {

@@ -97,7 +97,7 @@ struct AnnotationEditorInspector: View {
                         } else {
                             if model.isColorStyleAvailable {
                                 InspectorRow("Color") {
-                                    AnnotationColorMenu(selectedSwatch: model.selectedSwatch) { swatch in
+                                    AnnotationSwatchStrip(selectedSwatch: model.selectedSwatch) { swatch in
                                         onEditorAction()
                                         model.setSwatch(swatch)
                                     }
@@ -106,7 +106,7 @@ struct AnnotationEditorInspector: View {
 
                             if model.isStrokeStyleAvailable {
                                 InspectorRow("Stroke") {
-                                    AnnotationStrokeMenu(strokeWidth: model.strokeWidth) { strokeWidth in
+                                    AnnotationStrokePicker(strokeWidth: model.strokeWidth) { strokeWidth in
                                         onEditorAction()
                                         model.setStrokeWidth(strokeWidth)
                                     }

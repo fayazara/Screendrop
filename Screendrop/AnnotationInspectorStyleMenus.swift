@@ -6,268 +6,200 @@
 import AppKit
 import SwiftUI
 
-struct AnnotationColorMenu: View {
+/// An inline row of color swatches with the shared tile selection treatment
+/// (hairline border at rest, accent ring when selected) and a trailing
+/// "custom" well that opens the system color panel. Replaces the old
+/// dropdown-plus-popover color menu so the Style section reads like the rest
+/// of the inspector.
+struct AnnotationSwatchStrip: View {
     let selectedSwatch: AnnotationSwatch
     let onSelect: (AnnotationSwatch) -> Void
 
-    @State private var isPresented = false
+    private static let swatchDiameter: CGFloat = 17
+    private static let edgeFadeWidth: CGFloat = 16
+    private static let customWellID = "custom-well"
+
+    @State private var edgeOverflow = EdgeOverflow(leading: 0, trailing: 0)
+
+    private struct EdgeOverflow: Equatable {
+        var leading: CGFloat
+        var trailing: CGFloat
+    }
 
     var body: some View {
-        Button {
-            isPresented.toggle()
-        } label: {
-            HStack(spacing: 6) {
-                Circle()
-                    .fill(selectedSwatch.color)
-                    .frame(width: 16, height: 16)
-                    .overlay(Circle().stroke(.white.opacity(0.15), lineWidth: 0.5))
+        ScrollViewReader { scrollProxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 3) {
+                    ForEach(AnnotationSwatch.allCases) { swatch in
+                        swatchButton(for: swatch)
+                            .id(swatch.id)
+                    }
 
-                Text(selectedSwatch.title)
-                    .font(.inspectorValue)
-                    .foregroundStyle(.primary.opacity(0.85))
-
-                Spacer()
-
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 8, weight: .semibold))
-                    .foregroundStyle(.tertiary)
+                    customWell
+                        .id(Self.customWellID)
+                }
             }
-            .padding(.horizontal, 8)
-            .inspectorField()
+            .onScrollGeometryChange(for: EdgeOverflow.self) { geometry in
+                EdgeOverflow(
+                    leading: max(0, geometry.contentOffset.x + geometry.contentInsets.leading),
+                    trailing: max(
+                        0,
+                        geometry.contentSize.width
+                            - geometry.containerSize.width
+                            - geometry.contentOffset.x
+                    )
+                )
+            } action: { _, newValue in
+                edgeOverflow = newValue
+            }
+            .mask(edgeFadeMask)
+            .onAppear {
+                scrollProxy.scrollTo(
+                    isCustomSelected ? Self.customWellID : selectedSwatch.id
+                )
+            }
         }
-        .buttonStyle(.plain)
-        .popover(isPresented: $isPresented, arrowEdge: .trailing) {
-            AnnotationColorPopover(
-                selectedSwatch: selectedSwatch,
-                onSelect: { swatch in
-                    onSelect(swatch)
-                    isPresented = false
-                },
-                onCustomSelect: onSelect
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Fades the strip out at whichever edge still has content beyond it, so
+    /// overflow reads as "more colors this way" instead of a hard clip.
+    private var edgeFadeMask: some View {
+        HStack(spacing: 0) {
+            LinearGradient(
+                colors: [
+                    .black.opacity(1 - fadeStrength(for: edgeOverflow.leading)),
+                    .black
+                ],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            .frame(width: Self.edgeFadeWidth)
+
+            Rectangle().fill(.black)
+
+            LinearGradient(
+                colors: [
+                    .black,
+                    .black.opacity(1 - fadeStrength(for: edgeOverflow.trailing))
+                ],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            .frame(width: Self.edgeFadeWidth)
+        }
+    }
+
+    private func fadeStrength(for overflow: CGFloat) -> CGFloat {
+        min(max(overflow / Self.edgeFadeWidth, 0), 1)
+    }
+
+    private func swatchButton(for swatch: AnnotationSwatch) -> some View {
+        Button {
+            onSelect(swatch)
+        } label: {
+            swatchCircle(
+                fill: AnyShapeStyle(swatch.color),
+                isSelected: selectedSwatch == swatch
             )
         }
-        .help("Color")
+        .buttonStyle(.plain)
+        .help(swatch.title)
+        .accessibilityLabel(swatch.title)
+        .accessibilityAddTraits(selectedSwatch == swatch ? .isSelected : [])
+    }
+
+    private var customWell: some View {
+        Button {
+            AnnotationColorPanelBridge.shared.present(
+                current: selectedSwatch.nsColor
+            ) { color in
+                onSelect(.custom(from: color))
+            }
+        } label: {
+            swatchCircle(
+                fill: isCustomSelected
+                    ? AnyShapeStyle(selectedSwatch.color)
+                    : AnyShapeStyle(AngularGradient(
+                        colors: [.red, .yellow, .green, .cyan, .blue, .purple, .red],
+                        center: .center
+                      )),
+                isSelected: isCustomSelected
+            )
+        }
+        .buttonStyle(.plain)
+        .help("Custom color")
+        .accessibilityLabel("Custom color")
+        .accessibilityAddTraits(isCustomSelected ? .isSelected : [])
+    }
+
+    private func swatchCircle(fill: AnyShapeStyle, isSelected: Bool) -> some View {
+        Circle()
+            .fill(fill)
+            .frame(width: Self.swatchDiameter, height: Self.swatchDiameter)
+            .overlay(Circle().strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5))
+            .padding(2.5)
+            .overlay {
+                if isSelected {
+                    Circle().strokeBorder(Color.accentColor, lineWidth: 2)
+                }
+            }
+            .contentShape(Circle().inset(by: -2))
+    }
+
+    private var isCustomSelected: Bool {
+        !AnnotationSwatch.allCases.contains(selectedSwatch)
     }
 }
 
-struct AnnotationStrokeMenu: View {
+/// Stroke width as a segmented dot scale, using the same segmented control as
+/// every other choice picker in the inspector.
+struct AnnotationStrokePicker: View {
     let strokeWidth: CGFloat
     let onSelect: (CGFloat) -> Void
 
-    private let widths: [CGFloat] = [2, 4, 6, 8, 12]
-    @State private var isPresented = false
+    private static let widths: [CGFloat] = [2, 4, 6, 8, 12]
 
     var body: some View {
-        Button {
-            isPresented.toggle()
-        } label: {
-            HStack(spacing: 10) {
-                StrokePreview(width: strokeWidth)
-                    .frame(width: 30, height: 16)
-
-                Text("\(Int(strokeWidth))px")
-                    .font(.inspectorValue)
-                    .foregroundStyle(.primary.opacity(0.85))
-                    .frame(minWidth: 28, alignment: .leading)
-
-                Spacer(minLength: 10)
-
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 8, weight: .semibold))
-                    .foregroundStyle(.tertiary)
-                    .padding(.leading, 2)
-            }
-            .padding(.horizontal, 8)
-            .inspectorField()
-        }
-        .buttonStyle(.plain)
-        .popover(isPresented: $isPresented, arrowEdge: .trailing) {
-            AnnotationStrokePopover(
-                strokeWidth: strokeWidth,
-                widths: widths,
-                onSelect: { width in
-                    onSelect(width)
-                    isPresented = false
-                }
-            )
-        }
-        .help("Stroke thickness")
-    }
-}
-
-struct AnnotationColorWellMenu: View {
-    let selectedSwatch: AnnotationSwatch
-    let onSelect: (AnnotationSwatch) -> Void
-
-    @State private var isPresented = false
-
-    var body: some View {
-        Button {
-            isPresented.toggle()
-        } label: {
-            RoundedRectangle(cornerRadius: InspectorMetrics.fieldRadius, style: .continuous)
-                .fill(selectedSwatch.color)
-                .frame(width: 32, height: InspectorMetrics.controlHeight)
-                .overlay(
-                    RoundedRectangle(cornerRadius: InspectorMetrics.fieldRadius, style: .continuous)
-                        .stroke(.white.opacity(0.18), lineWidth: 0.5)
-                )
-        }
-        .buttonStyle(.plain)
-        .popover(isPresented: $isPresented, arrowEdge: .trailing) {
-            AnnotationColorPopover(
-                selectedSwatch: selectedSwatch,
-                onSelect: { swatch in
-                    onSelect(swatch)
-                    isPresented = false
-                },
-                onCustomSelect: onSelect
-            )
-        }
-        .help("Text color")
-    }
-}
-
-private struct AnnotationColorPopover: View {
-    let selectedSwatch: AnnotationSwatch
-    let onSelect: (AnnotationSwatch) -> Void
-    let onCustomSelect: (AnnotationSwatch) -> Void
-
-    private var customColor: Binding<Color> {
-        Binding(
-            get: { selectedSwatch.color },
-            set: { onCustomSelect(.custom(from: $0)) }
+        InspectorSegmented(
+            options: Self.widths,
+            isSelected: { $0 == strokeWidth },
+            onTap: onSelect,
+            label: { width in
+                Circle()
+                    .frame(width: dotDiameter(for: width), height: dotDiameter(for: width))
+                    .help("\(Int(width)) px")
+                    .accessibilityLabel("\(Int(width)) pixels")
+            },
+            height: InspectorMetrics.controlHeight
         )
     }
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            ForEach(AnnotationSwatch.allCases) { swatch in
-                Button {
-                    onSelect(swatch)
-                } label: {
-                    AnnotationColorOptionRow(
-                        swatch: swatch,
-                        isSelected: selectedSwatch == swatch
-                    )
-                }
-                .buttonStyle(.plain)
-            }
-
-            Divider()
-                .padding(.vertical, 4)
-
-            ColorPicker(selection: customColor, supportsOpacity: false) {
-                HStack(spacing: 12) {
-                    Circle()
-                        .fill(AngularGradient(
-                            colors: [.red, .yellow, .green, .cyan, .blue, .purple, .red],
-                            center: .center
-                        ))
-                        .frame(width: 22, height: 22)
-                        .overlay(Circle().stroke(.white.opacity(0.18), lineWidth: 0.5))
-
-                    Text("Custom")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(.primary)
-                }
-            }
-            .padding(.horizontal, 7)
-            .padding(.vertical, 5)
-        }
-        .padding(8)
-        .frame(width: 172)
+    private func dotDiameter(for width: CGFloat) -> CGFloat {
+        min(width + 2, 13)
     }
 }
 
-private struct AnnotationColorOptionRow: View {
-    let swatch: AnnotationSwatch
-    let isSelected: Bool
+/// Routes the shared `NSColorPanel` to whichever swatch strip opened it last.
+/// The panel sends continuous `changeColor` actions while the user scrubs, so
+/// annotations update live just like the old popover's embedded picker.
+@MainActor
+final class AnnotationColorPanelBridge: NSObject {
+    static let shared = AnnotationColorPanelBridge()
 
-    var body: some View {
-        HStack(spacing: 12) {
-            Circle()
-                .fill(swatch.color)
-                .frame(width: 24, height: 24)
-                .overlay(Circle().stroke(.white.opacity(0.16), lineWidth: 0.5))
-                .overlay {
-                    if isSelected {
-                        Circle()
-                            .stroke(Color.accentColor.opacity(0.38), lineWidth: 6)
-                            .frame(width: 32, height: 32)
-                    }
-                }
+    private var onChange: ((NSColor) -> Void)?
 
-            Text(swatch.title)
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(.primary)
-
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 7)
-        .frame(height: 34)
-        .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-        .background {
-            if isSelected {
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(Color.accentColor.opacity(0.10))
-            }
-        }
+    func present(current: NSColor, onChange: @escaping (NSColor) -> Void) {
+        let panel = NSColorPanel.shared
+        panel.showsAlpha = false
+        panel.color = current
+        self.onChange = onChange
+        panel.setTarget(self)
+        panel.setAction(#selector(colorDidChange(_:)))
+        panel.makeKeyAndOrderFront(nil)
     }
-}
 
-private struct AnnotationStrokePopover: View {
-    let strokeWidth: CGFloat
-    let widths: [CGFloat]
-    let onSelect: (CGFloat) -> Void
-
-    var body: some View {
-        VStack(spacing: 7) {
-            ForEach(widths, id: \.self) { width in
-                Button {
-                    onSelect(width)
-                } label: {
-                    StrokeOptionRow(width: width, isSelected: strokeWidth == width)
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(9)
-        .frame(width: 92)
-    }
-}
-
-private struct StrokeOptionRow: View {
-    let width: CGFloat
-    let isSelected: Bool
-
-    var body: some View {
-        ZStack {
-            if isSelected {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(Color.accentColor.opacity(0.12))
-            }
-
-            StrokePreview(width: width, color: isSelected ? Color.accentColor : Color.primary.opacity(0.58))
-                .frame(width: 48, height: 32)
-        }
-        .frame(maxWidth: .infinity)
-        .frame(height: 42)
-        .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-    }
-}
-
-private struct StrokePreview: View {
-    let width: CGFloat
-    var color: Color = .primary
-
-    var body: some View {
-        GeometryReader { proxy in
-            Path { path in
-                path.move(to: CGPoint(x: proxy.size.width * 0.24, y: proxy.size.height * 0.68))
-                path.addLine(to: CGPoint(x: proxy.size.width * 0.76, y: proxy.size.height * 0.32))
-            }
-            .stroke(color, style: StrokeStyle(lineWidth: min(width, 7), lineCap: .round))
-        }
+    @objc private func colorDidChange(_ sender: NSColorPanel) {
+        onChange?(sender.color)
     }
 }
