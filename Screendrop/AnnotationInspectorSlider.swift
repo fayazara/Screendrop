@@ -359,6 +359,33 @@ struct InspectorSlider: View {
 
     private func updateValue(for locationX: CGFloat, width: CGFloat) {
         guard width > 0 else { return }
+
+        // Soft detent: a small sticky zone lands exactly on 0, and each side
+        // of the track is remapped around it so near-zero values stay
+        // reachable instead of being swallowed by the snap radius. Keyboard
+        // and typed input stay precise and never snap.
+        if let zeroProgress {
+            let zeroX = zeroProgress * width
+            let detentRadius: CGFloat = 3
+            let leftSpan = zeroX - detentRadius
+            let rightSpan = width - zeroX - detentRadius
+            if leftSpan > 0, rightSpan > 0 {
+                if abs(locationX - zeroX) <= detentRadius {
+                    setValue(0)
+                } else if locationX < zeroX {
+                    let progress = min(max(locationX / leftSpan, 0), 1)
+                    setValue(range.lowerBound * (1 - progress))
+                } else {
+                    let progress = min(
+                        max((locationX - zeroX - detentRadius) / rightSpan, 0),
+                        1
+                    )
+                    setValue(range.upperBound * progress)
+                }
+                return
+            }
+        }
+
         let progress = min(max(locationX / width, 0), 1)
         let proposedValue = range.lowerBound
             + progress * (range.upperBound - range.lowerBound)
@@ -425,23 +452,29 @@ private struct InspectorSliderMarkers: View {
             let centerY = size.height / 2
             let leadingX = min(max(size.width * 0.34, 68), size.width - 40)
             let trailingX = max(leadingX, size.width - 12)
-            let markerCount = 7
-
-            for index in 0..<markerCount {
-                let fraction = CGFloat(index) / CGFloat(markerCount - 1)
-                let x = leadingX + fraction * (trailingX - leadingX)
-                drawMarker(
-                    in: &context,
-                    x: x,
-                    centerY: centerY,
-                    height: 10,
-                    color: Color.primary.opacity(0.22),
-                    lineWidth: 1
-                )
-            }
+            let spacing = max((trailingX - leadingX) / 6, 8)
 
             if let zeroProgress {
+                // Anchor the grid on the zero detent and grow outward, so the
+                // zero mark is one of the evenly spaced markers instead of a
+                // stray line sitting between decorative ticks.
                 let zeroX = min(max(zeroProgress * size.width, 4), size.width - 4)
+                for direction: CGFloat in [-1, 1] {
+                    for step in 1...32 {
+                        let x = zeroX + direction * CGFloat(step) * spacing
+                        if direction > 0 && x > trailingX { break }
+                        if direction < 0 && x < leadingX { break }
+                        guard x >= leadingX, x <= trailingX else { continue }
+                        drawMarker(
+                            in: &context,
+                            x: x,
+                            centerY: centerY,
+                            height: 10,
+                            color: Color.primary.opacity(0.22),
+                            lineWidth: 1
+                        )
+                    }
+                }
                 drawMarker(
                     in: &context,
                     x: zeroX,
@@ -450,6 +483,20 @@ private struct InspectorSliderMarkers: View {
                     color: Color.primary.opacity(0.38),
                     lineWidth: 1.5
                 )
+            } else {
+                let markerCount = 7
+                for index in 0..<markerCount {
+                    let fraction = CGFloat(index) / CGFloat(markerCount - 1)
+                    let x = leadingX + fraction * (trailingX - leadingX)
+                    drawMarker(
+                        in: &context,
+                        x: x,
+                        centerY: centerY,
+                        height: 10,
+                        color: Color.primary.opacity(0.22),
+                        lineWidth: 1
+                    )
+                }
             }
 
             let currentX = min(max(progress * size.width, 4), size.width - 4)
