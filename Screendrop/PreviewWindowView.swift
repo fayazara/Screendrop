@@ -106,6 +106,14 @@ struct PreviewWindowView: View {
             }
             .onChange(of: previewStack.itemIDs) { _, _ in
                 previewStack.dismissOverflowItems(visibleCapacity: visibleCapacity)
+
+                // Removals and insertions reflow the remaining cards; a card
+                // sliding under a stationary cursor fires hover mid-flight, so
+                // suppress hover actions until the reflow settles — same
+                // treatment as the collapse/expand transitions.
+                if !previewStack.isCollapsed {
+                    scheduleTransitionReset()
+                }
             }
             .onChange(of: visibleCapacity) { _, capacity in
                 previewStack.setVisibleCapacity(capacity)
@@ -368,7 +376,11 @@ struct PreviewWindowView: View {
         transitionResetTask = Task {
             try? await Task.sleep(for: .milliseconds(340))
             guard !Task.isCancelled else { return }
-            isOverlayTransitioning = false
+            // Fade hover actions back in rather than popping them, so a card
+            // that settled under the cursor eases into its hovered state.
+            withAnimation(.easeOut(duration: 0.18)) {
+                isOverlayTransitioning = false
+            }
         }
     }
     
