@@ -62,21 +62,6 @@ final class CaptureCoordinator {
         }
     }
 
-    func recordScreen() {
-        let displayID = ActiveDisplayResolver.activeDisplayID(preferPointer: false)
-        Task {
-            do {
-                let content = try await ScreenRecordingCapture.availableContent()
-                guard let display = content.displays.first(where: { $0.displayID == displayID }) ?? content.displays.first else { return }
-                await MainActor.run {
-                    self.recordFullscreen(display)
-                }
-            } catch {
-                print("Failed to load recording display: \(error)")
-            }
-        }
-    }
-
     func recordFullscreen(_ display: SCDisplay) {
         ScreenRecordingManager.shared.startRecording(source: ScreenRecordingSource(kind: .fullscreen(display)))
     }

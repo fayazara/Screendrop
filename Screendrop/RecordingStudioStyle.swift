@@ -133,8 +133,19 @@ nonisolated struct RecordingStudioLayout: Sendable {
     ) -> RecordingStudioLayout {
         let minDimension = min(canvasSize.width, canvasSize.height)
         let inset = (style.padding * minDimension).rounded()
-        let cardRect = CGRect(origin: .zero, size: canvasSize)
-            .insetBy(dx: inset, dy: inset)
+        // Shrink the card uniformly so it keeps the video's aspect ratio —
+        // insetting both axes by the same amount would stretch the recording.
+        let cardScale = max(0.05, 1 - 2 * inset / minDimension)
+        let cardSize = CGSize(
+            width: (canvasSize.width * cardScale).rounded(),
+            height: (canvasSize.height * cardScale).rounded()
+        )
+        let cardRect = CGRect(
+            x: ((canvasSize.width - cardSize.width) / 2).rounded(),
+            y: ((canvasSize.height - cardSize.height) / 2).rounded(),
+            width: cardSize.width,
+            height: cardSize.height
+        )
         let cardCornerRadius = style.cornerRadius * minDimension
 
         var bubbleRect = CGRect.zero

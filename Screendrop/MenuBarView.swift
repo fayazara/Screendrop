@@ -12,12 +12,8 @@ import SwiftUI
 
 struct MenuBarView: View {
     @ObservedObject private var updaterManager = UpdaterManager.shared
-    @State private var recordingSources = RecordingSourceCatalog.shared
     @State private var historyStore = ScreenshotHistoryStore.shared
-    @AppStorage(ScreendropPreferences.recordingCameraDeviceIDKey) private var recordingCameraID = ""
-    @AppStorage(ScreendropPreferences.recordingMicrophoneDeviceIDKey) private var recordingMicrophoneID = ""
-    @AppStorage(ScreendropPreferences.recordingSystemAudioKey) private var recordingSystemAudio = false
-    
+
     var body: some View {
         Group {
             Button {
@@ -38,8 +34,8 @@ struct MenuBarView: View {
                 Label("Capture Area", systemImage: "rectangle.dashed")
             }
 
-            Menu {
-                recordingMenuContent
+            Button {
+                RecordingPickerPresenter.shared.show()
             } label: {
                 Label("Record Screen", systemImage: "record.circle")
             }
@@ -80,158 +76,7 @@ struct MenuBarView: View {
             .keyboardShortcut("q")
         }
         .task {
-            await recordingSources.refresh()
             historyStore.reload()
-        }
-    }
-
-    @ViewBuilder
-    private var recordingMenuContent: some View {
-        if recordingSources.isLoading {
-            Label("Loading sources...", systemImage: "hourglass")
-        }
-
-        if let errorMessage = recordingSources.errorMessage {
-            Text("Unable to load sources")
-            Text(errorMessage)
-        }
-
-        Menu("Full Screen") {
-            if recordingSources.displays.isEmpty {
-                Text("No displays found")
-            } else {
-                ForEach(Array(recordingSources.displays.enumerated()), id: \.element.displayID) { index, display in
-                    Button(RecordingSourceCatalog.displayTitle(display, index: index)) {
-                        CaptureCoordinator.shared.recordFullscreen(display)
-                    }
-                }
-            }
-        }
-
-        Menu("Area") {
-            if recordingSources.displays.isEmpty {
-                Text("No displays found")
-            } else {
-                ForEach(Array(recordingSources.displays.enumerated()), id: \.element.displayID) { index, display in
-                    Button(RecordingSourceCatalog.displayTitle(display, index: index)) {
-                        CaptureCoordinator.shared.recordArea(display)
-                    }
-                }
-            }
-        }
-
-        Menu("Window") {
-            if recordingSources.windows.isEmpty {
-                Text("No app windows found")
-            } else {
-                ForEach(recordingSources.windows, id: \.windowID) { window in
-                    Button(RecordingSourceCatalog.windowTitle(window)) {
-                        CaptureCoordinator.shared.recordWindow(window)
-                    }
-                }
-            }
-
-            Divider()
-
-            Button {
-                Task {
-                    await recordingSources.refresh()
-                }
-            } label: {
-                Label("Refresh Windows", systemImage: "arrow.clockwise")
-            }
-        }
-
-        Divider()
-
-        recordingInputsMenuContent
-
-        Divider()
-
-        Button {
-            Task {
-                await recordingSources.refresh()
-            }
-        } label: {
-            Label("Refresh Sources", systemImage: "arrow.clockwise")
-        }
-    }
-
-    /// Camera / microphone / system-audio pickers for the next recording.
-    @ViewBuilder
-    private var recordingInputsMenuContent: some View {
-        Menu {
-            Toggle(isOn: Binding(
-                get: { recordingCameraID.isEmpty },
-                set: { _ in recordingCameraID = "" }
-            )) {
-                Text("No Camera")
-            }
-            ForEach(RecordingDeviceCatalog.cameras(), id: \.uniqueID) { device in
-                Toggle(isOn: Binding(
-                    get: { recordingCameraID == device.uniqueID },
-                    set: { shouldSelect in
-                        guard shouldSelect else { return }
-                        selectCamera(deviceID: device.uniqueID)
-                    }
-                )) {
-                    Text(device.localizedName)
-                }
-            }
-        } label: {
-            Label(
-                recordingCameraID.isEmpty ? "Camera: Off" : "Camera: On",
-                systemImage: recordingCameraID.isEmpty ? "video.slash" : "video"
-            )
-        }
-
-        Menu {
-            Toggle(isOn: Binding(
-                get: { recordingMicrophoneID.isEmpty },
-                set: { _ in recordingMicrophoneID = "" }
-            )) {
-                Text("No Microphone")
-            }
-            ForEach(RecordingDeviceCatalog.microphones(), id: \.uniqueID) { device in
-                Toggle(isOn: Binding(
-                    get: { recordingMicrophoneID == device.uniqueID },
-                    set: { shouldSelect in
-                        guard shouldSelect else { return }
-                        selectMicrophone(deviceID: device.uniqueID)
-                    }
-                )) {
-                    Text(device.localizedName)
-                }
-            }
-        } label: {
-            Label(
-                recordingMicrophoneID.isEmpty ? "Microphone: Off" : "Microphone: On",
-                systemImage: recordingMicrophoneID.isEmpty ? "mic.slash" : "mic"
-            )
-        }
-
-        Toggle(isOn: $recordingSystemAudio) {
-            Label("Record System Audio", systemImage: "speaker.wave.2")
-        }
-    }
-
-    private func selectCamera(deviceID: String) {
-        Task { @MainActor in
-            if await RecordingInputAuthorization.ensureAccess(for: .camera) {
-                recordingCameraID = deviceID
-            } else {
-                recordingCameraID = ""
-            }
-        }
-    }
-
-    private func selectMicrophone(deviceID: String) {
-        Task { @MainActor in
-            if await RecordingInputAuthorization.ensureAccess(for: .microphone) {
-                recordingMicrophoneID = deviceID
-            } else {
-                recordingMicrophoneID = ""
-            }
         }
     }
 

@@ -448,7 +448,9 @@ final class RecordingStudioModel {
     }
 
     func isCameraVisible(at time: TimeInterval) -> Bool {
-        hasCameraVideo && style.camera.isVisible && time >= cameraOffset
+        // No time gate: before cameraOffset the player is parked on the
+        // camera's first frame, which beats the bubble popping in late.
+        hasCameraVideo && style.camera.isVisible
     }
 
     // MARK: - Export

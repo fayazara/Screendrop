@@ -150,7 +150,11 @@ private struct StudioCanvas: View {
                 let state = model.cameraState(at: model.displayTime)
 
                 ZStack {
+                    // Fixed frame + clip so a scaledToFill wallpaper can never
+                    // inflate the ZStack bounds and shift the card off-center.
                     StudioBackgroundView(style: model.style.background)
+                        .frame(width: canvasSize.width, height: canvasSize.height)
+                        .clipped()
 
                     // The recording card: video with the virtual camera
                     // transform, clipped to the rounded padded card.
@@ -203,7 +207,11 @@ private struct StudioCameraBubble: View {
                 RoundedRectangle(cornerRadius: layout.bubbleCornerRadius, style: .continuous)
                     .strokeBorder(.white.opacity(0.25), lineWidth: 1)
             }
-            .shadow(color: .black.opacity(0.35), radius: 12, y: 5)
+            .shadow(
+                color: .black.opacity(0.35),
+                radius: min(layout.canvasSize.width, layout.canvasSize.height) * 0.022,
+                y: min(layout.canvasSize.width, layout.canvasSize.height) * 0.009
+            )
             .position(x: layout.bubbleRect.midX, y: layout.bubbleRect.midY)
             .gesture(
                 DragGesture()

@@ -391,7 +391,10 @@ nonisolated private final class CameraFrameFeed: @unchecked Sendable {
     func latestFrame(at screenTime: TimeInterval) -> CVPixelBuffer? {
         while !isFinished {
             if let pending = pendingFrame {
-                guard pending.time <= screenTime else { break }
+                // Promote the very first frame unconditionally: the camera
+                // starts a beat after the screen (capture warmup), and holding
+                // its first frame from t=0 beats the bubble popping in late.
+                guard pending.time <= screenTime || currentFrame == nil else { break }
                 currentFrame = pending.buffer
                 pendingFrame = nil
             }
@@ -513,10 +516,32 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
                 height: fillSize.height
             )
 
+            // Shadow + hairline border match the live preview's bubble
+            // styling; the bubble sits over moving video, so both must be
+            // drawn per frame rather than baked into the backdrop.
+            let minDimension = min(canvasSize.width, canvasSize.height)
+            context.saveGState()
+            context.setShadow(
+                offset: CGSize(width: 0, height: -minDimension * 0.009),
+                blur: minDimension * 0.022,
+                color: CGColor(gray: 0, alpha: 0.35)
+            )
+            context.addPath(roundedPath(for: bubble, radius: layout.bubbleCornerRadius))
+            context.setFillColor(CGColor(gray: 0, alpha: 1))
+            context.fillPath()
+            context.restoreGState()
+
             context.saveGState()
             context.addPath(roundedPath(for: bubble, radius: layout.bubbleCornerRadius))
             context.clip()
             context.draw(cameraImage, in: flipped(fillRect))
+            context.restoreGState()
+
+            context.saveGState()
+            context.addPath(roundedPath(for: bubble.insetBy(dx: 0.5, dy: 0.5), radius: layout.bubbleCornerRadius))
+            context.setStrokeColor(CGColor(gray: 1, alpha: 0.25))
+            context.setLineWidth(max(1, minDimension * 0.0018))
+            context.strokePath()
             context.restoreGState()
         }
     }
