@@ -45,10 +45,9 @@ nonisolated struct RecordingSession: Sendable, Equatable {
         FileManager.default.fileExists(atPath: finalURL.path)
     }
 
-    /// What copy/save/upload/Quick Look should treat as the recording. A
-    /// camera recording is flattened automatically after capture; the raw
-    /// screen master is only the fallback if rendering has not finished or
-    /// could not be completed.
+    /// Uses an existing flattened cache when one is available; otherwise
+    /// history previews the screen master so the project can appear without
+    /// turning Stop into an implicit export.
     var deliverableURL: URL {
         hasFinalVideo ? finalURL : screenURL
     }

@@ -67,12 +67,11 @@ struct ScreendropApp: App {
 
         ScreenRecordingManager.shared.onFinishRecording = { session, displayID in
             Task { @MainActor in
-                do {
-                    _ = try await RecordingSessionRenderer.ensureDeliverable(for: session)
-                } catch {
-                    RecordingSessionRenderer.presentFailure(error)
-                }
-
+                // A recording session is already an editable project: the
+                // screen, camera, audio, and event tracks do not need to be
+                // flattened before Studio can open them. Rendering here made
+                // Stop behave like Export and blocked short recordings behind
+                // a full-resolution transcode.
                 let historyURL = await ScreenshotHistoryStore.shared.importRecordingSession(session)
                 ScreenshotPreviewStack.shared.addVideo(url: historyURL)
                 if AfterCaptureActions.isEnabled(.showOverlay, for: .recording) {
@@ -129,7 +128,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ScreenRecordingManager.shared.finishForTermination { session in
                 Task { @MainActor in
                     if let session {
-                        _ = try? await RecordingSessionRenderer.ensureDeliverable(for: session)
                         _ = await ScreenshotHistoryStore.shared.importRecordingSession(session)
                     }
                     sender.reply(toApplicationShouldTerminate: true)

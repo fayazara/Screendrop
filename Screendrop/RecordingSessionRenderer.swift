@@ -2,10 +2,9 @@
 //  RecordingSessionRenderer.swift
 //  Screendrop
 //
-//  Produces the default flattened recording that leaves the app. The capture
-//  pipeline intentionally keeps screen and camera as separate safety masters;
-//  this renderer is the bridge that makes History, Auto Save, copy, upload,
-//  and Quick Look receive the composed screen + camera + audio movie.
+//  On-demand utility for workflows that require a single flattened movie.
+//  The capture pipeline keeps screen and camera as separate safety masters;
+//  this renderer must not run on the recording Stop/presentation path.
 //
 
 import AppKit
@@ -22,9 +21,9 @@ enum RecordingSessionRenderer {
         }
     }
 
-    /// Creates the flattened deliverable when the session has a camera source.
-    /// Screen-only sessions already contain their complete audio/video result
-    /// and need no expensive second encode.
+    /// Creates a flattened deliverable when explicitly requested for a session
+    /// with a camera source. Screen-only sessions already contain their complete
+    /// audio/video result and need no expensive second encode.
     static func ensureDeliverable(for session: RecordingSession) async throws -> URL {
         guard session.hasCamera else { return session.screenURL }
         if session.hasFinalVideo { return session.finalURL }

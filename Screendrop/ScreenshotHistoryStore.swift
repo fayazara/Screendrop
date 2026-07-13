@@ -226,14 +226,30 @@ final class ScreenshotHistoryStore {
             return session.screenURL
         }
 
-        let metadata = await videoMetadata(at: session.deliverableURL)
+        // The recorder has already persisted this metadata before invoking
+        // the completion handler. Prefer it so the preview/editor can appear
+        // immediately instead of opening the movie with AVFoundation again.
+        let manifest = session.loadManifest()
+        let metadata: (width: Int, height: Int, duration: Double?)
+        if let manifest,
+           manifest.pixelWidth > 0,
+           manifest.pixelHeight > 0,
+           manifest.duration > 0 {
+            metadata = (
+                width: manifest.pixelWidth,
+                height: manifest.pixelHeight,
+                duration: manifest.duration
+            )
+        } else {
+            metadata = await videoMetadata(at: session.screenURL)
+        }
         let displayName = session.directoryURL
             .deletingPathExtension()
             .lastPathComponent
             .appending(".mov")
         let item = ScreenshotHistoryItem(
             id: UUID(),
-            createdAt: session.loadManifest()?.createdAt ?? Date(),
+            createdAt: manifest?.createdAt ?? Date(),
             updatedAt: Date(),
             fileName: displayName,
             pixelWidth: metadata.width,
