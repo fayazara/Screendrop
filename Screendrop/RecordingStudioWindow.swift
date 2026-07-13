@@ -157,7 +157,9 @@ private struct StudioCanvas: View {
                         .clipped()
 
                     // The recording card: video with the virtual camera
-                    // transform, clipped to the rounded padded card.
+                    // transform, clipped to the rounded padded card. The
+                    // synthetic cursor overlays inside the same clip so it
+                    // pans, zooms, and crops exactly like the pixels below.
                     StudioPlayerLayerView(player: model.screenPlayer, gravity: .resize)
                         .frame(width: layout.cardRect.width, height: layout.cardRect.height)
                         .scaleEffect(state.scale)
@@ -166,6 +168,16 @@ private struct StudioCanvas: View {
                             y: (0.5 - state.center.y) * state.scale * layout.cardRect.height
                         )
                         .frame(width: layout.cardRect.width, height: layout.cardRect.height)
+                        .overlay {
+                            if let cursor = model.cursorPosition(at: model.displayTime) {
+                                StudioCursorOverlay(
+                                    position: cursor,
+                                    state: state,
+                                    cardSize: layout.cardRect.size,
+                                    cursorScale: model.style.cursorScale
+                                )
+                            }
+                        }
                         .clipShape(RoundedRectangle(cornerRadius: layout.cardCornerRadius, style: .continuous))
                         .shadow(
                             color: .black.opacity(model.style.background == .none ? 0 : 0.55 * model.style.shadow),
@@ -190,6 +202,42 @@ private struct StudioCanvas: View {
         guard size.width > 0, size.height > 0 else { return bounds }
         let scale = min(bounds.width / size.width, bounds.height / size.height)
         return CGSize(width: size.width * scale, height: size.height * scale)
+    }
+}
+
+/// The synthetic cursor arrow, placed through the same camera transform the
+/// video card uses (see ***REMOVED*** for why the cursor is drawn
+/// rather than captured).
+private struct StudioCursorOverlay: View {
+    let position: CGPoint
+    let state: ***REMOVED***
+    let cardSize: CGSize
+    let cursorScale: CGFloat
+
+    /// Loaded straight from the bundle: the arrow ships as a loose resource
+    /// (shared with the exporter's CGImageSource path), which Image(String)'s
+    /// asset-catalog lookup does not find.
+    private static let arrowImage: NSImage? = Bundle.main
+        .url(forResource: ***REMOVED***.imageName, withExtension: "png")
+        .flatMap { NSImage(contentsOf: $0) }
+
+    var body: some View {
+        if let arrow = Self.arrowImage {
+            let height = cardSize.height * ***REMOVED***.heightFraction * state.scale * cursorScale
+            let size = CGSize(width: height * ***REMOVED***.aspectRatio, height: height)
+            let tip = CGPoint(
+                x: cardSize.width * (0.5 + state.scale * (position.x - state.center.x)),
+                y: cardSize.height * (0.5 + state.scale * (position.y - state.center.y))
+            )
+            Image(nsImage: arrow)
+                .resizable()
+                .frame(width: size.width, height: size.height)
+                .position(
+                    x: tip.x + (0.5 - ***REMOVED***.hotspot.x) * size.width,
+                    y: tip.y + (0.5 - ***REMOVED***.hotspot.y) * size.height
+                )
+                .allowsHitTesting(false)
+        }
     }
 }
 
@@ -582,6 +630,7 @@ private enum StudioInspectorSection: Hashable {
     case background
     case layout
     case motion
+    case cursor
     case camera
     case export
 }
@@ -643,6 +692,22 @@ private struct StudioInspector: View {
                     }
                 ) {
                     zoomControls
+                }
+
+                if model.***REMOVED*** {
+                    InspectorDisclosureSection(
+                        title: "Cursor",
+                        isExpanded: expansionBinding(for: .cursor),
+                        accessory: {
+                            if model.style.cursorScale != 1 {
+                                InspectorClearButton(help: "Reset cursor size") {
+                                    model.style.cursorScale = 1
+                                }
+                            }
+                        }
+                    ) {
+                        cursorControls
+                    }
                 }
 
                 if model.hasCameraVideo {
@@ -894,6 +959,19 @@ private struct StudioInspector: View {
         }
         .disabled(!model.zoomEnabled)
         .opacity(model.zoomEnabled ? 1 : 0.48)
+    }
+
+    // MARK: Cursor
+
+    private var cursorControls: some View {
+        VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
+            InspectorSlider(
+                "Size",
+                value: $model.style.cursorScale,
+                range: 1...4,
+                format: .magnification(fractionDigits: 1)
+            )
+        }
     }
 
     // MARK: Camera

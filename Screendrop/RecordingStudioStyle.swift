@@ -51,6 +51,8 @@ struct StoredRecordingStudioStyle: Codable, Equatable {
     var padding: Double
     var cornerRadius: Double
     var shadow: Double
+    /// Optional so project files saved before cursor scaling decode as 1x.
+    var cursorScale: Double?
     var cameraIsVisible: Bool
     var cameraCenterX: Double
     var cameraCenterY: Double
@@ -71,6 +73,7 @@ struct StoredRecordingStudioStyle: Codable, Equatable {
         padding = Double(style.padding)
         cornerRadius = Double(style.cornerRadius)
         shadow = Double(style.shadow)
+        cursorScale = Double(style.cursorScale)
         cameraIsVisible = style.camera.isVisible
         cameraCenterX = Double(style.camera.center.x)
         cameraCenterY = Double(style.camera.center.y)
@@ -96,6 +99,7 @@ struct StoredRecordingStudioStyle: Codable, Equatable {
             padding: CGFloat(padding),
             cornerRadius: CGFloat(cornerRadius),
             shadow: CGFloat(shadow),
+            cursorScale: CGFloat(cursorScale ?? 1),
             camera: RecordingCameraBubbleSettings(
                 isVisible: cameraIsVisible,
                 center: CGPoint(x: cameraCenterX, y: cameraCenterY),
@@ -114,6 +118,8 @@ struct RecordingStudioStyle: Equatable {
     var cornerRadius: CGFloat = 0.02
     /// Shadow strength 0...1.
     var shadow: CGFloat = 0.45
+    /// Synthetic cursor magnification (1 = natural size, up to 4).
+    var cursorScale: CGFloat = 1
     var camera = RecordingCameraBubbleSettings()
 }
 

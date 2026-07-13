@@ -236,6 +236,7 @@ final class ScreenRecordingManager {
                 manifest.pixelHeight = target.height
                 manifest.pointPixelScale = target.pointPixelScale
                 manifest.displayID = target.displayID
+                manifest.***REMOVED*** = true
                 manifest.hasSystemAudio = options.capturesSystemAudio
                 manifest.hasMicrophone = options.microphoneDeviceID != nil
                 if !cameraStarted {
@@ -822,7 +823,10 @@ nonisolated final class ScreenRecordingCapture: NSObject, SCStreamOutput, SCStre
         configuration.minimumFrameInterval = CMTime(value: 1, timescale: 60)
         configuration.pixelFormat = kCVPixelFormatType_32BGRA
         configuration.queueDepth = 3
-        configuration.showsCursor = true
+        // The OS cursor stays out of the pixels; its position is logged to
+        // events.json and Studio/exports draw a synthetic, smoothed cursor
+        // instead (see ***REMOVED***).
+        configuration.showsCursor = false
         configuration.showMouseClicks = false
         configuration.capturesAudio = options.capturesSystemAudio
         if options.capturesSystemAudio {

@@ -105,6 +105,10 @@ nonisolated struct ***REMOVED***: Codable, Sendable, Equatable {
     var ***REMOVED***: TimeInterval?
     var cameraPixelWidth: Int?
     var cameraPixelHeight: Int?
+    /// True when the capture excluded the OS cursor, so playback and export
+    /// must draw the synthetic cursor from the event log. Optional so
+    /// manifests written before this field decode as nil (cursor in pixels).
+    var ***REMOVED***: Bool?
 
     static let encoder: JSONEncoder = {
         let encoder = JSONEncoder()

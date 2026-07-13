@@ -56,6 +56,7 @@ final class RecordingStudioModel {
     }
     private(set) var zoomSegments: [***REMOVED***] = []
     private(set) var zoomPath = ***REMOVED***.identity
+    private(set) var cursorPath = ***REMOVED***.empty
     var selectedSegmentID: UUID?
     private(set) var trimSelection = VideoTrimSelection(start: 0, end: 0)
     private(set) var timelineFrames: [NSImage] = []
@@ -148,6 +149,9 @@ final class RecordingStudioModel {
             start: project?.trimStart ?? 0,
             end: project?.trimEnd ?? duration
         ).clamped(to: duration)
+        if ***REMOVED*** {
+            cursorPath = ***REMOVED***.build(events: events, duration: duration)
+        }
         rebuildZoomPath()
         installObservers()
         isLoaded = true
@@ -447,6 +451,19 @@ final class RecordingStudioModel {
         return zoomPath.state(at: time)
     }
 
+    /// True when this session was captured without the OS cursor, so the
+    /// preview and export draw the synthetic one.
+    var ***REMOVED***: Bool {
+        manifest?.***REMOVED*** == true
+    }
+
+    /// Smoothed normalized cursor position for the preview overlay; nil when
+    /// the recording carries its cursor in the pixels.
+    func cursorPosition(at time: TimeInterval) -> CGPoint? {
+        guard ***REMOVED*** else { return nil }
+        return cursorPath.position(at: time)
+    }
+
     func isCameraVisible(at time: TimeInterval) -> Bool {
         // No time gate: before cameraOffset the player is parked on the
         // camera's first frame, which beats the bubble popping in late.
@@ -466,6 +483,7 @@ final class RecordingStudioModel {
             cameraOffset: cameraOffset,
             style: style,
             zoomPath: zoomEnabled ? zoomPath : .identity,
+            cursorPath: ***REMOVED*** ? cursorPath : nil,
             canvasSize: videoSize,
             trimSelection: trimSelection,
             exportSettings: exportSettings

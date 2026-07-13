@@ -22,10 +22,13 @@ enum RecordingSessionRenderer {
     }
 
     /// Creates a flattened deliverable when explicitly requested for a session
-    /// with a camera source. Screen-only sessions already contain their complete
-    /// audio/video result and need no expensive second encode.
+    /// with a camera source or a cursor-hidden capture. Screen-only sessions
+    /// recorded with the OS cursor already contain their complete audio/video
+    /// result and need no expensive second encode.
     static func ensureDeliverable(for session: RecordingSession) async throws -> URL {
-        guard session.hasCamera else { return session.screenURL }
+        let manifest = session.loadManifest()
+        let ***REMOVED*** = manifest?.***REMOVED*** == true
+        guard session.hasCamera || ***REMOVED*** else { return session.screenURL }
         if session.hasFinalVideo { return session.finalURL }
 
         let asset = AVURLAsset(url: session.screenURL)
@@ -34,18 +37,20 @@ enum RecordingSessionRenderer {
             throw RecordingStudioExporter.ExportError.noVideoTrack
         }
 
-        let cameraAsset = AVURLAsset(url: session.cameraURL)
-        guard try await !cameraAsset.loadTracks(withMediaType: .video).isEmpty else {
-            throw RenderError.missingCameraTrack
+        if session.hasCamera {
+            let cameraAsset = AVURLAsset(url: session.cameraURL)
+            guard try await !cameraAsset.loadTracks(withMediaType: .video).isEmpty else {
+                throw RenderError.missingCameraTrack
+            }
         }
 
-        let canvasSize = try await outputSize(for: asset, manifest: session.loadManifest())
+        let canvasSize = try await outputSize(for: asset, manifest: manifest)
         let events = session.loadEvents() ?? ***REMOVED***()
         let project = session.loadProject()
         var style = project?.style.value ?? RecordingStudioStyle()
         // Selecting a camera means the default delivered recording includes
         // it. Hiding it remains an explicit Studio/manual-export choice.
-        style.camera.isVisible = true
+        style.camera.isVisible = session.hasCamera
         let zoomEnabled = project?.zoomEnabled ?? true
         let zoomSegments = project?.zoomSegments
             ?? ***REMOVED***.segments(from: events, duration: duration)
@@ -54,10 +59,13 @@ enum RecordingSessionRenderer {
             : .identity
         let configuration = RecordingStudioExporter.Configuration(
             screenURL: session.screenURL,
-            cameraURL: session.cameraURL,
-            cameraOffset: session.loadManifest()?.***REMOVED*** ?? 0,
+            cameraURL: session.hasCamera ? session.cameraURL : nil,
+            cameraOffset: manifest?.***REMOVED*** ?? 0,
             style: style,
             zoomPath: zoomPath,
+            cursorPath: ***REMOVED***
+                ? ***REMOVED***.build(events: events, duration: duration)
+                : nil,
             canvasSize: canvasSize,
             trimSelection: nil,
             exportSettings: project?.exportSettings ?? VideoCompressionSettings()

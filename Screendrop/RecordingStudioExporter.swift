@@ -26,6 +26,9 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
         let cameraOffset: TimeInterval
         let style: RecordingStudioStyle
         let zoomPath: ***REMOVED***
+        /// Non-nil when the capture hid the OS cursor and the export must
+        /// draw the synthetic one along this smoothed path.
+        let cursorPath: ***REMOVED***?
         let canvasSize: CGSize
         let trimSelection: VideoTrimSelection?
         let exportSettings: VideoCompressionSettings
@@ -188,6 +191,7 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
             canvasSize: canvasSize,
             style: configuration.style,
             zoomPath: configuration.zoomPath,
+            cursorPath: configuration.cursorPath,
             includeBubble: cameraFeed != nil
         )
 
@@ -246,13 +250,39 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
         cancelFlag: CancelFlag,
         progress: @escaping @Sendable (Double) -> Void
     ) async throws {
-        var frameIndex = 0
-        while let sampleBuffer = output.copyNextSampleBuffer() {
-            if cancelFlag.isCancelled { throw ExportError.cancelled }
-            guard let sourceBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { continue }
+        // Render on a fixed output clock, not per source frame. Screen
+        // captures only contain frames where pixels changed, so a static
+        // screen has second-long gaps — but the virtual camera animates
+        // through them (most zoom-outs happen exactly there, seconds after
+        // the last click). Each tick re-renders the newest source frame at
+        // or before it; only writing on source arrivals would hold the last
+        // zoomed frame through the move and then visibly jump.
+        let frameRate: Double = 60
+        let frameCount = max(1, Int((duration * frameRate).rounded()))
 
-            let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-            let time = pts.seconds
+        func nextSourceFrame() -> (buffer: CVPixelBuffer, time: TimeInterval)? {
+            while let sampleBuffer = output.copyNextSampleBuffer() {
+                guard let buffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { continue }
+                return (buffer, CMSampleBufferGetPresentationTimeStamp(sampleBuffer).seconds)
+            }
+            return nil
+        }
+
+        var currentBuffer: CVPixelBuffer?
+        var pending = nextSourceFrame()
+
+        for frame in 0..<frameCount {
+            if cancelFlag.isCancelled { throw ExportError.cancelled }
+            let time = exportStart + Double(frame) / frameRate
+
+            while let sample = pending, sample.time <= time {
+                currentBuffer = sample.buffer
+                pending = nextSourceFrame()
+            }
+            // Ticks before the first source frame show it early rather than
+            // emitting black; a capture with no frames at all has nothing to
+            // render.
+            guard let sourceBuffer = currentBuffer ?? pending?.buffer else { break }
 
             while !input.isReadyForMoreMediaData {
                 if cancelFlag.isCancelled { throw ExportError.cancelled }
@@ -276,13 +306,13 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
                 into: destinationBuffer
             )
 
+            let pts = CMTime(seconds: time, preferredTimescale: 600)
             if !adaptor.append(destinationBuffer, withPresentationTime: pts) {
                 throw ExportError.writerFailed(nil)
             }
 
-            frameIndex += 1
-            if frameIndex % 10 == 0, duration > 0 {
-                progress(min(0.98, max(0, time - exportStart) / duration))
+            if frame % 10 == 0 {
+                progress(min(0.98, Double(frame) / Double(frameCount)))
             }
         }
         input.markAsFinished()
@@ -422,6 +452,9 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
     private let canvasSize: CGSize
     private let layout: RecordingStudioLayout
     private let zoomPath: ***REMOVED***
+    private let cursorPath: ***REMOVED***?
+    private let cursorImage: CGImage?
+    private let cursorScale: CGFloat
     private let colorSpace: CGColorSpace
     private let backdrop: CGImage?
     private var previousFrameTime: TimeInterval?
@@ -430,6 +463,7 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
         canvasSize: CGSize,
         style: RecordingStudioStyle,
         zoomPath: ***REMOVED***,
+        cursorPath: ***REMOVED***?,
         includeBubble: Bool
     ) {
         self.canvasSize = canvasSize
@@ -439,6 +473,9 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
             includeBubble: includeBubble
         )
         self.zoomPath = zoomPath
+        self.cursorPath = cursorPath
+        self.cursorImage = cursorPath != nil ? Self.loadCursorImage() : nil
+        self.cursorScale = style.cursorScale
         self.colorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
         self.backdrop = Self.renderBackdrop(
             canvasSize: canvasSize,
@@ -446,6 +483,14 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
             style: style,
             colorSpace: colorSpace
         )
+    }
+
+    private static func loadCursorImage() -> CGImage? {
+        guard let url = Bundle.main.url(forResource: ***REMOVED***.imageName, withExtension: "png"),
+              let source = CGImageSourceCreateWithURL(url as CFURL, nil) else {
+            return nil
+        }
+        return CGImageSourceCreateImageAtIndex(source, 0, nil)
     }
 
     func render(
@@ -498,6 +543,25 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
                 // the running average of all samples so far.
                 context.setAlpha(1 / CGFloat(sample + 1))
                 context.draw(screenImage, in: flipped(drawRect))
+
+                // The synthetic cursor is part of the video content: same
+                // clip, same camera transform, same shutter samples.
+                if let cursorImage, let cursorPath,
+                   let position = cursorPath.position(at: sampleTime) {
+                    let height = drawRect.height * ***REMOVED***.heightFraction * cursorScale
+                    let size = CGSize(width: height * ***REMOVED***.aspectRatio, height: height)
+                    let tip = CGPoint(
+                        x: drawRect.minX + position.x * drawRect.width,
+                        y: drawRect.minY + position.y * drawRect.height
+                    )
+                    let cursorRect = CGRect(
+                        x: tip.x - ***REMOVED***.hotspot.x * size.width,
+                        y: tip.y - ***REMOVED***.hotspot.y * size.height,
+                        width: size.width,
+                        height: size.height
+                    )
+                    context.draw(cursorImage, in: flipped(cursorRect))
+                }
             }
             context.restoreGState()
         }
