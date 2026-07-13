@@ -421,6 +421,7 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
     private let zoomPath: ***REMOVED***
     private let colorSpace: CGColorSpace
     private let backdrop: CGImage?
+    private var previousFrameTime: TimeInterval?
 
     init(
         canvasSize: CGSize,
@@ -475,13 +476,26 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
         }
 
         if let screenImage = Self.makeImage(from: screenFrame, colorSpace: colorSpace) {
-            let state = zoomPath.state(at: time)
-            let drawRect = layout.videoDrawRect(for: state)
+            // Motion blur by temporal supersampling: while the virtual camera
+            // is moving, average several sub-frame camera states across the
+            // frame's shutter interval. Pans smear linearly, zooms radially,
+            // and settled frames pay for a single draw.
+            let shutter = min(max(time - (previousFrameTime ?? time - 1.0 / 60), 1.0 / 120), 1.0 / 24)
+            previousFrameTime = time
+            let sampleCount = blurSampleCount(at: time, shutter: shutter)
 
             context.saveGState()
             context.addPath(roundedPath(for: layout.cardRect, radius: layout.cardCornerRadius))
             context.clip()
-            context.draw(screenImage, in: flipped(drawRect))
+            for sample in 0..<sampleCount {
+                let sampleTime = time - shutter / 2
+                    + shutter * (Double(sample) + 0.5) / Double(sampleCount)
+                let drawRect = layout.videoDrawRect(for: zoomPath.state(at: sampleTime))
+                // Drawing sample i at alpha 1/(i+1) keeps the buffer equal to
+                // the running average of all samples so far.
+                context.setAlpha(1 / CGFloat(sample + 1))
+                context.draw(screenImage, in: flipped(drawRect))
+            }
             context.restoreGState()
         }
 
@@ -505,6 +519,20 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
             context.draw(cameraImage, in: flipped(fillRect))
             context.restoreGState()
         }
+    }
+
+    /// How many shutter sub-samples this frame needs: one when the camera is
+    /// still, up to twelve when it sweeps, spaced so consecutive samples land
+    /// roughly two output pixels apart.
+    private func blurSampleCount(at time: TimeInterval, shutter: TimeInterval) -> Int {
+        let a = layout.videoDrawRect(for: zoomPath.state(at: time - shutter / 2))
+        let b = layout.videoDrawRect(for: zoomPath.state(at: time + shutter / 2))
+        let displacement = max(
+            max(abs(a.minX - b.minX), abs(a.minY - b.minY)),
+            max(abs(a.maxX - b.maxX), abs(a.maxY - b.maxY))
+        )
+        guard displacement > 1.5 else { return 1 }
+        return min(12, max(2, Int((displacement / 2).rounded(.up))))
     }
 
     /// Layout rects use a top-left origin; CoreGraphics draws bottom-up.
