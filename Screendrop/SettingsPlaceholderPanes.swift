@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 
 struct VideoSettingsPane: View {
+    @AppStorage(ScreendropPreferences.showRecordingSetupHUDKey) private var showSetupHUD = true
     @AppStorage(ScreendropPreferences.showRecordingMouseIndicatorsKey) private var showMouseIndicators = true
     @AppStorage(ScreendropPreferences.showRecordingKeyPressCaptionsKey) private var showKeyPressCaptions = false
     @AppStorage(ScreendropPreferences.recordingMouseIndicatorColorKey) private var mouseIndicatorColor = ScreendropPreferences.defaultRecordingMouseIndicatorColor
@@ -22,6 +23,18 @@ struct VideoSettingsPane: View {
 
     var body: some View {
         Form {
+            Section("Recording Setup") {
+                Toggle(isOn: $showSetupHUD) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Show options before recording")
+                        Text("Opens a mode and region selector before recording starts. Turn off to record the full screen immediately.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .toggleStyle(.switch)
+            }
+
             CaptureHotkeySettingsSection(actions: [.screenRecording])
 
             AfterCaptureActionsSection(type: .recording, title: "After Recording")

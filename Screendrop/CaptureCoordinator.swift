@@ -63,6 +63,12 @@ final class CaptureCoordinator {
     }
 
     func recordScreen() {
+        if ScreendropPreferences.showRecordingSetupHUD {
+            RecordingSetupPresenter.shared.begin()
+            return
+        }
+
+        // "Show options before recording" is off — capture full screen immediately.
         let displayID = ActiveDisplayResolver.activeDisplayID(preferPointer: false)
         Task {
             do {
