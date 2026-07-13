@@ -2,8 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSCameraUsageDescription</key>
+	<string>Screendrop records your camera alongside the screen so you can add a camera bubble to recordings.</string>
 	<key>NSInputMonitoringUsageDescription</key>
 	<string>Screendrop needs input monitoring permission to show key press captions while recording.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Screendrop captures your microphone so recordings can include narration.</string>
 	<key>NSScreenCaptureUsageDescription</key>
 	<string>Screendrop needs screen recording permission to capture screenshots.</string>
 	<key>SUEnableInstallerLauncherService</key>

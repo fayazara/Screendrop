@@ -32,7 +32,7 @@ struct HistoryWindow: View {
                                 item: item,
                                 onEdit: {
                                     if item.isVideo {
-                                        openWindow(id: "VIDEO_EDITOR", value: item.url)
+                                        openWindow(id: "VIDEO_EDITOR", value: item.editorURL)
                                     } else {
                                         openWindow(id: "ANNOTATION_EDITOR", value: item.url)
                                     }

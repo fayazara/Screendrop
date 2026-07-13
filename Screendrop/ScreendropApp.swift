@@ -26,11 +26,11 @@ struct ScreendropApp: App {
         .windowResizability(.contentSize)
         .defaultSize(width: 1100, height: 760)
 
-        WindowGroup("Screendrop Video Editor", id: "VIDEO_EDITOR", for: URL.self) { value in
-            VideoEditorWindow(url: value)
+        WindowGroup("Screendrop Recording Editor", id: "VIDEO_EDITOR", for: URL.self) { value in
+            RecordingStudioWindow(url: value)
         }
         .windowResizability(.contentSize)
-        .defaultSize(width: 1280, height: 800)
+        .defaultSize(width: 1360, height: 860)
     }
 
     @MainActor
@@ -39,7 +39,10 @@ struct ScreendropApp: App {
             openWindow(id: "ANNOTATION_EDITOR", value: url)
         }
         PreviewPanelPresenter.shared.onEditVideo = { [openWindow] url in
-            openWindow(id: "VIDEO_EDITOR", value: url)
+            openWindow(
+                id: "VIDEO_EDITOR",
+                value: ScreenshotHistoryStore.shared.editorURL(for: url)
+            )
         }
 
         CaptureCoordinator.shared.onShowPreview = { [openWindow] url, displayID in
@@ -48,7 +51,10 @@ struct ScreendropApp: App {
                 openWindow(id: "ANNOTATION_EDITOR", value: url)
             }
             PreviewPanelPresenter.shared.onEditVideo = { url in
-                openWindow(id: "VIDEO_EDITOR", value: url)
+                openWindow(
+                    id: "VIDEO_EDITOR",
+                    value: ScreenshotHistoryStore.shared.editorURL(for: url)
+                )
             }
 
             let historyURL = ScreenshotHistoryStore.shared.importScreenshot(from: url)
@@ -59,9 +65,15 @@ struct ScreendropApp: App {
             }
         }
 
-        ScreenRecordingManager.shared.onFinishRecording = { url, displayID in
+        ScreenRecordingManager.shared.onFinishRecording = { session, displayID in
             Task { @MainActor in
-                let historyURL = await ScreenshotHistoryStore.shared.importVideo(from: url)
+                do {
+                    _ = try await RecordingSessionRenderer.ensureDeliverable(for: session)
+                } catch {
+                    RecordingSessionRenderer.presentFailure(error)
+                }
+
+                let historyURL = await ScreenshotHistoryStore.shared.importRecordingSession(session)
                 ScreenshotPreviewStack.shared.addVideo(url: historyURL)
                 if AfterCaptureActions.isEnabled(.showOverlay, for: .recording) {
                     PreviewPanelPresenter.shared.show(displayID: displayID)
@@ -80,6 +92,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.accessory)
         HotkeyManager.shared.registerHotkeys()
         updaterManager.start()
+        RecordingRecoveryCoordinator.recoverInterruptedRecordings()
     }
 
     /// When the menu bar icon is hidden, reopening Screendrop (e.g. from
@@ -97,6 +110,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// which terminates the app — discards them. Warn before that happens.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         let unsavedCount = ScreenshotPreviewStack.shared.unsavedItems.count
+        if ScreenRecordingManager.shared.isActive {
+            NSApp.activate(ignoringOtherApps: true)
+
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = "A screen recording is still in progress"
+            alert.informativeText = unsavedCount > 0
+                ? "Screendrop will finish and save the recording before quitting. You also have \(unsavedCount) unsaved capture\(unsavedCount == 1 ? "" : "s") that will be discarded."
+                : "Screendrop will finish and save the recording before quitting. This can take a moment for a long recording."
+            alert.addButton(withTitle: "Cancel")
+            alert.addButton(withTitle: "Finish Recording and Quit")
+
+            guard alert.runModal() == .alertSecondButtonReturn else {
+                return .terminateCancel
+            }
+
+            ScreenRecordingManager.shared.finishForTermination { session in
+                Task { @MainActor in
+                    if let session {
+                        _ = try? await RecordingSessionRenderer.ensureDeliverable(for: session)
+                        _ = await ScreenshotHistoryStore.shared.importRecordingSession(session)
+                    }
+                    sender.reply(toApplicationShouldTerminate: true)
+                }
+            }
+            return .terminateLater
+        }
+
         guard unsavedCount > 0 else { return .terminateNow }
 
         NSApp.activate(ignoringOtherApps: true)

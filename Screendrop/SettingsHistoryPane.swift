@@ -45,7 +45,7 @@ struct SettingsHistoryPane: View {
                                 onEdit: {
                                     QuickLookPreviewPresenter.dismiss()
                                     if item.isVideo {
-                                        openWindow(id: "VIDEO_EDITOR", value: item.url)
+                                        openWindow(id: "VIDEO_EDITOR", value: item.editorURL)
                                     } else {
                                         openWindow(id: "ANNOTATION_EDITOR", value: item.url)
                                     }

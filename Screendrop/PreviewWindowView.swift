@@ -189,7 +189,10 @@ struct PreviewWindowView: View {
                         if let onEditVideo {
                             onEditVideo(item.url)
                         } else {
-                            openWindow(id: "VIDEO_EDITOR", value: item.url)
+                            openWindow(
+                                id: "VIDEO_EDITOR",
+                                value: ScreenshotHistoryStore.shared.editorURL(for: item.url)
+                            )
                         }
                     },
                     onUpload: {

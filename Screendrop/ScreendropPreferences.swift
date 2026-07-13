@@ -35,6 +35,9 @@ enum ScreendropPreferences {
     static let overlayCardLayoutKey = "overlayCardLayout"
     static let lowResolutionEditorPreviewKey = "lowResolutionEditorPreview"
     static let trimFullscreenMenuBarKey = "trimFullscreenMenuBar"
+    static let recordingCameraDeviceIDKey = "recordingCameraDeviceID"
+    static let recordingMicrophoneDeviceIDKey = "recordingMicrophoneDeviceID"
+    static let recordingSystemAudioKey = "recordingSystemAudio"
 
     private static let defaultCompressionQuality = 0.8
     static let defaultRecordingMouseIndicatorColor = "#007AFF"
@@ -109,6 +112,24 @@ enum ScreendropPreferences {
         let value = UserDefaults.standard.object(forKey: recordingMouseIndicatorSizeKey) as? Double
             ?? defaultRecordingMouseIndicatorSize
         return min(max(value, 24), 96)
+    }
+
+    /// Unique ID of the camera recorded alongside the screen. Empty = camera off.
+    static var recordingCameraDeviceID: String {
+        get { UserDefaults.standard.string(forKey: recordingCameraDeviceIDKey) ?? "" }
+        set { UserDefaults.standard.set(newValue, forKey: recordingCameraDeviceIDKey) }
+    }
+
+    /// Unique ID of the microphone captured during recordings. Empty = mic off.
+    static var recordingMicrophoneDeviceID: String {
+        get { UserDefaults.standard.string(forKey: recordingMicrophoneDeviceIDKey) ?? "" }
+        set { UserDefaults.standard.set(newValue, forKey: recordingMicrophoneDeviceIDKey) }
+    }
+
+    /// Whether recordings include system audio. Defaults to off.
+    static var recordingSystemAudio: Bool {
+        get { UserDefaults.standard.bool(forKey: recordingSystemAudioKey) }
+        set { UserDefaults.standard.set(newValue, forKey: recordingSystemAudioKey) }
     }
 
     /// Whether to play the shutter sound after a screenshot. Defaults to on.
