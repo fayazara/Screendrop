@@ -52,7 +52,9 @@ final class RecordingPickerPresenter {
 
         panel.backgroundColor = .clear
         panel.isOpaque = false
-        panel.hasShadow = false
+        // AppKit window shadow follows the bar's rounded alpha shape and,
+        // unlike a SwiftUI .shadow, can't be clipped by the panel bounds.
+        panel.hasShadow = true
         panel.hidesOnDeactivate = false
         panel.isFloatingPanel = true
         panel.isReleasedWhenClosed = false
@@ -204,8 +206,6 @@ private struct RecordingPickerView: View {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .strokeBorder(.white.opacity(0.14), lineWidth: 1)
         }
-        .shadow(color: .black.opacity(0.35), radius: 18, y: 8)
-        .padding(20)
         .preferredColorScheme(.dark)
         .task {
             await sources.refresh()

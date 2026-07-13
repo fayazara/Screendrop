@@ -491,7 +491,10 @@ private struct StudioZoomSegmentBlock: View {
             }
             .offset(x: x, y: 4)
             .gesture(
-                DragGesture()
+                // Global coordinates: the block moves under the pointer while
+                // dragging, so a local-space translation would chase its own
+                // updates and jitter.
+                DragGesture(coordinateSpace: .global)
                     .onChanged { value in
                         if dragBase == nil {
                             dragBase = segment
@@ -531,7 +534,9 @@ private struct StudioZoomSegmentBlock: View {
             }
             .contentShape(Rectangle())
             .gesture(
-                DragGesture()
+                // Global coordinates — the handle itself moves while resizing,
+                // so local-space translations feed back into the drag and jitter.
+                DragGesture(coordinateSpace: .global)
                     .onChanged { value in
                         if dragBase == nil {
                             dragBase = segment
