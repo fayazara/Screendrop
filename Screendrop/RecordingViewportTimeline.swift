@@ -1,0 +1,672 @@
+//
+//  RecordingViewportTimeline.swift
+//  Screendrop
+//
+//  Deterministic virtual-camera planning for screen recordings. Zoom cues
+//  are editable project data; this file resolves those cues against the
+//  separately recorded pointer capture, constrains the viewport to the
+//  source, and integrates one damped spring at a fixed rate. Preview and
+//  export then interpolate the same immutable viewport timeline at
+//  source-recording time.
+//
+
+import CoreGraphics
+import Foundation
+
+nonisolated enum ZoomAnchorMode: String, Codable, CaseIterable, Sendable {
+    /// Hold the camera on stable spatial clusters of pointer activity.
+    case clusterAnchor
+    /// Track the latest recorded pointer sample directly.
+    case pointerAnchor
+    /// Frame an explicit normalized point selected by the user.
+    case pinnedAnchor
+}
+
+nonisolated struct ZoomCue: Identifiable, Codable, Equatable, Sendable {
+    var id: UUID
+    var start: TimeInterval
+    var end: TimeInterval
+    /// Magnification while the cue is fully active (1 = no zoom).
+    var zoom: Double
+    var anchorMode: ZoomAnchorMode
+    /// Normalized source coordinate, with a top-left origin.
+    var pinnedPoint: CGPoint
+    /// How strongly automatic targets retain their unzoomed screen position.
+    var boundsBias: Double
+    var isEnabled: Bool
+    var isImplicit: Bool
+    var skipsEasing: Bool
+
+    init(
+        id: UUID = UUID(),
+        start: TimeInterval,
+        end: TimeInterval,
+        zoom: Double = 2,
+        anchorMode: ZoomAnchorMode = .clusterAnchor,
+        pinnedPoint: CGPoint = CGPoint(x: 0.5, y: 0.5),
+        boundsBias: Double = 0.25,
+        isEnabled: Bool = true,
+        isImplicit: Bool = false,
+        skipsEasing: Bool = false
+    ) {
+        self.id = id
+        self.start = start
+        self.end = end
+        self.zoom = zoom
+        self.anchorMode = anchorMode
+        self.pinnedPoint = Self.normalized(pinnedPoint)
+        self.boundsBias = Self.unit(boundsBias)
+        self.isEnabled = isEnabled
+        self.isImplicit = isImplicit
+        self.skipsEasing = skipsEasing
+    }
+
+    var duration: TimeInterval {
+        max(0, end - start)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case start
+        case end
+        case zoom
+        case anchorMode
+        case pinnedPoint
+        case boundsBias
+        case isEnabled
+        case isImplicit
+        case skipsEasing
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        start = try container.decode(TimeInterval.self, forKey: .start)
+        end = try container.decode(TimeInterval.self, forKey: .end)
+        zoom = try container.decodeIfPresent(Double.self, forKey: .zoom) ?? 2
+        anchorMode = try container.decodeIfPresent(ZoomAnchorMode.self, forKey: .anchorMode) ?? .clusterAnchor
+        let decodedPoint = try container.decodeIfPresent(CGPoint.self, forKey: .pinnedPoint)
+            ?? CGPoint(x: 0.5, y: 0.5)
+        pinnedPoint = Self.normalized(decodedPoint)
+        boundsBias = Self.unit(try container.decodeIfPresent(Double.self, forKey: .boundsBias) ?? 0.25)
+        isEnabled = try container.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true
+        isImplicit = try container.decodeIfPresent(Bool.self, forKey: .isImplicit) ?? false
+        skipsEasing = try container.decodeIfPresent(Bool.self, forKey: .skipsEasing) ?? false
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(start, forKey: .start)
+        try container.encode(end, forKey: .end)
+        try container.encode(zoom, forKey: .zoom)
+        try container.encode(anchorMode, forKey: .anchorMode)
+        try container.encode(Self.normalized(pinnedPoint), forKey: .pinnedPoint)
+        try container.encode(Self.unit(boundsBias), forKey: .boundsBias)
+        try container.encode(isEnabled, forKey: .isEnabled)
+        try container.encode(isImplicit, forKey: .isImplicit)
+        try container.encode(skipsEasing, forKey: .skipsEasing)
+    }
+
+    private static func normalized(_ point: CGPoint) -> CGPoint {
+        CGPoint(x: unit(point.x), y: unit(point.y))
+    }
+
+    private static func unit<T: BinaryFloatingPoint>(_ value: T) -> T {
+        guard value.isFinite else { return 0.5 }
+        return min(max(value, 0), 1)
+    }
+}
+
+/// One sampled state of the virtual camera.
+nonisolated struct ViewportFrame: Sendable, Equatable {
+    var magnification: Double
+    /// Normalized (0...1, top-left origin) content point at the viewport center.
+    var anchor: CGPoint
+
+    static let identity = ViewportFrame(magnification: 1, anchor: CGPoint(x: 0.5, y: 0.5))
+}
+
+// MARK: - Auto-generation from recorded input
+
+nonisolated enum ZoomCueSynthesizer {
+    private static let preRoll: TimeInterval = 0.3
+    private static let postRoll: TimeInterval = 2.5
+    private static let joinTolerance: TimeInterval = 2.5
+    private static let tailExclusion: TimeInterval = 1.0
+    private static let trailingGuard: TimeInterval = 0.8
+    private static let earliestStart: TimeInterval = 0.001
+    private static let defaultMagnification = 2.0
+
+    /// Builds editable cluster-anchor cues around press events. A sorted
+    /// one-pass merge is transitive, so cues connected by the allowed gap
+    /// naturally become one continuous zoom.
+    static func cues(from capture: PointerCaptureFile, duration: TimeInterval) -> [ZoomCue] {
+        guard duration.isFinite, duration > 0 else { return [] }
+
+        let latestEligiblePress = duration - tailExclusion
+        let candidates = capture.presses
+            .filter {
+                $0.phase == .down
+                    && $0.time.isFinite
+                    && $0.time < latestEligiblePress
+                    && (0...1).contains($0.x)
+                    && (0...1).contains($0.y)
+            }
+            .sorted { $0.time < $1.time }
+            .compactMap { press -> ZoomCue? in
+                let start = max(press.time - preRoll, earliestStart)
+                let end = min(press.time + postRoll, duration - trailingGuard)
+                guard end > start else { return nil }
+                return ZoomCue(
+                    start: start,
+                    end: end,
+                    zoom: defaultMagnification,
+                    anchorMode: .clusterAnchor,
+                    pinnedPoint: CGPoint(x: press.x, y: press.y),
+                    boundsBias: 0.25
+                )
+            }
+
+        var merged: [ZoomCue] = []
+        merged.reserveCapacity(candidates.count)
+        for candidate in candidates {
+            if var previous = merged.last, candidate.start <= previous.end + joinTolerance {
+                previous.end = max(previous.end, candidate.end)
+                merged[merged.count - 1] = previous
+            } else {
+                merged.append(candidate)
+            }
+        }
+        return merged
+    }
+}
+
+// MARK: - Precomputed viewport timeline
+
+nonisolated struct ViewportTimeline: Sendable {
+    /// Fixed integration cadence. Playback display cadence never advances the
+    /// springs; it only interpolates this immutable source-time timeline.
+    static let stepRate: Double = 120
+
+    private static let motionProfile = SpringConstant(tension: 200, friction: 40, inertia: 2.25)
+    /// Match the reconstructed pointer's press anticipation so a merged zoom
+    /// starts travelling to the next interaction before the press occurs.
+    private static let anticipationWindow: TimeInterval = 0.5
+    private static let settleGuardWindow: TimeInterval = 0.15
+    private static let clusterWidthFactor = 0.5
+    private static let clusterHeightFactor = 0.7
+    private static let interiorMargin = 0.9
+
+    private let frames: [ViewportFrame]
+    private let duration: TimeInterval
+
+    static let identity = ViewportTimeline(frames: [.identity], duration: 0)
+
+    private init(frames: [ViewportFrame], duration: TimeInterval) {
+        self.frames = frames
+        self.duration = duration
+    }
+
+    func frame(at time: TimeInterval) -> ViewportFrame {
+        guard frames.count > 1, duration > 0 else { return frames.first ?? .identity }
+
+        let position = min(max(time, 0), duration) * Self.stepRate
+        let index = Int(position)
+        guard index < frames.count - 1 else { return frames[frames.count - 1] }
+
+        let fraction = position - Double(index)
+        let a = frames[index]
+        let b = frames[index + 1]
+        return ViewportFrame(
+            magnification: a.magnification + (b.magnification - a.magnification) * fraction,
+            anchor: CGPoint(
+                x: a.anchor.x + (b.anchor.x - a.anchor.x) * fraction,
+                y: a.anchor.y + (b.anchor.y - a.anchor.y) * fraction
+            )
+        )
+    }
+
+    static func build(
+        cues: [ZoomCue],
+        capture: PointerCaptureFile,
+        duration: TimeInterval
+    ) -> ViewportTimeline {
+        guard duration.isFinite, duration > 0 else { return .identity }
+
+        let pointerSamples = mergedPointerSamples(from: capture)
+        let pressEvents = pointerSamples.filter { $0.kind == .press }
+        var clustersByCue: [UUID: [PointerCluster]] = [:]
+        clustersByCue.reserveCapacity(cues.count)
+        for cue in cues {
+            // A malformed legacy project may repeat an ID. Last writer wins,
+            // matching active-cue tie handling without trapping here.
+            clustersByCue[cue.id] = clusters(for: cue, samples: pointerSamples)
+        }
+        let frameCount = max(2, Int((duration * stepRate).rounded(.up)) + 1)
+        let dt = 1.0 / stepRate
+
+        // Magnification and translation share one physical response by
+        // integrating the viewport's half-extent alongside its anchor on
+        // each axis.
+        var halfExtentSpring = DampedSpring(position: 0.5)
+        var anchorXSpring = DampedSpring(position: 0.5)
+        var anchorYSpring = DampedSpring(position: 0.5)
+        var previousActive: ZoomCue?
+        var latestPressIndex = -1
+
+        var frames: [ViewportFrame] = []
+        frames.reserveCapacity(frameCount)
+
+        for frameIndex in 0..<frameCount {
+            let time = min(Double(frameIndex) * dt, duration)
+            while latestPressIndex + 1 < pressEvents.count,
+                  pressEvents[latestPressIndex + 1].time <= time {
+                latestPressIndex += 1
+            }
+            let active = activeCue(at: time, cues: cues)
+            let targetMagnification = max(1, active?.zoom ?? 1)
+            let rawTarget = active.map { cue in
+                anchorPoint(
+                    for: cue,
+                    at: time,
+                    samples: pointerSamples,
+                    clusters: clustersByCue[cue.id] ?? []
+                )
+            } ?? CGPoint(x: 0.5, y: 0.5)
+            let targetAnchor = boundedAnchor(
+                rawTarget,
+                magnification: targetMagnification,
+                anchorMode: active?.anchorMode ?? .pinnedAnchor,
+                boundsBias: active?.boundsBias ?? 0
+            )
+            let targetHalfExtent = 1 / (2 * targetMagnification)
+
+            let activeChanged = active?.id != previousActive?.id
+            let shouldSnap = activeChanged
+                && (active?.skipsEasing == true
+                    || previousActive?.skipsEasing == true)
+
+            if shouldSnap {
+                halfExtentSpring.snap(to: targetHalfExtent)
+                anchorXSpring.snap(to: targetAnchor.x)
+                anchorYSpring.snap(to: targetAnchor.y)
+            } else if frameIndex > 0 {
+                halfExtentSpring.step(toward: targetHalfExtent, using: motionProfile, dt: dt)
+                anchorXSpring.step(toward: targetAnchor.x, using: motionProfile, dt: dt)
+                anchorYSpring.step(toward: targetAnchor.y, using: motionProfile, dt: dt)
+            }
+
+            let safeHalfExtent = min(max(halfExtentSpring.position, 0.000_001), 0.5)
+            let magnification = max(1, 1 / (2 * safeHalfExtent))
+            var anchor = clampToFrame(
+                CGPoint(x: anchorXSpring.position, y: anchorYSpring.position),
+                magnification: magnification
+            )
+
+            // Cluster look-ahead normally gives the spring enough time to
+            // arrive. This final guard handles very fast/far successive
+            // presses: during the 150 ms press feedback, the pressed source
+            // point is never allowed to sit outside the rendered viewport.
+            // Pinned framing remains authoritative and bypasses this pull.
+            if let active,
+               active.anchorMode != .pinnedAnchor,
+               latestPressIndex >= 0 {
+                let press = pressEvents[latestPressIndex]
+                let elapsed = time - press.time
+                if elapsed >= 0, elapsed <= settleGuardWindow {
+                    anchor = settleWithinMargin(
+                        press.point,
+                        from: anchor,
+                        magnification: magnification,
+                        interiorMargin: interiorMargin
+                    )
+                    // Keep the spring and rendered state coherent so releasing
+                    // the safety constraint cannot create a snap-back frame.
+                    anchorXSpring.position = anchor.x
+                    anchorYSpring.position = anchor.y
+                }
+            }
+            frames.append(ViewportFrame(magnification: magnification, anchor: anchor))
+            previousActive = active
+        }
+
+        return ViewportTimeline(frames: frames, duration: duration)
+    }
+
+    // MARK: Cue selection
+
+    /// User-authored intent wins over generic behavior. Within the same class,
+    /// the most recently started active cue wins deterministically.
+    private static func activeCue(
+        at time: TimeInterval,
+        cues: [ZoomCue]
+    ) -> ZoomCue? {
+        var selected: ZoomCue?
+        var selectedPrecedence = Int.min
+
+        for cue in cues where cue.isEnabled
+            && time >= cue.start
+            && time <= cue.end {
+            let precedence = cuePriority(cue)
+            if selected == nil
+                || precedence > selectedPrecedence
+                || (precedence == selectedPrecedence && cue.start >= selected!.start) {
+                selected = cue
+                selectedPrecedence = precedence
+            }
+        }
+        return selected
+    }
+
+    private static func cuePriority(_ cue: ZoomCue) -> Int {
+        if cue.isImplicit { return 0 }
+        switch cue.anchorMode {
+        case .pointerAnchor: return 1
+        case .clusterAnchor: return 2
+        case .pinnedAnchor: return 3
+        }
+    }
+
+    // MARK: Target resolution
+
+    private static func anchorPoint(
+        for cue: ZoomCue,
+        at time: TimeInterval,
+        samples: [PointerSample],
+        clusters: [PointerCluster]
+    ) -> CGPoint {
+        switch cue.anchorMode {
+        case .pinnedAnchor:
+            return normalized(cue.pinnedPoint)
+        case .pointerAnchor:
+            return trackedPointerPosition(at: time, samples: samples) ?? normalized(cue.pinnedPoint)
+        case .clusterAnchor:
+            return clusterAnchor(at: time, clusters: clusters) ?? normalized(cue.pinnedPoint)
+        }
+    }
+
+    private static func clusterAnchor(at time: TimeInterval, clusters: [PointerCluster]) -> CGPoint? {
+        guard let first = clusters.first else { return nil }
+        // Automatic cues start shortly before their first press. Resolve the
+        // first useful cluster immediately, then switch later clusters on
+        // their anticipated press intent rather than after activity is over.
+        guard time >= first.anchorTime else { return first.anchor }
+
+        var low = 0
+        var high = clusters.count
+        while low < high {
+            let middle = (low + high) / 2
+            if clusters[middle].anchorTime <= time {
+                low = middle + 1
+            } else {
+                high = middle
+            }
+        }
+        return clusters[max(0, low - 1)].anchor
+    }
+
+    private static func trackedPointerPosition(
+        at time: TimeInterval,
+        samples: [PointerSample]
+    ) -> CGPoint? {
+        guard let first = samples.first else { return nil }
+        guard time >= first.time else { return first.point }
+
+        var low = 0
+        var high = samples.count
+        while low < high {
+            let middle = (low + high) / 2
+            if samples[middle].time <= time {
+                low = middle + 1
+            } else {
+                high = middle
+            }
+        }
+        return samples[max(0, low - 1)].point
+    }
+
+    // MARK: Pointer clusters
+
+    private static func clusters(
+        for cue: ZoomCue,
+        samples: [PointerSample]
+    ) -> [PointerCluster] {
+        guard cue.anchorMode == .clusterAnchor else { return [] }
+
+        var relevant = samples.filter { $0.time >= cue.start && $0.time <= cue.end }
+        if relevant.isEmpty {
+            if let preceding = samples.last(where: { $0.time < cue.start }) {
+                relevant = [preceding]
+            } else if let following = samples.first(where: { $0.time > cue.start }) {
+                relevant = [following]
+            }
+        }
+        guard !relevant.isEmpty else { return [] }
+
+        let visibleExtent = 1 / max(1, cue.zoom)
+        let widthLimit = visibleExtent * clusterWidthFactor
+        let heightLimit = visibleExtent * clusterHeightFactor
+
+        var builders: [PointerClusterAccumulator] = []
+        builders.reserveCapacity(relevant.count)
+        for sample in relevant {
+            if var current = builders.last, current.canAbsorb(
+                sample,
+                widthLimit: widthLimit,
+                heightLimit: heightLimit
+            ) {
+                current.absorb(sample)
+                builders[builders.count - 1] = current
+            } else {
+                builders.append(PointerClusterAccumulator(sample: sample))
+            }
+        }
+        let builtClusters = builders.map { $0.cluster(anticipationWindow: anticipationWindow) }
+        // Auto zooms are press-authored. Movement-only clusters between two
+        // far presses describe travel, not a place the camera should stop.
+        // Keep them only for manually-authored cluster cues with no press data.
+        let pressClusters = builtClusters.filter(\.containsPress)
+        return pressClusters.isEmpty ? builtClusters : pressClusters
+    }
+
+    private static func mergedPointerSamples(from capture: PointerCaptureFile) -> [PointerSample] {
+        var merged: [(sample: PointerSample, sourceOrder: Int, originalIndex: Int)] = []
+        merged.reserveCapacity(capture.travel.count + capture.presses.count)
+
+        for (index, travel) in capture.travel.enumerated()
+            where travel.time.isFinite
+                && travel.x.isFinite
+                && travel.y.isFinite
+                && (0...1).contains(travel.x)
+                && (0...1).contains(travel.y) {
+            merged.append((
+                PointerSample(
+                    time: travel.time,
+                    point: normalized(CGPoint(x: travel.x, y: travel.y)),
+                    kind: .travel
+                ),
+                0,
+                index
+            ))
+        }
+        for (index, press) in capture.presses.enumerated()
+            where press.time.isFinite
+                && press.x.isFinite
+                && press.y.isFinite
+                && (0...1).contains(press.x)
+                && (0...1).contains(press.y) {
+            merged.append((
+                PointerSample(
+                    time: press.time,
+                    point: normalized(CGPoint(x: press.x, y: press.y)),
+                    kind: press.phase == .down ? .press : .release
+                ),
+                1,
+                index
+            ))
+        }
+
+        return merged.sorted { lhs, rhs in
+            if lhs.sample.time != rhs.sample.time { return lhs.sample.time < rhs.sample.time }
+            if lhs.sourceOrder != rhs.sourceOrder { return lhs.sourceOrder < rhs.sourceOrder }
+            return lhs.originalIndex < rhs.originalIndex
+        }.map(\.sample)
+    }
+
+    // MARK: Viewport constraints
+
+    private static func boundedAnchor(
+        _ point: CGPoint,
+        magnification: Double,
+        anchorMode: ZoomAnchorMode,
+        boundsBias: Double
+    ) -> CGPoint {
+        let rawCenteredTarget = normalized(point)
+        guard anchorMode != .pinnedAnchor else {
+            return clampToFrame(rawCenteredTarget, magnification: magnification)
+        }
+
+        let halfExtent = 1 / (2 * max(magnification, 1))
+        // This anchor keeps the subject at its original unzoomed screen
+        // position: screen = 0.5 + magnification * (subject - viewportAnchor).
+        let screenPositionPreservingTarget = CGPoint(
+            x: halfExtent + rawCenteredTarget.x * (1 - 2 * halfExtent),
+            y: halfExtent + rawCenteredTarget.y * (1 - 2 * halfExtent)
+        )
+        let bias = unit(boundsBias)
+        let blended = CGPoint(
+            x: rawCenteredTarget.x
+                + (screenPositionPreservingTarget.x - rawCenteredTarget.x) * bias,
+            y: rawCenteredTarget.y
+                + (screenPositionPreservingTarget.y - rawCenteredTarget.y) * bias
+        )
+        return clampToFrame(blended, magnification: magnification)
+    }
+
+    /// Final safety invariant: the viewport never exposes space beyond source.
+    private static func clampToFrame(_ point: CGPoint, magnification: Double) -> CGPoint {
+        let halfExtent = 1 / (2 * max(magnification, 1))
+        return CGPoint(
+            x: min(max(point.x, halfExtent), 1 - halfExtent),
+            y: min(max(point.y, halfExtent), 1 - halfExtent)
+        )
+    }
+
+    /// Minimally moves a viewport anchor so `point` remains in a safe interior
+    /// portion of the viewport. Near source edges, where an interior margin is
+    /// geometrically impossible, it falls back to simple full-viewport
+    /// containment while still respecting the source bounds.
+    private static func settleWithinMargin(
+        _ point: CGPoint,
+        from anchor: CGPoint,
+        magnification: Double,
+        interiorMargin: Double
+    ) -> CGPoint {
+        let halfExtent = 1 / (2 * max(magnification, 1))
+        let safeHalfExtent = halfExtent * unit(interiorMargin)
+
+        func constrainedAxis(point: Double, anchor: Double) -> Double {
+            let sourceMinimum = halfExtent
+            let sourceMaximum = 1 - halfExtent
+            let safeMinimum = max(sourceMinimum, point - safeHalfExtent)
+            let safeMaximum = min(sourceMaximum, point + safeHalfExtent)
+            if safeMinimum <= safeMaximum {
+                return min(max(anchor, safeMinimum), safeMaximum)
+            }
+
+            let visibleMinimum = max(sourceMinimum, point - halfExtent)
+            let visibleMaximum = min(sourceMaximum, point + halfExtent)
+            guard visibleMinimum <= visibleMaximum else {
+                return min(max(anchor, sourceMinimum), sourceMaximum)
+            }
+            return min(max(anchor, visibleMinimum), visibleMaximum)
+        }
+
+        return CGPoint(
+            x: constrainedAxis(point: point.x, anchor: anchor.x),
+            y: constrainedAxis(point: point.y, anchor: anchor.y)
+        )
+    }
+
+    private static func normalized(_ point: CGPoint) -> CGPoint {
+        CGPoint(x: unit(point.x), y: unit(point.y))
+    }
+
+    private static func unit<T: BinaryFloatingPoint>(_ value: T) -> T {
+        guard value.isFinite else { return 0.5 }
+        return min(max(value, 0), 1)
+    }
+}
+
+// MARK: - Helpers
+
+nonisolated private struct PointerSample: Sendable {
+    var time: TimeInterval
+    var point: CGPoint
+    var kind: PointerSampleKind
+}
+
+nonisolated private enum PointerSampleKind: Sendable {
+    case travel
+    case press
+    case release
+}
+
+nonisolated private struct PointerCluster: Sendable {
+    var anchorTime: TimeInterval
+    var anchor: CGPoint
+    var containsPress: Bool
+}
+
+nonisolated private struct PointerClusterAccumulator {
+    var minimumX: Double
+    var maximumX: Double
+    var minimumY: Double
+    var maximumY: Double
+    var firstTime: TimeInterval
+    var firstPressTime: TimeInterval?
+
+    init(sample: PointerSample) {
+        minimumX = sample.point.x
+        maximumX = sample.point.x
+        minimumY = sample.point.y
+        maximumY = sample.point.y
+        firstTime = sample.time
+        firstPressTime = sample.kind == .press ? sample.time : nil
+    }
+
+    func canAbsorb(
+        _ sample: PointerSample,
+        widthLimit: Double,
+        heightLimit: Double
+    ) -> Bool {
+        let nextMinimumX = min(minimumX, sample.point.x)
+        let nextMaximumX = max(maximumX, sample.point.x)
+        let nextMinimumY = min(minimumY, sample.point.y)
+        let nextMaximumY = max(maximumY, sample.point.y)
+        return nextMaximumX - nextMinimumX <= widthLimit
+            && nextMaximumY - nextMinimumY <= heightLimit
+    }
+
+    mutating func absorb(_ sample: PointerSample) {
+        minimumX = min(minimumX, sample.point.x)
+        maximumX = max(maximumX, sample.point.x)
+        minimumY = min(minimumY, sample.point.y)
+        maximumY = max(maximumY, sample.point.y)
+        if firstPressTime == nil, sample.kind == .press {
+            firstPressTime = sample.time
+        }
+    }
+
+    func cluster(anticipationWindow: TimeInterval) -> PointerCluster {
+        PointerCluster(
+            anchorTime: firstPressTime.map { $0 - anticipationWindow } ?? firstTime,
+            anchor: CGPoint(
+                x: (minimumX + maximumX) / 2,
+                y: (minimumY + maximumY) / 2
+            ),
+            containsPress: firstPressTime != nil
+        )
+    }
+}

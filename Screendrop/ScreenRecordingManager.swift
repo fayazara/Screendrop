@@ -116,10 +116,10 @@ final class ScreenRecordingManager {
 
     private let capture = ScreenRecordingCapture()
     private let writer = ScreenRecordingWriter()
-    private let eventLog = ***REMOVED***()
+    private let pointerActivityRecorder = PointerActivityRecorder()
     private var displayID: CGDirectDisplayID?
     private var session: RecordingSession?
-    private var manifest = ***REMOVED***()
+    private var manifest = CaptureManifest()
     private var startedAt: Date?
     private var pausedAt: Date?
     private var accumulatedPauseDuration: TimeInterval = 0
@@ -175,9 +175,14 @@ final class ScreenRecordingManager {
                 let content = try await ScreenRecordingCapture.availableContent()
                 guard isStarting(session: session) else { return }
                 let target = try Self.captureTarget(for: source, content: content, options: options)
-                let mouseIndicatorStore = ScreendropPreferences.showRecordingMouseIndicators
-                    ? RecordingMouseIndicatorController.shared.start(mapping: target.mouseIndicatorMapping)
-                    : nil
+                let showsCursorClickEffects = ScreendropPreferences.showRecordingMouseIndicators
+                if showsCursorClickEffects {
+                    // Keep the live recording overlay, but leave the screen
+                    // master untouched so Studio can edit/re-render feedback.
+                    _ = RecordingMouseIndicatorController.shared.start(
+                        mapping: target.mouseIndicatorMapping
+                    )
+                }
                 let keyCaptionStore = ScreendropPreferences.showRecordingKeyPressCaptions
                     ? RecordingKeyCaptionController.shared.start(mapping: target.keyCaptionMapping)
                     : nil
@@ -188,11 +193,12 @@ final class ScreenRecordingManager {
                     videoHeight: target.height,
                     includesSystemAudio: options.capturesSystemAudio,
                     includesMicrophone: options.microphoneDeviceID != nil,
-                    mouseIndicatorStore: mouseIndicatorStore,
+                    mouseIndicatorStore: nil,
                     keyCaptionStore: keyCaptionStore
                 )
 
-                capture.onVideoFrame = { [writer] sampleBuffer in
+                capture.onVideoFrame = { [writer, pointerActivityRecorder] sampleBuffer in
+                    pointerActivityRecorder.recordFrameGeometry(sampleBuffer)
                     writer.writeVideoSample(sampleBuffer)
                 }
                 capture.onAudioSample = { [writer] sampleBuffer, kind in
@@ -224,23 +230,32 @@ final class ScreenRecordingManager {
                     }
                 }
 
+                // Input logging starts before the stream so the first frame's
+                // ScreenCaptureKit geometry and the first pointer event share
+                // one host-clock timeline. Pre-frame events are discarded when
+                // the writer's first presentation timestamp becomes known.
+                pointerActivityRecorder.start(
+                    mapping: target.mouseIndicatorMapping,
+                    tracksDynamicGeometry: target.tracksDynamicGeometry
+                )
+
                 // Camera setup and every permission prompt complete before the
                 // screen stream begins, so setup UI is never baked into video.
                 try await capture.startCapture(filter: target.filter, configuration: target.configuration)
                 guard isStarting(session: session) else { return }
 
-                eventLog.start(mapping: target.mouseIndicatorMapping)
-
-                manifest = ***REMOVED***()
+                manifest = CaptureManifest()
                 manifest.pixelWidth = target.width
                 manifest.pixelHeight = target.height
-                manifest.pointPixelScale = target.pointPixelScale
-                manifest.displayID = target.displayID
-                manifest.***REMOVED*** = true
-                manifest.hasSystemAudio = options.capturesSystemAudio
-                manifest.hasMicrophone = options.microphoneDeviceID != nil
+                manifest.pixelScale = target.pointPixelScale
+                manifest.sourceDisplayID = target.displayID
+                manifest.pointerSynthesized = true
+                manifest.pressEffectsBaked = false
+                manifest.pressEffectsEnabled = showsCursorClickEffects
+                manifest.includesSystemAudio = options.capturesSystemAudio
+                manifest.includesMicrophone = options.microphoneDeviceID != nil
                 if !cameraStarted {
-                    manifest.***REMOVED*** = nil
+                    manifest.cameraLeadIn = nil
                 }
 
                 startedAt = Date()
@@ -266,7 +281,7 @@ final class ScreenRecordingManager {
         guard state == .recording else { return }
 
         writer.pause()
-        eventLog.pause()
+        pointerActivityRecorder.pause()
         CameraRecordingManager.shared.pause()
         RecordingMouseIndicatorController.shared.pause()
         RecordingKeyCaptionController.shared.pause()
@@ -284,7 +299,7 @@ final class ScreenRecordingManager {
 
         self.pausedAt = nil
         writer.resume()
-        eventLog.resume()
+        pointerActivityRecorder.resume()
         CameraRecordingManager.shared.resume()
         RecordingMouseIndicatorController.shared.resume()
         RecordingKeyCaptionController.shared.resume()
@@ -328,7 +343,7 @@ final class ScreenRecordingManager {
         isStopping = true
         state = .finishing
         timer?.invalidate()
-        eventLog.stop()
+        pointerActivityRecorder.stop()
 
         Task {
             do {
@@ -349,19 +364,38 @@ final class ScreenRecordingManager {
         let restartDisplayID = displayID
         let session = session
         let terminationCompletion = terminationCompletion
+        var metadataWarnings: [String] = []
 
         if let session, result.fileIsUsable {
             manifest.duration = result.duration
             if let cameraResult, let sessionStart = result.sessionStartUptime {
-                manifest.***REMOVED*** = cameraResult.firstFrameUptime - sessionStart
-                manifest.cameraPixelWidth = cameraResult.pixelWidth
-                manifest.cameraPixelHeight = cameraResult.pixelHeight
+                manifest.cameraLeadIn = cameraResult.firstFrameUptime - sessionStart
+                manifest.cameraWidth = cameraResult.pixelWidth
+                manifest.cameraHeight = cameraResult.pixelHeight
             }
             if let sessionStart = result.sessionStartUptime {
-                let events = eventLog.finish(sessionStartUptime: sessionStart, duration: result.duration)
-                try? session.writeEvents(events)
+                let capture = pointerActivityRecorder.finish(sessionStartUptime: sessionStart, duration: result.duration)
+                do {
+                    try session.writePointerCapture(capture)
+                } catch {
+                    NSLog("[Screendrop] Failed to save recording input timeline: \(error)")
+                    metadataWarnings.append(
+                        "The screen footage was saved, but its cursor and click data could not be saved."
+                    )
+                }
+            } else {
+                metadataWarnings.append(
+                    "The screen footage was saved, but its cursor timeline could not be aligned to the video."
+                )
             }
-            try? session.writeManifest(manifest)
+            do {
+                try session.writeCaptureManifest(manifest)
+            } catch {
+                NSLog("[Screendrop] Failed to save recording manifest: \(error)")
+                metadataWarnings.append(
+                    "The screen footage was saved, but some Studio metadata could not be saved."
+                )
+            }
         }
 
         cleanupAfterRecording()
@@ -381,10 +415,20 @@ final class ScreenRecordingManager {
             return
         }
 
+        if !metadataWarnings.isEmpty {
+            let warning = metadataWarnings.joined(separator: "\n\n")
+            errorMessage = [errorMessage, warning]
+                .compactMap { $0 }
+                .joined(separator: "\n\n")
+        }
+
         if let error = result.error {
             // The writer hit trouble mid-flight but the fragmented file is
             // playable up to that point — deliver it instead of losing it.
-            errorMessage = "Recording ended early (\(error.localizedDescription)). Everything captured so far was saved."
+            let warning = "Recording ended early (\(error.localizedDescription)). Everything captured so far was saved."
+            errorMessage = [errorMessage, warning]
+                .compactMap { $0 }
+                .joined(separator: "\n\n")
         }
 
         switch action {
@@ -440,7 +484,7 @@ final class ScreenRecordingManager {
         try? await capture.stopCapture()
         await writer.cancel()
         await CameraRecordingManager.shared.cancel()
-        eventLog.stop()
+        pointerActivityRecorder.stop()
         if let session {
             RecordingSessionStore.deleteSession(session)
         }
@@ -604,7 +648,7 @@ final class ScreenRecordingManager {
         capture.onAudioSample = nil
         capture.onError = nil
         writer.onFailure = nil
-        eventLog.stop()
+        pointerActivityRecorder.stop()
         endActivity()
         RecordingMouseIndicatorController.shared.stop()
         RecordingKeyCaptionController.shared.stop()
@@ -629,20 +673,28 @@ final class ScreenRecordingManager {
         var sourceRect: CGRect?
         let captureRect: CGRect
         let displayID: CGDirectDisplayID?
+        let tracksDynamicGeometry: Bool
 
         switch source.kind {
         case .fullscreen(let display):
             let freshDisplay = content.displays.first(where: { $0.displayID == display.displayID }) ?? display
             filter = ScreenRecordingCapture.displayFilter(display: freshDisplay, content: content)
             sourceSize = CGSize(width: freshDisplay.width, height: freshDisplay.height)
-            captureRect = freshDisplay.frame
+            // SCDisplay.frame follows Quartz's top-left global coordinate
+            // space, while NSPanel/NSEvent mappings use AppKit's bottom-left
+            // space. Keep the mapping rect in AppKit coordinates; the event
+            // log converts it back exactly once when resolving CGEvent points.
+            captureRect = ActiveDisplayResolver.screen(for: freshDisplay.displayID)?.frame
+                ?? Self.appKitRect(fromQuartzRect: CGDisplayBounds(freshDisplay.displayID))
             displayID = freshDisplay.displayID
+            tracksDynamicGeometry = false
         case .window(let window):
             let freshWindow = content.windows.first(where: { $0.windowID == window.windowID }) ?? window
             filter = SCContentFilter(desktopIndependentWindow: freshWindow)
             sourceSize = freshWindow.frame.size
             captureRect = freshWindow.frame
             displayID = nil
+            tracksDynamicGeometry = true
         case .area(let display, let rect):
             let freshDisplay = content.displays.first(where: { $0.displayID == display.displayID }) ?? display
             filter = ScreenRecordingCapture.displayFilter(display: freshDisplay, content: content)
@@ -655,6 +707,7 @@ final class ScreenRecordingManager {
             sourceSize = mappedSourceRect.size
             captureRect = rect
             displayID = freshDisplay.displayID
+            tracksDynamicGeometry = false
         }
 
         let scaleFactor = max(1, CGFloat(filter.pointPixelScale))
@@ -683,8 +736,19 @@ final class ScreenRecordingManager {
             height: height,
             displayID: displayID,
             pointPixelScale: Double(scaleFactor),
+            tracksDynamicGeometry: tracksDynamicGeometry,
             mouseIndicatorMapping: mouseIndicatorMapping,
             keyCaptionMapping: keyCaptionMapping
+        )
+    }
+
+    private static func appKitRect(fromQuartzRect rect: CGRect) -> CGRect {
+        let mainDisplayHeight = CGDisplayBounds(CGMainDisplayID()).height
+        return CGRect(
+            x: rect.minX,
+            y: mainDisplayHeight - rect.maxY,
+            width: rect.width,
+            height: rect.height
         )
     }
 
@@ -742,6 +806,7 @@ private struct ScreenRecordingCaptureTarget {
     let height: Int
     let displayID: CGDirectDisplayID?
     let pointPixelScale: Double
+    let tracksDynamicGeometry: Bool
     let mouseIndicatorMapping: RecordingMouseIndicatorMapping
     let keyCaptionMapping: RecordingKeyCaptionMapping
 }
@@ -824,8 +889,8 @@ nonisolated final class ScreenRecordingCapture: NSObject, SCStreamOutput, SCStre
         configuration.pixelFormat = kCVPixelFormatType_32BGRA
         configuration.queueDepth = 3
         // The OS cursor stays out of the pixels; its position is logged to
-        // events.json and Studio/exports draw a synthetic, smoothed cursor
-        // instead (see ***REMOVED***).
+        // input.json and Studio/exports draw a synthetic, smoothed pointer
+        // instead (see RecordingPointerTimeline).
         configuration.showsCursor = false
         configuration.showMouseClicks = false
         configuration.capturesAudio = options.capturesSystemAudio

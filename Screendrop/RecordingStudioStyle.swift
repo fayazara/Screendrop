@@ -21,11 +21,11 @@ struct RecordingCameraBubbleSettings: Equatable {
     var roundness: CGFloat = 0.5
 }
 
-struct RecordingProject: Codable, Equatable {
-    var version = 1
+struct RecordingEditDocument: Codable, Equatable {
+    var formatVersion = 1
     var style: StoredRecordingStudioStyle
     var zoomEnabled: Bool
-    var zoomSegments: [***REMOVED***]
+    var zoomCues: [ZoomCue]
     var trimStart: TimeInterval?
     var trimEnd: TimeInterval?
     var exportSettings: VideoCompressionSettings?
@@ -33,13 +33,13 @@ struct RecordingProject: Codable, Equatable {
     init(
         style: RecordingStudioStyle,
         zoomEnabled: Bool,
-        zoomSegments: [***REMOVED***],
+        zoomCues: [ZoomCue],
         trimSelection: VideoTrimSelection? = nil,
         exportSettings: VideoCompressionSettings? = nil
     ) {
         self.style = StoredRecordingStudioStyle(style)
         self.zoomEnabled = zoomEnabled
-        self.zoomSegments = zoomSegments
+        self.zoomCues = zoomCues
         trimStart = trimSelection?.start
         trimEnd = trimSelection?.end
         self.exportSettings = exportSettings
@@ -51,7 +51,8 @@ struct StoredRecordingStudioStyle: Codable, Equatable {
     var padding: Double
     var cornerRadius: Double
     var shadow: Double
-    /// Optional so project files saved before cursor scaling decode as 1x.
+    /// Optional so project files saved before cursor scaling decode to the
+    /// current default.
     var cursorScale: Double?
     var cameraIsVisible: Bool
     var cameraCenterX: Double
@@ -99,7 +100,7 @@ struct StoredRecordingStudioStyle: Codable, Equatable {
             padding: CGFloat(padding),
             cornerRadius: CGFloat(cornerRadius),
             shadow: CGFloat(shadow),
-            cursorScale: CGFloat(cursorScale ?? 1),
+            cursorScale: CGFloat(cursorScale ?? RecordingStudioStyle.defaultCursorScale),
             camera: RecordingCameraBubbleSettings(
                 isVisible: cameraIsVisible,
                 center: CGPoint(x: cameraCenterX, y: cameraCenterY),
@@ -111,7 +112,14 @@ struct StoredRecordingStudioStyle: Codable, Equatable {
 }
 
 struct RecordingStudioStyle: Equatable {
-    var background: AnnotationBackgroundStyle = .gradient(AnnotationBackgroundGradient.presets[0])
+    static let defaultCursorScale: CGFloat = 1.7
+
+    static var defaultBackground: AnnotationBackgroundStyle {
+        guard let gradient = AnnotationBackgroundGradient.presets.last else { return .none }
+        return .gradient(gradient)
+    }
+
+    var background: AnnotationBackgroundStyle = RecordingStudioStyle.defaultBackground
     /// Card inset as a fraction of the canvas's smaller dimension.
     var padding: CGFloat = 0.06
     /// Card corner radius as a fraction of the canvas's smaller dimension.
@@ -119,8 +127,60 @@ struct RecordingStudioStyle: Equatable {
     /// Shadow strength 0...1.
     var shadow: CGFloat = 0.45
     /// Synthetic cursor magnification (1 = natural size, up to 4).
-    var cursorScale: CGFloat = 1
+    var cursorScale: CGFloat = RecordingStudioStyle.defaultCursorScale
     var camera = RecordingCameraBubbleSettings()
+}
+
+/// Cross-video defaults for Studio choices that should follow the user from
+/// one recording to the next. Per-recording project files still win whenever
+/// a video has already been edited.
+enum RecordingStudioDefaults {
+    private static let backgroundKey = "recordingStudio.lastUsedBackground.v1"
+
+    static var background: AnnotationBackgroundStyle {
+        get {
+            guard let data = UserDefaults.standard.data(forKey: backgroundKey),
+                  let stored = try? JSONDecoder().decode(StoredBackgroundStyle.self, from: data) else {
+                return RecordingStudioStyle.defaultBackground
+            }
+            return backgroundStyle(from: stored)
+        }
+        set {
+            let stored = storedBackgroundStyle(from: newValue)
+            guard let data = try? JSONEncoder().encode(stored) else { return }
+            UserDefaults.standard.set(data, forKey: backgroundKey)
+        }
+    }
+
+    private static func storedBackgroundStyle(
+        from style: AnnotationBackgroundStyle
+    ) -> StoredBackgroundStyle {
+        switch style {
+        case .none:
+            .none
+        case .solid(let color):
+            .solid(StoredColor(color))
+        case .gradient(let gradient):
+            .gradient(StoredGradient(gradient))
+        case .customWallpaper(let wallpaper):
+            .customWallpaper(path: wallpaper.url.path)
+        }
+    }
+
+    private static func backgroundStyle(
+        from stored: StoredBackgroundStyle
+    ) -> AnnotationBackgroundStyle {
+        switch stored {
+        case .none:
+            .none
+        case .solid(let color):
+            .solid(color.backgroundColor)
+        case .gradient(let gradient):
+            .gradient(gradient.backgroundGradient)
+        case .customWallpaper(let path):
+            .customWallpaper(AnnotationCustomWallpaper(url: URL(fileURLWithPath: path)))
+        }
+    }
 }
 
 /// Deterministic canvas layout shared by the preview and the exporter.
@@ -182,15 +242,15 @@ nonisolated struct RecordingStudioLayout: Sendable {
         )
     }
 
-    /// Where the (zoomed) screen video draws, given a camera state. The
-    /// video fills the card at scale 1; zooming grows the draw rect while
-    /// keeping the camera-path center point pinned to the card center.
-    func videoDrawRect(for state: ***REMOVED***) -> CGRect {
-        let drawWidth = cardRect.width * state.scale
-        let drawHeight = cardRect.height * state.scale
+    /// Where the (zoomed) screen video draws, given a viewport frame. The
+    /// video fills the card at magnification 1; zooming grows the draw rect
+    /// while keeping the viewport anchor point pinned to the card center.
+    func frameRect(for viewport: ViewportFrame) -> CGRect {
+        let drawWidth = cardRect.width * viewport.magnification
+        let drawHeight = cardRect.height * viewport.magnification
         return CGRect(
-            x: cardRect.midX - state.center.x * drawWidth,
-            y: cardRect.midY - state.center.y * drawHeight,
+            x: cardRect.midX - viewport.anchor.x * drawWidth,
+            y: cardRect.midY - viewport.anchor.y * drawHeight,
             width: drawWidth,
             height: drawHeight
         )

@@ -3,8 +3,8 @@
 //  Screendrop
 //
 //  View-model for the recording studio: loads a recording session (screen
-//  movie + optional camera movie + input-event sidecar), owns the style
-//  settings and zoom segments, and keeps the screen and camera players in
+//  movie + optional camera movie + pointer-capture sidecar), owns the style
+//  settings and zoom cues, and keeps the screen and camera players in
 //  sync. Layout math lives in RecordingStudioLayout so the live preview and
 //  the exporter compose frames identically.
 //
@@ -32,9 +32,9 @@ enum RecordingStudioExportState: Equatable {
 final class RecordingStudioModel {
     let sessionURL: URL
     private(set) var session: RecordingSession?
-    private(set) var manifest: ***REMOVED***?
-    private(set) var events = ***REMOVED***()
-    private(set) var recordedClickTimes: [TimeInterval] = []
+    private(set) var manifest: CaptureManifest?
+    private(set) var pointerCapture = PointerCaptureFile()
+    private(set) var recordedPressTimes: [TimeInterval] = []
     private(set) var duration: TimeInterval = 0
     private(set) var videoSize = CGSize(width: 1920, height: 1080)
     private(set) var hasCameraVideo = false
@@ -45,8 +45,13 @@ final class RecordingStudioModel {
     let screenPlayer = AVPlayer()
     let cameraPlayer = AVPlayer()
 
-    var style = RecordingStudioStyle() {
-        didSet { scheduleProjectSave() }
+    var style = RecordingStudioStyle(background: RecordingStudioDefaults.background) {
+        didSet {
+            if isLoaded, oldValue.background != style.background {
+                RecordingStudioDefaults.background = style.background
+            }
+            scheduleProjectSave()
+        }
     }
     var zoomEnabled = true {
         didSet { scheduleProjectSave() }
@@ -54,10 +59,10 @@ final class RecordingStudioModel {
     var exportSettings = VideoCompressionSettings() {
         didSet { scheduleProjectSave() }
     }
-    private(set) var zoomSegments: [***REMOVED***] = []
-    private(set) var zoomPath = ***REMOVED***.identity
-    private(set) var cursorPath = ***REMOVED***.empty
-    var selectedSegmentID: UUID?
+    private(set) var zoomCues: [ZoomCue] = []
+    private(set) var viewportTimeline = ViewportTimeline.identity
+    private(set) var pointerTimeline = PointerTimeline.empty
+    var selectedCueID: UUID?
     private(set) var trimSelection = VideoTrimSelection(start: 0, end: 0)
     private(set) var timelineFrames: [NSImage] = []
 
@@ -90,11 +95,8 @@ final class RecordingStudioModel {
         guard !isLoaded else { return }
 
         if let session {
-            manifest = session.loadManifest()
-            events = session.loadEvents() ?? ***REMOVED***()
-            recordedClickTimes = events.clicks
-                .filter { $0.phase == .down }
-                .map(\.t)
+            manifest = session.loadCaptureManifest()
+            pointerCapture = session.loadPointerCapture() ?? PointerCaptureFile()
         }
 
         let asset = AVURLAsset(url: screenURL)
@@ -112,12 +114,29 @@ final class RecordingStudioModel {
             return
         }
 
+        if session != nil {
+            let pointScale = max(manifest?.pixelScale ?? 1, 1)
+            let stream = PointerStreamSanitizer.sanitize(
+                pointerCapture,
+                options: PointerSanitizeOptions(
+                    recordingSizeInPoints: CGSize(
+                        width: videoSize.width / CGFloat(pointScale),
+                        height: videoSize.height / CGFloat(pointScale)
+                    )
+                )
+            )
+            pointerCapture = stream.sanitizedCapture
+            recordedPressTimes = pointerCapture.presses
+                .filter { $0.phase == .down }
+                .map(\.time)
+        }
+
         screenPlayer.replaceCurrentItem(with: AVPlayerItem(asset: asset))
         screenPlayer.actionAtItemEnd = .pause
 
         if let session, session.hasCamera {
             hasCameraVideo = true
-            cameraOffset = manifest?.***REMOVED*** ?? 0
+            cameraOffset = manifest?.cameraLeadIn ?? 0
             cameraPlayer.replaceCurrentItem(with: AVPlayerItem(url: session.cameraURL))
             cameraPlayer.actionAtItemEnd = .pause
             cameraPlayer.isMuted = true
@@ -125,12 +144,12 @@ final class RecordingStudioModel {
             style.camera.isVisible = false
         }
 
-        let project = session?.loadProject()
-        if let project {
-            style = project.style.value
-            zoomEnabled = project.zoomEnabled
-            zoomSegments = project.zoomSegments
-            exportSettings = project.exportSettings ?? VideoCompressionSettings()
+        let document = session?.loadEditDocument()
+        if let document {
+            style = document.style.value
+            zoomEnabled = document.zoomEnabled
+            zoomCues = document.zoomCues
+            exportSettings = document.exportSettings ?? VideoCompressionSettings()
         } else if session == nil {
             // Legacy bare movies use the same editor, but open visually
             // unchanged until the user explicitly adds styling.
@@ -143,16 +162,21 @@ final class RecordingStudioModel {
             )
             zoomEnabled = false
         } else {
-            zoomSegments = ***REMOVED***.segments(from: events, duration: duration)
+            zoomCues = ZoomCueSynthesizer.cues(from: pointerCapture, duration: duration)
         }
         trimSelection = VideoTrimSelection(
-            start: project?.trimStart ?? 0,
-            end: project?.trimEnd ?? duration
+            start: document?.trimStart ?? 0,
+            end: document?.trimEnd ?? duration
         ).clamped(to: duration)
-        if ***REMOVED*** {
-            cursorPath = ***REMOVED***.build(events: events, duration: duration)
+        if pointerIsSynthesized {
+            pointerTimeline = PointerTimeline.build(
+                capture: pointerCapture,
+                duration: duration,
+                recordingSizeInPoints: recordingPointSize,
+                fallbackArtwork: PointerArtworkCapture.defaultArtwork()
+            )
         }
-        rebuildZoomPath()
+        rebuildViewportTimeline()
         installObservers()
         isLoaded = true
         scheduleProjectSave()
@@ -365,56 +389,71 @@ final class RecordingStudioModel {
         }
     }
 
-    // MARK: - Zoom segments
+    // MARK: - Zoom cues
 
-    func setZoomSegments(_ segments: [***REMOVED***]) {
-        zoomSegments = segments.sorted { $0.start < $1.start }
-        rebuildZoomPath()
+    func setZoomCues(_ cues: [ZoomCue]) {
+        zoomCues = cues.sorted { $0.start < $1.start }
+        rebuildViewportTimeline()
         scheduleProjectSave()
     }
 
-    func regenerateAutoZoom() {
-        setZoomSegments(***REMOVED***.segments(from: events, duration: duration))
+    func resynthesizeZoomCues() {
+        setZoomCues(ZoomCueSynthesizer.cues(from: pointerCapture, duration: duration))
     }
 
-    func addZoomSegment(at time: TimeInterval) {
+    func addZoomCue(at time: TimeInterval) {
         let start = min(max(0, time), max(0, duration - 1))
-        let segment = ***REMOVED***(start: start, end: min(duration, start + 3), zoom: 1.8)
-        var segments = zoomSegments
-        segments.append(segment)
-        setZoomSegments(segments)
-        selectedSegmentID = segment.id
+        let hasPointerTrack = !pointerCapture.travel.isEmpty || !pointerCapture.presses.isEmpty
+        let target = pointerTimeline.location(at: time) ?? CGPoint(x: 0.5, y: 0.5)
+        let cue = ZoomCue(
+            start: start,
+            end: min(duration, start + 3),
+            zoom: 2,
+            anchorMode: hasPointerTrack ? .clusterAnchor : .pinnedAnchor,
+            pinnedPoint: target,
+            boundsBias: hasPointerTrack ? 0.25 : 0
+        )
+        var cues = zoomCues
+        cues.append(cue)
+        setZoomCues(cues)
+        selectedCueID = cue.id
     }
 
-    func removeZoomSegment(id: UUID) {
-        setZoomSegments(zoomSegments.filter { $0.id != id })
-        if selectedSegmentID == id {
-            selectedSegmentID = nil
+    func removeZoomCue(id: UUID) {
+        setZoomCues(zoomCues.filter { $0.id != id })
+        if selectedCueID == id {
+            selectedCueID = nil
         }
     }
 
-    func updateZoomSegment(_ segment: ***REMOVED***) {
-        var segments = zoomSegments
-        guard let index = segments.firstIndex(where: { $0.id == segment.id }) else { return }
-        var updated = segment
+    func updateZoomCue(_ cue: ZoomCue) {
+        var cues = zoomCues
+        guard let index = cues.firstIndex(where: { $0.id == cue.id }) else { return }
+        var updated = cue
         updated.start = min(max(0, updated.start), duration)
         updated.end = min(max(updated.start + 0.5, updated.end), duration)
-        segments[index] = updated
-        setZoomSegments(segments)
+        updated.zoom = min(max(updated.zoom, 1), 4)
+        updated.boundsBias = min(max(updated.boundsBias, 0), 1)
+        updated.pinnedPoint = CGPoint(
+            x: min(max(updated.pinnedPoint.x, 0), 1),
+            y: min(max(updated.pinnedPoint.y, 0), 1)
+        )
+        cues[index] = updated
+        setZoomCues(cues)
     }
 
-    var selectedSegment: ***REMOVED***? {
-        zoomSegments.first { $0.id == selectedSegmentID }
+    var selectedCue: ZoomCue? {
+        zoomCues.first { $0.id == selectedCueID }
     }
 
-    private func rebuildZoomPath() {
+    private func rebuildViewportTimeline() {
         guard duration > 0 else {
-            zoomPath = .identity
+            viewportTimeline = .identity
             return
         }
-        zoomPath = ***REMOVED***.build(
-            segments: zoomSegments,
-            events: events,
+        viewportTimeline = ViewportTimeline.build(
+            cues: zoomCues,
+            capture: pointerCapture,
             duration: duration
         )
     }
@@ -431,37 +470,56 @@ final class RecordingStudioModel {
 
     private func saveProjectNow() {
         guard isLoaded, let session else { return }
-        let project = RecordingProject(
+        let document = RecordingEditDocument(
             style: style,
             zoomEnabled: zoomEnabled,
-            zoomSegments: zoomSegments,
+            zoomCues: zoomCues.filter { !$0.isImplicit },
             trimSelection: trimSelection,
             exportSettings: exportSettings
         )
         do {
-            try session.writeProject(project)
+            try session.writeEditDocument(document)
         } catch {
             print("Failed to save recording project: \(error)")
         }
     }
 
-    /// Camera state to render at a given time, honoring the zoom toggle.
-    func cameraState(at time: TimeInterval) -> ***REMOVED*** {
+    /// Viewport frame to render at a given time, honoring the zoom toggle.
+    func viewportFrame(at time: TimeInterval) -> ViewportFrame {
         guard zoomEnabled else { return .identity }
-        return zoomPath.state(at: time)
+        return viewportTimeline.frame(at: time)
     }
 
     /// True when this session was captured without the OS cursor, so the
-    /// preview and export draw the synthetic one.
-    var ***REMOVED***: Bool {
-        manifest?.***REMOVED*** == true
+    /// preview and export draw the synthetic pointer.
+    var pointerIsSynthesized: Bool {
+        manifest?.pointerSynthesized == true
     }
 
-    /// Smoothed normalized cursor position for the preview overlay; nil when
+    /// Smoothed normalized pointer location for the preview overlay; nil when
     /// the recording carries its cursor in the pixels.
-    func cursorPosition(at time: TimeInterval) -> CGPoint? {
-        guard ***REMOVED*** else { return nil }
-        return cursorPath.position(at: time)
+    func pointerLocation(at time: TimeInterval) -> CGPoint? {
+        guard pointerIsSynthesized else { return nil }
+        return pointerTimeline.location(at: time)
+    }
+
+    func pointerFrame(at time: TimeInterval) -> PointerFrame? {
+        guard pointerIsSynthesized else { return nil }
+        return pointerTimeline.frame(at: time)
+    }
+
+    func artwork(id: String?) -> PointerArtwork? {
+        pointerTimeline.artwork(id: id)
+    }
+
+    var showsPressEffects: Bool {
+        manifest?.pressEffectsBaked == false
+            && manifest?.pressEffectsEnabled == true
+    }
+
+    private var recordingPointSize: CGSize {
+        let scale = max(CGFloat(manifest?.pixelScale ?? 1), 1)
+        return CGSize(width: videoSize.width / scale, height: videoSize.height / scale)
     }
 
     func isCameraVisible(at time: TimeInterval) -> Bool {
@@ -482,8 +540,9 @@ final class RecordingStudioModel {
             cameraURL: hasCameraVideo && style.camera.isVisible ? session?.cameraURL : nil,
             cameraOffset: cameraOffset,
             style: style,
-            zoomPath: zoomEnabled ? zoomPath : .identity,
-            cursorPath: ***REMOVED*** ? cursorPath : nil,
+            viewportTimeline: zoomEnabled ? viewportTimeline : .identity,
+            pointerTimeline: pointerIsSynthesized ? pointerTimeline : nil,
+            showsPressEffects: showsPressEffects,
             canvasSize: videoSize,
             trimSelection: trimSelection,
             exportSettings: exportSettings

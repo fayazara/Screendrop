@@ -4,7 +4,7 @@
 //
 //  Offline compositor for studio exports: decodes the screen (and camera)
 //  recordings frame by frame, draws each frame through the same
-//  RecordingStudioLayout / ***REMOVED*** math the live preview
+//  RecordingStudioLayout / ViewportTimeline math the live preview
 //  uses, and writes a new HEVC movie. Audio tracks (system + microphone)
 //  are mixed and passed through on the unchanged timeline.
 //
@@ -25,10 +25,11 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
         let cameraURL: URL?
         let cameraOffset: TimeInterval
         let style: RecordingStudioStyle
-        let zoomPath: ***REMOVED***
+        let viewportTimeline: ViewportTimeline
         /// Non-nil when the capture hid the OS cursor and the export must
-        /// draw the synthetic one along this smoothed path.
-        let cursorPath: ***REMOVED***?
+        /// draw the synthetic pointer along this smoothed timeline.
+        let pointerTimeline: PointerTimeline?
+        let showsPressEffects: Bool
         let canvasSize: CGSize
         let trimSelection: VideoTrimSelection?
         let exportSettings: VideoCompressionSettings
@@ -190,8 +191,9 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
         let compositor = StudioFrameCompositor(
             canvasSize: canvasSize,
             style: configuration.style,
-            zoomPath: configuration.zoomPath,
-            cursorPath: configuration.cursorPath,
+            viewportTimeline: configuration.viewportTimeline,
+            pointerTimeline: configuration.pointerTimeline,
+            showsPressEffects: configuration.showsPressEffects,
             includeBubble: cameraFeed != nil
         )
 
@@ -451,10 +453,11 @@ nonisolated private final class CameraFrameFeed: @unchecked Sendable {
 nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
     private let canvasSize: CGSize
     private let layout: RecordingStudioLayout
-    private let zoomPath: ***REMOVED***
-    private let cursorPath: ***REMOVED***?
-    private let cursorImage: CGImage?
-    private let cursorScale: CGFloat
+    private let viewportTimeline: ViewportTimeline
+    private let pointerTimeline: PointerTimeline?
+    private let showsPressEffects: Bool
+    private var artworkImageCache: [String: CGImage] = [:]
+    private let pointerScale: CGFloat
     private let colorSpace: CGColorSpace
     private let backdrop: CGImage?
     private var previousFrameTime: TimeInterval?
@@ -462,8 +465,9 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
     init(
         canvasSize: CGSize,
         style: RecordingStudioStyle,
-        zoomPath: ***REMOVED***,
-        cursorPath: ***REMOVED***?,
+        viewportTimeline: ViewportTimeline,
+        pointerTimeline: PointerTimeline?,
+        showsPressEffects: Bool,
         includeBubble: Bool
     ) {
         self.canvasSize = canvasSize
@@ -472,10 +476,10 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
             style: style,
             includeBubble: includeBubble
         )
-        self.zoomPath = zoomPath
-        self.cursorPath = cursorPath
-        self.cursorImage = cursorPath != nil ? Self.loadCursorImage() : nil
-        self.cursorScale = style.cursorScale
+        self.viewportTimeline = viewportTimeline
+        self.pointerTimeline = pointerTimeline
+        self.showsPressEffects = showsPressEffects
+        self.pointerScale = style.cursorScale
         self.colorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
         self.backdrop = Self.renderBackdrop(
             canvasSize: canvasSize,
@@ -483,14 +487,6 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
             style: style,
             colorSpace: colorSpace
         )
-    }
-
-    private static func loadCursorImage() -> CGImage? {
-        guard let url = Bundle.main.url(forResource: ***REMOVED***.imageName, withExtension: "png"),
-              let source = CGImageSourceCreateWithURL(url as CFURL, nil) else {
-            return nil
-        }
-        return CGImageSourceCreateImageAtIndex(source, 0, nil)
     }
 
     func render(
@@ -538,33 +534,22 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
             for sample in 0..<sampleCount {
                 let sampleTime = time - shutter / 2
                     + shutter * (Double(sample) + 0.5) / Double(sampleCount)
-                let drawRect = layout.videoDrawRect(for: zoomPath.state(at: sampleTime))
+                let drawRect = layout.frameRect(for: viewportTimeline.frame(at: sampleTime))
                 // Drawing sample i at alpha 1/(i+1) keeps the buffer equal to
                 // the running average of all samples so far.
                 context.setAlpha(1 / CGFloat(sample + 1))
                 context.draw(screenImage, in: flipped(drawRect))
 
-                // The synthetic cursor is part of the video content: same
-                // clip, same camera transform, same shutter samples.
-                if let cursorImage, let cursorPath,
-                   let position = cursorPath.position(at: sampleTime) {
-                    let height = drawRect.height * ***REMOVED***.heightFraction * cursorScale
-                    let size = CGSize(width: height * ***REMOVED***.aspectRatio, height: height)
-                    let tip = CGPoint(
-                        x: drawRect.minX + position.x * drawRect.width,
-                        y: drawRect.minY + position.y * drawRect.height
-                    )
-                    let cursorRect = CGRect(
-                        x: tip.x - ***REMOVED***.hotspot.x * size.width,
-                        y: tip.y - ***REMOVED***.hotspot.y * size.height,
-                        width: size.width,
-                        height: size.height
-                    )
-                    context.draw(cursorImage, in: flipped(cursorRect))
-                }
             }
             context.restoreGState()
         }
+
+        // Pointer motion is resolved independently from viewport shutter
+        // blur. Its interaction magnification and tilt stay anchored at the
+        // recorded artwork anchor point, while the final point still passes
+        // through the same viewport transform and rounded-card clip as the
+        // source pixels.
+        drawPointer(at: time, in: context)
 
         if let cameraFrame,
            layout.bubbleRect.width > 0,
@@ -614,14 +599,103 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
     /// still, up to twelve when it sweeps, spaced so consecutive samples land
     /// roughly two output pixels apart.
     private func blurSampleCount(at time: TimeInterval, shutter: TimeInterval) -> Int {
-        let a = layout.videoDrawRect(for: zoomPath.state(at: time - shutter / 2))
-        let b = layout.videoDrawRect(for: zoomPath.state(at: time + shutter / 2))
+        let a = layout.frameRect(for: viewportTimeline.frame(at: time - shutter / 2))
+        let b = layout.frameRect(for: viewportTimeline.frame(at: time + shutter / 2))
         let displacement = max(
             max(abs(a.minX - b.minX), abs(a.minY - b.minY)),
             max(abs(a.maxX - b.maxX), abs(a.maxY - b.maxY))
         )
         guard displacement > 1.5 else { return 1 }
         return min(12, max(2, Int((displacement / 2).rounded(.up))))
+    }
+
+    private func drawPointer(at time: TimeInterval, in context: CGContext) {
+        guard let pointerTimeline,
+              let pointer = pointerTimeline.frame(at: time) else {
+            return
+        }
+
+        let drawRect = layout.frameRect(for: viewportTimeline.frame(at: time))
+        let tip = CGPoint(
+            x: drawRect.minX + pointer.location.x * drawRect.width,
+            y: canvasSize.height - (drawRect.minY + pointer.location.y * drawRect.height)
+        )
+
+        context.saveGState()
+        context.addPath(roundedPath(for: layout.cardRect, radius: layout.cardCornerRadius))
+        context.clip()
+        if showsPressEffects, let progress = pointer.pressPulse {
+            let eased = 1 - pow(1 - progress, 3)
+            let baseRadius = drawRect.height * CGFloat(16.0 / 1_080.0) * pointerScale
+            let radius = baseRadius * CGFloat(0.75 + 0.55 * eased)
+            context.saveGState()
+            context.setAlpha(CGFloat(max(0, 1 - progress)))
+            context.setStrokeColor(CGColor(
+                red: 0,
+                green: 122.0 / 255.0,
+                blue: 1,
+                alpha: 1
+            ))
+            context.setLineWidth(max(1, drawRect.height * CGFloat(2.0 / 1_080.0)))
+            context.strokeEllipse(in: CGRect(
+                x: tip.x - radius,
+                y: tip.y - radius,
+                width: radius * 2,
+                height: radius * 2
+            ))
+            context.restoreGState()
+        }
+
+        if let resolved = artwork(for: pointer, in: pointerTimeline) {
+            let height = drawRect.height
+                * PointerArtworkMetrics.heightRatio
+                * pointerScale
+                * resolved.intrinsicScale
+            let size = CGSize(width: height * resolved.aspectRatio, height: height)
+            context.setAlpha(CGFloat(min(max(pointer.opacity, 0), 1)))
+            context.translateBy(x: tip.x, y: tip.y)
+            context.rotate(by: -CGFloat(pointer.tiltDegrees * .pi / 180))
+            let interactionScale = CGFloat(max(pointer.magnification, 0.1))
+            context.scaleBy(x: interactionScale, y: interactionScale)
+            context.draw(
+                resolved.image,
+                in: CGRect(
+                    x: -resolved.anchor.x * size.width,
+                    y: -(1 - resolved.anchor.y) * size.height,
+                    width: size.width,
+                    height: size.height
+                )
+            )
+        }
+        context.restoreGState()
+    }
+
+    private func artwork(
+        for pointer: PointerFrame,
+        in timeline: PointerTimeline
+    ) -> (image: CGImage, anchor: CGPoint, aspectRatio: CGFloat, intrinsicScale: CGFloat)? {
+        if let resolved = timeline.artwork(id: pointer.artworkID),
+           let image = artworkImage(for: resolved) {
+            return (
+                image,
+                resolved.normalizedAnchor,
+                resolved.aspectRatio,
+                resolved.intrinsicScale
+            )
+        }
+        return nil
+    }
+
+    private func artworkImage(for artwork: PointerArtwork) -> CGImage? {
+        if let cached = artworkImageCache[artwork.artworkID] {
+            return cached
+        }
+        guard let source = CGImageSourceCreateWithData(artwork.imageData as CFData, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+            return nil
+        }
+        artworkImageCache[artwork.artworkID] = image
+        return image
     }
 
     /// Layout rects use a top-left origin; CoreGraphics draws bottom-up.

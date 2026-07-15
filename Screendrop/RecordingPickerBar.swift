@@ -152,17 +152,7 @@ private struct RecordingPickerView: View {
                 cameraDeviceMenu
             }
 
-            inputToggle(
-                isOn: !microphoneID.isEmpty,
-                onIcon: "mic.fill",
-                offIcon: "mic.slash",
-                help: microphoneID.isEmpty ? "Microphone off — click to record voice" : "Microphone on"
-            ) {
-                toggleMicrophone()
-            }
-            .contextMenu {
-                microphoneDeviceMenu
-            }
+            microphonePicker
 
             inputToggle(
                 isOn: systemAudio,
@@ -293,12 +283,14 @@ private struct RecordingPickerView: View {
         }
     }
 
-    private func toggleMicrophone() {
-        if microphoneID.isEmpty {
-            selectMicrophone(RecordingDeviceCatalog.microphones().first?.uniqueID)
-        } else {
-            microphoneID = ""
+    private var microphoneHelp: String {
+        guard !microphoneID.isEmpty else {
+            return "Microphone off — click to choose an input"
         }
+        guard let microphone = RecordingDeviceCatalog.microphone(withID: microphoneID) else {
+            return "Microphone unavailable — choose another input"
+        }
+        return "Microphone on — \(microphone.localizedName)"
     }
 
     @ViewBuilder
@@ -319,21 +311,45 @@ private struct RecordingPickerView: View {
         }
     }
 
-    @ViewBuilder
-    private var microphoneDeviceMenu: some View {
-        ForEach(RecordingDeviceCatalog.microphones(), id: \.uniqueID) { device in
-            Toggle(isOn: Binding(
-                get: { microphoneID == device.uniqueID },
-                set: { selected in
-                    if selected {
-                        selectMicrophone(device.uniqueID)
-                    } else {
-                        microphoneID = ""
-                    }
-                }
-            )) {
-                Text(device.localizedName)
+    private var microphonePicker: some View {
+        Menu {
+            Button {
+                microphoneID = ""
+            } label: {
+                menuSelectionLabel("Off", isSelected: microphoneID.isEmpty)
             }
+
+            Divider()
+
+            ForEach(RecordingDeviceCatalog.microphones(), id: \.uniqueID) { device in
+                Button {
+                    selectMicrophone(device.uniqueID)
+                } label: {
+                    menuSelectionLabel(
+                        device.localizedName,
+                        isSelected: microphoneID == device.uniqueID
+                    )
+                }
+            }
+        } label: {
+            Image(systemName: microphoneID.isEmpty ? "mic.slash" : "mic.fill")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(microphoneID.isEmpty ? Color.white.opacity(0.35) : Color.white)
+                .frame(width: 34, height: 34)
+                .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .help(microphoneHelp)
+    }
+
+    @ViewBuilder
+    private func menuSelectionLabel(_ title: String, isSelected: Bool) -> some View {
+        if isSelected {
+            Label(title, systemImage: "checkmark")
+        } else {
+            Text(title)
         }
     }
 

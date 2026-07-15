@@ -26,9 +26,9 @@ enum RecordingSessionRenderer {
     /// recorded with the OS cursor already contain their complete audio/video
     /// result and need no expensive second encode.
     static func ensureDeliverable(for session: RecordingSession) async throws -> URL {
-        let manifest = session.loadManifest()
-        let ***REMOVED*** = manifest?.***REMOVED*** == true
-        guard session.hasCamera || ***REMOVED*** else { return session.screenURL }
+        let manifest = session.loadCaptureManifest()
+        let pointerSynthesized = manifest?.pointerSynthesized == true
+        guard session.hasCamera || pointerSynthesized else { return session.screenURL }
         if session.hasFinalVideo { return session.finalURL }
 
         let asset = AVURLAsset(url: session.screenURL)
@@ -45,30 +45,47 @@ enum RecordingSessionRenderer {
         }
 
         let canvasSize = try await outputSize(for: asset, manifest: manifest)
-        let events = session.loadEvents() ?? ***REMOVED***()
-        let project = session.loadProject()
-        var style = project?.style.value ?? RecordingStudioStyle()
+        let recordingPointScale = max(manifest?.pixelScale ?? 1, 1)
+        let recordingPointSize = CGSize(
+            width: canvasSize.width / CGFloat(recordingPointScale),
+            height: canvasSize.height / CGFloat(recordingPointScale)
+        )
+        let capture = PointerStreamSanitizer.sanitize(
+            session.loadPointerCapture() ?? PointerCaptureFile(),
+            options: PointerSanitizeOptions(
+                recordingSizeInPoints: recordingPointSize
+            )
+        ).sanitizedCapture
+        let document = session.loadEditDocument()
+        var style = document?.style.value ?? RecordingStudioStyle()
         // Selecting a camera means the default delivered recording includes
         // it. Hiding it remains an explicit Studio/manual-export choice.
         style.camera.isVisible = session.hasCamera
-        let zoomEnabled = project?.zoomEnabled ?? true
-        let zoomSegments = project?.zoomSegments
-            ?? ***REMOVED***.segments(from: events, duration: duration)
-        let zoomPath = zoomEnabled
-            ? ***REMOVED***.build(segments: zoomSegments, events: events, duration: duration)
+        let zoomEnabled = document?.zoomEnabled ?? true
+        let zoomCues = document?.zoomCues
+            ?? ZoomCueSynthesizer.cues(from: capture, duration: duration)
+        let viewportTimeline = zoomEnabled
+            ? ViewportTimeline.build(cues: zoomCues, capture: capture, duration: duration)
             : .identity
         let configuration = RecordingStudioExporter.Configuration(
             screenURL: session.screenURL,
             cameraURL: session.hasCamera ? session.cameraURL : nil,
-            cameraOffset: manifest?.***REMOVED*** ?? 0,
+            cameraOffset: manifest?.cameraLeadIn ?? 0,
             style: style,
-            zoomPath: zoomPath,
-            cursorPath: ***REMOVED***
-                ? ***REMOVED***.build(events: events, duration: duration)
+            viewportTimeline: viewportTimeline,
+            pointerTimeline: pointerSynthesized
+                ? PointerTimeline.build(
+                    capture: capture,
+                    duration: duration,
+                    recordingSizeInPoints: recordingPointSize,
+                    fallbackArtwork: PointerArtworkCapture.defaultArtwork()
+                )
                 : nil,
+            showsPressEffects: manifest?.pressEffectsBaked == false
+                && manifest?.pressEffectsEnabled == true,
             canvasSize: canvasSize,
             trimSelection: nil,
-            exportSettings: project?.exportSettings ?? VideoCompressionSettings()
+            exportSettings: document?.exportSettings ?? VideoCompressionSettings()
         )
 
         let temporaryURL = try await RecordingStudioExporter().export(configuration) { _ in }
@@ -97,7 +114,7 @@ enum RecordingSessionRenderer {
 
     private static func outputSize(
         for asset: AVURLAsset,
-        manifest: ***REMOVED***?
+        manifest: CaptureManifest?
     ) async throws -> CGSize {
         if let manifest, manifest.pixelWidth > 0, manifest.pixelHeight > 0 {
             return CGSize(width: manifest.pixelWidth, height: manifest.pixelHeight)

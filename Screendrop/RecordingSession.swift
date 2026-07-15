@@ -4,7 +4,7 @@
 //
 //  A recording is a folder ("session") rather than a bare .mov so the studio
 //  editor can keep the screen video, the separately captured camera video,
-//  and the timestamped input-event sidecar together. Sessions live in
+//  and the timestamped pointer-capture sidecar together. Sessions live in
 //  Application Support (not the temp dir) so a crash mid-recording never
 //  hands the footage to the OS temp purger.
 //
@@ -16,9 +16,9 @@ nonisolated struct RecordingSession: Sendable, Equatable {
     static let directoryExtension = "screendroprec"
     static let screenFileName = "screen.mov"
     static let cameraFileName = "camera.mov"
-    static let eventsFileName = "events.json"
-    static let manifestFileName = "meta.json"
-    static let projectFileName = "project.json"
+    static let pointerCaptureFileName = "input.json"
+    static let captureManifestFileName = "capture.json"
+    static let editDocumentFileName = "edit.json"
 
     let directoryURL: URL
 
@@ -33,9 +33,9 @@ nonisolated struct RecordingSession: Sendable, Equatable {
             .appending(".mov")
         return directoryURL.appendingPathComponent(fileName)
     }
-    var eventsURL: URL { directoryURL.appendingPathComponent(Self.eventsFileName) }
-    var manifestURL: URL { directoryURL.appendingPathComponent(Self.manifestFileName) }
-    var projectURL: URL { directoryURL.appendingPathComponent(Self.projectFileName) }
+    var pointerCaptureURL: URL { directoryURL.appendingPathComponent(Self.pointerCaptureFileName) }
+    var captureManifestURL: URL { directoryURL.appendingPathComponent(Self.captureManifestFileName) }
+    var editDocumentURL: URL { directoryURL.appendingPathComponent(Self.editDocumentFileName) }
 
     var hasCamera: Bool {
         FileManager.default.fileExists(atPath: cameraURL.path)
@@ -57,38 +57,45 @@ nonisolated struct RecordingSession: Sendable, Equatable {
             && FileManager.default.fileExists(atPath: url.appendingPathComponent(screenFileName).path)
     }
 
-    func loadManifest() -> ***REMOVED***? {
-        guard let data = try? Data(contentsOf: manifestURL) else { return nil }
-        return try? ***REMOVED***.decoder.decode(***REMOVED***.self, from: data)
+    func loadCaptureManifest() -> CaptureManifest? {
+        guard let data = try? Data(contentsOf: captureManifestURL) else { return nil }
+        return try? CaptureManifest.decoder.decode(CaptureManifest.self, from: data)
     }
 
-    func loadEvents() -> ***REMOVED***? {
-        guard let data = try? Data(contentsOf: eventsURL) else { return nil }
-        return try? ***REMOVED***.decoder.decode(***REMOVED***.self, from: data)
+    func loadPointerCapture() -> PointerCaptureFile? {
+        guard let data = try? Data(contentsOf: pointerCaptureURL) else { return nil }
+        return try? CaptureManifest.decoder.decode(PointerCaptureFile.self, from: data)
     }
 
-    func writeManifest(_ manifest: ***REMOVED***) throws {
-        let data = try ***REMOVED***.encoder.encode(manifest)
-        try data.write(to: manifestURL, options: .atomic)
+    func writeCaptureManifest(_ manifest: CaptureManifest) throws {
+        let data = try CaptureManifest.encoder.encode(manifest)
+        try data.write(to: captureManifestURL, options: .atomic)
     }
 
-    func writeEvents(_ events: ***REMOVED***) throws {
-        let data = try ***REMOVED***.encoder.encode(events)
-        try data.write(to: eventsURL, options: .atomic)
+    func writePointerCapture(_ capture: PointerCaptureFile) throws {
+        let data = try CaptureManifest.encoder.encode(capture)
+        do {
+            try data.write(to: pointerCaptureURL, options: .atomic)
+        } catch {
+            // Atomic replacement needs a sibling temporary file. If that
+            // narrow operation fails, make one direct attempt before treating
+            // the pointer sidecar as lost and surfacing the failure to users.
+            try data.write(to: pointerCaptureURL)
+        }
     }
 
-    func loadProject() -> RecordingProject? {
-        guard let data = try? Data(contentsOf: projectURL) else { return nil }
-        return try? ***REMOVED***.decoder.decode(RecordingProject.self, from: data)
+    func loadEditDocument() -> RecordingEditDocument? {
+        guard let data = try? Data(contentsOf: editDocumentURL) else { return nil }
+        return try? CaptureManifest.decoder.decode(RecordingEditDocument.self, from: data)
     }
 
-    func writeProject(_ project: RecordingProject) throws {
-        let data = try ***REMOVED***.encoder.encode(project)
-        try data.write(to: projectURL, options: .atomic)
+    func writeEditDocument(_ document: RecordingEditDocument) throws {
+        let data = try CaptureManifest.encoder.encode(document)
+        try data.write(to: editDocumentURL, options: .atomic)
     }
 }
 
-nonisolated struct ***REMOVED***: Codable, Sendable, Equatable {
+nonisolated struct CaptureManifest: Codable, Sendable, Equatable {
     var version = 1
     var createdAt = Date()
     /// Duration of the finished screen movie, in seconds.
@@ -96,19 +103,24 @@ nonisolated struct ***REMOVED***: Codable, Sendable, Equatable {
     var pixelWidth = 0
     var pixelHeight = 0
     /// Points→pixels scale of the captured source (Retina factor).
-    var pointPixelScale: Double = 1
-    var displayID: UInt32?
-    var hasSystemAudio = false
-    var hasMicrophone = false
+    var pixelScale: Double = 1
+    var sourceDisplayID: UInt32?
+    var includesSystemAudio = false
+    var includesMicrophone = false
     /// Where the camera movie's t=0 falls on the screen movie's timeline.
     /// Positive means the camera started after the screen recording.
-    var ***REMOVED***: TimeInterval?
-    var cameraPixelWidth: Int?
-    var cameraPixelHeight: Int?
+    var cameraLeadIn: TimeInterval?
+    var cameraWidth: Int?
+    var cameraHeight: Int?
     /// True when the capture excluded the OS cursor, so playback and export
-    /// must draw the synthetic cursor from the event log. Optional so
+    /// must draw the synthetic pointer from the capture sidecar. Optional so
     /// manifests written before this field decode as nil (cursor in pixels).
-    var ***REMOVED***: Bool?
+    var pointerSynthesized: Bool?
+    /// New sessions keep press feedback out of the lossless screen master and
+    /// reconstruct it from the pointer capture. Nil means a legacy session
+    /// whose pixels may already contain the configured mouse indicators.
+    var pressEffectsBaked: Bool?
+    var pressEffectsEnabled: Bool?
 
     static let encoder: JSONEncoder = {
         let encoder = JSONEncoder()
@@ -127,30 +139,129 @@ nonisolated struct ***REMOVED***: Codable, Sendable, Equatable {
 /// Sidecar of everything the user did during the recording, on the screen
 /// movie's timeline. Coordinates are normalized (0...1) with a top-left
 /// origin so they stay valid at any render resolution.
-nonisolated struct ***REMOVED***: Codable, Sendable, Equatable {
-    var version = 1
-    var moves: [***REMOVED***] = []
-    var clicks: [***REMOVED***] = []
+nonisolated struct PointerCaptureFile: Codable, Sendable, Equatable {
+    static let currentFormatVersion = 1
+
+    var formatVersion = Self.currentFormatVersion
+    var travel: [PointerTravelSample] = []
+    var presses: [PointerPressEvent] = []
+    var artwork: [PointerArtwork] = []
+    /// Prevents deterministic cleanup from being applied repeatedly when the
+    /// same sidecar passes through Studio, flattening, and export builders.
+    var isSanitized = false
 }
 
-nonisolated struct ***REMOVED***: Codable, Sendable, Equatable {
+nonisolated struct PointerTravelSample: Codable, Sendable, Equatable {
+    enum PointerTravelKind: String, Codable, Sendable {
+        case move
+        case drag
+    }
+
     /// Seconds on the screen movie timeline.
-    var t: TimeInterval
+    var time: TimeInterval
     var x: Double
     var y: Double
+    var kind: PointerTravelKind = .move
+    /// References an entry in `PointerCaptureFile.artwork`. A nil ID means
+    /// the renderer should use an AppKit-provided system arrow.
+    var artworkID: String? = nil
 }
 
-nonisolated struct ***REMOVED***: Codable, Sendable, Equatable {
-    enum Phase: String, Codable, Sendable {
+nonisolated struct PointerPressEvent: Codable, Sendable, Equatable {
+    enum PressPhase: String, Codable, Sendable {
         case down
         case up
     }
 
-    var t: TimeInterval
+    var time: TimeInterval
     var x: Double
     var y: Double
     var button: Int
-    var phase: Phase
+    var phase: PressPhase
+    /// Pointer appearance active when the button event was captured.
+    var artworkID: String? = nil
+}
+
+/// A captured pointer image embedded in input.json. `Data` is encoded as a
+/// base-64 JSON string by Foundation's Codable implementation.
+nonisolated struct PointerArtwork: Codable, Sendable, Equatable {
+    nonisolated struct Point: Codable, Sendable, Equatable {
+        var x: Double
+        var y: Double
+    }
+
+    nonisolated struct Size: Codable, Sendable, Equatable {
+        var width: Double
+        var height: Double
+    }
+
+    var artworkID: String
+    var imageData: Data
+    /// Anchor point in the captured artwork's reference-size coordinate space.
+    var anchorPoint: Point
+    var referenceSize: Size
+}
+
+extension PointerCaptureFile {
+    private enum CodingKeys: String, CodingKey {
+        case formatVersion
+        case travel
+        case presses
+        case artwork
+        case isSanitized
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        formatVersion = try container.decodeIfPresent(Int.self, forKey: .formatVersion) ?? 1
+        travel = try container.decodeIfPresent([PointerTravelSample].self, forKey: .travel) ?? []
+        presses = try container.decodeIfPresent([PointerPressEvent].self, forKey: .presses) ?? []
+        artwork = try container.decodeIfPresent(
+            [PointerArtwork].self,
+            forKey: .artwork
+        ) ?? []
+        isSanitized = try container.decodeIfPresent(Bool.self, forKey: .isSanitized) ?? false
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(formatVersion, forKey: .formatVersion)
+        try container.encode(travel, forKey: .travel)
+        try container.encode(presses, forKey: .presses)
+        try container.encode(artwork, forKey: .artwork)
+        try container.encode(isSanitized, forKey: .isSanitized)
+    }
+}
+
+extension PointerTravelSample {
+    private enum CodingKeys: String, CodingKey {
+        case time
+        case x
+        case y
+        case kind
+        case artworkID
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        time = try container.decode(TimeInterval.self, forKey: .time)
+        x = try container.decode(Double.self, forKey: .x)
+        y = try container.decode(Double.self, forKey: .y)
+        kind = try container.decodeIfPresent(
+            PointerTravelKind.self,
+            forKey: .kind
+        ) ?? .move
+        artworkID = try container.decodeIfPresent(String.self, forKey: .artworkID)
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(time, forKey: .time)
+        try container.encode(x, forKey: .x)
+        try container.encode(y, forKey: .y)
+        try container.encode(kind, forKey: .kind)
+        try container.encodeIfPresent(artworkID, forKey: .artworkID)
+    }
 }
 
 nonisolated enum RecordingSessionStore {

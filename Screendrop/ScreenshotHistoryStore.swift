@@ -229,7 +229,7 @@ final class ScreenshotHistoryStore {
         // The recorder has already persisted this metadata before invoking
         // the completion handler. Prefer it so the preview/editor can appear
         // immediately instead of opening the movie with AVFoundation again.
-        let manifest = session.loadManifest()
+        let manifest = session.loadCaptureManifest()
         let metadata: (width: Int, height: Int, duration: Double?)
         if let manifest,
            manifest.pixelWidth > 0,

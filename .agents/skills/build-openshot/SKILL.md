@@ -1,5 +1,5 @@
 ---
-name: build-openshot
+name: build-screendrop
 description: "Build the Screendrop macOS app using xcodebuild. Use this skill whenever the user asks to build, compile, or check if the Screendrop project compiles successfully. Also use it when the user asks to fix build errors, verify changes compile, or run a debug build."
 ---
 
@@ -13,7 +13,7 @@ Run this exact command to build the project:
 
 ```bash
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild build \
-  -project "/Users/fayazahmed/Developer/fayazara/mac/OpenShot/Screendrop.xcodeproj" \
+  -project "/Users/fayazahmed/Developer/fayazara/mac/Screendrop/Screendrop.xcodeproj" \
   -scheme Screendrop \
   -configuration Debug \
   -destination "platform=macOS" \

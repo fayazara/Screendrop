@@ -4,7 +4,7 @@
 //
 //  Discovers fragmented screen movies left by a crash or forced termination.
 //  A missing manifest is the interrupted-session marker: normally finalized
-//  recordings always write meta.json before they enter History.
+//  recordings always write capture.json before they enter History.
 //
 
 import AppKit
@@ -16,7 +16,7 @@ enum RecordingRecoveryCoordinator {
     static func recoverInterruptedRecordings() {
         Task {
             let candidates = RecordingSessionStore.allSessions().filter {
-                $0.loadManifest() == nil
+                $0.loadCaptureManifest() == nil
             }
             guard !candidates.isEmpty else { return }
 
@@ -28,11 +28,11 @@ enum RecordingRecoveryCoordinator {
                     continue
                 }
 
-                var manifest = ***REMOVED***()
+                var manifest = CaptureManifest()
                 manifest.duration = metadata.duration
                 manifest.pixelWidth = metadata.width
                 manifest.pixelHeight = metadata.height
-                try? session.writeManifest(manifest)
+                try? session.writeCaptureManifest(manifest)
                 _ = await ScreenshotHistoryStore.shared.importRecordingSession(session)
                 recoveredCount += 1
             }

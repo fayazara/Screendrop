@@ -4,8 +4,8 @@
 //
 //  The recording studio: a Screen Studio-style editor for screen recordings.
 //  Left/center is the composited live preview (background, padded rounded
-//  card, zoom-***REMOVED***, draggable camera bubble) over a timeline with
-//  editable zoom segments; the trailing inspector uses the annotation
+//  card, zoom-follow-pointer, draggable camera bubble) over a timeline with
+//  editable zoom cues; the trailing inspector uses the annotation
 //  editor's design system.
 //
 
@@ -96,6 +96,10 @@ private struct RecordingStudioContent: View {
             }
         }
         .navigationTitle(model.sessionURL.deletingPathExtension().lastPathComponent)
+        .onDeleteCommand {
+            guard let selectedCueID = model.selectedCueID else { return }
+            model.removeZoomCue(id: selectedCueID)
+        }
         .onAppear {
             AppActivationPolicy.enter(hidePreview: true)
         }
@@ -147,7 +151,7 @@ private struct StudioCanvas: View {
             )
 
             TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !model.isPlaying)) { _ in
-                let state = model.cameraState(at: model.displayTime)
+                let state = model.viewportFrame(at: model.displayTime)
 
                 ZStack {
                     // Fixed frame + clip so a scaledToFill wallpaper can never
@@ -162,19 +166,21 @@ private struct StudioCanvas: View {
                     // pans, zooms, and crops exactly like the pixels below.
                     StudioPlayerLayerView(player: model.screenPlayer, gravity: .resize)
                         .frame(width: layout.cardRect.width, height: layout.cardRect.height)
-                        .scaleEffect(state.scale)
+                        .scaleEffect(state.magnification)
                         .offset(
-                            x: (0.5 - state.center.x) * state.scale * layout.cardRect.width,
-                            y: (0.5 - state.center.y) * state.scale * layout.cardRect.height
+                            x: (0.5 - state.anchor.x) * state.magnification * layout.cardRect.width,
+                            y: (0.5 - state.anchor.y) * state.magnification * layout.cardRect.height
                         )
                         .frame(width: layout.cardRect.width, height: layout.cardRect.height)
                         .overlay {
-                            if let cursor = model.cursorPosition(at: model.displayTime) {
+                            if let pointer = model.pointerFrame(at: model.displayTime) {
                                 StudioCursorOverlay(
-                                    position: cursor,
+                                    pointer: pointer,
+                                    artwork: model.artwork(id: pointer.artworkID),
                                     state: state,
                                     cardSize: layout.cardRect.size,
-                                    cursorScale: model.style.cursorScale
+                                    cursorScale: model.style.cursorScale,
+                                    showsClickEffect: model.showsPressEffects
                                 )
                             }
                         }
@@ -205,39 +211,90 @@ private struct StudioCanvas: View {
     }
 }
 
-/// The synthetic cursor arrow, placed through the same camera transform the
-/// video card uses (see ***REMOVED*** for why the cursor is drawn
-/// rather than captured).
+/// Recorded pointer artwork, placed through the same viewport transform the
+/// video card uses (see RecordingPointerTimeline for why it is reconstructed).
 private struct StudioCursorOverlay: View {
-    let position: CGPoint
-    let state: ***REMOVED***
+    let pointer: PointerFrame
+    let artwork: PointerArtwork?
+    let state: ViewportFrame
     let cardSize: CGSize
     let cursorScale: CGFloat
-
-    /// Loaded straight from the bundle: the arrow ships as a loose resource
-    /// (shared with the exporter's CGImageSource path), which Image(String)'s
-    /// asset-catalog lookup does not find.
-    private static let arrowImage: NSImage? = Bundle.main
-        .url(forResource: ***REMOVED***.imageName, withExtension: "png")
-        .flatMap { NSImage(contentsOf: $0) }
+    let showsClickEffect: Bool
 
     var body: some View {
-        if let arrow = Self.arrowImage {
-            let height = cardSize.height * ***REMOVED***.heightFraction * state.scale * cursorScale
-            let size = CGSize(width: height * ***REMOVED***.aspectRatio, height: height)
-            let tip = CGPoint(
-                x: cardSize.width * (0.5 + state.scale * (position.x - state.center.x)),
-                y: cardSize.height * (0.5 + state.scale * (position.y - state.center.y))
-            )
-            Image(nsImage: arrow)
-                .resizable()
-                .frame(width: size.width, height: size.height)
-                .position(
-                    x: tip.x + (0.5 - ***REMOVED***.hotspot.x) * size.width,
-                    y: tip.y + (0.5 - ***REMOVED***.hotspot.y) * size.height
+        let tip = CGPoint(
+            x: cardSize.width * (0.5 + state.magnification * (pointer.location.x - state.anchor.x)),
+            y: cardSize.height * (0.5 + state.magnification * (pointer.location.y - state.anchor.y))
+        )
+
+        ZStack(alignment: .topLeading) {
+            if showsClickEffect, let progress = pointer.pressPulse {
+                let eased = 1 - pow(1 - progress, 3)
+                let baseRadius = cardSize.height
+                    * (16 / 1_080)
+                    * state.magnification
+                    * cursorScale
+                Circle()
+                    .stroke(
+                        Color(red: 0, green: 122 / 255, blue: 1)
+                            .opacity(1 - progress),
+                        lineWidth: max(1, cardSize.height * (2 / 1_080) * state.magnification)
+                    )
+                    .frame(
+                        width: baseRadius * 2 * (0.75 + 0.55 * eased),
+                        height: baseRadius * 2 * (0.75 + 0.55 * eased)
+                    )
+                    .position(x: tip.x, y: tip.y)
+            }
+
+            if let artwork,
+               let image = StudioCursorImageCache.image(for: artwork) {
+                let anchor = artwork.normalizedAnchor
+                let height = cardSize.height
+                    * PointerArtworkMetrics.heightRatio
+                    * state.magnification
+                    * cursorScale
+                    * artwork.intrinsicScale
+                let size = CGSize(
+                    width: height * artwork.aspectRatio,
+                    height: height
                 )
-                .allowsHitTesting(false)
+                Image(nsImage: image)
+                    .resizable()
+                    .frame(width: size.width, height: size.height)
+                    .scaleEffect(
+                        CGFloat(pointer.magnification),
+                        anchor: UnitPoint(x: anchor.x, y: anchor.y)
+                    )
+                    .rotationEffect(
+                        .degrees(pointer.tiltDegrees),
+                        anchor: UnitPoint(x: anchor.x, y: anchor.y)
+                    )
+                    .position(
+                        x: tip.x + (0.5 - anchor.x) * size.width,
+                        y: tip.y + (0.5 - anchor.y) * size.height
+                    )
+                    .opacity(pointer.opacity)
+                    .blur(radius: CGFloat(pointer.blurRadius))
+            }
         }
+        .frame(width: cardSize.width, height: cardSize.height)
+        .allowsHitTesting(false)
+    }
+}
+
+@MainActor
+private enum StudioCursorImageCache {
+    private static var capturedImages: [String: NSImage] = [:]
+
+    static func image(for artwork: PointerArtwork) -> NSImage? {
+        let cacheKey = "\(artwork.artworkID)-\(artwork.imageData.hashValue)"
+        if let cached = capturedImages[cacheKey] {
+            return cached
+        }
+        guard let image = NSImage(data: artwork.imageData) else { return nil }
+        capturedImages[cacheKey] = image
+        return image
     }
 }
 
@@ -423,7 +480,7 @@ private struct StudioTimelineEditor: View {
                     .frame(height: 32)
 
                 Button {
-                    model.addZoomSegment(at: model.currentTime)
+                    model.addZoomCue(at: model.currentTime)
                 } label: {
                     Image(systemName: "plus")
                         .frame(width: 32, height: 28)
@@ -450,13 +507,20 @@ private struct StudioZoomLane: View {
     var body: some View {
         GeometryReader { proxy in
             let width = max(proxy.size.width, 10)
-            let secondsPerPoint = model.duration > 0 ? model.duration / width : 0
+            let contentWidth = max(width - StudioZoomLaneMetrics.laneInset * 2, 1)
+            let secondsPerPoint = model.duration > 0 ? model.duration / contentWidth : 0
 
             ZStack(alignment: .topLeading) {
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                RoundedRectangle(
+                    cornerRadius: StudioZoomLaneMetrics.laneCornerRadius,
+                    style: .continuous
+                )
                     .fill(Color.primary.opacity(0.055))
                     .overlay {
-                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        RoundedRectangle(
+                            cornerRadius: StudioZoomLaneMetrics.laneCornerRadius,
+                            style: .continuous
+                        )
                             .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
                     }
                     .gesture(
@@ -464,26 +528,34 @@ private struct StudioZoomLane: View {
                             .onChanged { value in
                                 guard secondsPerPoint > 0 else { return }
                                 model.pause()
-                                model.seek(to: Double(value.location.x) * secondsPerPoint)
+                                let contentX = min(max(
+                                    value.location.x - StudioZoomLaneMetrics.laneInset,
+                                    0
+                                ), contentWidth)
+                                model.seek(to: Double(contentX) * secondsPerPoint)
                             }
                     )
 
-                ForEach(Array(model.recordedClickTimes.enumerated()), id: \.offset) { _, clickTime in
+                ForEach(Array(model.recordedPressTimes.enumerated()), id: \.offset) { _, pressTime in
                     Rectangle()
                         .fill(Color.accentColor.opacity(0.38))
                         .frame(width: 1, height: 10)
                         .offset(
-                            x: model.duration > 0 ? CGFloat(clickTime / model.duration) * width : 0,
+                            x: StudioZoomLaneMetrics.laneInset
+                                + (model.duration > 0
+                                    ? CGFloat(pressTime / model.duration) * contentWidth
+                                    : 0),
                             y: 11
                         )
                         .allowsHitTesting(false)
                 }
 
-                ForEach(model.zoomSegments) { segment in
-                    StudioZoomSegmentBlock(
+                ForEach(model.zoomCues.filter { !$0.isImplicit }) { cue in
+                    StudioZoomCueBlock(
                         model: model,
-                        segment: segment,
-                        secondsPerPoint: secondsPerPoint
+                        cue: cue,
+                        secondsPerPoint: secondsPerPoint,
+                        contentWidth: contentWidth
                     )
                 }
 
@@ -492,34 +564,45 @@ private struct StudioZoomLane: View {
         }
         .contextMenu {
             Button("Add Zoom at Playhead") {
-                model.addZoomSegment(at: model.currentTime)
+                model.addZoomCue(at: model.currentTime)
             }
         }
     }
 }
 
-private struct StudioZoomSegmentBlock: View {
-    @Bindable var model: RecordingStudioModel
-    let segment: ***REMOVED***
-    let secondsPerPoint: Double
+private enum StudioZoomLaneMetrics {
+    static let laneInset: CGFloat = 4
+    static let blockCornerRadius: CGFloat = 6
+    static let laneCornerRadius = blockCornerRadius + laneInset
+    static let selectionRingPadding: CGFloat = 1
+    static let selectionRingCornerRadius = blockCornerRadius + selectionRingPadding
+}
 
-    @State private var dragBase: ***REMOVED***?
+private struct StudioZoomCueBlock: View {
+    @Bindable var model: RecordingStudioModel
+    let cue: ZoomCue
+    let secondsPerPoint: Double
+    let contentWidth: CGFloat
+
+    @State private var dragBase: ZoomCue?
 
     private var isSelected: Bool {
-        model.selectedSegmentID == segment.id
+        model.selectedCueID == cue.id
     }
 
     var body: some View {
         guard secondsPerPoint > 0 else { return AnyView(EmptyView()) }
 
-        let x = CGFloat(segment.start / secondsPerPoint)
-        let width = max(24, CGFloat(segment.duration / secondsPerPoint))
+        let width = min(contentWidth, max(24, CGFloat(cue.duration / secondsPerPoint)))
+        let naturalX = CGFloat(cue.start / secondsPerPoint)
+        let x = StudioZoomLaneMetrics.laneInset
+            + min(max(naturalX, 0), max(0, contentWidth - width))
 
         return AnyView(
             HStack(spacing: 0) {
                 resizeHandle(edge: .leading)
                 Spacer(minLength: 0)
-                Text(String(format: "%.1f×", segment.zoom))
+                Text(String(format: "%.1f×", cue.zoom))
                     .font(.system(size: 10, weight: .semibold, design: .rounded))
                     .foregroundStyle(.white)
                     .lineLimit(1)
@@ -528,13 +611,20 @@ private struct StudioZoomSegmentBlock: View {
             }
             .frame(width: width, height: 24)
             .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                RoundedRectangle(
+                    cornerRadius: StudioZoomLaneMetrics.blockCornerRadius,
+                    style: .continuous
+                )
                     .fill(Color.accentColor.opacity(isSelected ? 0.95 : 0.72))
             )
             .overlay {
                 if isSelected {
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .strokeBorder(Color.white.opacity(0.8), lineWidth: 1.5)
+                    RoundedRectangle(
+                        cornerRadius: StudioZoomLaneMetrics.selectionRingCornerRadius,
+                        style: .continuous
+                    )
+                        .stroke(Color.white.opacity(0.8), lineWidth: 1.5)
+                        .padding(-StudioZoomLaneMetrics.selectionRingPadding)
                 }
             }
             .offset(x: x, y: 4)
@@ -545,8 +635,8 @@ private struct StudioZoomSegmentBlock: View {
                 DragGesture(coordinateSpace: .global)
                     .onChanged { value in
                         if dragBase == nil {
-                            dragBase = segment
-                            model.selectedSegmentID = segment.id
+                            dragBase = cue
+                            model.selectedCueID = cue.id
                         }
                         guard let dragBase else { return }
                         let delta = Double(value.translation.width) * secondsPerPoint
@@ -554,18 +644,18 @@ private struct StudioZoomSegmentBlock: View {
                         let length = dragBase.duration
                         moved.start = min(max(0, dragBase.start + delta), max(0, model.duration - length))
                         moved.end = moved.start + length
-                        model.updateZoomSegment(moved)
+                        model.updateZoomCue(moved)
                     }
                     .onEnded { _ in
                         dragBase = nil
                     }
             )
             .onTapGesture {
-                model.selectedSegmentID = segment.id
+                model.selectedCueID = cue.id
             }
             .contextMenu {
                 Button("Remove Zoom", role: .destructive) {
-                    model.removeZoomSegment(id: segment.id)
+                    model.removeZoomCue(id: cue.id)
                 }
             }
         )
@@ -587,8 +677,8 @@ private struct StudioZoomSegmentBlock: View {
                 DragGesture(coordinateSpace: .global)
                     .onChanged { value in
                         if dragBase == nil {
-                            dragBase = segment
-                            model.selectedSegmentID = segment.id
+                            dragBase = cue
+                            model.selectedCueID = cue.id
                         }
                         guard let dragBase else { return }
                         let delta = Double(value.translation.width) * secondsPerPoint
@@ -599,7 +689,7 @@ private struct StudioZoomSegmentBlock: View {
                         case .trailing:
                             resized.end = max(dragBase.start + 0.5, min(model.duration, dragBase.end + delta))
                         }
-                        model.updateZoomSegment(resized)
+                        model.updateZoomCue(resized)
                     }
                     .onEnded { _ in
                         dragBase = nil
@@ -622,6 +712,16 @@ private enum StudioBackgroundKind: String, CaseIterable, Identifiable {
         case .color: "Color"
         case .gradient: "Gradient"
         case .wallpaper: "Wallpaper"
+        }
+    }
+}
+
+private extension ZoomAnchorMode {
+    var inspectorTitle: String {
+        switch self {
+        case .clusterAnchor: "Activity"
+        case .pointerAnchor: "Pointer"
+        case .pinnedAnchor: "Fixed"
         }
     }
 }
@@ -694,14 +794,14 @@ private struct StudioInspector: View {
                     zoomControls
                 }
 
-                if model.***REMOVED*** {
+                if model.pointerIsSynthesized {
                     InspectorDisclosureSection(
                         title: "Cursor",
                         isExpanded: expansionBinding(for: .cursor),
                         accessory: {
-                            if model.style.cursorScale != 1 {
+                            if model.style.cursorScale != RecordingStudioStyle.defaultCursorScale {
                                 InspectorClearButton(help: "Reset cursor size") {
-                                    model.style.cursorScale = 1
+                                    model.style.cursorScale = RecordingStudioStyle.defaultCursorScale
                                 }
                             }
                         }
@@ -793,7 +893,7 @@ private struct StudioInspector: View {
                     case .color:
                         model.style.background = .solid(.graphite)
                     case .gradient:
-                        model.style.background = .gradient(AnnotationBackgroundGradient.presets[0])
+                        model.style.background = RecordingStudioStyle.defaultBackground
                     case .wallpaper:
                         if let wallpaper = availableWallpapers.first {
                             selectWallpaper(wallpaper)
@@ -912,23 +1012,65 @@ private struct StudioInspector: View {
 
     private var zoomControls: some View {
         VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
-            let clickCount = model.recordedClickTimes.count
-            Text(clickCount == 1 ? "1 recorded click" : "\(clickCount) recorded clicks")
+            let pressCount = model.recordedPressTimes.count
+            Text(pressCount == 1 ? "1 recorded click" : "\(pressCount) recorded clicks")
                 .font(.inspectorLabel)
                 .foregroundStyle(.secondary)
 
             HStack(spacing: 7) {
-                inspectorAction("Auto Zoom", systemImage: "sparkles") {
-                    model.regenerateAutoZoom()
+                inspectorAction("Auto Zoom", systemImage: "pointer.arrow.rays") {
+                    model.resynthesizeZoomCues()
                 }
-                .disabled(clickCount == 0)
+                .disabled(pressCount == 0)
 
                 inspectorAction("Add Zoom", systemImage: "plus.magnifyingglass") {
-                    model.addZoomSegment(at: model.currentTime)
+                    model.addZoomCue(at: model.currentTime)
                 }
             }
 
-            if let selected = model.selectedSegment {
+            if let selected = model.selectedCue {
+                HStack(spacing: 8) {
+                    Text("Use this zoom")
+                        .font(.inspectorLabel)
+                        .foregroundStyle(.primary.opacity(0.82))
+
+                    Spacer(minLength: 8)
+
+                    Toggle(
+                        "Use this zoom",
+                        isOn: Binding(
+                            get: { selected.isEnabled },
+                            set: { isEnabled in
+                                var updated = selected
+                                updated.isEnabled = isEnabled
+                                model.updateZoomCue(updated)
+                            }
+                        )
+                    )
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                }
+
+                VStack(alignment: .leading, spacing: InspectorMetrics.groupLabelSpacing) {
+                    InspectorGroupLabel("Camera Focus")
+
+                    InspectorSegmented(
+                        options: ZoomAnchorMode.allCases,
+                        isSelected: { $0 == selected.anchorMode },
+                        onTap: { anchorMode in
+                            var updated = selected
+                            updated.anchorMode = anchorMode
+                            if anchorMode == .pinnedAnchor,
+                               let pointer = model.pointerLocation(at: model.currentTime) {
+                                updated.pinnedPoint = pointer
+                            }
+                            model.updateZoomCue(updated)
+                        },
+                        label: { Text($0.inspectorTitle).font(.inspectorLabel) }
+                    )
+                }
+
                 InspectorSlider(
                     "Zoom Amount",
                     value: Binding(
@@ -936,20 +1078,72 @@ private struct StudioInspector: View {
                         set: { newValue in
                             var updated = selected
                             updated.zoom = Double(newValue)
-                            model.updateZoomSegment(updated)
+                            model.updateZoomCue(updated)
                         }
                     ),
                     range: 1.1...3,
                     format: .magnification(fractionDigits: 1)
                 )
 
-                Button("Remove Selected Zoom", role: .destructive) {
-                    model.removeZoomSegment(id: selected.id)
+                if selected.anchorMode == .pinnedAnchor {
+                    InspectorSlider(
+                        "Target X",
+                        value: Binding(
+                            get: { selected.pinnedPoint.x },
+                            set: { targetX in
+                                var updated = selected
+                                updated.pinnedPoint.x = targetX
+                                model.updateZoomCue(updated)
+                            }
+                        ),
+                        range: 0...1,
+                        format: .percent()
+                    )
+                    InspectorSlider(
+                        "Target Y",
+                        value: Binding(
+                            get: { selected.pinnedPoint.y },
+                            set: { targetY in
+                                var updated = selected
+                                updated.pinnedPoint.y = targetY
+                                model.updateZoomCue(updated)
+                            }
+                        ),
+                        range: 0...1,
+                        format: .percent()
+                    )
+                    inspectorAction("Set Target to Pointer", systemImage: "scope") {
+                        guard let pointer = model.pointerLocation(at: model.currentTime) else { return }
+                        var updated = selected
+                        updated.pinnedPoint = pointer
+                        model.updateZoomCue(updated)
+                    }
+                } else {
+                    InspectorSlider(
+                        "Edge in Frame",
+                        value: Binding(
+                            get: { CGFloat(selected.boundsBias) },
+                            set: { boundsBias in
+                                var updated = selected
+                                updated.boundsBias = Double(boundsBias)
+                                model.updateZoomCue(updated)
+                            }
+                        ),
+                        range: 0...1,
+                        format: .percent()
+                    )
                 }
-                .buttonStyle(.borderless)
-                .font(.inspectorLabel)
+
+                inspectorAction(
+                    "Remove Zoom",
+                    systemImage: "trash",
+                    role: .destructive
+                ) {
+                    model.removeZoomCue(id: selected.id)
+                }
+                .help("Remove the selected zoom")
             } else {
-                Text(model.zoomSegments.isEmpty
+                Text(model.zoomCues.isEmpty
                     ? "Click Auto Zoom to turn recorded clicks into smooth camera moves."
                     : "Select a zoom block on the timeline to adjust it.")
                     .font(.inspectorLabel)
@@ -1083,9 +1277,10 @@ private struct StudioInspector: View {
     private func inspectorAction(
         _ title: String,
         systemImage: String,
+        role: ButtonRole? = nil,
         action: @escaping () -> Void
     ) -> some View {
-        Button(action: action) {
+        Button(role: role, action: action) {
             HStack(spacing: 6) {
                 Image(systemName: systemImage)
                     .font(.system(size: 11, weight: .medium))
@@ -1097,5 +1292,6 @@ private struct StudioInspector: View {
             .inspectorField(height: 28)
         }
         .buttonStyle(.plain)
+        .foregroundStyle(role == .destructive ? Color.red.opacity(0.88) : Color.primary)
     }
 }
