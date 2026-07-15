@@ -11,7 +11,6 @@ import SwiftUI
 
 struct MenuBarView: View {
     @ObservedObject private var updaterManager = UpdaterManager.shared
-    @State private var recordingSources = RecordingSourceCatalog.shared
     @State private var historyStore = ScreenshotHistoryStore.shared
     
     var body: some View {
@@ -34,10 +33,10 @@ struct MenuBarView: View {
                 Label("Capture Area", systemImage: "rectangle.dashed")
             }
 
-            Menu {
-                recordingMenuContent
+            Button {
+                CaptureCoordinator.shared.recordScreen()
             } label: {
-                Label("Record Screen", systemImage: "record.circle")
+                Label("Record Screen\u{2026}", systemImage: "record.circle")
             }
 
             Divider()
@@ -76,76 +75,7 @@ struct MenuBarView: View {
             .keyboardShortcut("q")
         }
         .task {
-            await recordingSources.refresh()
             historyStore.reload()
-        }
-    }
-
-    @ViewBuilder
-    private var recordingMenuContent: some View {
-        if recordingSources.isLoading {
-            Label("Loading sources...", systemImage: "hourglass")
-        }
-
-        if let errorMessage = recordingSources.errorMessage {
-            Text("Unable to load sources")
-            Text(errorMessage)
-        }
-
-        Menu("Full Screen") {
-            if recordingSources.displays.isEmpty {
-                Text("No displays found")
-            } else {
-                ForEach(Array(recordingSources.displays.enumerated()), id: \.element.displayID) { index, display in
-                    Button(RecordingSourceCatalog.displayTitle(display, index: index)) {
-                        CaptureCoordinator.shared.recordFullscreen(display)
-                    }
-                }
-            }
-        }
-
-        Menu("Area") {
-            if recordingSources.displays.isEmpty {
-                Text("No displays found")
-            } else {
-                ForEach(Array(recordingSources.displays.enumerated()), id: \.element.displayID) { index, display in
-                    Button(RecordingSourceCatalog.displayTitle(display, index: index)) {
-                        CaptureCoordinator.shared.recordArea(display)
-                    }
-                }
-            }
-        }
-
-        Menu("Window") {
-            if recordingSources.windows.isEmpty {
-                Text("No app windows found")
-            } else {
-                ForEach(recordingSources.windows, id: \.windowID) { window in
-                    Button(RecordingSourceCatalog.windowTitle(window)) {
-                        CaptureCoordinator.shared.recordWindow(window)
-                    }
-                }
-            }
-
-            Divider()
-
-            Button {
-                Task {
-                    await recordingSources.refresh()
-                }
-            } label: {
-                Label("Refresh Windows", systemImage: "arrow.clockwise")
-            }
-        }
-
-        Divider()
-
-        Button {
-            Task {
-                await recordingSources.refresh()
-            }
-        } label: {
-            Label("Refresh Sources", systemImage: "arrow.clockwise")
         }
     }
 

@@ -35,6 +35,12 @@ enum ScreendropPreferences {
     static let overlayCardLayoutKey = "overlayCardLayout"
     static let lowResolutionEditorPreviewKey = "lowResolutionEditorPreview"
     static let trimFullscreenMenuBarKey = "trimFullscreenMenuBar"
+    static let showRecordingSetupHUDKey = "showRecordingSetupHUD"
+    static let recordingSetupDefaultModeKey = "recordingSetup.defaultMode"
+    static let recordingSetupDefaultAspectKey = "recordingSetup.defaultAspect"
+    static let rememberRecordingSetupAreaRegionKey = "recordingSetup.rememberAreaRegion"
+    static let recordingSetupLastAreaRectKey = "recordingSetup.lastAreaRect"
+    static let recordingSetupLastAreaDisplayIDKey = "recordingSetup.lastAreaDisplayID"
 
     private static let defaultCompressionQuality = 0.8
     static let defaultRecordingMouseIndicatorColor = "#007AFF"
@@ -171,6 +177,84 @@ enum ScreendropPreferences {
         return UserDefaults.standard.bool(forKey: lowResolutionEditorPreviewKey)
     }
     
+    /// Whether the recording setup HUD (mode picker + region selection) is shown
+    /// before a recording starts.  Defaults to on.
+    static var showRecordingSetupHUD: Bool {
+        if UserDefaults.standard.object(forKey: showRecordingSetupHUDKey) == nil {
+            return true
+        }
+        return UserDefaults.standard.bool(forKey: showRecordingSetupHUDKey)
+    }
+
+    static var recordingSetupDefaultMode: RecordingSetupMode {
+        guard let rawValue = UserDefaults.standard.string(forKey: recordingSetupDefaultModeKey),
+              let mode = RecordingSetupMode(rawValue: rawValue) else {
+            return .area
+        }
+
+        return mode
+    }
+
+    static var recordingSetupDefaultAspect: CropAspectRatio {
+        guard let rawValue = UserDefaults.standard.string(forKey: recordingSetupDefaultAspectKey),
+              let aspect = CropAspectRatio(rawValue: rawValue),
+              recordingSetupAreaAspects.contains(aspect) else {
+            return .freeform
+        }
+
+        return aspect
+    }
+
+    static var rememberRecordingSetupAreaRegion: Bool {
+        UserDefaults.standard.bool(forKey: rememberRecordingSetupAreaRegionKey)
+    }
+
+    static var recordingSetupLastAreaRect: CGRect? {
+        guard let rawValue = UserDefaults.standard.string(forKey: recordingSetupLastAreaRectKey) else {
+            return nil
+        }
+
+        let rect = NSRectFromString(rawValue)
+        return rect.isEmpty ? nil : rect
+    }
+
+    static var recordingSetupLastAreaDisplayID: CGDirectDisplayID? {
+        guard UserDefaults.standard.object(forKey: recordingSetupLastAreaDisplayIDKey) != nil else {
+            return nil
+        }
+
+        let value = UserDefaults.standard.integer(forKey: recordingSetupLastAreaDisplayIDKey)
+        guard value >= 0, value <= Int(CGDirectDisplayID.max) else { return nil }
+        return CGDirectDisplayID(value)
+    }
+
+    static func saveRecordingSetup(
+        mode: RecordingSetupMode,
+        aspect: CropAspectRatio,
+        areaRect: CGRect?,
+        displayID: CGDirectDisplayID?
+    ) {
+        UserDefaults.standard.set(mode.rawValue, forKey: recordingSetupDefaultModeKey)
+        UserDefaults.standard.set(aspect.rawValue, forKey: recordingSetupDefaultAspectKey)
+
+        guard rememberRecordingSetupAreaRegion,
+              mode == .area,
+              let areaRect,
+              !areaRect.isEmpty,
+              let displayID else {
+            clearRecordingSetupLastAreaRegion()
+            return
+        }
+
+        UserDefaults.standard.set(NSStringFromRect(areaRect), forKey: recordingSetupLastAreaRectKey)
+        UserDefaults.standard.set(Int(displayID), forKey: recordingSetupLastAreaDisplayIDKey)
+    }
+
+    private static func clearRecordingSetupLastAreaRegion() {
+        UserDefaults.standard.removeObject(forKey: recordingSetupLastAreaRectKey)
+        UserDefaults.standard.removeObject(forKey: recordingSetupLastAreaDisplayIDKey)
+    }
+
     /// Whether fullscreen captures on notched displays trim the empty black
     /// menu-bar strip at the top. The strip is only removed when it's solid
     /// black (menu bar hidden); a revealed menu bar is preserved. Defaults to on.
@@ -195,6 +279,14 @@ enum ScreendropPreferences {
     static var isCloudConfigured: Bool {
         CloudCredentialStore.shared.isConfigured
     }
+
+    static let recordingSetupAreaAspects: [CropAspectRatio] = [
+        .freeform,
+        .sixteenNine,
+        .nineSixteen,
+        .square,
+        .fourThree,
+    ]
 }
 
 enum PreviewOverlayPosition: String, CaseIterable, Identifiable {
