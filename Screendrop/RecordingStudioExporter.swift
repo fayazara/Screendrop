@@ -596,8 +596,8 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
     }
 
     /// How many shutter sub-samples this frame needs: one when the camera is
-    /// still, up to twelve when it sweeps, spaced so consecutive samples land
-    /// roughly two output pixels apart.
+    /// still, up to twenty-four when it sweeps, spaced so consecutive samples
+    /// land roughly two output pixels apart.
     private func blurSampleCount(at time: TimeInterval, shutter: TimeInterval) -> Int {
         let a = layout.frameRect(for: viewportTimeline.frame(at: time - shutter / 2))
         let b = layout.frameRect(for: viewportTimeline.frame(at: time + shutter / 2))
@@ -606,7 +606,7 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
             max(abs(a.maxX - b.maxX), abs(a.maxY - b.maxY))
         )
         guard displacement > 1.5 else { return 1 }
-        return min(12, max(2, Int((displacement / 2).rounded(.up))))
+        return min(24, max(2, Int((displacement / 2).rounded(.up))))
     }
 
     private func drawPointer(at time: TimeInterval, in context: CGContext) {

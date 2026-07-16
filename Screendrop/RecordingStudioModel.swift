@@ -408,8 +408,8 @@ final class RecordingStudioModel {
         let cue = ZoomCue(
             start: start,
             end: min(duration, start + 3),
-            zoom: 2,
-            anchorMode: hasPointerTrack ? .clusterAnchor : .pinnedAnchor,
+            zoom: 1.5,
+            anchorMode: hasPointerTrack ? .pointerAnchor : .pinnedAnchor,
             pinnedPoint: target,
             boundsBias: hasPointerTrack ? 0.25 : 0
         )

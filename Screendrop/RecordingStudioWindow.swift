@@ -719,7 +719,6 @@ private enum StudioBackgroundKind: String, CaseIterable, Identifiable {
 private extension ZoomAnchorMode {
     var inspectorTitle: String {
         switch self {
-        case .clusterAnchor: "Activity"
         case .pointerAnchor: "Pointer"
         case .pinnedAnchor: "Fixed"
         }
