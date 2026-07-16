@@ -420,32 +420,17 @@ private struct StudioTimelineEditor: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            // The readouts share the transport row's fixed column widths so
-            // the current time sits over the play button, the ruler spans
-            // exactly the trim strip, and the duration sits over reset.
-            HStack(spacing: 0) {
-                Text(studioTimecode(model.currentTime))
-                    .font(.system(size: 10, weight: .semibold).monospacedDigit())
-                    .foregroundStyle(.primary.opacity(0.78))
-                    .frame(width: 72)
+            StudioTimelineRuler(duration: model.duration)
+                .frame(height: 16)
 
-                StudioTimelineRuler(duration: model.duration)
-
-                Text(studioTimecode(model.duration))
-                    .font(.system(size: 10, weight: .medium).monospacedDigit())
-                    .foregroundStyle(.secondary)
-                    .frame(width: 52)
-            }
-            .frame(height: 16)
-
-            HStack(spacing: 10) {
+            HStack(spacing: StudioTimelineMetrics.itemSpacing) {
                 Button {
                     model.togglePlayback()
                 } label: {
                     Image(systemName: model.isPlaying ? "pause.fill" : "play.fill")
                         .font(.system(size: 23, weight: .semibold))
                         .foregroundStyle(.white)
-                        .frame(width: 52, height: 52)
+                        .frame(width: StudioTimelineMetrics.playButtonWidth, height: 52)
                 }
                 .buttonStyle(.plain)
                 .keyboardShortcut(.space, modifiers: [])
@@ -475,14 +460,14 @@ private struct StudioTimelineEditor: View {
                 } label: {
                     Image(systemName: "arrow.counterclockwise")
                         .font(.system(size: 16, weight: .medium))
-                        .frame(width: 32, height: 32)
+                        .frame(width: StudioTimelineMetrics.resetButtonWidth, height: 32)
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(Color.white.opacity(0.58))
                 .help("Reset trim")
                 .disabled(!model.isTrimmed)
             }
-            .padding(.horizontal, 10)
+            .padding(.horizontal, StudioTimelineMetrics.horizontalPadding)
             .padding(.vertical, 6)
             .background(Color(white: 0.16), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay {
@@ -522,59 +507,99 @@ private struct StudioTimelineEditor: View {
     }
 }
 
-/// Absolute-time ruler above the trim strip: labeled major ticks at a nice
-/// interval chosen for the available width, with unlabeled ticks between.
+private enum StudioTimelineMetrics {
+    static let horizontalPadding: CGFloat = 10
+    static let itemSpacing: CGFloat = 10
+    static let playButtonWidth: CGFloat = 52
+    static let resetButtonWidth: CGFloat = 32
+
+    static let rulerLeadingInset = horizontalPadding + playButtonWidth + itemSpacing
+    static let rulerTrailingInset = horizontalPadding + resetButtonWidth + itemSpacing
+}
+
+/// Absolute-time ruler above the trim strip. Its endpoint labels are centered
+/// over the trim handles, while the available width determines the interior
+/// major and minor tick intervals.
 private struct StudioTimelineRuler: View {
     let duration: Double
 
     var body: some View {
         Canvas { context, size in
-            guard duration > 0.2, size.width > 60 else { return }
+            let timelineMinX = StudioTimelineMetrics.rulerLeadingInset
+            let timelineMaxX = size.width - StudioTimelineMetrics.rulerTrailingInset
+            let timelineWidth = timelineMaxX - timelineMinX
+            guard duration > 0.2, timelineWidth > 60 else { return }
 
-            let step = Self.labelStep(for: duration, width: size.width)
-            let pointsPerSecond = size.width / CGFloat(duration)
+            let step = Self.labelStep(for: duration, width: timelineWidth)
+            let pointsPerSecond = timelineWidth / CGFloat(duration)
             var lastLabelMaxX = -CGFloat.greatestFiniteMagnitude
 
+            var minorTime = step / 2
+            while minorTime < duration {
+                context.fill(
+                    Path(CGRect(
+                        x: timelineMinX + CGFloat(minorTime) * pointsPerSecond - 0.5,
+                        y: size.height - 2.5,
+                        width: 1,
+                        height: 2.5
+                    )),
+                    with: .color(.primary.opacity(0.16))
+                )
+                minorTime += step
+            }
+
+            let durationLabel = studioTimecode(duration)
             var time: Double = 0
-            while time <= duration + 0.001 {
-                let x = CGFloat(time) * pointsPerSecond
+            while time < duration {
+                let x = timelineMinX + CGFloat(time) * pointsPerSecond
                 context.fill(
                     Path(CGRect(x: x - 0.5, y: size.height - 4, width: 1, height: 4)),
                     with: .color(.primary.opacity(0.30))
                 )
 
-                let label = context.resolve(
-                    Text(studioTimecode(time))
-                        .font(.system(size: 9, weight: .medium).monospacedDigit())
-                        .foregroundStyle(Color.secondary)
-                )
-                let labelSize = label.measure(in: size)
-                let labelX = min(max(x - labelSize.width / 2, 0), size.width - labelSize.width)
-                if labelX >= lastLabelMaxX + 8 {
-                    context.draw(label, in: CGRect(
-                        x: labelX,
-                        y: size.height - 5 - labelSize.height,
-                        width: labelSize.width,
-                        height: labelSize.height
-                    ))
-                    lastLabelMaxX = labelX + labelSize.width
-                }
-
-                let midTime = time + step / 2
-                if midTime < duration {
-                    context.fill(
-                        Path(CGRect(
-                            x: CGFloat(midTime) * pointsPerSecond - 0.5,
-                            y: size.height - 2.5,
-                            width: 1,
-                            height: 2.5
-                        )),
-                        with: .color(.primary.opacity(0.16))
+                // A final whole-second tick can format identically to a
+                // fractional endpoint (for example 4.2 -> 00:04). Let the
+                // actual endpoint own that label.
+                let timeLabel = studioTimecode(time)
+                if time == 0 || timeLabel != durationLabel {
+                    let label = context.resolve(
+                        Text(timeLabel)
+                            .font(.system(size: 9, weight: .medium).monospacedDigit())
+                            .foregroundStyle(Color.secondary)
                     )
+                    let labelSize = label.measure(in: size)
+                    let labelX = x - labelSize.width / 2
+                    if labelX >= lastLabelMaxX + 8 {
+                        context.draw(label, in: CGRect(
+                            x: labelX,
+                            y: size.height - 5 - labelSize.height,
+                            width: labelSize.width,
+                            height: labelSize.height
+                        ))
+                        lastLabelMaxX = labelX + labelSize.width
+                    }
                 }
 
                 time += step
             }
+
+            context.fill(
+                Path(CGRect(x: timelineMaxX - 0.5, y: size.height - 4, width: 1, height: 4)),
+                with: .color(.primary.opacity(0.30))
+            )
+
+            let endpoint = context.resolve(
+                Text(durationLabel)
+                    .font(.system(size: 9, weight: .medium).monospacedDigit())
+                    .foregroundStyle(Color.secondary)
+            )
+            let endpointSize = endpoint.measure(in: size)
+            context.draw(endpoint, in: CGRect(
+                x: timelineMaxX - endpointSize.width / 2,
+                y: size.height - 5 - endpointSize.height,
+                width: endpointSize.width,
+                height: endpointSize.height
+            ))
         }
     }
 
