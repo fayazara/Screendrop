@@ -420,6 +420,24 @@ private struct StudioTimelineEditor: View {
 
     var body: some View {
         VStack(spacing: 8) {
+            // The readouts share the transport row's fixed column widths so
+            // the current time sits over the play button, the ruler spans
+            // exactly the trim strip, and the duration sits over reset.
+            HStack(spacing: 0) {
+                Text(studioTimecode(model.currentTime))
+                    .font(.system(size: 10, weight: .semibold).monospacedDigit())
+                    .foregroundStyle(.primary.opacity(0.78))
+                    .frame(width: 72)
+
+                StudioTimelineRuler(duration: model.duration)
+
+                Text(studioTimecode(model.duration))
+                    .font(.system(size: 10, weight: .medium).monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .frame(width: 52)
+            }
+            .frame(height: 16)
+
             HStack(spacing: 10) {
                 Button {
                     model.togglePlayback()
@@ -445,6 +463,9 @@ private struct StudioTimelineEditor: View {
                     onSeek: { time in
                         model.pause()
                         model.seek(to: time)
+                    },
+                    onHover: { time in
+                        model.hoverPreviewTime = time
                     }
                 )
                 .frame(height: 54)
@@ -490,7 +511,7 @@ private struct StudioTimelineEditor: View {
             }
         }
         .padding(.horizontal, 24)
-        .padding(.top, 14)
+        .padding(.top, 10)
         .padding(.bottom, 16)
         .background(Color(nsColor: .windowBackgroundColor))
         .overlay(alignment: .top) {
@@ -499,6 +520,84 @@ private struct StudioTimelineEditor: View {
                 .frame(height: 0.5)
         }
     }
+}
+
+/// Absolute-time ruler above the trim strip: labeled major ticks at a nice
+/// interval chosen for the available width, with unlabeled ticks between.
+private struct StudioTimelineRuler: View {
+    let duration: Double
+
+    var body: some View {
+        Canvas { context, size in
+            guard duration > 0.2, size.width > 60 else { return }
+
+            let step = Self.labelStep(for: duration, width: size.width)
+            let pointsPerSecond = size.width / CGFloat(duration)
+            var lastLabelMaxX = -CGFloat.greatestFiniteMagnitude
+
+            var time: Double = 0
+            while time <= duration + 0.001 {
+                let x = CGFloat(time) * pointsPerSecond
+                context.fill(
+                    Path(CGRect(x: x - 0.5, y: size.height - 4, width: 1, height: 4)),
+                    with: .color(.primary.opacity(0.30))
+                )
+
+                let label = context.resolve(
+                    Text(studioTimecode(time))
+                        .font(.system(size: 9, weight: .medium).monospacedDigit())
+                        .foregroundStyle(Color.secondary)
+                )
+                let labelSize = label.measure(in: size)
+                let labelX = min(max(x - labelSize.width / 2, 0), size.width - labelSize.width)
+                if labelX >= lastLabelMaxX + 8 {
+                    context.draw(label, in: CGRect(
+                        x: labelX,
+                        y: size.height - 5 - labelSize.height,
+                        width: labelSize.width,
+                        height: labelSize.height
+                    ))
+                    lastLabelMaxX = labelX + labelSize.width
+                }
+
+                let midTime = time + step / 2
+                if midTime < duration {
+                    context.fill(
+                        Path(CGRect(
+                            x: CGFloat(midTime) * pointsPerSecond - 0.5,
+                            y: size.height - 2.5,
+                            width: 1,
+                            height: 2.5
+                        )),
+                        with: .color(.primary.opacity(0.16))
+                    )
+                }
+
+                time += step
+            }
+        }
+    }
+
+    /// Smallest "nice" interval whose labels stay comfortably apart.
+    private static func labelStep(for duration: Double, width: CGFloat) -> Double {
+        let candidates: [Double] = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 1800]
+        let pointsPerSecond = width / CGFloat(duration)
+        for candidate in candidates where CGFloat(candidate) * pointsPerSecond >= 64 {
+            return candidate
+        }
+        return candidates.last ?? 60
+    }
+}
+
+private func studioTimecode(_ seconds: Double) -> String {
+    let safe = max(0, seconds.isFinite ? seconds : 0)
+    let total = Int(safe.rounded(.down))
+    let hours = total / 3600
+    let minutes = (total % 3600) / 60
+    let remainingSeconds = total % 60
+    return hours > 0
+        ? String(format: "%d:%02d:%02d", hours, minutes, remainingSeconds)
+        : String(format: "%02d:%02d", minutes, remainingSeconds)
 }
 
 private struct StudioZoomLane: View {
@@ -738,7 +837,7 @@ private struct StudioInspector: View {
     @Bindable var model: RecordingStudioModel
     @State private var wallpaperStore = AnnotationWallpaperStore.shared
     @State private var expandedSections: Set<StudioInspectorSection> = [
-        .background, .motion, .camera
+        .background, .layout, .motion
     ]
     @Environment(\.colorScheme) private var colorScheme
 
@@ -747,8 +846,34 @@ private struct StudioInspector: View {
     var body: some View {
         ScrollView(.vertical) {
             VStack(alignment: .leading, spacing: 0) {
-                clipSection
-                InspectorSectionDivider()
+                // Selection editing always surfaces at the top, the way object
+                // inspectors do, so clicking a zoom block on the timeline maps
+                // to one stable place and the sections below never reshuffle.
+                if let selected = model.selectedCue {
+                    InspectorSection(
+                        title: "Selected Zoom",
+                        accessory: {
+                            Toggle(
+                                "Use this zoom",
+                                isOn: Binding(
+                                    get: { selected.isEnabled },
+                                    set: { isEnabled in
+                                        var updated = selected
+                                        updated.isEnabled = isEnabled
+                                        model.updateZoomCue(updated)
+                                    }
+                                )
+                            )
+                            .labelsHidden()
+                            .toggleStyle(.switch)
+                            .controlSize(.mini)
+                            .help("Use this zoom")
+                        }
+                    ) {
+                        selectedZoomControls(for: selected)
+                    }
+                    InspectorSectionDivider()
+                }
 
                 InspectorDisclosureSection(
                     title: "Background",
@@ -793,6 +918,21 @@ private struct StudioInspector: View {
                     zoomControls
                 }
 
+                if model.hasCameraVideo {
+                    InspectorDisclosureSection(
+                        title: "Camera",
+                        isExpanded: expansionBinding(for: .camera),
+                        accessory: {
+                            Toggle("Show camera", isOn: $model.style.camera.isVisible)
+                                .labelsHidden()
+                                .toggleStyle(.switch)
+                                .controlSize(.mini)
+                        }
+                    ) {
+                        cameraControls
+                    }
+                }
+
                 if model.pointerIsSynthesized {
                     InspectorDisclosureSection(
                         title: "Cursor",
@@ -806,21 +946,6 @@ private struct StudioInspector: View {
                         }
                     ) {
                         cursorControls
-                    }
-                }
-
-                if model.hasCameraVideo {
-                    InspectorDisclosureSection(
-                        title: "Camera",
-                        isExpanded: expansionBinding(for: .camera),
-                        accessory: {
-                            Toggle("Show camera", isOn: $model.style.camera.isVisible)
-                                .labelsHidden()
-                                .toggleStyle(.switch)
-                                .controlSize(.mini)
-                        }
-                    ) {
-                        cameraControls
                     }
                 }
 
@@ -841,33 +966,6 @@ private struct StudioInspector: View {
         .frame(minWidth: 260, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .task {
             await wallpaperStore.reload()
-        }
-    }
-
-    // MARK: Clip
-
-    private var clipSection: some View {
-        InspectorSection("Clip") {
-            VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
-                InspectorRow("Start") {
-                    Text(timecode(model.trimSelection.start))
-                        .font(.inspectorNumeric)
-                }
-                InspectorRow("End") {
-                    Text(timecode(model.trimSelection.end))
-                        .font(.inspectorNumeric)
-                }
-                InspectorRow("Length") {
-                    Text(timecode(model.trimSelection.duration))
-                        .font(.inspectorNumeric)
-                }
-
-                if model.isTrimmed {
-                    inspectorAction("Reset Trim", systemImage: "arrow.counterclockwise") {
-                        model.resetTrim()
-                    }
-                }
-            }
         }
     }
 
@@ -1027,121 +1125,7 @@ private struct StudioInspector: View {
                 }
             }
 
-            if let selected = model.selectedCue {
-                HStack(spacing: 8) {
-                    Text("Use this zoom")
-                        .font(.inspectorLabel)
-                        .foregroundStyle(.primary.opacity(0.82))
-
-                    Spacer(minLength: 8)
-
-                    Toggle(
-                        "Use this zoom",
-                        isOn: Binding(
-                            get: { selected.isEnabled },
-                            set: { isEnabled in
-                                var updated = selected
-                                updated.isEnabled = isEnabled
-                                model.updateZoomCue(updated)
-                            }
-                        )
-                    )
-                    .labelsHidden()
-                    .toggleStyle(.switch)
-                    .controlSize(.small)
-                }
-
-                VStack(alignment: .leading, spacing: InspectorMetrics.groupLabelSpacing) {
-                    InspectorGroupLabel("Camera Focus")
-
-                    InspectorSegmented(
-                        options: ZoomAnchorMode.allCases,
-                        isSelected: { $0 == selected.anchorMode },
-                        onTap: { anchorMode in
-                            var updated = selected
-                            updated.anchorMode = anchorMode
-                            if anchorMode == .pinnedAnchor,
-                               let pointer = model.pointerLocation(at: model.currentTime) {
-                                updated.pinnedPoint = pointer
-                            }
-                            model.updateZoomCue(updated)
-                        },
-                        label: { Text($0.inspectorTitle).font(.inspectorLabel) }
-                    )
-                }
-
-                InspectorSlider(
-                    "Zoom Amount",
-                    value: Binding(
-                        get: { CGFloat(selected.zoom) },
-                        set: { newValue in
-                            var updated = selected
-                            updated.zoom = Double(newValue)
-                            model.updateZoomCue(updated)
-                        }
-                    ),
-                    range: 1.1...3,
-                    format: .magnification(fractionDigits: 1)
-                )
-
-                if selected.anchorMode == .pinnedAnchor {
-                    InspectorSlider(
-                        "Target X",
-                        value: Binding(
-                            get: { selected.pinnedPoint.x },
-                            set: { targetX in
-                                var updated = selected
-                                updated.pinnedPoint.x = targetX
-                                model.updateZoomCue(updated)
-                            }
-                        ),
-                        range: 0...1,
-                        format: .percent()
-                    )
-                    InspectorSlider(
-                        "Target Y",
-                        value: Binding(
-                            get: { selected.pinnedPoint.y },
-                            set: { targetY in
-                                var updated = selected
-                                updated.pinnedPoint.y = targetY
-                                model.updateZoomCue(updated)
-                            }
-                        ),
-                        range: 0...1,
-                        format: .percent()
-                    )
-                    inspectorAction("Set Target to Pointer", systemImage: "scope") {
-                        guard let pointer = model.pointerLocation(at: model.currentTime) else { return }
-                        var updated = selected
-                        updated.pinnedPoint = pointer
-                        model.updateZoomCue(updated)
-                    }
-                } else {
-                    InspectorSlider(
-                        "Edge in Frame",
-                        value: Binding(
-                            get: { CGFloat(selected.boundsBias) },
-                            set: { boundsBias in
-                                var updated = selected
-                                updated.boundsBias = Double(boundsBias)
-                                model.updateZoomCue(updated)
-                            }
-                        ),
-                        range: 0...1,
-                        format: .percent()
-                    )
-                }
-
-                inspectorAction(
-                    "Remove Zoom",
-                    systemImage: "trash",
-                    role: .destructive
-                ) {
-                    model.removeZoomCue(id: selected.id)
-                }
-                .help("Remove the selected zoom")
-            } else {
+            if model.selectedCue == nil {
                 Text(model.zoomCues.isEmpty
                     ? "Click Auto Zoom to turn recorded clicks into smooth camera moves."
                     : "Select a zoom block on the timeline to adjust it.")
@@ -1149,6 +1133,103 @@ private struct StudioInspector: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+        }
+        .disabled(!model.zoomEnabled)
+        .opacity(model.zoomEnabled ? 1 : 0.48)
+    }
+
+    private func selectedZoomControls(for selected: ZoomCue) -> some View {
+        VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
+            VStack(alignment: .leading, spacing: InspectorMetrics.groupLabelSpacing) {
+                InspectorGroupLabel("Camera Focus")
+
+                InspectorSegmented(
+                    options: ZoomAnchorMode.allCases,
+                    isSelected: { $0 == selected.anchorMode },
+                    onTap: { anchorMode in
+                        var updated = selected
+                        updated.anchorMode = anchorMode
+                        if anchorMode == .pinnedAnchor,
+                           let pointer = model.pointerLocation(at: model.currentTime) {
+                            updated.pinnedPoint = pointer
+                        }
+                        model.updateZoomCue(updated)
+                    },
+                    label: { Text($0.inspectorTitle).font(.inspectorLabel) }
+                )
+            }
+
+            InspectorSlider(
+                "Zoom Amount",
+                value: Binding(
+                    get: { CGFloat(selected.zoom) },
+                    set: { newValue in
+                        var updated = selected
+                        updated.zoom = Double(newValue)
+                        model.updateZoomCue(updated)
+                    }
+                ),
+                range: 1.1...3,
+                format: .magnification(fractionDigits: 1)
+            )
+
+            if selected.anchorMode == .pinnedAnchor {
+                InspectorSlider(
+                    "Target X",
+                    value: Binding(
+                        get: { selected.pinnedPoint.x },
+                        set: { targetX in
+                            var updated = selected
+                            updated.pinnedPoint.x = targetX
+                            model.updateZoomCue(updated)
+                        }
+                    ),
+                    range: 0...1,
+                    format: .percent()
+                )
+                InspectorSlider(
+                    "Target Y",
+                    value: Binding(
+                        get: { selected.pinnedPoint.y },
+                        set: { targetY in
+                            var updated = selected
+                            updated.pinnedPoint.y = targetY
+                            model.updateZoomCue(updated)
+                        }
+                    ),
+                    range: 0...1,
+                    format: .percent()
+                )
+                inspectorAction("Set Target to Pointer", systemImage: "scope") {
+                    guard let pointer = model.pointerLocation(at: model.currentTime) else { return }
+                    var updated = selected
+                    updated.pinnedPoint = pointer
+                    model.updateZoomCue(updated)
+                }
+            } else {
+                InspectorSlider(
+                    "Edge in Frame",
+                    value: Binding(
+                        get: { CGFloat(selected.boundsBias) },
+                        set: { boundsBias in
+                            var updated = selected
+                            updated.boundsBias = Double(boundsBias)
+                            model.updateZoomCue(updated)
+                        }
+                    ),
+                    range: 0...1,
+                    format: .percent()
+                )
+            }
+
+            inspectorAction(
+                "Remove Zoom",
+                systemImage: "trash",
+                role: .destructive
+            ) {
+                model.removeZoomCue(id: selected.id)
+            }
+            .help("Remove the selected zoom")
         }
         .disabled(!model.zoomEnabled)
         .opacity(model.zoomEnabled ? 1 : 0.48)
@@ -1221,16 +1302,24 @@ private struct StudioInspector: View {
                 label: { Text($0.rawValue).font(.inspectorLabel) }
             )
 
-            Toggle(
-                "Include audio",
-                isOn: Binding(
-                    get: { !model.exportSettings.removeAudio },
-                    set: { model.exportSettings.removeAudio = !$0 }
+            HStack(spacing: 8) {
+                Text("Include audio")
+                    .font(.inspectorLabel)
+                    .foregroundStyle(.primary.opacity(0.82))
+
+                Spacer(minLength: 8)
+
+                Toggle(
+                    "Include audio",
+                    isOn: Binding(
+                        get: { !model.exportSettings.removeAudio },
+                        set: { model.exportSettings.removeAudio = !$0 }
+                    )
                 )
-            )
-            .font(.inspectorLabel)
-            .toggleStyle(.switch)
-            .controlSize(.small)
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .controlSize(.small)
+            }
 
             Text("Screen, camera, zooms, and selected audio are rendered together in one pass.")
                 .font(.inspectorLabel)
@@ -1260,17 +1349,6 @@ private struct StudioInspector: View {
                 }
             }
         )
-    }
-
-    private func timecode(_ seconds: Double) -> String {
-        let safe = max(0, seconds.isFinite ? seconds : 0)
-        let total = Int(safe.rounded(.down))
-        let hours = total / 3600
-        let minutes = (total % 3600) / 60
-        let remainingSeconds = total % 60
-        return hours > 0
-            ? String(format: "%d:%02d:%02d", hours, minutes, remainingSeconds)
-            : String(format: "%02d:%02d", minutes, remainingSeconds)
     }
 
     private func inspectorAction(

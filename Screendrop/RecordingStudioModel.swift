@@ -68,6 +68,15 @@ final class RecordingStudioModel {
 
     private(set) var isPlaying = false
     var currentTime: TimeInterval = 0
+    /// Live scrub-preview time while the pointer hovers the trim strip
+    /// without committing to a new playhead position, matching Final
+    /// Cut/iMovie skimming. `nil` shows the real playhead again.
+    var hoverPreviewTime: TimeInterval? {
+        didSet {
+            guard isLoaded, duration > 0, !isPlaying else { return }
+            movePlayers(to: hoverPreviewTime ?? currentTime)
+        }
+    }
     var exportState: RecordingStudioExportState = .idle
 
     private var timeObserver: Any?
@@ -213,6 +222,9 @@ final class RecordingStudioModel {
 
     func play() {
         guard !isPlaying else { return }
+        if hoverPreviewTime != nil {
+            hoverPreviewTime = nil
+        }
         let selection = trimSelection.clamped(to: duration)
         guard selection.duration >= VideoTrimSelection.minimumDuration else { return }
         if currentTime < selection.start || currentTime >= selection.end - 0.05 {
@@ -233,19 +245,26 @@ final class RecordingStudioModel {
     func seek(to time: TimeInterval) {
         let clamped = min(max(time, 0), max(duration, 0))
         currentTime = clamped
-        let target = CMTime(seconds: clamped, preferredTimescale: 600)
+        movePlayers(to: clamped)
+        if isPlaying {
+            syncCameraPlayback()
+        }
+    }
+
+    /// Moves both players to a source time without touching `currentTime`,
+    /// so hover skimming can preview a frame and cleanly hand back to the
+    /// real playhead position afterward.
+    private func movePlayers(to time: TimeInterval) {
+        let target = CMTime(seconds: time, preferredTimescale: 600)
         screenPlayer.seek(to: target, toleranceBefore: .zero, toleranceAfter: .zero)
         if hasCameraVideo {
-            if clamped >= cameraOffset {
-                let cameraTime = CMTime(seconds: max(0, clamped - cameraOffset), preferredTimescale: 600)
+            if time >= cameraOffset {
+                let cameraTime = CMTime(seconds: max(0, time - cameraOffset), preferredTimescale: 600)
                 cameraPlayer.seek(to: cameraTime, toleranceBefore: .zero, toleranceAfter: .zero)
             } else {
                 cameraPlayer.pause()
                 cameraPlayer.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero)
             }
-        }
-        if isPlaying {
-            syncCameraPlayback()
         }
     }
 
@@ -255,7 +274,7 @@ final class RecordingStudioModel {
             let time = screenPlayer.currentTime().seconds
             return time.isFinite ? time : currentTime
         }
-        return currentTime
+        return hoverPreviewTime ?? currentTime
     }
 
     private func installObservers() {

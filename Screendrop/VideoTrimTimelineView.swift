@@ -12,6 +12,7 @@ struct VideoTrimTimelineView: NSViewRepresentable {
     let duration: Double
     let frames: [NSImage]
     let onSeek: (Double) -> Void
+    var onHover: ((Double?) -> Void)?
 
     func makeCoordinator() -> Coordinator {
         Coordinator(selection: $selection, playheadTime: $playheadTime, onSeek: onSeek)
@@ -21,6 +22,7 @@ struct VideoTrimTimelineView: NSViewRepresentable {
         let view = VideoTrimTimelineControl()
         view.selectionDidChange = context.coordinator.selectionDidChange
         view.playheadDidChange = context.coordinator.playheadDidChange
+        view.hoverTimeDidChange = onHover
         return view
     }
 
@@ -67,6 +69,7 @@ final class VideoTrimTimelineControl: NSView {
     var frames: [NSImage] = []
     var selectionDidChange: ((VideoTrimSelection, Double) -> Void)?
     var playheadDidChange: ((Double) -> Void)?
+    var hoverTimeDidChange: ((Double?) -> Void)?
 
     private enum DragTarget {
         case startHandle
@@ -87,6 +90,8 @@ final class VideoTrimTimelineControl: NSView {
     private var dragStartPlayheadTime: Double = 0
     private var dragOffsetX: CGFloat = 0
     private var dragDidActivate = false
+    private var trackingArea: NSTrackingArea?
+    private var hoverTime: Double?
 
     override var isFlipped: Bool {
         true
@@ -100,6 +105,21 @@ final class VideoTrimTimelineControl: NSView {
         true
     }
 
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let trackingArea {
+            removeTrackingArea(trackingArea)
+        }
+        let area = NSTrackingArea(
+            rect: bounds,
+            options: [.activeInKeyWindow, .mouseMoved, .mouseEnteredAndExited, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(area)
+        trackingArea = area
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
 
@@ -109,9 +129,38 @@ final class VideoTrimTimelineControl: NSView {
         drawOutsideDim(in: rect)
         drawPlayhead(in: rect)
         drawSelectionFrame(in: rect)
+        drawHoverSkimmer(in: rect)
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        guard duration > 0 else { return }
+        let point = convert(event.locationInWindow, from: nil)
+        guard timelineRect.contains(point) else {
+            clearHover()
+            return
+        }
+        setHover(to: time(for: point.x))
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        clearHover()
+    }
+
+    private func setHover(to seconds: Double) {
+        hoverTime = seconds
+        hoverTimeDidChange?(seconds)
+        needsDisplay = true
+    }
+
+    private func clearHover() {
+        guard hoverTime != nil else { return }
+        hoverTime = nil
+        hoverTimeDidChange?(nil)
+        needsDisplay = true
     }
 
     override func mouseDown(with event: NSEvent) {
+        clearHover()
         window?.makeFirstResponder(self)
         let point = convert(event.locationInWindow, from: nil)
         dragTarget = hitTarget(at: point)
@@ -272,6 +321,25 @@ final class VideoTrimTimelineControl: NSView {
             width: 1,
             height: rect.height - borderWidth * 2
         ).fill()
+    }
+
+    /// A Final Cut/iMovie-style skimmer: a thin line with a small pointed cap
+    /// tracking the pointer, distinct from the committed red playhead.
+    private func drawHoverSkimmer(in rect: CGRect) {
+        guard let hoverTime, dragTarget == nil else { return }
+
+        let x = xPosition(for: hoverTime)
+        NSColor.white.withAlphaComponent(0.9).setFill()
+        CGRect(x: x - 0.5, y: rect.minY, width: 1, height: rect.height).fill()
+
+        let capWidth: CGFloat = 7
+        let capHeight: CGFloat = 6
+        let cap = NSBezierPath()
+        cap.move(to: CGPoint(x: x - capWidth / 2, y: rect.minY))
+        cap.line(to: CGPoint(x: x + capWidth / 2, y: rect.minY))
+        cap.line(to: CGPoint(x: x, y: rect.minY + capHeight))
+        cap.close()
+        cap.fill()
     }
 
     private func drawSelectionFrame(in rect: CGRect) {
