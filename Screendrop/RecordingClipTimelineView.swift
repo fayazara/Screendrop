@@ -426,8 +426,13 @@ final class RecordingClipTimelineControl: NSView {
             return
         }
 
-        let delta = Double((point.x - dragStartPoint.x) / max(timelineRect.width, 1))
+        // The drag distance is measured against the timeline's editor-space
+        // width, but sourceStart/sourceEnd are source-space — a clip playing
+        // at 2x covers twice as many source seconds per dragged editor
+        // second, so the delta must be rescaled by the clip's own speed.
+        let editorDelta = Double((point.x - dragStartPoint.x) / max(timelineRect.width, 1))
             * startTimeline.duration
+        let delta = editorDelta * original.speed
         let previousEnd = index > 0 ? startTimeline.segments[index - 1].sourceEnd : 0
         let nextStart = index + 1 < startTimeline.segments.count
             ? startTimeline.segments[index + 1].sourceStart

@@ -64,9 +64,6 @@ enum RecordingSessionRenderer {
         let zoomEnabled = document?.zoomEnabled ?? true
         let zoomCues = document?.zoomCues
             ?? ZoomCueSynthesizer.cues(from: capture, duration: duration)
-        let viewportTimeline = zoomEnabled
-            ? ViewportTimeline.build(cues: zoomCues, capture: capture, duration: duration)
-            : .identity
         let clipTimeline: RecordingClipTimeline
         if let clips = document?.clips, !clips.isEmpty {
             clipTimeline = RecordingClipTimeline(segments: clips).normalized(to: duration)
@@ -77,6 +74,9 @@ enum RecordingSessionRenderer {
                 sourceDuration: duration
             )
         }
+        let viewportTimeline = zoomEnabled
+            ? ViewportTimeline.build(cues: zoomCues, capture: capture, clipTimeline: clipTimeline)
+            : .identity
         let showsPressEffects = pointerSynthesized
             && manifest?.pressEffectsBaked == false
             && (document?.showsClickEffects ?? manifest?.pressEffectsEnabled ?? true)

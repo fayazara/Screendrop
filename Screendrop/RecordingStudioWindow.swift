@@ -80,10 +80,10 @@ private struct RecordingStudioContent: View {
         }
         .navigationTitle(model.sessionURL.deletingPathExtension().lastPathComponent)
         .onDeleteCommand {
-            if model.selectedClipID != nil {
-                model.deleteSelectedClip()
-            } else if let selectedCueID = model.selectedCueID {
+            if let selectedCueID = model.selectedCueID {
                 model.removeZoomCue(id: selectedCueID)
+            } else if model.selectedClipID != nil {
+                model.deleteSelectedClip()
             }
         }
         .onAppear {
@@ -549,7 +549,7 @@ private struct StudioTimelineEditor: View {
                         model.hoverPreviewTime = time
                     },
                     onSplit: { model.splitClip(at: $0) },
-                    onDelete: { model.deleteSelectedClip() },
+                    onDelete: { deleteSelection() },
                     onTrim: { model.trimClip($0) }
                 )
                 .frame(height: 52)
@@ -915,6 +915,13 @@ private func studioPreciseTimecode(_ seconds: Double) -> String {
 private struct StudioZoomLane: View {
     @Bindable var model: RecordingStudioModel
 
+    /// Below this many dragged points, a gesture on blank lane space is
+    /// still treated as a click-to-seek rather than a zoom-creating drag.
+    private static let dragCreateThreshold: CGFloat = 4
+
+    @State private var dragStartContentX: CGFloat?
+    @State private var pendingZoomRange: ClosedRange<TimeInterval>?
+
     var body: some View {
         GeometryReader { proxy in
             let width = max(proxy.size.width, 10)
@@ -938,14 +945,55 @@ private struct StudioZoomLane: View {
                         DragGesture(minimumDistance: 0)
                             .onChanged { value in
                                 guard secondsPerPoint > 0 else { return }
-                                model.pause()
                                 let contentX = min(max(
                                     value.location.x - StudioZoomLaneMetrics.laneInset,
                                     0
                                 ), contentWidth)
-                                model.seek(to: Double(contentX) * secondsPerPoint)
+
+                                if dragStartContentX == nil {
+                                    model.pause()
+                                    dragStartContentX = contentX
+                                }
+                                guard let startX = dragStartContentX else { return }
+
+                                if pendingZoomRange == nil,
+                                   abs(contentX - startX) < Self.dragCreateThreshold {
+                                    // Still within click tolerance: scrub the
+                                    // playhead, same as a plain click always has.
+                                    model.seek(to: Double(contentX) * secondsPerPoint)
+                                    return
+                                }
+
+                                let startTime = Double(startX) * secondsPerPoint
+                                let currentTime = Double(contentX) * secondsPerPoint
+                                pendingZoomRange = min(startTime, currentTime)...max(startTime, currentTime)
+                            }
+                            .onEnded { _ in
+                                if let range = pendingZoomRange {
+                                    model.addZoomCue(
+                                        fromEditorTime: range.lowerBound,
+                                        toEditorTime: range.upperBound
+                                    )
+                                }
+                                dragStartContentX = nil
+                                pendingZoomRange = nil
                             }
                     )
+
+                if let pendingZoomRange, model.duration > 0 {
+                    let lowX = StudioZoomLaneMetrics.laneInset
+                        + CGFloat(pendingZoomRange.lowerBound / model.duration) * contentWidth
+                    let highX = StudioZoomLaneMetrics.laneInset
+                        + CGFloat(pendingZoomRange.upperBound / model.duration) * contentWidth
+                    RoundedRectangle(
+                        cornerRadius: StudioZoomLaneMetrics.blockCornerRadius,
+                        style: .continuous
+                    )
+                        .fill(Color.accentColor.opacity(0.35))
+                        .frame(width: max(2, highX - lowX), height: 24)
+                        .offset(x: lowX, y: 4)
+                        .allowsHitTesting(false)
+                }
 
                 ForEach(Array(model.visibleRecordedPressTimes.enumerated()), id: \.offset) { _, pressTime in
                     Rectangle()
@@ -961,10 +1009,10 @@ private struct StudioZoomLane: View {
                         .allowsHitTesting(false)
                 }
 
-                ForEach(model.zoomTimelineSlices) { slice in
+                ForEach(model.zoomTimelineBlocks) { block in
                     StudioZoomCueBlock(
                         model: model,
-                        timelineSlice: slice,
+                        block: block,
                         secondsPerPoint: secondsPerPoint,
                         contentWidth: contentWidth
                     )
@@ -991,11 +1039,11 @@ private enum StudioZoomLaneMetrics {
 
 private struct StudioZoomCueBlock: View {
     @Bindable var model: RecordingStudioModel
-    let timelineSlice: RecordingZoomTimelineSlice
+    let block: RecordingZoomTimelineBlock
     let secondsPerPoint: Double
     let contentWidth: CGFloat
 
-    /// Frozen at drag start. The live slice re-derives on every model update,
+    /// Frozen at drag start. The live block re-derives on every model update,
     /// so measuring the drag against it would compound the translation each
     /// event and send the block flying.
     private struct DragBase {
@@ -1007,17 +1055,16 @@ private struct StudioZoomCueBlock: View {
     @State private var dragBase: DragBase?
 
     private var isSelected: Bool {
-        model.selectedCueID == timelineSlice.cue.id
+        model.selectedCueID == block.cue.id
     }
 
     var body: some View {
         guard secondsPerPoint > 0 else { return AnyView(EmptyView()) }
 
-        let cue = timelineSlice.cue
-        let slice = timelineSlice.slice
-        let sliceDuration = slice.editorEnd - slice.editorStart
-        let width = min(contentWidth, max(24, CGFloat(sliceDuration / secondsPerPoint)))
-        let naturalX = CGFloat(slice.editorStart / secondsPerPoint)
+        let cue = block.cue
+        let blockDuration = block.editorEnd - block.editorStart
+        let width = min(contentWidth, max(24, CGFloat(blockDuration / secondsPerPoint)))
+        let naturalX = CGFloat(block.editorStart / secondsPerPoint)
         let x = StudioZoomLaneMetrics.laneInset
             + min(max(naturalX, 0), max(0, contentWidth - width))
 
@@ -1060,8 +1107,8 @@ private struct StudioZoomCueBlock: View {
                         if dragBase == nil {
                             dragBase = DragBase(
                                 cue: cue,
-                                editorStart: slice.editorStart,
-                                editorEnd: slice.editorEnd
+                                editorStart: block.editorStart,
+                                editorEnd: block.editorEnd
                             )
                             model.beginZoomCueEdit()
                             model.selectZoomCue(id: cue.id)
@@ -1070,10 +1117,10 @@ private struct StudioZoomCueBlock: View {
                         let delta = Double(value.translation.width) * secondsPerPoint
                         var moved = dragBase.cue
                         let length = dragBase.cue.duration
-                        let baseSliceDuration = dragBase.editorEnd - dragBase.editorStart
+                        let baseBlockDuration = dragBase.editorEnd - dragBase.editorStart
                         let editorStart = min(
                             max(0, dragBase.editorStart + delta),
-                            max(0, model.duration - baseSliceDuration)
+                            max(0, model.duration - baseBlockDuration)
                         )
                         moved.start = min(
                             max(0, model.sourceTime(atEditorTime: editorStart)),
@@ -1115,12 +1162,12 @@ private struct StudioZoomCueBlock: View {
                     .onChanged { value in
                         if dragBase == nil {
                             dragBase = DragBase(
-                                cue: timelineSlice.cue,
-                                editorStart: timelineSlice.slice.editorStart,
-                                editorEnd: timelineSlice.slice.editorEnd
+                                cue: block.cue,
+                                editorStart: block.editorStart,
+                                editorEnd: block.editorEnd
                             )
                             model.beginZoomCueEdit()
-                            model.selectZoomCue(id: timelineSlice.cue.id)
+                            model.selectZoomCue(id: block.cue.id)
                         }
                         guard let dragBase else { return }
                         let delta = Double(value.translation.width) * secondsPerPoint
@@ -1223,6 +1270,11 @@ private struct StudioInspector: View {
                         }
                     ) {
                         selectedZoomControls(for: selected)
+                    }
+                    InspectorSectionDivider()
+                } else if let selectedClip = model.selectedClip {
+                    InspectorSection("Selected Clip") {
+                        selectedClipControls(for: selectedClip)
                     }
                     InspectorSectionDivider()
                 }
@@ -1600,6 +1652,29 @@ private struct StudioInspector: View {
         }
         .disabled(!model.zoomEnabled)
         .opacity(model.zoomEnabled ? 1 : 0.48)
+    }
+
+    // MARK: Selected clip
+
+    private func selectedClipControls(for clip: RecordingClipSegment) -> some View {
+        VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
+            InspectorSlider(
+                "Speed",
+                value: Binding(
+                    get: { CGFloat(clip.speed) },
+                    set: { model.setClipSpeed(Double($0.rounded()), forClipID: clip.id) }
+                ),
+                range: CGFloat(RecordingClipSegment.minimumSpeed)...CGFloat(RecordingClipSegment.maximumSpeed),
+                format: .magnification(fractionDigits: 0)
+            )
+
+            if clip.speed != 1 {
+                Text("Plays this clip \(Int(clip.speed))× faster. Audio speeds up with it.")
+                    .font(.inspectorLabel)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 
     // MARK: Cursor

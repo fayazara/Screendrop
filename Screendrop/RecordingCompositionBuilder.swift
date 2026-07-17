@@ -26,7 +26,18 @@ nonisolated enum RecordingCompositionBuilder {
                 duration: CMTime(seconds: clip.duration, preferredTimescale: 600)
             )
             try composition.insertTimeRange(range, of: sourceAsset, at: insertionTime)
-            insertionTime = insertionTime + range.duration
+
+            // Retiming here scales every track inserted above together
+            // (video and audio alike), so a sped-up clip never drifts out
+            // of sync the way independently retiming each track would.
+            if abs(clip.speed - 1) > 0.000_001 {
+                let insertedRange = CMTimeRange(start: insertionTime, duration: range.duration)
+                let scaledDuration = CMTime(seconds: clip.editorDuration, preferredTimescale: 600)
+                composition.scaleTimeRange(insertedRange, toDuration: scaledDuration)
+                insertionTime = insertionTime + scaledDuration
+            } else {
+                insertionTime = insertionTime + range.duration
+            }
         }
         return composition
     }

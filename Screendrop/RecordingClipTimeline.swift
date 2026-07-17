@@ -11,29 +11,45 @@ import Foundation
 
 nonisolated struct RecordingClipSegment: Identifiable, Codable, Equatable, Sendable {
     static let minimumDuration: TimeInterval = 0.12
+    static let minimumSpeed: Double = 1
+    static let maximumSpeed: Double = 8
 
     var id: UUID
     var sourceStart: TimeInterval
     var sourceEnd: TimeInterval
+    /// Playback speed multiplier applied only to this clip (1...8). Baked
+    /// into the composition via `AVMutableComposition.scaleTimeRange`, so
+    /// video and audio speed up together and stay in sync.
+    var speed: Double
 
     init(
         id: UUID = UUID(),
         sourceStart: TimeInterval,
-        sourceEnd: TimeInterval
+        sourceEnd: TimeInterval,
+        speed: Double = 1
     ) {
         self.id = id
         self.sourceStart = sourceStart
         self.sourceEnd = sourceEnd
+        self.speed = speed
     }
 
+    /// Raw duration of the source range this clip covers.
     var duration: TimeInterval {
         max(0, sourceEnd - sourceStart)
+    }
+
+    /// How long this clip occupies on the edited/output timeline once its
+    /// speed is applied.
+    var editorDuration: TimeInterval {
+        duration / max(speed, Self.minimumSpeed)
     }
 
     private enum CodingKeys: String, CodingKey {
         case id
         case sourceStart
         case sourceEnd
+        case speed
         // Accepted for migration from the first experimental split schema.
         case start
         case end
@@ -46,6 +62,7 @@ nonisolated struct RecordingClipSegment: Identifiable, Codable, Equatable, Senda
             ?? container.decode(TimeInterval.self, forKey: .start)
         sourceEnd = try container.decodeIfPresent(TimeInterval.self, forKey: .sourceEnd)
             ?? container.decode(TimeInterval.self, forKey: .end)
+        speed = try container.decodeIfPresent(Double.self, forKey: .speed) ?? 1
     }
 
     func encode(to encoder: any Encoder) throws {
@@ -53,6 +70,7 @@ nonisolated struct RecordingClipSegment: Identifiable, Codable, Equatable, Senda
         try container.encode(id, forKey: .id)
         try container.encode(sourceStart, forKey: .sourceStart)
         try container.encode(sourceEnd, forKey: .sourceEnd)
+        try container.encode(speed, forKey: .speed)
     }
 }
 
@@ -117,8 +135,9 @@ nonisolated struct RecordingClipTimeline: Codable, Equatable, Sendable {
         ])
     }
 
+    /// Total length of the edited/output timeline, honoring per-clip speed.
     var duration: TimeInterval {
-        segments.reduce(0) { $0 + $1.duration }
+        segments.reduce(0) { $0 + $1.editorDuration }
     }
 
     func normalized(to sourceDuration: TimeInterval) -> RecordingClipTimeline {
@@ -129,7 +148,11 @@ nonisolated struct RecordingClipTimeline: Codable, Equatable, Sendable {
             let end = min(max(segment.sourceEnd, start), safeDuration)
             guard end - start >= RecordingClipSegment.minimumDuration else { return nil }
             let id = seenIDs.insert(segment.id).inserted ? segment.id : UUID()
-            return RecordingClipSegment(id: id, sourceStart: start, sourceEnd: end)
+            let speed = min(
+                max(segment.speed.isFinite ? segment.speed : 1, RecordingClipSegment.minimumSpeed),
+                RecordingClipSegment.maximumSpeed
+            )
+            return RecordingClipSegment(id: id, sourceStart: start, sourceEnd: end, speed: speed)
         }
         .sorted {
             if abs($0.sourceStart - $1.sourceStart) > 0.000_001 {
@@ -161,15 +184,19 @@ nonisolated struct RecordingClipTimeline: Codable, Equatable, Sendable {
         var editorStart: TimeInterval = 0
 
         for (index, segment) in segments.enumerated() {
-            let editorEnd = editorStart + segment.duration
+            let editorEnd = editorStart + segment.editorDuration
             if clamped < editorEnd || index == segments.index(before: segments.endIndex) {
-                let offset = min(max(clamped - editorStart, 0), segment.duration)
+                // `offset` is in editor-space; a sped-up segment covers more
+                // source seconds per editor second, so the source offset
+                // scales up by the clip's speed.
+                let offset = min(max(clamped - editorStart, 0), segment.editorDuration)
+                let sourceOffset = min(offset * segment.speed, segment.duration)
                 return Location(
                     segmentIndex: index,
                     segmentID: segment.id,
                     editorStart: editorStart,
                     offset: offset,
-                    sourceTime: segment.sourceStart + offset
+                    sourceTime: segment.sourceStart + sourceOffset
                 )
             }
             editorStart = editorEnd
@@ -186,10 +213,10 @@ nonisolated struct RecordingClipTimeline: Codable, Equatable, Sendable {
         for segment in segments {
             if sourceTime >= segment.sourceStart - 0.000_001,
                sourceTime <= segment.sourceEnd + 0.000_001 {
-                let offset = min(max(sourceTime - segment.sourceStart, 0), segment.duration)
-                return editorStart + offset
+                let sourceOffset = min(max(sourceTime - segment.sourceStart, 0), segment.duration)
+                return editorStart + sourceOffset / segment.speed
             }
-            editorStart += segment.duration
+            editorStart += segment.editorDuration
         }
         return nil
     }
@@ -197,7 +224,7 @@ nonisolated struct RecordingClipTimeline: Codable, Equatable, Sendable {
     func editorRange(for segmentID: UUID) -> Range<TimeInterval>? {
         var editorStart: TimeInterval = 0
         for segment in segments {
-            let editorEnd = editorStart + segment.duration
+            let editorEnd = editorStart + segment.editorDuration
             if segment.id == segmentID {
                 return editorStart..<editorEnd
             }
@@ -219,12 +246,14 @@ nonisolated struct RecordingClipTimeline: Codable, Equatable, Sendable {
         let leading = RecordingClipSegment(
             id: segment.id,
             sourceStart: segment.sourceStart,
-            sourceEnd: sourceTime
+            sourceEnd: sourceTime,
+            speed: segment.speed
         )
         let trailing = RecordingClipSegment(
             id: trailingID,
             sourceStart: sourceTime,
-            sourceEnd: segment.sourceEnd
+            sourceEnd: segment.sourceEnd,
+            speed: segment.speed
         )
         var next = segments
         next.replaceSubrange(location.segmentIndex...location.segmentIndex, with: [leading, trailing])
@@ -260,16 +289,17 @@ nonisolated struct RecordingClipTimeline: Codable, Equatable, Sendable {
             let overlapStart = max(sourceStart, segment.sourceStart)
             let overlapEnd = min(sourceEnd, segment.sourceEnd)
             if overlapEnd > overlapStart {
-                let editorStart = editorOffset + overlapStart - segment.sourceStart
+                let editorStart = editorOffset + (overlapStart - segment.sourceStart) / segment.speed
+                let editorEnd = editorOffset + (overlapEnd - segment.sourceStart) / segment.speed
                 result.append(Slice(
                     segmentID: segment.id,
                     sourceStart: overlapStart,
                     sourceEnd: overlapEnd,
                     editorStart: editorStart,
-                    editorEnd: editorStart + overlapEnd - overlapStart
+                    editorEnd: editorEnd
                 ))
             }
-            editorOffset += segment.duration
+            editorOffset += segment.editorDuration
         }
         return result
     }
@@ -278,5 +308,6 @@ nonisolated struct RecordingClipTimeline: Codable, Equatable, Sendable {
         guard segments.count == 1, let only = segments.first else { return false }
         return abs(only.sourceStart) < 0.000_001
             && abs(only.sourceEnd - sourceDuration) < 0.000_001
+            && abs(only.speed - 1) < 0.000_001
     }
 }

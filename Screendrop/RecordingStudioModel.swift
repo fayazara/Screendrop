@@ -463,6 +463,21 @@ final class RecordingStudioModel {
         )
     }
 
+    func setClipSpeed(_ speed: Double, forClipID id: UUID) {
+        guard let segment = clipTimeline.segments.first(where: { $0.id == id }) else { return }
+        let clamped = min(max(speed, RecordingClipSegment.minimumSpeed), RecordingClipSegment.maximumSpeed)
+        guard abs(segment.speed - clamped) > 0.000_001 else { return }
+        var replacement = segment
+        replacement.speed = clamped
+        let next = clipTimeline.replacing(replacement)
+        applyClipTimeline(
+            next,
+            selectedID: id,
+            playheadTime: min(currentTime, next.duration),
+            actionName: "Change Clip Speed"
+        )
+    }
+
     func resetClips() {
         let full = RecordingClipTimeline.full(sourceDuration: sourceDuration)
         guard full != clipTimeline else { return }
@@ -504,6 +519,9 @@ final class RecordingStudioModel {
         selectedClipID = selectedID.flatMap { id in
             next.segments.contains(where: { $0.id == id }) ? id : nil
         } ?? next.segments.first?.id
+        // The viewport timeline is built along editor (clip) time, so any
+        // cut, trim, or speed change invalidates it, not just zoom edits.
+        rebuildViewportTimeline()
 
         do {
             try rebuildScreenPlayerItem(preserving: min(max(playheadTime, 0), duration))
@@ -576,6 +594,13 @@ final class RecordingStudioModel {
         }
     }
 
+    /// Speed of whichever clip covers this editor time; 1 when nothing
+    /// covers it (e.g. past the end of the timeline).
+    private func speed(atEditorTime time: TimeInterval) -> Double {
+        guard let location = clipTimeline.location(at: time) else { return 1 }
+        return clipTimeline.segments[location.segmentIndex].speed
+    }
+
     private func syncCameraPlayback() {
         guard hasCameraVideo else { return }
         let sourceTime = clipTimeline.sourceTime(at: currentTime)
@@ -584,11 +609,15 @@ final class RecordingStudioModel {
             cameraPlayer.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero)
             return
         }
+        // The camera master is a separate, unedited recording — it has no
+        // composition to bake speed into, so a sped-up clip must also play
+        // the camera bubble at that rate or the two drift apart immediately.
+        let rate = Float(speed(atEditorTime: currentTime))
         let cameraTime = CMTime(seconds: max(0, sourceTime - cameraOffset), preferredTimescale: 600)
         cameraPlayer.seek(to: cameraTime, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
             Task { @MainActor in
                 guard let self, self.isPlaying else { return }
-                self.cameraPlayer.play()
+                self.cameraPlayer.rate = rate
             }
         }
     }
@@ -603,6 +632,10 @@ final class RecordingStudioModel {
         if cameraPlayer.rate == 0 {
             syncCameraPlayback()
             return
+        }
+        let targetRate = Float(speed(atEditorTime: currentTime))
+        if abs(cameraPlayer.rate - targetRate) > 0.01 {
+            cameraPlayer.rate = targetRate
         }
         let expected = sourceTime - cameraOffset
         let actual = cameraPlayer.currentTime().seconds
@@ -659,11 +692,25 @@ final class RecordingStudioModel {
     func addZoomCue(at time: TimeInterval) {
         let sourceTime = clipTimeline.sourceTime(at: time)
         let start = min(max(0, sourceTime), max(0, sourceDuration - 1))
+        insertZoomCue(start: start, end: min(sourceDuration, start + 3))
+    }
+
+    /// Creates a zoom cue spanning a dragged range in the zoom lane. Times
+    /// are editor time and need not be ordered.
+    func addZoomCue(fromEditorTime editorStart: TimeInterval, toEditorTime editorEnd: TimeInterval) {
+        let lowSource = clipTimeline.sourceTime(at: min(editorStart, editorEnd))
+        let highSource = clipTimeline.sourceTime(at: max(editorStart, editorEnd))
+        let start = min(max(0, lowSource), max(0, sourceDuration - 0.5))
+        let end = max(start + 0.5, min(sourceDuration, highSource))
+        insertZoomCue(start: start, end: end)
+    }
+
+    private func insertZoomCue(start: TimeInterval, end: TimeInterval) {
         let hasPointerTrack = !pointerCapture.travel.isEmpty || !pointerCapture.presses.isEmpty
-        let target = pointerTimeline.location(at: sourceTime) ?? CGPoint(x: 0.5, y: 0.5)
+        let target = pointerTimeline.location(at: start) ?? CGPoint(x: 0.5, y: 0.5)
         let cue = ZoomCue(
             start: start,
-            end: min(sourceDuration, start + 3),
+            end: end,
             zoom: 1.5,
             anchorMode: hasPointerTrack ? .pointerAnchor : .pinnedAnchor,
             pinnedPoint: target,
@@ -707,13 +754,21 @@ final class RecordingStudioModel {
         recordedPressTimes.compactMap { clipTimeline.editorTime(forSourceTime: $0) }
     }
 
-    var zoomTimelineSlices: [RecordingZoomTimelineSlice] {
+    /// One visual block per cue on the edited timeline. A cue's per-segment
+    /// slices are always contiguous in editor time (a cut removes the editor
+    /// time between them), so they merge into a single block — cutting a clip
+    /// inside a zoom never splits the zoom's lane representation.
+    var zoomTimelineBlocks: [RecordingZoomTimelineBlock] {
         zoomCues
             .filter { !$0.isImplicit }
-            .flatMap { cue in
-                clipTimeline.slices(overlapping: cue.start, sourceEnd: cue.end).map { slice in
-                    RecordingZoomTimelineSlice(cue: cue, slice: slice)
-                }
+            .compactMap { cue in
+                let slices = clipTimeline.slices(overlapping: cue.start, sourceEnd: cue.end)
+                guard let first = slices.first, let last = slices.last else { return nil }
+                return RecordingZoomTimelineBlock(
+                    cue: cue,
+                    editorStart: first.editorStart,
+                    editorEnd: last.editorEnd
+                )
             }
     }
 
@@ -733,7 +788,7 @@ final class RecordingStudioModel {
         viewportTimeline = ViewportTimeline.build(
             cues: zoomCues,
             capture: pointerCapture,
-            duration: sourceDuration
+            clipTimeline: clipTimeline
         )
     }
 
@@ -779,7 +834,7 @@ final class RecordingStudioModel {
     /// Viewport frame to render at a given time, honoring the zoom toggle.
     func viewportFrame(at time: TimeInterval) -> ViewportFrame {
         guard zoomEnabled else { return .identity }
-        return viewportTimeline.frame(at: clipTimeline.sourceTime(at: time))
+        return viewportTimeline.frame(at: time)
     }
 
     /// True when this session was captured without the OS cursor, so the
@@ -908,16 +963,13 @@ struct RecordingTimelineFrame: @unchecked Sendable {
     let image: NSImage
 }
 
-struct RecordingZoomTimelineSlice: Identifiable, Equatable, Sendable {
-    struct ID: Hashable, Sendable {
-        let cueID: UUID
-        let segmentID: UUID
-    }
-
+/// A zoom cue's single merged footprint on the edited timeline.
+struct RecordingZoomTimelineBlock: Identifiable, Equatable, Sendable {
     let cue: ZoomCue
-    let slice: RecordingClipTimeline.Slice
+    let editorStart: TimeInterval
+    let editorEnd: TimeInterval
 
-    var id: ID {
-        ID(cueID: cue.id, segmentID: slice.segmentID)
+    var id: UUID {
+        cue.id
     }
 }

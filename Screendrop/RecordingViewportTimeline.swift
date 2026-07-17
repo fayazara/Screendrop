@@ -5,9 +5,10 @@
 //  Deterministic virtual-camera planning for screen recordings. Zoom cues
 //  are editable project data; this file resolves those cues against the
 //  separately recorded pointer capture, constrains the viewport to the
-//  source, and integrates one damped spring at a fixed rate. Preview and
-//  export then interpolate the same immutable viewport timeline at
-//  source-recording time.
+//  source, and integrates one damped spring at a fixed rate along the
+//  *edited* (clip) timeline, so cuts never interrupt a zoom and per-clip
+//  speed never changes how fast the camera itself moves. Preview and export
+//  then interpolate the same immutable viewport timeline at editor time.
 //
 
 import CoreGraphics
@@ -214,6 +215,7 @@ nonisolated struct ViewportTimeline: Sendable {
         self.duration = duration
     }
 
+    /// - Parameter time: Editor (edited-timeline) time, not raw source time.
     func frame(at time: TimeInterval) -> ViewportFrame {
         guard frames.count > 1, duration > 0 else { return frames.first ?? .identity }
 
@@ -233,11 +235,25 @@ nonisolated struct ViewportTimeline: Sendable {
         )
     }
 
+    /// Builds the camera's motion along the *edited* (clip) timeline rather
+    /// than raw source time. Two things follow from that:
+    ///
+    /// - A cut never interrupts a zoom. The spring is only ever asked to
+    ///   step across contiguous editor time, so when editor time crosses a
+    ///   clip boundary it just keeps easing smoothly toward whatever target
+    ///   applies after the cut, instead of jumping to wherever the
+    ///   uncut-timeline curve would have been at that source instant.
+    /// - Zoom motion is speed-independent. The spring's own step cadence is
+    ///   fixed editor-time `dt`; only the *lookup* of which cue/pointer
+    ///   target is active is resolved through the clip's speed (via
+    ///   `clipTimeline.sourceTime(at:)`), so a sped-up clip plays its video
+    ///   faster without the pan/zoom itself moving any faster.
     static func build(
         cues: [ZoomCue],
         capture: PointerCaptureFile,
-        duration: TimeInterval
+        clipTimeline: RecordingClipTimeline
     ) -> ViewportTimeline {
+        let duration = clipTimeline.duration
         guard duration.isFinite, duration > 0 else { return .identity }
 
         let pointerSamples = mergedPointerSamples(from: capture)
@@ -258,7 +274,8 @@ nonisolated struct ViewportTimeline: Sendable {
         frames.reserveCapacity(frameCount)
 
         for frameIndex in 0..<frameCount {
-            let time = min(Double(frameIndex) * dt, duration)
+            let editorTime = min(Double(frameIndex) * dt, duration)
+            let time = clipTimeline.sourceTime(at: editorTime)
             while latestPressIndex + 1 < pressEvents.count,
                   pressEvents[latestPressIndex + 1].time <= time {
                 latestPressIndex += 1

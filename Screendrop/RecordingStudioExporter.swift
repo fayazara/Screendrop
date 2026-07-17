@@ -22,6 +22,11 @@ import ImageIO
 import SwiftUI
 
 nonisolated final class RecordingStudioExporter: @unchecked Sendable {
+    /// Fixed output cadence for both the writer's frame clock and the
+    /// compositor's motion-blur shutter — kept as one constant so they can
+    /// never drift apart.
+    private static let outputFrameRate: Double = 60
+
     struct Configuration: Sendable {
         let screenURL: URL
         let cameraURL: URL?
@@ -199,7 +204,8 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
             showsPressEffects: configuration.showsPressEffects,
             keystrokeTimeline: configuration.keystrokeTimeline,
             keystrokePlacement: configuration.keystrokePlacement,
-            includeBubble: cameraFeed != nil
+            includeBubble: cameraFeed != nil,
+            outputFrameInterval: 1 / Self.outputFrameRate
         )
 
         let screenAudioOutput = audioOutput
@@ -262,7 +268,7 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
         // the last click). Each tick re-renders the newest source frame at
         // or before it; only writing on source arrivals would hold the last
         // zoomed frame through the move and then visibly jump.
-        let frameRate: Double = 60
+        let frameRate = Self.outputFrameRate
         let duration = clipTimeline.duration
         let frameCount = max(1, Int((duration * frameRate).rounded()))
 
@@ -285,11 +291,11 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
             let sourceTime = location.sourceTime
 
             if previousClipID != location.segmentID {
-                // Never carry a sparse screen-capture frame or a temporal blur
-                // history across a hard edit boundary.
+                // Never carry a sparse screen-capture frame across a hard
+                // edit boundary — the reader may not have caught up yet to
+                // the new clip's starting source position.
                 if previousClipID != nil {
                     currentBuffer = nil
-                    compositor.resetTemporalState()
                 }
                 previousClipID = location.segmentID
             }
@@ -321,7 +327,8 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
             try compositor.render(
                 screenFrame: sourceBuffer,
                 cameraFrame: cameraBuffer,
-                time: sourceTime,
+                editorTime: editorTime,
+                sourceTime: sourceTime,
                 into: destinationBuffer
             )
 
@@ -479,7 +486,11 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
     private let pointerScale: CGFloat
     private let colorSpace: CGColorSpace
     private let backdrop: CGImage?
-    private var previousFrameTime: TimeInterval?
+    /// Fixed output cadence, matching `pumpVideo`'s frame clock. Since the
+    /// output timeline is gapless by construction, the shutter window for
+    /// motion-blur supersampling is always exactly one output frame — no
+    /// need to measure elapsed time between calls.
+    private let outputFrameInterval: TimeInterval
 
     init(
         canvasSize: CGSize,
@@ -489,7 +500,8 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
         showsPressEffects: Bool,
         keystrokeTimeline: KeystrokeCaptionTimeline?,
         keystrokePlacement: RecordingKeystrokePlacement,
-        includeBubble: Bool
+        includeBubble: Bool,
+        outputFrameInterval: TimeInterval = 1.0 / 60.0
     ) {
         self.canvasSize = canvasSize
         self.layout = RecordingStudioLayout.make(
@@ -502,6 +514,7 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
         self.showsPressEffects = showsPressEffects
         self.keystrokeTimeline = keystrokeTimeline
         self.keystrokePlacement = keystrokePlacement
+        self.outputFrameInterval = outputFrameInterval
         self.pointerScale = style.cursorScale
         self.colorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
         self.backdrop = Self.renderBackdrop(
@@ -512,14 +525,11 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
         )
     }
 
-    func resetTemporalState() {
-        previousFrameTime = nil
-    }
-
     func render(
         screenFrame: CVPixelBuffer,
         cameraFrame: CVPixelBuffer?,
-        time: TimeInterval,
+        editorTime: TimeInterval,
+        sourceTime: TimeInterval,
         into destination: CVPixelBuffer
     ) throws {
         CVPixelBufferLockBaseAddress(destination, [])
@@ -550,16 +560,17 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
             // Motion blur by temporal supersampling: while the virtual camera
             // is moving, average several sub-frame camera states across the
             // frame's shutter interval. Pans smear linearly, zooms radially,
-            // and settled frames pay for a single draw.
-            let shutter = min(max(time - (previousFrameTime ?? time - 1.0 / 60), 1.0 / 120), 1.0 / 24)
-            previousFrameTime = time
-            let sampleCount = blurSampleCount(at: time, shutter: shutter)
+            // and settled frames pay for a single draw. The viewport timeline
+            // runs on the gapless output clock, so the shutter is always
+            // exactly one output frame — no per-call time tracking needed.
+            let shutter = outputFrameInterval
+            let sampleCount = blurSampleCount(at: editorTime, shutter: shutter)
 
             context.saveGState()
             context.addPath(roundedPath(for: layout.cardRect, radius: layout.cardCornerRadius))
             context.clip()
             for sample in 0..<sampleCount {
-                let sampleTime = time - shutter / 2
+                let sampleTime = editorTime - shutter / 2
                     + shutter * (Double(sample) + 0.5) / Double(sampleCount)
                 let drawRect = layout.frameRect(for: viewportTimeline.frame(at: sampleTime))
                 // Drawing sample i at alpha 1/(i+1) keeps the buffer equal to
@@ -576,11 +587,11 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
         // recorded artwork anchor point, while the final point still passes
         // through the same viewport transform and rounded-card clip as the
         // source pixels.
-        drawPointer(at: time, in: context)
+        drawPointer(editorTime: editorTime, sourceTime: sourceTime, in: context)
 
         // The keystroke caption stays in card space — pinned to its edge and
         // unaffected by the zoom transform, like a broadcast lower third.
-        drawKeystrokeCaption(at: time, in: context)
+        drawKeystrokeCaption(at: sourceTime, in: context)
 
         if let cameraFrame,
            layout.bubbleRect.width > 0,
@@ -629,9 +640,9 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
     /// How many shutter sub-samples this frame needs: one when the camera is
     /// still, up to twenty-four when it sweeps, spaced so consecutive samples
     /// land roughly two output pixels apart.
-    private func blurSampleCount(at time: TimeInterval, shutter: TimeInterval) -> Int {
-        let a = layout.frameRect(for: viewportTimeline.frame(at: time - shutter / 2))
-        let b = layout.frameRect(for: viewportTimeline.frame(at: time + shutter / 2))
+    private func blurSampleCount(at editorTime: TimeInterval, shutter: TimeInterval) -> Int {
+        let a = layout.frameRect(for: viewportTimeline.frame(at: editorTime - shutter / 2))
+        let b = layout.frameRect(for: viewportTimeline.frame(at: editorTime + shutter / 2))
         let displacement = max(
             max(abs(a.minX - b.minX), abs(a.minY - b.minY)),
             max(abs(a.maxX - b.maxX), abs(a.maxY - b.maxY))
@@ -640,13 +651,13 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
         return min(24, max(2, Int((displacement / 2).rounded(.up))))
     }
 
-    private func drawPointer(at time: TimeInterval, in context: CGContext) {
+    private func drawPointer(editorTime: TimeInterval, sourceTime: TimeInterval, in context: CGContext) {
         guard let pointerTimeline,
-              let pointer = pointerTimeline.frame(at: time) else {
+              let pointer = pointerTimeline.frame(at: sourceTime) else {
             return
         }
 
-        let drawRect = layout.frameRect(for: viewportTimeline.frame(at: time))
+        let drawRect = layout.frameRect(for: viewportTimeline.frame(at: editorTime))
         let tip = CGPoint(
             x: drawRect.minX + pointer.location.x * drawRect.width,
             y: canvasSize.height - (drawRect.minY + pointer.location.y * drawRect.height)
