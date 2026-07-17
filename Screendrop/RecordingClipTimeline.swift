@@ -280,6 +280,64 @@ nonisolated struct RecordingClipTimeline: Codable, Equatable, Sendable {
         return RecordingClipTimeline(segments: next)
     }
 
+    /// Cuts source-time ranges out of the timeline, splitting segments where
+    /// a range lands inside one. Ranges may overlap segments partially, span
+    /// several, or fall entirely in already-cut gaps (a no-op). Returns nil
+    /// when nothing playable would survive.
+    func removingSourceRanges(_ ranges: [ClosedRange<TimeInterval>]) -> RecordingClipTimeline? {
+        let cuts = Self.mergedRanges(ranges)
+        guard !cuts.isEmpty else { return self }
+
+        var next: [RecordingClipSegment] = []
+        for segment in segments {
+            // Subtract every cut from this segment, keeping the surviving
+            // sub-ranges in order. The leading survivor keeps the segment's
+            // identity so selection and undo stay anchored.
+            var pieces: [(start: TimeInterval, end: TimeInterval)] = []
+            var cursor = segment.sourceStart
+            for cut in cuts where cut.upperBound > segment.sourceStart && cut.lowerBound < segment.sourceEnd {
+                if cut.lowerBound > cursor {
+                    pieces.append((cursor, min(cut.lowerBound, segment.sourceEnd)))
+                }
+                cursor = max(cursor, cut.upperBound)
+            }
+            if cursor < segment.sourceEnd {
+                pieces.append((cursor, segment.sourceEnd))
+            }
+
+            var keptSegmentID = false
+            for piece in pieces where piece.end - piece.start >= RecordingClipSegment.minimumDuration {
+                next.append(RecordingClipSegment(
+                    id: keptSegmentID ? UUID() : segment.id,
+                    sourceStart: piece.start,
+                    sourceEnd: piece.end,
+                    speed: segment.speed
+                ))
+                keptSegmentID = true
+            }
+        }
+
+        guard !next.isEmpty else { return nil }
+        return RecordingClipTimeline(segments: next)
+    }
+
+    /// Overlapping/touching ranges collapsed into disjoint sorted ranges;
+    /// empty and non-finite ranges are dropped.
+    static func mergedRanges(_ ranges: [ClosedRange<TimeInterval>]) -> [ClosedRange<TimeInterval>] {
+        let sorted = ranges
+            .filter { $0.lowerBound.isFinite && $0.upperBound.isFinite && $0.upperBound > $0.lowerBound }
+            .sorted { $0.lowerBound < $1.lowerBound }
+        var merged: [ClosedRange<TimeInterval>] = []
+        for range in sorted {
+            if let last = merged.last, range.lowerBound <= last.upperBound {
+                merged[merged.count - 1] = last.lowerBound...max(last.upperBound, range.upperBound)
+            } else {
+                merged.append(range)
+            }
+        }
+        return merged
+    }
+
     func slices(overlapping sourceStart: TimeInterval, sourceEnd: TimeInterval) -> [Slice] {
         guard sourceEnd > sourceStart else { return [] }
         var result: [Slice] = []

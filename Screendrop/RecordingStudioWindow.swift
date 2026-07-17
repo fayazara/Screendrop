@@ -494,6 +494,197 @@ private struct StudioSubtitleRow: View {
     }
 }
 
+/// Descript-style transcript editing: the narration as flowing words.
+/// Clicking a word jumps the playhead there, shift-clicking selects a
+/// passage, and cutting the selection removes that stretch of the video.
+/// Words whose footage is already cut render struck-through; filler words
+/// carry a dotted underline so the bulk action's targets are visible.
+private struct StudioTranscriptEditPanel: View {
+    @Bindable var model: RecordingStudioModel
+
+    @State private var selection: ClosedRange<Int>?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
+            ScrollViewReader { proxy in
+                ScrollView(.vertical) {
+                    transcriptFlow
+                        .padding(8)
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                }
+                .frame(maxHeight: 260)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Color.primary.opacity(0.045))
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .onChange(of: model.activeTranscriptWordIndex) { _, activeIndex in
+                    // Follow playback through the transcript, but never yank
+                    // it around while the user is selecting a passage.
+                    guard let activeIndex, model.isPlaying, selection == nil else { return }
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        proxy.scrollTo(activeIndex, anchor: .center)
+                    }
+                }
+            }
+
+            if let selection {
+                cutSelectionRow(selection)
+            }
+        }
+        .onDeleteCommand(perform: cutSelection)
+        .onExitCommand { selection = nil }
+    }
+
+    private var transcriptFlow: some View {
+        let activeIndex = model.activeTranscriptWordIndex
+        return TranscriptFlowLayout() {
+            ForEach(model.transcriptWords.indices, id: \.self) { index in
+                StudioTranscriptWordView(
+                    text: model.transcriptWords[index].displayText,
+                    isSelected: selection?.contains(index) ?? false,
+                    isActive: index == activeIndex,
+                    isCut: !model.transcriptWordSurvives(index),
+                    isFiller: model.isFillerWord(index)
+                ) {
+                    handleTap(on: index)
+                }
+                .id(index)
+            }
+        }
+    }
+
+    private func cutSelectionRow(_ selection: ClosedRange<Int>) -> some View {
+        HStack(spacing: 6) {
+            Button {
+                cutSelection()
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "scissors")
+                        .font(.system(size: 11, weight: .medium))
+                    Text(selection.count == 1 ? "Cut Word" : "Cut \(selection.count) Words")
+                        .font(.inspectorValue)
+                        .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity)
+                .inspectorField(height: 28)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(Color.red.opacity(0.88))
+
+            InspectorClearButton(help: "Clear selection") {
+                self.selection = nil
+            }
+        }
+    }
+
+    private func handleTap(on index: Int) {
+        let shiftHeld = NSApp.currentEvent?.modifierFlags.contains(.shift) ?? false
+        if shiftHeld, let selection {
+            self.selection = min(selection.lowerBound, index)...max(selection.upperBound, index)
+        } else {
+            selection = index...index
+            model.seekToTranscriptWord(at: index)
+        }
+    }
+
+    private func cutSelection() {
+        guard let selection else { return }
+        model.cutTranscriptWords(in: selection)
+        self.selection = nil
+    }
+}
+
+/// One word in the transcript editor, drawn so the flow reads as a plain
+/// paragraph: the chip's side padding doubles as the inter-word space
+/// (layout spacing is zero), which also makes a multi-word selection's
+/// highlight contiguous like real text selection. The font weight never
+/// changes with state — a width change would reflow the whole paragraph
+/// on every playback tick. Kept to plain stored values so ticks only
+/// re-render the words whose state actually changed.
+private struct StudioTranscriptWordView: View {
+    let text: String
+    let isSelected: Bool
+    let isActive: Bool
+    let isCut: Bool
+    let isFiller: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 11.5))
+            .foregroundStyle(foreground)
+            .strikethrough(isCut, color: .secondary.opacity(0.6))
+            .padding(.horizontal, 1.5)
+            .padding(.vertical, 1)
+            .background(
+                RoundedRectangle(cornerRadius: 2, style: .continuous)
+                    .fill(background)
+            )
+            .contentShape(Rectangle())
+            .onTapGesture(perform: action)
+    }
+
+    private var foreground: Color {
+        isCut ? Color.secondary.opacity(0.45) : Color.primary
+    }
+
+    private var background: Color {
+        if isSelected {
+            Color.accentColor.opacity(isCut ? 0.12 : 0.24)
+        } else if isActive, !isCut {
+            Color.accentColor.opacity(0.2)
+        } else if isFiller, !isCut {
+            Color.orange.opacity(0.16)
+        } else {
+            Color.clear
+        }
+    }
+}
+
+/// Minimal left-aligned wrapping layout for the transcript's word chips.
+/// Horizontal spacing lives inside the chips (see StudioTranscriptWordView),
+/// so the layout only separates lines.
+private struct TranscriptFlowLayout: Layout {
+    var spacingX: CGFloat = 0
+    var spacingY: CGFloat = 3
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? 240
+        var x: CGFloat = 0
+        var y: CGFloat = 0
+        var rowHeight: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > 0, x + size.width > width {
+                x = 0
+                y += rowHeight + spacingY
+                rowHeight = 0
+            }
+            x += size.width + spacingX
+            rowHeight = max(rowHeight, size.height)
+        }
+        return CGSize(width: width, height: y + rowHeight)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = bounds.minX
+        var y = bounds.minY
+        var rowHeight: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > bounds.minX, x + size.width > bounds.maxX {
+                x = bounds.minX
+                y += rowHeight + spacingY
+                rowHeight = 0
+            }
+            subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+            x += size.width + spacingX
+            rowHeight = max(rowHeight, size.height)
+        }
+    }
+}
+
 /// Small hover-circle icon button matching InspectorClearButton, for section
 /// header actions that aren't a plain "clear".
 private struct StudioInspectorIconButton: View {
@@ -1379,12 +1570,27 @@ private enum StudioInspectorSection: Hashable {
     case export
 }
 
+private enum StudioTranscriptTab: CaseIterable, Identifiable {
+    case captions
+    case edit
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .captions: "Captions"
+        case .edit: "Edit Video"
+        }
+    }
+}
+
 private struct StudioInspector: View {
     @Bindable var model: RecordingStudioModel
     @State private var wallpaperStore = AnnotationWallpaperStore.shared
     @State private var expandedSections: Set<StudioInspectorSection> = [
         .background, .layout, .motion
     ]
+    @State private var transcriptTab: StudioTranscriptTab = .captions
     @Environment(\.colorScheme) private var colorScheme
 
     private let swatchColumns = [GridItem(.adaptive(minimum: 30, maximum: 44), spacing: 6)]
@@ -1962,6 +2168,28 @@ private struct StudioInspector: View {
     }
 
     private var subtitleEditor: some View {
+        VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
+            InspectorSegmented(
+                options: StudioTranscriptTab.allCases,
+                isSelected: { $0 == transcriptTab },
+                onTap: { transcriptTab = $0 },
+                label: { tab in
+                    Text(tab.title)
+                        .font(.system(size: 10.5, weight: .medium))
+                        .lineLimit(1)
+                }
+            )
+
+            switch transcriptTab {
+            case .captions:
+                captionControls
+            case .edit:
+                transcriptEditControls
+            }
+        }
+    }
+
+    private var captionControls: some View {
         let verticalRange = SubtitleBarStyle.verticalRange
         let fontScaleRange = SubtitleBarStyle.fontScaleRange
         return VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
@@ -1994,6 +2222,46 @@ private struct StudioInspector: View {
         }
         .disabled(!model.showsSubtitles)
         .opacity(model.showsSubtitles ? 1 : 0.48)
+    }
+
+    @ViewBuilder
+    private var transcriptEditControls: some View {
+        if model.hasTranscriptWords {
+            StudioTranscriptEditPanel(model: model)
+
+            if model.removableFillerWordCount > 0 {
+                inspectorAction(
+                    "Remove Filler Words (\(model.removableFillerWordCount))",
+                    systemImage: "scissors"
+                ) {
+                    model.removeFillerWords()
+                }
+            }
+
+            if model.trimmableSilenceCount > 0 {
+                inspectorAction(
+                    "Trim Silences (\(model.trimmableSilenceCount))",
+                    systemImage: "waveform.badge.minus"
+                ) {
+                    model.trimNarrationSilences()
+                }
+            }
+
+            Text("Click a word to jump there. Shift-click to select a passage, then cut it to remove that part of the video.")
+                .font(.inspectorLabel)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        } else {
+            if model.canTranscribe {
+                inspectorAction("Transcribe Again to Edit", systemImage: "waveform") {
+                    model.transcribe()
+                }
+            }
+            Text("This transcription predates editing by text. Transcribe again to cut the video from its transcript.")
+                .font(.inspectorLabel)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     private var subtitleList: some View {

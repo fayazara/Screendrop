@@ -89,6 +89,12 @@ final class RecordingStudioModel {
     }
     private(set) var subtitleCues: [RecordingSubtitleCue] = []
     private(set) var subtitleTimeline = SubtitleTimeline.empty
+    /// Word-level timing behind the cues; empty for projects transcribed
+    /// before transcript editing shipped (cues only).
+    private(set) var transcriptWords: [RecordingTranscriptWord] = []
+    /// Word under the playhead, updated only on word boundaries so the
+    /// transcript view isn't invalidated on every 20 ms playback tick.
+    private(set) var activeTranscriptWordIndex: Int?
     var transcriptionState = RecordingTranscriptionState.idle
     private(set) var zoomCues: [ZoomCue] = []
     private(set) var viewportTimeline = ViewportTimeline.identity
@@ -210,6 +216,7 @@ final class RecordingStudioModel {
             showsSubtitles = document.showsSubtitles ?? true
             subtitleCues = document.subtitleCues ?? []
             subtitleTimeline = SubtitleTimeline(cues: subtitleCues)
+            transcriptWords = document.subtitleWords ?? []
             subtitleStyle = document.subtitleStyle
         } else if session == nil {
             // Legacy bare movies use the same editor, but open visually
@@ -312,6 +319,7 @@ final class RecordingStudioModel {
     func seek(to time: TimeInterval) {
         let clamped = min(max(time, 0), max(duration, 0))
         currentTime = clamped
+        updateActiveTranscriptWord()
         movePlayers(to: clamped)
         if isPlaying {
             syncCameraPlayback()
@@ -366,6 +374,7 @@ final class RecordingStudioModel {
                         return
                     }
                     self.currentTime = seconds
+                    self.updateActiveTranscriptWord()
                     self.correctCameraDriftIfNeeded()
                 }
             }
@@ -556,6 +565,7 @@ final class RecordingStudioModel {
         } catch {
             loadError = "Could not update the recording timeline: \(error.localizedDescription)"
         }
+        updateActiveTranscriptWord()
         scheduleProjectSave()
     }
 
@@ -841,6 +851,7 @@ final class RecordingStudioModel {
             keystrokePlacement: keystrokePlacement,
             showsSubtitles: showsSubtitles,
             subtitleCues: subtitleCues.isEmpty ? nil : subtitleCues,
+            subtitleWords: transcriptWords.isEmpty ? nil : transcriptWords,
             subtitleStyle: subtitleStyle
         )
         guard document != lastSavedDocument else {
@@ -926,9 +937,9 @@ final class RecordingStudioModel {
         let movieURL = screenURL
         transcriptionTask = Task { [weak self] in
             do {
-                let cues = try await RecordingTranscriptionService.transcribe(screenMovieURL: movieURL)
+                let transcript = try await RecordingTranscriptionService.transcribe(screenMovieURL: movieURL)
                 guard !Task.isCancelled else { return }
-                self?.applyTranscription(cues)
+                self?.applyTranscription(transcript)
             } catch {
                 guard !Task.isCancelled else { return }
                 self?.transcriptionState = .failed(error.localizedDescription)
@@ -936,17 +947,21 @@ final class RecordingStudioModel {
         }
     }
 
-    private func applyTranscription(_ cues: [RecordingSubtitleCue]) {
-        subtitleCues = cues
-        subtitleTimeline = SubtitleTimeline(cues: cues)
+    private func applyTranscription(_ transcript: RecordingTranscript) {
+        subtitleCues = transcript.cues
+        subtitleTimeline = SubtitleTimeline(cues: transcript.cues)
+        transcriptWords = transcript.words
         showsSubtitles = true
         transcriptionState = .idle
+        updateActiveTranscriptWord()
         scheduleProjectSave()
     }
 
     func removeTranscription() {
         subtitleCues = []
         subtitleTimeline = .empty
+        transcriptWords = []
+        activeTranscriptWordIndex = nil
         transcriptionState = .idle
         scheduleProjectSave()
     }
@@ -975,6 +990,195 @@ final class RecordingStudioModel {
     var activeSubtitleCue: RecordingSubtitleCue? {
         guard hasSubtitles else { return nil }
         return subtitleTimeline.cue(at: clipTimeline.sourceTime(at: currentTime))
+    }
+
+    // MARK: - Transcript editing
+
+    /// Cues-only projects (transcribed before words were stored) can still
+    /// show captions but need a fresh transcription to edit by text.
+    var hasTranscriptWords: Bool {
+        !transcriptWords.isEmpty
+    }
+
+    /// Whether this word's audio still exists on the edited timeline.
+    func transcriptWordSurvives(_ index: Int) -> Bool {
+        guard transcriptWords.indices.contains(index) else { return false }
+        return clipTimeline.editorTime(forSourceTime: transcriptWords[index].midpoint) != nil
+    }
+
+    func isFillerWord(_ index: Int) -> Bool {
+        guard transcriptWords.indices.contains(index) else { return false }
+        return TranscriptEditPlanner.isFiller(transcriptWords[index])
+    }
+
+    /// Fillers that would actually be cut — ones already removed don't count.
+    var removableFillerWordCount: Int {
+        TranscriptEditPlanner.fillerIndices(in: transcriptWords)
+            .count { transcriptWordSurvives($0) }
+    }
+
+    /// Narration pauses long enough to trim that still exist in the edit.
+    var trimmableSilenceCount: Int {
+        TranscriptEditPlanner.silenceCutRanges(in: transcriptWords, sourceDuration: sourceDuration)
+            .count { !clipTimeline.slices(overlapping: $0.lowerBound, sourceEnd: $0.upperBound).isEmpty }
+    }
+
+    /// Moves the paused playhead to a word's first surviving frame.
+    func seekToTranscriptWord(at index: Int) {
+        guard transcriptWords.indices.contains(index) else { return }
+        let word = transcriptWords[index]
+        let target = clipTimeline.editorTime(forSourceTime: word.start)
+            ?? clipTimeline.editorTime(forSourceTime: word.midpoint)
+        guard let target else { return }
+        pause()
+        seek(to: target)
+    }
+
+    /// Cuts the selected words' footage out of the video.
+    func cutTranscriptWords(in range: ClosedRange<Int>) {
+        guard let cut = TranscriptEditPlanner.cutRange(
+            forWordsAt: range,
+            in: transcriptWords,
+            sourceDuration: sourceDuration
+        ) else { return }
+        cutSourceRanges([cut], actionName: range.count == 1 ? "Cut Word" : "Cut Words")
+    }
+
+    func removeFillerWords() {
+        cutSourceRanges(
+            TranscriptEditPlanner.fillerCutRanges(in: transcriptWords, sourceDuration: sourceDuration),
+            actionName: "Remove Filler Words"
+        )
+    }
+
+    func trimNarrationSilences() {
+        cutSourceRanges(
+            TranscriptEditPlanner.silenceCutRanges(in: transcriptWords, sourceDuration: sourceDuration),
+            actionName: "Trim Silences"
+        )
+    }
+
+    /// The shared transcript-cut path: removes source ranges from the clip
+    /// timeline and drops the cut words from any overlapping captions. Both
+    /// registrations land in one undo group, so a single ⌘Z restores the
+    /// footage and the caption text together.
+    private func cutSourceRanges(_ ranges: [ClosedRange<TimeInterval>], actionName: String) {
+        let merged = RecordingClipTimeline.mergedRanges(ranges)
+        guard !merged.isEmpty,
+              let next = clipTimeline.removingSourceRanges(merged)?.normalized(to: sourceDuration),
+              next != clipTimeline else {
+            return
+        }
+
+        let updatedCues = Self.rebuildingCueTexts(
+            subtitleCues,
+            words: transcriptWords,
+            cutRanges: merged,
+            surviving: next
+        )
+        if updatedCues != subtitleCues {
+            applySubtitleCues(updatedCues, actionName: actionName)
+        }
+
+        // Park the playhead on the first splice so the result is audible
+        // right where the cut happened.
+        let playhead = next.editorTime(forSourceTime: merged[0].upperBound)
+            ?? min(currentTime, next.duration)
+        applyClipTimeline(
+            next,
+            selectedID: selectedClipID,
+            playheadTime: playhead,
+            actionName: actionName
+        )
+    }
+
+    private func applySubtitleCues(_ cues: [RecordingSubtitleCue], actionName: String) {
+        guard cues != subtitleCues else { return }
+        let previous = subtitleCues
+        registerUndo(actionName) { target in
+            target.applySubtitleCues(previous, actionName: actionName)
+        }
+        subtitleCues = cues
+        subtitleTimeline = SubtitleTimeline(cues: cues)
+        scheduleProjectSave()
+    }
+
+    /// Rewrites the text of cues touched by a cut so captions stop showing
+    /// words whose audio is gone. Only touched cues are rebuilt, so manual
+    /// caption edits elsewhere survive. A word belongs to the last cue that
+    /// starts at or before it.
+    private static func rebuildingCueTexts(
+        _ cues: [RecordingSubtitleCue],
+        words: [RecordingTranscriptWord],
+        cutRanges: [ClosedRange<TimeInterval>],
+        surviving timeline: RecordingClipTimeline
+    ) -> [RecordingSubtitleCue] {
+        guard !words.isEmpty, !cues.isEmpty else { return cues }
+        var result = cues
+        let byStart = result.indices.sorted { result[$0].start < result[$1].start }
+
+        for (position, index) in byStart.enumerated() {
+            let cue = result[index]
+            let overlapsCut = cutRanges.contains {
+                $0.lowerBound < cue.end && $0.upperBound > cue.start
+            }
+            guard overlapsCut else { continue }
+
+            let nextCueStart = position < byStart.count - 1
+                ? result[byStart[position + 1]].start
+                : .infinity
+            result[index].text = words
+                .filter { word in
+                    word.start >= cue.start - 0.001
+                        && word.start < nextCueStart - 0.001
+                        && timeline.editorTime(forSourceTime: word.midpoint) != nil
+                }
+                .map(\.text)
+                .joined()
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return result
+    }
+
+    /// Recomputes which word the playhead is on; assigns only on change so
+    /// observation-driven views wake on word boundaries, not every tick.
+    private func updateActiveTranscriptWord() {
+        guard !transcriptWords.isEmpty else {
+            if activeTranscriptWordIndex != nil {
+                activeTranscriptWordIndex = nil
+            }
+            return
+        }
+        let index = Self.transcriptWordIndex(
+            at: clipTimeline.sourceTime(at: currentTime),
+            in: transcriptWords
+        )
+        if activeTranscriptWordIndex != index {
+            activeTranscriptWordIndex = index
+        }
+    }
+
+    /// Last word started at or before this source time, if the time is
+    /// still within it (with a small bridge across inter-word gaps so the
+    /// highlight doesn't flicker between words).
+    private static func transcriptWordIndex(
+        at sourceTime: TimeInterval,
+        in words: [RecordingTranscriptWord]
+    ) -> Int? {
+        guard sourceTime.isFinite, !words.isEmpty else { return nil }
+        var low = 0
+        var high = words.count
+        while low < high {
+            let middle = (low + high) / 2
+            if words[middle].start <= sourceTime {
+                low = middle + 1
+            } else {
+                high = middle
+            }
+        }
+        let index = low - 1
+        guard index >= 0 else { return nil }
+        return sourceTime <= words[index].end + 0.25 ? index : nil
     }
 
     /// Caption to draw over the card right now; nil when hidden or silent.

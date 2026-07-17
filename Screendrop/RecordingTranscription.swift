@@ -14,6 +14,32 @@ import CoreGraphics
 import Foundation
 import Speech
 
+/// One transcribed word on the source (unedited) timeline, in seconds.
+/// `text` keeps the transcript's original trailing punctuation/spacing so
+/// concatenating words reconstructs the transcript exactly.
+nonisolated struct RecordingTranscriptWord: Codable, Sendable, Equatable {
+    var text: String
+    var start: TimeInterval
+    var end: TimeInterval
+
+    /// Word as shown in the transcript editor, without the glued spacing.
+    var displayText: String {
+        text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var midpoint: TimeInterval {
+        (start + end) / 2
+    }
+}
+
+/// A full transcription: the word-level timing (drives transcript-based
+/// video editing) plus the readable cues derived from it (drive the
+/// subtitle bar).
+nonisolated struct RecordingTranscript: Sendable {
+    var words: [RecordingTranscriptWord]
+    var cues: [RecordingSubtitleCue]
+}
+
 /// One subtitle on the source (unedited) timeline, in seconds.
 nonisolated struct RecordingSubtitleCue: Codable, Sendable, Equatable, Identifiable {
     var id = UUID()
@@ -169,7 +195,7 @@ nonisolated enum RecordingTranscriptionService {
     private static let cueGapThreshold: TimeInterval = 0.9
     private static let minimumCueDuration: TimeInterval = 0.8
 
-    static func transcribe(screenMovieURL: URL) async throws -> [RecordingSubtitleCue] {
+    static func transcribe(screenMovieURL: URL) async throws -> RecordingTranscript {
         let narrationURL = try await extractNarrationAudio(from: screenMovieURL)
         defer { try? FileManager.default.removeItem(at: narrationURL) }
 
@@ -196,9 +222,10 @@ nonisolated enum RecordingTranscriptionService {
             await analyzer.cancelAndFinishNow()
         }
 
-        let cues = makeCues(from: try await collectedWords)
+        let words = try await collectedWords
+        let cues = makeCues(from: words)
         guard !cues.isEmpty else { throw TranscriptionError.noSpeechDetected }
-        return cues
+        return RecordingTranscript(words: words, cues: cues)
     }
 
     /// Best transcription locale for the user's language; on-device models
@@ -270,14 +297,8 @@ nonisolated enum RecordingTranscriptionService {
         return outputURL
     }
 
-    private struct TimedWord {
-        var text: String
-        var start: TimeInterval
-        var end: TimeInterval
-    }
-
-    private static func collectWords(from transcriber: SpeechTranscriber) async throws -> [TimedWord] {
-        var words: [TimedWord] = []
+    private static func collectWords(from transcriber: SpeechTranscriber) async throws -> [RecordingTranscriptWord] {
+        var words: [RecordingTranscriptWord] = []
         for try await result in transcriber.results where result.isFinal {
             for run in result.text.runs {
                 let runText = String(result.text[run.range].characters)
@@ -292,13 +313,13 @@ nonisolated enum RecordingTranscriptionService {
                 let start = timeRange.start.seconds
                 let end = timeRange.end.seconds
                 guard start.isFinite, end.isFinite else { continue }
-                words.append(TimedWord(text: runText, start: start, end: max(start, end)))
+                words.append(RecordingTranscriptWord(text: runText, start: start, end: max(start, end)))
             }
         }
         return words
     }
 
-    private static func makeCues(from words: [TimedWord]) -> [RecordingSubtitleCue] {
+    static func makeCues(from words: [RecordingTranscriptWord]) -> [RecordingSubtitleCue] {
         var cues: [RecordingSubtitleCue] = []
         var text = ""
         var start: TimeInterval = 0

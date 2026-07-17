@@ -41,6 +41,9 @@ struct RecordingEditDocument: Codable, Equatable {
     /// subtitles and the toggle defaulting on.
     var showsSubtitles: Bool?
     var subtitleCues: [RecordingSubtitleCue]?
+    /// Word-level timing behind the cues; optional so projects transcribed
+    /// before transcript editing decode with cues only.
+    var subtitleWords: [RecordingTranscriptWord]?
     var subtitleVerticalPosition: Double?
     var subtitleFontScale: Double?
 
@@ -58,6 +61,7 @@ struct RecordingEditDocument: Codable, Equatable {
         case keystrokePlacement
         case showsSubtitles
         case subtitleCues
+        case subtitleWords
         case subtitleVerticalPosition
         case subtitleFontScale
     }
@@ -74,6 +78,7 @@ struct RecordingEditDocument: Codable, Equatable {
         keystrokePlacement: RecordingKeystrokePlacement? = nil,
         showsSubtitles: Bool? = nil,
         subtitleCues: [RecordingSubtitleCue]? = nil,
+        subtitleWords: [RecordingTranscriptWord]? = nil,
         subtitleStyle: SubtitleBarStyle? = nil
     ) {
         self.style = StoredRecordingStudioStyle(style)
@@ -94,6 +99,7 @@ struct RecordingEditDocument: Codable, Equatable {
         self.keystrokePlacement = keystrokePlacement
         self.showsSubtitles = showsSubtitles
         self.subtitleCues = subtitleCues
+        self.subtitleWords = subtitleWords
         subtitleVerticalPosition = subtitleStyle?.verticalPosition
         subtitleFontScale = subtitleStyle?.fontScale
     }
@@ -133,6 +139,10 @@ struct RecordingEditDocument: Codable, Equatable {
             [RecordingSubtitleCue].self,
             forKey: .subtitleCues
         )
+        subtitleWords = try container.decodeIfPresent(
+            [RecordingTranscriptWord].self,
+            forKey: .subtitleWords
+        )
         subtitleVerticalPosition = try container.decodeIfPresent(
             Double.self,
             forKey: .subtitleVerticalPosition
@@ -155,6 +165,7 @@ struct RecordingEditDocument: Codable, Equatable {
         try container.encodeIfPresent(keystrokePlacement, forKey: .keystrokePlacement)
         try container.encodeIfPresent(showsSubtitles, forKey: .showsSubtitles)
         try container.encodeIfPresent(subtitleCues, forKey: .subtitleCues)
+        try container.encodeIfPresent(subtitleWords, forKey: .subtitleWords)
         try container.encodeIfPresent(subtitleVerticalPosition, forKey: .subtitleVerticalPosition)
         try container.encodeIfPresent(subtitleFontScale, forKey: .subtitleFontScale)
     }
