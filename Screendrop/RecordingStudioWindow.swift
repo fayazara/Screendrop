@@ -180,7 +180,7 @@ private struct ExportProgressPill: View {
             .buttonStyle(.plain)
             .help("Cancel Export")
         }
-        .padding(.leading, 6)
+        .padding(.leading, 12)
     }
 }
 

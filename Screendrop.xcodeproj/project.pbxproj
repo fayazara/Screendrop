@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		31A100022F9DC05A002A7AF3 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 31A100012F9DC05A002A7AF3 /* Sparkle */; };
+		5EB13EE1F16DFCBCFE9A3449 /* DockProgress in Frameworks */ = {isa = PBXBuildFile; productRef = 6711E7AD88BD96C1258D3CE6 /* DockProgress */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -28,6 +29,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				31A100022F9DC05A002A7AF3 /* Sparkle in Frameworks */,
+				5EB13EE1F16DFCBCFE9A3449 /* DockProgress in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -71,6 +73,7 @@
 			name = Screendrop;
 			packageProductDependencies = (
 				31A100012F9DC05A002A7AF3 /* Sparkle */,
+				6711E7AD88BD96C1258D3CE6 /* DockProgress */,
 			);
 			productName = Screendrop;
 			productReference = 3163891D2F9DC05A002A7AF3 /* Screendrop.app */;
@@ -102,6 +105,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				31A100002F9DC05A002A7AF3 /* XCRemoteSwiftPackageReference "Sparkle" */,
+				BAD69099DE38A64197B1CFDA /* XCRemoteSwiftPackageReference "DockProgress" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 3163891E2F9DC05A002A7AF3 /* Products */;
@@ -466,6 +470,14 @@
 				minimumVersion = 2.7.0;
 			};
 		};
+		BAD69099DE38A64197B1CFDA /* XCRemoteSwiftPackageReference "DockProgress" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sindresorhus/DockProgress";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 5.0.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -473,6 +485,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 31A100002F9DC05A002A7AF3 /* XCRemoteSwiftPackageReference "Sparkle" */;
 			productName = Sparkle;
+		};
+		6711E7AD88BD96C1258D3CE6 /* DockProgress */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BAD69099DE38A64197B1CFDA /* XCRemoteSwiftPackageReference "DockProgress" */;
+			productName = DockProgress;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

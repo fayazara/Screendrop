@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import UserNotifications
 
 @main
 struct ScreendropApp: App {
@@ -94,6 +95,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         HotkeyManager.shared.registerHotkeys()
         updaterManager.start()
         RecordingRecoveryCoordinator.recoverInterruptedRecordings()
+        UNUserNotificationCenter.current().delegate = RecordingExportNotificationDelegate.shared
     }
 
     /// When the menu bar icon is hidden, reopening Screendrop (e.g. from

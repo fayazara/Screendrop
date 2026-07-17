@@ -860,11 +860,14 @@ final class RecordingStudioModel {
             $0.directoryURL.deletingPathExtension().lastPathComponent.appending(".mov")
         } ?? VideoFileActions.exportFileName(for: screenURL)
 
+        let dockProgressID = DockExportProgressCoordinator.shared.start()
+
         exportTask = Task { [weak self] in
             do {
                 let exporter = RecordingStudioExporter()
                 let temporaryURL = try await exporter.export(configuration) { progress in
                     Task { @MainActor [weak self] in
+                        DockExportProgressCoordinator.shared.update(dockProgressID, progress: progress)
                         if self?.exportState.isExporting == true {
                             self?.exportState = .exporting(progress: progress)
                         }
@@ -875,12 +878,17 @@ final class RecordingStudioModel {
                     suggestedFileName: suggestedFileName
                 )
                 try? FileManager.default.removeItem(at: temporaryURL)
+                DockExportProgressCoordinator.shared.finish(dockProgressID)
+                RecordingExportNotifier.notifySuccess(fileURL: savedURL)
                 self?.exportState = .finished(savedURL)
             } catch is CancellationError {
+                DockExportProgressCoordinator.shared.finish(dockProgressID)
                 self?.exportState = .idle
             } catch RecordingStudioExporter.ExportError.cancelled {
+                DockExportProgressCoordinator.shared.finish(dockProgressID)
                 self?.exportState = .idle
             } catch {
+                DockExportProgressCoordinator.shared.finish(dockProgressID)
                 self?.exportState = .failed(error.localizedDescription)
             }
         }

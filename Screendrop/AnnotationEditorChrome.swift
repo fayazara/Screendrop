@@ -115,10 +115,16 @@ struct AnnotationEditorWorkspaceBackground: View {
     private let dotSpacing: CGFloat = 18
     private let dotRadius: CGFloat = 1.15
 
+    @Environment(\.colorScheme) private var colorScheme
+
     var body: some View {
         ZStack {
+            // A flat, fully desaturated gray rather than a system material —
+            // vibrancy materials pick up a bluish cast from the accent color
+            // and whatever's behind the window, which reads as tinted rather
+            // than neutral.
             Rectangle()
-                .fill(.regularMaterial)
+                .fill(colorScheme == .dark ? Color(white: 0.16) : Color(white: 0.93))
 
             Canvas { context, size in
                 var path = Path()
