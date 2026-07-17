@@ -100,6 +100,11 @@ enum RecordingSessionRenderer {
                 ? KeystrokeCaptionTimeline(events: capture.keystrokes)
                 : nil,
             keystrokePlacement: document?.keystrokePlacement ?? .bottomCenter,
+            subtitleTimeline: {
+                let cues = document?.subtitleCues ?? []
+                let shows = document?.showsSubtitles ?? true
+                return shows && !cues.isEmpty ? SubtitleTimeline(cues: cues) : nil
+            }(),
             canvasSize: canvasSize,
             clipTimeline: clipTimeline,
             exportSettings: document?.exportSettings ?? VideoCompressionSettings()

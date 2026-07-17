@@ -40,6 +40,8 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
         /// Non-nil when recorded keystroke chords should be captioned.
         let keystrokeTimeline: KeystrokeCaptionTimeline?
         let keystrokePlacement: RecordingKeystrokePlacement
+        /// Non-nil when transcribed narration should be subtitled.
+        let subtitleTimeline: SubtitleTimeline?
         let canvasSize: CGSize
         let clipTimeline: RecordingClipTimeline
         let exportSettings: VideoCompressionSettings
@@ -204,6 +206,7 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
             showsPressEffects: configuration.showsPressEffects,
             keystrokeTimeline: configuration.keystrokeTimeline,
             keystrokePlacement: configuration.keystrokePlacement,
+            subtitleTimeline: configuration.subtitleTimeline,
             includeBubble: cameraFeed != nil,
             outputFrameInterval: 1 / Self.outputFrameRate
         )
@@ -482,6 +485,7 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
     private let showsPressEffects: Bool
     private let keystrokeTimeline: KeystrokeCaptionTimeline?
     private let keystrokePlacement: RecordingKeystrokePlacement
+    private let subtitleTimeline: SubtitleTimeline?
     private var artworkImageCache: [String: CGImage] = [:]
     private let pointerScale: CGFloat
     private let colorSpace: CGColorSpace
@@ -500,6 +504,7 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
         showsPressEffects: Bool,
         keystrokeTimeline: KeystrokeCaptionTimeline?,
         keystrokePlacement: RecordingKeystrokePlacement,
+        subtitleTimeline: SubtitleTimeline?,
         includeBubble: Bool,
         outputFrameInterval: TimeInterval = 1.0 / 60.0
     ) {
@@ -514,6 +519,7 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
         self.showsPressEffects = showsPressEffects
         self.keystrokeTimeline = keystrokeTimeline
         self.keystrokePlacement = keystrokePlacement
+        self.subtitleTimeline = subtitleTimeline
         self.outputFrameInterval = outputFrameInterval
         self.pointerScale = style.cursorScale
         self.colorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
@@ -592,6 +598,9 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
         // The keystroke caption stays in card space — pinned to its edge and
         // unaffected by the zoom transform, like a broadcast lower third.
         drawKeystrokeCaption(at: sourceTime, in: context)
+
+        // The subtitle bar lives in card space too, always bottom-center.
+        drawSubtitleBar(at: sourceTime, in: context)
 
         if let cameraFrame,
            layout.bubbleRect.width > 0,
@@ -775,6 +784,57 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
         context.textPosition = CGPoint(
             x: pillRect.minX + metrics.paddingHorizontal,
             y: pillRect.midY - (ascent - descent) / 2
+        )
+        CTLineDraw(line, context)
+        context.restoreGState()
+    }
+
+    private func drawSubtitleBar(at time: TimeInterval, in context: CGContext) {
+        guard let subtitleTimeline,
+              let text = subtitleTimeline.text(at: time) else {
+            return
+        }
+
+        let metrics = SubtitleBarMetrics(cardHeight: layout.cardRect.height)
+        let font = Self.captionFont(size: metrics.fontSize)
+        let attributed = NSAttributedString(string: text, attributes: [
+            NSAttributedString.Key(kCTFontAttributeName as String): font,
+            NSAttributedString.Key(kCTForegroundColorAttributeName as String):
+                CGColor(gray: 1, alpha: 1)
+        ])
+
+        let line = CTLineCreateWithAttributedString(attributed)
+        var ascent: CGFloat = 0
+        var descent: CGFloat = 0
+        var leading: CGFloat = 0
+        let textWidth = CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, &leading))
+        guard textWidth > 0 else { return }
+
+        let barSize = CGSize(
+            width: textWidth + metrics.paddingHorizontal * 2,
+            height: ascent + descent + metrics.paddingVertical * 2
+        )
+        let origin = CGPoint(
+            x: layout.cardRect.midX - barSize.width / 2,
+            y: layout.cardRect.maxY - metrics.margin - barSize.height
+        )
+        let barRect = flipped(CGRect(origin: origin, size: barSize))
+
+        context.saveGState()
+        let radius = min(metrics.cornerRadius, barRect.height / 2)
+        context.addPath(CGPath(
+            roundedRect: barRect,
+            cornerWidth: radius,
+            cornerHeight: radius,
+            transform: nil
+        ))
+        context.setFillColor(CGColor(gray: 0, alpha: SubtitleBarMetrics.backgroundAlpha))
+        context.fillPath()
+
+        context.textMatrix = .identity
+        context.textPosition = CGPoint(
+            x: barRect.minX + metrics.paddingHorizontal,
+            y: barRect.midY - (ascent - descent) / 2
         )
         CTLineDraw(line, context)
         context.restoreGState()

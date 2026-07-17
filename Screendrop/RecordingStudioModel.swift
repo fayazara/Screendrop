@@ -15,6 +15,16 @@ import CoreGraphics
 import Foundation
 import Observation
 
+enum RecordingTranscriptionState: Equatable {
+    case idle
+    case transcribing
+    case failed(String)
+
+    var isTranscribing: Bool {
+        self == .transcribing
+    }
+}
+
 enum RecordingStudioExportState: Equatable {
     case idle
     case exporting(progress: Double)
@@ -71,6 +81,12 @@ final class RecordingStudioModel {
     var keystrokePlacement: RecordingKeystrokePlacement = .bottomCenter {
         didSet { scheduleProjectSave() }
     }
+    var showsSubtitles = true {
+        didSet { scheduleProjectSave() }
+    }
+    private(set) var subtitleCues: [RecordingSubtitleCue] = []
+    private(set) var subtitleTimeline = SubtitleTimeline.empty
+    var transcriptionState = RecordingTranscriptionState.idle
     private(set) var zoomCues: [ZoomCue] = []
     private(set) var viewportTimeline = ViewportTimeline.identity
     private(set) var pointerTimeline = PointerTimeline.empty
@@ -97,6 +113,7 @@ final class RecordingStudioModel {
     private var timeObserver: Any?
     private var endObserver: NSObjectProtocol?
     private var exportTask: Task<Void, Never>?
+    private var transcriptionTask: Task<Void, Never>?
     private var projectSaveTask: Task<Void, Never>?
     private var timelineTask: Task<Void, Never>?
     private var screenAsset: AVURLAsset?
@@ -187,6 +204,9 @@ final class RecordingStudioModel {
             showsClickEffects = document.showsClickEffects ?? showsClickEffects
             showsKeystrokes = document.showsKeystrokes ?? true
             keystrokePlacement = document.keystrokePlacement ?? .bottomCenter
+            showsSubtitles = document.showsSubtitles ?? true
+            subtitleCues = document.subtitleCues ?? []
+            subtitleTimeline = SubtitleTimeline(cues: subtitleCues)
         } else if session == nil {
             // Legacy bare movies use the same editor, but open visually
             // unchanged until the user explicitly adds styling.
@@ -237,6 +257,7 @@ final class RecordingStudioModel {
 
     func teardown() {
         exportTask?.cancel()
+        transcriptionTask?.cancel()
         projectSaveTask?.cancel()
         timelineTask?.cancel()
         saveProjectNow()
@@ -813,7 +834,9 @@ final class RecordingStudioModel {
             exportSettings: exportSettings,
             showsClickEffects: showsClickEffects,
             showsKeystrokes: showsKeystrokes,
-            keystrokePlacement: keystrokePlacement
+            keystrokePlacement: keystrokePlacement,
+            showsSubtitles: showsSubtitles,
+            subtitleCues: subtitleCues.isEmpty ? nil : subtitleCues
         )
         guard document != lastSavedDocument else {
             hasUnsavedChanges = false
@@ -873,6 +896,56 @@ final class RecordingStudioModel {
         !keystrokeTimeline.isEmpty
     }
 
+    // MARK: - Transcription
+
+    /// Only narrated sessions can be transcribed; the mic requirement means
+    /// legacy bare movies and silent captures never show the section.
+    var canTranscribe: Bool {
+        manifest?.includesMicrophone == true
+    }
+
+    var hasSubtitles: Bool {
+        !subtitleTimeline.isEmpty
+    }
+
+    /// Subtitle text to draw over the card right now; nil when hidden or
+    /// nobody is speaking.
+    func subtitleText(at time: TimeInterval) -> String? {
+        guard showsSubtitles, hasSubtitles else { return nil }
+        return subtitleTimeline.text(at: clipTimeline.sourceTime(at: time))
+    }
+
+    func transcribe() {
+        guard !transcriptionState.isTranscribing, isLoaded else { return }
+        transcriptionState = .transcribing
+        let movieURL = screenURL
+        transcriptionTask = Task { [weak self] in
+            do {
+                let cues = try await RecordingTranscriptionService.transcribe(screenMovieURL: movieURL)
+                guard !Task.isCancelled else { return }
+                self?.applyTranscription(cues)
+            } catch {
+                guard !Task.isCancelled else { return }
+                self?.transcriptionState = .failed(error.localizedDescription)
+            }
+        }
+    }
+
+    private func applyTranscription(_ cues: [RecordingSubtitleCue]) {
+        subtitleCues = cues
+        subtitleTimeline = SubtitleTimeline(cues: cues)
+        showsSubtitles = true
+        transcriptionState = .idle
+        scheduleProjectSave()
+    }
+
+    func removeTranscription() {
+        subtitleCues = []
+        subtitleTimeline = .empty
+        transcriptionState = .idle
+        scheduleProjectSave()
+    }
+
     /// Caption to draw over the card right now; nil when hidden or silent.
     func keystrokeCaption(at time: TimeInterval) -> KeystrokeCaptionFrame? {
         guard showsKeystrokes, hasKeystrokes else { return nil }
@@ -907,6 +980,7 @@ final class RecordingStudioModel {
             showsPressEffects: showsPressEffects,
             keystrokeTimeline: showsKeystrokes && hasKeystrokes ? keystrokeTimeline : nil,
             keystrokePlacement: keystrokePlacement,
+            subtitleTimeline: showsSubtitles && hasSubtitles ? subtitleTimeline : nil,
             canvasSize: videoSize,
             clipTimeline: clipTimeline,
             exportSettings: exportSettings

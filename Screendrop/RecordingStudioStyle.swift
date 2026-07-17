@@ -37,6 +37,10 @@ struct RecordingEditDocument: Codable, Equatable {
     var showsClickEffects: Bool?
     var showsKeystrokes: Bool?
     var keystrokePlacement: RecordingKeystrokePlacement?
+    /// Optional so projects saved before transcription decode with no
+    /// subtitles and the toggle defaulting on.
+    var showsSubtitles: Bool?
+    var subtitleCues: [RecordingSubtitleCue]?
 
     private enum CodingKeys: String, CodingKey {
         case formatVersion
@@ -50,6 +54,8 @@ struct RecordingEditDocument: Codable, Equatable {
         case showsClickEffects
         case showsKeystrokes
         case keystrokePlacement
+        case showsSubtitles
+        case subtitleCues
     }
 
     init(
@@ -61,7 +67,9 @@ struct RecordingEditDocument: Codable, Equatable {
         exportSettings: VideoCompressionSettings? = nil,
         showsClickEffects: Bool? = nil,
         showsKeystrokes: Bool? = nil,
-        keystrokePlacement: RecordingKeystrokePlacement? = nil
+        keystrokePlacement: RecordingKeystrokePlacement? = nil,
+        showsSubtitles: Bool? = nil,
+        subtitleCues: [RecordingSubtitleCue]? = nil
     ) {
         self.style = StoredRecordingStudioStyle(style)
         self.zoomEnabled = zoomEnabled
@@ -79,6 +87,8 @@ struct RecordingEditDocument: Codable, Equatable {
         self.showsClickEffects = showsClickEffects
         self.showsKeystrokes = showsKeystrokes
         self.keystrokePlacement = keystrokePlacement
+        self.showsSubtitles = showsSubtitles
+        self.subtitleCues = subtitleCues
     }
 
     init(from decoder: any Decoder) throws {
@@ -100,6 +110,11 @@ struct RecordingEditDocument: Codable, Equatable {
             RecordingKeystrokePlacement.self,
             forKey: .keystrokePlacement
         )
+        showsSubtitles = try container.decodeIfPresent(Bool.self, forKey: .showsSubtitles)
+        subtitleCues = try container.decodeIfPresent(
+            [RecordingSubtitleCue].self,
+            forKey: .subtitleCues
+        )
     }
 
     func encode(to encoder: any Encoder) throws {
@@ -115,6 +130,8 @@ struct RecordingEditDocument: Codable, Equatable {
         try container.encodeIfPresent(showsClickEffects, forKey: .showsClickEffects)
         try container.encodeIfPresent(showsKeystrokes, forKey: .showsKeystrokes)
         try container.encodeIfPresent(keystrokePlacement, forKey: .keystrokePlacement)
+        try container.encodeIfPresent(showsSubtitles, forKey: .showsSubtitles)
+        try container.encodeIfPresent(subtitleCues, forKey: .subtitleCues)
     }
 }
 

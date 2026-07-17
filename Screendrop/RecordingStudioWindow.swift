@@ -248,6 +248,16 @@ private struct StudioCanvas: View {
                                 )
                             }
                         }
+                        .overlay {
+                            // Subtitle bar in card space too, always pinned
+                            // to the bottom center like a broadcast subtitle.
+                            if let subtitle = model.subtitleText(at: model.displayTime) {
+                                StudioSubtitleBarView(
+                                    text: subtitle,
+                                    cardSize: layout.cardRect.size
+                                )
+                            }
+                        }
                         .shadow(
                             color: .black.opacity(model.style.background == .none ? 0 : 0.55 * model.style.shadow),
                             radius: min(canvasSize.width, canvasSize.height) * 0.045 * model.style.shadow,
@@ -368,6 +378,34 @@ private struct StudioKeystrokeCaptionView: View {
             .scaleEffect(caption.scale)
             .opacity(caption.opacity)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: placement.alignment)
+            .padding(metrics.margin)
+            .frame(width: cardSize.width, height: cardSize.height)
+            .allowsHitTesting(false)
+    }
+}
+
+/// The narration subtitle bar: rounded black bar, white text, bottom center.
+/// Geometry comes from SubtitleBarMetrics so the exporter draws the
+/// identical bar.
+private struct StudioSubtitleBarView: View {
+    let text: String
+    let cardSize: CGSize
+
+    var body: some View {
+        let metrics = SubtitleBarMetrics(cardHeight: cardSize.height)
+
+        Text(text)
+            .font(.system(size: metrics.fontSize, weight: .semibold, design: .rounded))
+            .foregroundStyle(.white)
+            .lineLimit(1)
+            .fixedSize()
+            .padding(.horizontal, metrics.paddingHorizontal)
+            .padding(.vertical, metrics.paddingVertical)
+            .background(
+                RoundedRectangle(cornerRadius: metrics.cornerRadius, style: .continuous)
+                    .fill(.black.opacity(SubtitleBarMetrics.backgroundAlpha))
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
             .padding(metrics.margin)
             .frame(width: cardSize.width, height: cardSize.height)
             .allowsHitTesting(false)
@@ -1228,6 +1266,7 @@ private enum StudioInspectorSection: Hashable {
     case motion
     case cursor
     case keystrokes
+    case transcription
     case camera
     case export
 }
@@ -1349,6 +1388,23 @@ private struct StudioInspector: View {
                         }
                     ) {
                         keystrokeControls
+                    }
+                }
+
+                if model.canTranscribe || model.hasSubtitles {
+                    InspectorDisclosureSection(
+                        title: "Transcription",
+                        isExpanded: expansionBinding(for: .transcription),
+                        accessory: {
+                            if model.hasSubtitles {
+                                Toggle("Show subtitles", isOn: $model.showsSubtitles)
+                                    .labelsHidden()
+                                    .toggleStyle(.switch)
+                                    .controlSize(.mini)
+                            }
+                        }
+                    ) {
+                        transcriptionControls
                     }
                 }
 
@@ -1735,6 +1791,62 @@ private struct StudioInspector: View {
             onTap: { model.keystrokePlacement = $0 },
             label: { Text($0.title).font(.inspectorLabel) }
         )
+    }
+
+    // MARK: Transcription
+
+    @ViewBuilder
+    private var transcriptionControls: some View {
+        VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
+            switch model.transcriptionState {
+            case .transcribing:
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Transcribing narration…")
+                        .font(.inspectorLabel)
+                        .foregroundStyle(.secondary)
+                }
+            case .failed(let message):
+                Text(message)
+                    .font(.inspectorLabel)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                inspectorAction("Try Again", systemImage: "waveform") {
+                    model.transcribe()
+                }
+            case .idle:
+                if model.hasSubtitles {
+                    Text("\(model.subtitleTimeline.count) subtitles from your narration appear at the bottom of the video.")
+                        .font(.inspectorLabel)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    if model.canTranscribe {
+                        inspectorAction("Transcribe Again", systemImage: "waveform") {
+                            model.transcribe()
+                        }
+                    }
+                    inspectorAction(
+                        "Remove Subtitles",
+                        systemImage: "trash",
+                        role: .destructive
+                    ) {
+                        model.removeTranscription()
+                    }
+                } else {
+                    inspectorAction("Transcribe Narration", systemImage: "waveform") {
+                        model.transcribe()
+                    }
+
+                    Text("Turns your microphone narration into subtitles, transcribed on this Mac.")
+                        .font(.inspectorLabel)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
     }
 
     // MARK: Camera
