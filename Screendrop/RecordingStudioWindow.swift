@@ -71,23 +71,6 @@ private struct RecordingStudioContent: View {
                 exportStatus
 
                 Button {
-                    model.export()
-                } label: {
-                    if model.exportState.isExporting {
-                        HStack(spacing: 6) {
-                            ProgressView()
-                                .controlSize(.small)
-                            Text("Exporting…")
-                        }
-                    } else {
-                        Label("Export", systemImage: "arrow.down.circle")
-                            .labelStyle(.titleAndIcon)
-                    }
-                }
-                .tint(.accentColor)
-                .disabled(!model.isLoaded || model.exportState.isExporting)
-
-                Button {
                     isInspectorPresented.toggle()
                 } label: {
                     Image(systemName: "sidebar.right")
@@ -115,23 +98,89 @@ private struct RecordingStudioContent: View {
     private var exportStatus: some View {
         switch model.exportState {
         case .idle:
-            EmptyView()
-        case .exporting(let progress):
-            ProgressView(value: progress)
-                .frame(width: 92)
-        case .finished(let url):
             Button {
-                NSWorkspace.shared.activateFileViewerSelecting([url])
+                model.export()
             } label: {
-                Label("Reveal", systemImage: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
+                Label("Export", systemImage: "arrow.down.circle")
+                    .labelStyle(.titleAndIcon)
             }
-            .help("Reveal exported recording in Finder")
+            .tint(.accentColor)
+            .disabled(!model.isLoaded)
+        case .exporting(let progress):
+            ExportProgressPill(progress: progress) {
+                model.cancelExport()
+            }
+        case .finished(let url):
+            HStack(spacing: 6) {
+                Button {
+                    NSWorkspace.shared.activateFileViewerSelecting([url])
+                } label: {
+                    Label("Reveal", systemImage: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                }
+                .help("Reveal exported recording in Finder")
+
+                Button {
+                    model.export()
+                } label: {
+                    Image(systemName: "arrow.down.circle")
+                }
+                .help("Export Again")
+            }
         case .failed(let message):
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.orange)
-                .help(message)
+            HStack(spacing: 6) {
+                Label("Export Failed", systemImage: "exclamationmark.triangle.fill")
+                    .labelStyle(.titleAndIcon)
+                    .foregroundStyle(.orange)
+                    .help(message)
+
+                Button {
+                    model.export()
+                } label: {
+                    Text("Retry")
+                }
+            }
         }
+    }
+}
+
+/// Single pill that replaces the old "Exporting…" button plus a separate
+/// progress bar with one control: a ring showing percent complete, the
+/// number itself, and a way to actually stop the export.
+private struct ExportProgressPill: View {
+    let progress: Double
+    let onCancel: () -> Void
+
+    var body: some View {
+        HStack(spacing: 6) {
+            ZStack {
+                Circle()
+                    .stroke(Color.primary.opacity(0.15), lineWidth: 2)
+                Circle()
+                    .trim(from: 0, to: max(0.03, min(1, progress)))
+                    .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+            }
+            .frame(width: 14, height: 14)
+            .animation(.easeOut(duration: 0.15), value: progress)
+
+            Text("Exporting \(Int((progress * 100).rounded()))%")
+                .font(.system(size: 12, weight: .medium).monospacedDigit())
+                .foregroundStyle(.primary.opacity(0.85))
+                .fixedSize()
+                .contentTransition(.numericText())
+
+            Button(action: onCancel) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 8.5, weight: .bold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 16, height: 16)
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .help("Cancel Export")
+        }
+        .padding(.leading, 6)
     }
 }
 
@@ -1099,43 +1148,6 @@ private struct StudioInspector: View {
                 // Selection editing always surfaces at the top, the way object
                 // inspectors do, so clicking a zoom block on the timeline maps
                 // to one stable place and the sections below never reshuffle.
-                if let selectedClip = model.selectedClip {
-                    InspectorSection(
-                        title: "Selected Clip",
-                        accessory: {
-                            if let index = model.clipTimeline.segments.firstIndex(where: {
-                                $0.id == selectedClip.id
-                            }) {
-                                Text("\(index + 1) of \(model.clipTimeline.segments.count)")
-                                    .font(.inspectorNumeric)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    ) {
-                        VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
-                            HStack(spacing: 8) {
-                                Text("Duration")
-                                    .font(.inspectorLabel)
-                                    .foregroundStyle(.primary.opacity(0.82))
-                                Spacer(minLength: 8)
-                                Text(studioPreciseTimecode(selectedClip.duration))
-                                    .font(.inspectorNumeric)
-                                    .foregroundStyle(.secondary)
-                            }
-
-                            inspectorAction(
-                                "Delete Clip",
-                                systemImage: "trash",
-                                role: .destructive
-                            ) {
-                                model.deleteSelectedClip()
-                            }
-                            .disabled(!model.canDeleteSelectedClip)
-                        }
-                    }
-                    InspectorSectionDivider()
-                }
-
                 if let selected = model.selectedCue {
                     InspectorSection(
                         title: "Selected Zoom",
@@ -1205,21 +1217,6 @@ private struct StudioInspector: View {
                     zoomControls
                 }
 
-                if model.hasCameraVideo {
-                    InspectorDisclosureSection(
-                        title: "Camera",
-                        isExpanded: expansionBinding(for: .camera),
-                        accessory: {
-                            Toggle("Show camera", isOn: $model.style.camera.isVisible)
-                                .labelsHidden()
-                                .toggleStyle(.switch)
-                                .controlSize(.mini)
-                        }
-                    ) {
-                        cameraControls
-                    }
-                }
-
                 if model.pointerIsSynthesized {
                     InspectorDisclosureSection(
                         title: "Cursor",
@@ -1233,6 +1230,21 @@ private struct StudioInspector: View {
                         }
                     ) {
                         cursorControls
+                    }
+                }
+
+                if model.hasCameraVideo {
+                    InspectorDisclosureSection(
+                        title: "Camera",
+                        isExpanded: expansionBinding(for: .camera),
+                        accessory: {
+                            Toggle("Show camera", isOn: $model.style.camera.isVisible)
+                                .labelsHidden()
+                                .toggleStyle(.switch)
+                                .controlSize(.mini)
+                        }
+                    ) {
+                        cameraControls
                     }
                 }
 

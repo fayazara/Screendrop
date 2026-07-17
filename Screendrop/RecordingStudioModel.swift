@@ -839,6 +839,8 @@ final class RecordingStudioModel {
                 self?.exportState = .finished(savedURL)
             } catch is CancellationError {
                 self?.exportState = .idle
+            } catch RecordingStudioExporter.ExportError.cancelled {
+                self?.exportState = .idle
             } catch {
                 self?.exportState = .failed(error.localizedDescription)
             }

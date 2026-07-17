@@ -155,8 +155,8 @@ final class RecordingClipTimelineControl: NSView {
         static let trackRadius: CGFloat = 10
         static let trackInset: CGFloat = 2
         static let clipRadius = trackRadius - trackInset
-        static let selectionPadding = trackRadius - clipRadius
-        static let splitGap: CGFloat = selectionPadding * 2
+        static let selectionPadding: CGFloat = 3
+        static let splitGap: CGFloat = trackInset * 2
         static let handleHitWidth: CGFloat = 10
         static let selectionHandleInset: CGFloat = 5
         static let selectionHandleGrooveWidth: CGFloat = 3
