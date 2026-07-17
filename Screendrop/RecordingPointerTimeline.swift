@@ -31,7 +31,7 @@ nonisolated struct PointerTimeline: Sendable {
     private static let interceptWindow: TimeInterval = 0.175
     private static let pressAnticipation: TimeInterval = 0.13
     private static let orphanPressHold: TimeInterval = 0.15
-    private static let pulseDuration: TimeInterval = 0.15
+    private static let pulseDuration: TimeInterval = 0.4
     private static let tiltSampleWindow: TimeInterval = 0.4
     private static let tiltGain = 0.03
     private static let tiltWeight = 0.5

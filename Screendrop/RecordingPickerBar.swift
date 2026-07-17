@@ -5,8 +5,9 @@
 //  The pre-record floating bar. "Record" anywhere in the app opens this
 //  panel at the bottom of the active screen; it picks the source (display /
 //  window / area) and toggles the capture inputs (camera, microphone,
-//  system audio, mouse clicks, key captions) for the next recording, then
-//  hands off to CaptureCoordinator. Replaces the old nested menus.
+//  system audio) for the next recording, then hands off to
+//  CaptureCoordinator. Clicks and keystrokes are always logged to the
+//  session sidecar; whether they appear is decided later in Studio.
 //
 
 import AppKit
@@ -121,8 +122,6 @@ private struct RecordingPickerView: View {
     @AppStorage(ScreendropPreferences.recordingCameraDeviceIDKey) private var cameraID = ""
     @AppStorage(ScreendropPreferences.recordingMicrophoneDeviceIDKey) private var microphoneID = ""
     @AppStorage(ScreendropPreferences.recordingSystemAudioKey) private var systemAudio = false
-    @AppStorage(ScreendropPreferences.showRecordingMouseIndicatorsKey) private var showMouseClicks = true
-    @AppStorage(ScreendropPreferences.showRecordingKeyPressCaptionsKey) private var showKeyCaptions = false
 
     var body: some View {
         HStack(spacing: 6) {
@@ -161,24 +160,6 @@ private struct RecordingPickerView: View {
                 help: systemAudio ? "System audio on" : "System audio off"
             ) {
                 systemAudio.toggle()
-            }
-
-            inputToggle(
-                isOn: showMouseClicks,
-                onIcon: "cursorarrow.click.2",
-                offIcon: "cursorarrow.slash",
-                help: showMouseClicks ? "Mouse click effects on" : "Mouse click effects off"
-            ) {
-                showMouseClicks.toggle()
-            }
-
-            inputToggle(
-                isOn: showKeyCaptions,
-                onIcon: "keyboard.fill",
-                offIcon: "keyboard",
-                help: showKeyCaptions ? "Keystroke captions on" : "Keystroke captions off"
-            ) {
-                showKeyCaptions.toggle()
             }
 
             barDivider

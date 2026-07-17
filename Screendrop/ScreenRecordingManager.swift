@@ -117,6 +117,7 @@ final class ScreenRecordingManager {
     private let capture = ScreenRecordingCapture()
     private let writer = ScreenRecordingWriter()
     private let pointerActivityRecorder = PointerActivityRecorder()
+    private let keystrokeRecorder = RecordingKeystrokeRecorder()
     private var displayID: CGDirectDisplayID?
     private var session: RecordingSession?
     private var manifest = CaptureManifest()
@@ -175,26 +176,13 @@ final class ScreenRecordingManager {
                 let content = try await ScreenRecordingCapture.availableContent()
                 guard isStarting(session: session) else { return }
                 let target = try Self.captureTarget(for: source, content: content, options: options)
-                let showsCursorClickEffects = ScreendropPreferences.showRecordingMouseIndicators
-                if showsCursorClickEffects {
-                    // Keep the live recording overlay, but leave the screen
-                    // master untouched so Studio can edit/re-render feedback.
-                    _ = RecordingMouseIndicatorController.shared.start(
-                        mapping: target.mouseIndicatorMapping
-                    )
-                }
-                let keyCaptionStore = ScreendropPreferences.showRecordingKeyPressCaptions
-                    ? RecordingKeyCaptionController.shared.start(mapping: target.keyCaptionMapping)
-                    : nil
 
                 try writer.setupWriter(
                     outputURL: session.screenURL,
                     videoWidth: target.width,
                     videoHeight: target.height,
                     includesSystemAudio: options.capturesSystemAudio,
-                    includesMicrophone: options.microphoneDeviceID != nil,
-                    mouseIndicatorStore: nil,
-                    keyCaptionStore: keyCaptionStore
+                    includesMicrophone: options.microphoneDeviceID != nil
                 )
 
                 capture.onVideoFrame = { [writer, pointerActivityRecorder] sampleBuffer in
@@ -235,9 +223,10 @@ final class ScreenRecordingManager {
                 // one host-clock timeline. Pre-frame events are discarded when
                 // the writer's first presentation timestamp becomes known.
                 pointerActivityRecorder.start(
-                    mapping: target.mouseIndicatorMapping,
+                    mapping: target.inputMapping,
                     tracksDynamicGeometry: target.tracksDynamicGeometry
                 )
+                keystrokeRecorder.start()
 
                 // Camera setup and every permission prompt complete before the
                 // screen stream begins, so setup UI is never baked into video.
@@ -251,7 +240,9 @@ final class ScreenRecordingManager {
                 manifest.sourceDisplayID = target.displayID
                 manifest.pointerSynthesized = true
                 manifest.pressEffectsBaked = false
-                manifest.pressEffectsEnabled = showsCursorClickEffects
+                // Press feedback is a Studio-side choice now; the manifest
+                // keeps the field so older builds still render the effects.
+                manifest.pressEffectsEnabled = true
                 manifest.includesSystemAudio = options.capturesSystemAudio
                 manifest.includesMicrophone = options.microphoneDeviceID != nil
                 if !cameraStarted {
@@ -282,9 +273,8 @@ final class ScreenRecordingManager {
 
         writer.pause()
         pointerActivityRecorder.pause()
+        keystrokeRecorder.pause()
         CameraRecordingManager.shared.pause()
-        RecordingMouseIndicatorController.shared.pause()
-        RecordingKeyCaptionController.shared.pause()
         pausedAt = Date()
         state = .paused
         updateElapsedTime()
@@ -300,9 +290,8 @@ final class ScreenRecordingManager {
         self.pausedAt = nil
         writer.resume()
         pointerActivityRecorder.resume()
+        keystrokeRecorder.resume()
         CameraRecordingManager.shared.resume()
-        RecordingMouseIndicatorController.shared.resume()
-        RecordingKeyCaptionController.shared.resume()
         state = .recording
         updateElapsedTime()
     }
@@ -344,6 +333,7 @@ final class ScreenRecordingManager {
         state = .finishing
         timer?.invalidate()
         pointerActivityRecorder.stop()
+        keystrokeRecorder.stop()
 
         Task {
             do {
@@ -374,7 +364,11 @@ final class ScreenRecordingManager {
                 manifest.cameraHeight = cameraResult.pixelHeight
             }
             if let sessionStart = result.sessionStartUptime {
-                let capture = pointerActivityRecorder.finish(sessionStartUptime: sessionStart, duration: result.duration)
+                var capture = pointerActivityRecorder.finish(sessionStartUptime: sessionStart, duration: result.duration)
+                capture.keystrokes = keystrokeRecorder.finish(
+                    sessionStartUptime: sessionStart,
+                    duration: result.duration
+                )
                 do {
                     try session.writePointerCapture(capture)
                 } catch {
@@ -649,9 +643,8 @@ final class ScreenRecordingManager {
         capture.onError = nil
         writer.onFailure = nil
         pointerActivityRecorder.stop()
+        keystrokeRecorder.stop()
         endActivity()
-        RecordingMouseIndicatorController.shared.stop()
-        RecordingKeyCaptionController.shared.stop()
         session = nil
         displayID = nil
         currentSource = nil
@@ -719,12 +712,7 @@ final class ScreenRecordingManager {
             sourceRect: sourceRect,
             options: options
         )
-        let mouseIndicatorMapping = RecordingMouseIndicatorMapping(
-            captureRect: captureRect,
-            pixelWidth: width,
-            pixelHeight: height
-        )
-        let keyCaptionMapping = RecordingKeyCaptionMapping(
+        let inputMapping = RecordingInputMapping(
             captureRect: captureRect,
             pixelWidth: width,
             pixelHeight: height
@@ -737,8 +725,7 @@ final class ScreenRecordingManager {
             displayID: displayID,
             pointPixelScale: Double(scaleFactor),
             tracksDynamicGeometry: tracksDynamicGeometry,
-            mouseIndicatorMapping: mouseIndicatorMapping,
-            keyCaptionMapping: keyCaptionMapping
+            inputMapping: inputMapping
         )
     }
 
@@ -807,8 +794,7 @@ private struct ScreenRecordingCaptureTarget {
     let displayID: CGDirectDisplayID?
     let pointPixelScale: Double
     let tracksDynamicGeometry: Bool
-    let mouseIndicatorMapping: RecordingMouseIndicatorMapping
-    let keyCaptionMapping: RecordingKeyCaptionMapping
+    let inputMapping: RecordingInputMapping
 }
 
 nonisolated enum ScreenRecordingAudioKind: Sendable {
@@ -975,8 +961,6 @@ nonisolated private final class ScreenRecordingWriter: @unchecked Sendable {
     private var totalPauseDuration: CMTime = .zero
     private var latestAdjustedTime: CMTime = .zero
     private var needsPauseDurationUpdate = false
-    private var mouseIndicatorStore: RecordingMouseIndicatorStore?
-    private var keyCaptionStore: RecordingKeyCaptionStore?
     private var failureError: Error?
     private var didReportFailure = false
 
@@ -987,9 +971,7 @@ nonisolated private final class ScreenRecordingWriter: @unchecked Sendable {
         videoWidth: Int,
         videoHeight: Int,
         includesSystemAudio: Bool,
-        includesMicrophone: Bool,
-        mouseIndicatorStore: RecordingMouseIndicatorStore?,
-        keyCaptionStore: RecordingKeyCaptionStore?
+        includesMicrophone: Bool
     ) throws {
         try? FileManager.default.removeItem(at: outputURL)
 
@@ -1050,8 +1032,6 @@ nonisolated private final class ScreenRecordingWriter: @unchecked Sendable {
             self.microphoneInput = microphoneInput
             pixelBufferAdaptor = adaptor
             self.outputURL = outputURL
-            self.mouseIndicatorStore = mouseIndicatorStore
-            self.keyCaptionStore = keyCaptionStore
             isSessionStarted = false
             sessionStartTime = nil
             isPaused = false
@@ -1121,13 +1101,6 @@ nonisolated private final class ScreenRecordingWriter: @unchecked Sendable {
                 let adjustedPTS = self.adjustedTime(time)
                 guard adjustedPTS >= .zero, self.checkWriterHealth() else { return }
                 guard videoInput.isReadyForMoreMediaData else { return }
-
-                if let snapshot = self.mouseIndicatorStore?.snapshot(at: adjustedPTS.seconds) {
-                    RecordingMouseIndicatorRenderer.render(snapshot: snapshot, into: pixelBuffer)
-                }
-                if let snapshot = self.keyCaptionStore?.snapshot(at: adjustedPTS.seconds) {
-                    RecordingKeyCaptionRenderer.render(snapshot: snapshot, into: pixelBuffer)
-                }
 
                 if pixelBufferAdaptor.append(pixelBuffer, withPresentationTime: adjustedPTS) {
                     self.latestAdjustedTime = adjustedPTS
@@ -1310,8 +1283,6 @@ nonisolated private final class ScreenRecordingWriter: @unchecked Sendable {
         microphoneInput = nil
         pixelBufferAdaptor = nil
         outputURL = nil
-        mouseIndicatorStore = nil
-        keyCaptionStore = nil
         isSessionStarted = false
         sessionStartTime = nil
         isPaused = false

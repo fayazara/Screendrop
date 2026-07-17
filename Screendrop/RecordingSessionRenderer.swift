@@ -77,6 +77,10 @@ enum RecordingSessionRenderer {
                 sourceDuration: duration
             )
         }
+        let showsPressEffects = pointerSynthesized
+            && manifest?.pressEffectsBaked == false
+            && (document?.showsClickEffects ?? manifest?.pressEffectsEnabled ?? true)
+        let showsKeystrokes = (document?.showsKeystrokes ?? true) && !capture.keystrokes.isEmpty
         let configuration = RecordingStudioExporter.Configuration(
             screenURL: session.screenURL,
             cameraURL: session.hasCamera ? session.cameraURL : nil,
@@ -91,8 +95,11 @@ enum RecordingSessionRenderer {
                     fallbackArtwork: PointerArtworkCapture.defaultArtwork()
                 )
                 : nil,
-            showsPressEffects: manifest?.pressEffectsBaked == false
-                && manifest?.pressEffectsEnabled == true,
+            showsPressEffects: showsPressEffects,
+            keystrokeTimeline: showsKeystrokes
+                ? KeystrokeCaptionTimeline(events: capture.keystrokes)
+                : nil,
+            keystrokePlacement: document?.keystrokePlacement ?? .bottomCenter,
             canvasSize: canvasSize,
             clipTimeline: clipTimeline,
             exportSettings: document?.exportSettings ?? VideoCompressionSettings()

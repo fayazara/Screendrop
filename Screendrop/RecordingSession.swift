@@ -145,10 +145,24 @@ nonisolated struct PointerCaptureFile: Codable, Sendable, Equatable {
     var formatVersion = Self.currentFormatVersion
     var travel: [PointerTravelSample] = []
     var presses: [PointerPressEvent] = []
+    var keystrokes: [RecordingKeystrokeEvent] = []
     var artwork: [PointerArtwork] = []
     /// Prevents deterministic cleanup from being applied repeatedly when the
     /// same sidecar passes through Studio, flattening, and export builders.
     var isSanitized = false
+}
+
+/// A completed keyboard chord captured during recording: a special key press
+/// (Tab, Esc, arrows, …) or a modifier shortcut (⌘C). Plain typing is never
+/// recorded. Labels are display-ready strings so Studio and export render
+/// exactly what was captured without re-deriving key names.
+nonisolated struct RecordingKeystrokeEvent: Codable, Sendable, Equatable {
+    /// Seconds on the screen movie timeline.
+    var time: TimeInterval
+    /// Held modifier symbols in keyboard order, e.g. ["⌃", "⌘"].
+    var modifiers: [String] = []
+    /// The trigger key's label, e.g. "K", "⇥", "esc".
+    var key: String
 }
 
 nonisolated struct PointerTravelSample: Codable, Sendable, Equatable {
@@ -207,6 +221,7 @@ extension PointerCaptureFile {
         case formatVersion
         case travel
         case presses
+        case keystrokes
         case artwork
         case isSanitized
     }
@@ -216,6 +231,10 @@ extension PointerCaptureFile {
         formatVersion = try container.decodeIfPresent(Int.self, forKey: .formatVersion) ?? 1
         travel = try container.decodeIfPresent([PointerTravelSample].self, forKey: .travel) ?? []
         presses = try container.decodeIfPresent([PointerPressEvent].self, forKey: .presses) ?? []
+        keystrokes = try container.decodeIfPresent(
+            [RecordingKeystrokeEvent].self,
+            forKey: .keystrokes
+        ) ?? []
         artwork = try container.decodeIfPresent(
             [PointerArtwork].self,
             forKey: .artwork
@@ -228,6 +247,7 @@ extension PointerCaptureFile {
         try container.encode(formatVersion, forKey: .formatVersion)
         try container.encode(travel, forKey: .travel)
         try container.encode(presses, forKey: .presses)
+        try container.encode(keystrokes, forKey: .keystrokes)
         try container.encode(artwork, forKey: .artwork)
         try container.encode(isSanitized, forKey: .isSanitized)
     }

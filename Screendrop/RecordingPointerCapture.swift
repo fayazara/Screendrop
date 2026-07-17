@@ -14,6 +14,15 @@ import CoreMedia
 import Foundation
 import ScreenCaptureKit
 
+/// Where the capture lives on screen (AppKit coordinates) and how large the
+/// written surface is in pixels. Input events are normalized through this
+/// mapping into recording coordinates.
+nonisolated struct RecordingInputMapping: Sendable {
+    let captureRect: CGRect
+    let pixelWidth: Int
+    let pixelHeight: Int
+}
+
 nonisolated final class PointerActivityRecorder: NSObject, @unchecked Sendable {
     private struct CapturedPointerSample {
         let uptime: TimeInterval
@@ -43,7 +52,7 @@ nonisolated final class PointerActivityRecorder: NSObject, @unchecked Sendable {
     }
 
     private let lock = NSLock()
-    private var mapping: RecordingMouseIndicatorMapping?
+    private var mapping: RecordingInputMapping?
     private var tracksDynamicGeometry = false
     private var samples: [CapturedPointerSample] = []
     private var presses: [CapturedPressEvent] = []
@@ -66,7 +75,7 @@ nonisolated final class PointerActivityRecorder: NSObject, @unchecked Sendable {
 
     @MainActor
     func start(
-        mapping: RecordingMouseIndicatorMapping,
+        mapping: RecordingInputMapping,
         tracksDynamicGeometry: Bool = false
     ) {
         stop()
@@ -639,7 +648,7 @@ nonisolated final class PointerActivityRecorder: NSObject, @unchecked Sendable {
     private func normalizedPoint(
         for screenPoint: CGPoint,
         at uptime: TimeInterval,
-        mapping: RecordingMouseIndicatorMapping
+        mapping: RecordingInputMapping
     ) -> (x: Double, y: Double)? {
         if tracksDynamicGeometry,
            let geometry = geometry(at: uptime),

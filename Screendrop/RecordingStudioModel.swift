@@ -60,9 +60,21 @@ final class RecordingStudioModel {
     var exportSettings = VideoCompressionSettings() {
         didSet { scheduleProjectSave() }
     }
+    /// Studio-side input feedback: both are reconstructed from the sidecar,
+    /// so they can be toggled after the fact without touching the footage.
+    var showsClickEffects = true {
+        didSet { scheduleProjectSave() }
+    }
+    var showsKeystrokes = true {
+        didSet { scheduleProjectSave() }
+    }
+    var keystrokePlacement: RecordingKeystrokePlacement = .bottomCenter {
+        didSet { scheduleProjectSave() }
+    }
     private(set) var zoomCues: [ZoomCue] = []
     private(set) var viewportTimeline = ViewportTimeline.identity
     private(set) var pointerTimeline = PointerTimeline.empty
+    private(set) var keystrokeTimeline = KeystrokeCaptionTimeline.empty
     var selectedCueID: UUID?
     private(set) var clipTimeline = RecordingClipTimeline(segments: [])
     var selectedClipID: UUID?
@@ -149,6 +161,7 @@ final class RecordingStudioModel {
             recordedPressTimes = pointerCapture.presses
                 .filter { $0.phase == .down }
                 .map(\.time)
+            keystrokeTimeline = KeystrokeCaptionTimeline(events: pointerCapture.keystrokes)
         }
 
         if let session, session.hasCamera {
@@ -163,11 +176,17 @@ final class RecordingStudioModel {
 
         let document = session?.loadEditDocument()
         lastSavedDocument = document
+        // Sessions recorded before the toggle moved into Studio stored the
+        // choice in the manifest; honor it as the default.
+        showsClickEffects = manifest?.pressEffectsEnabled ?? true
         if let document {
             style = document.style.value
             zoomEnabled = document.zoomEnabled
             zoomCues = document.zoomCues
             exportSettings = document.exportSettings ?? VideoCompressionSettings()
+            showsClickEffects = document.showsClickEffects ?? showsClickEffects
+            showsKeystrokes = document.showsKeystrokes ?? true
+            keystrokePlacement = document.keystrokePlacement ?? .bottomCenter
         } else if session == nil {
             // Legacy bare movies use the same editor, but open visually
             // unchanged until the user explicitly adds styling.
@@ -736,7 +755,10 @@ final class RecordingStudioModel {
             zoomEnabled: zoomEnabled,
             zoomCues: zoomCues.filter { !$0.isImplicit },
             clipTimeline: clipTimeline,
-            exportSettings: exportSettings
+            exportSettings: exportSettings,
+            showsClickEffects: showsClickEffects,
+            showsKeystrokes: showsKeystrokes,
+            keystrokePlacement: keystrokePlacement
         )
         guard document != lastSavedDocument else {
             hasUnsavedChanges = false
@@ -782,9 +804,24 @@ final class RecordingStudioModel {
         pointerTimeline.artwork(id: id)
     }
 
+    /// Legacy sessions may already contain baked-in press feedback; only
+    /// sidecar-reconstructed sessions can re-render it on demand.
+    var canShowPressEffects: Bool {
+        pointerIsSynthesized && manifest?.pressEffectsBaked == false
+    }
+
     var showsPressEffects: Bool {
-        manifest?.pressEffectsBaked == false
-            && manifest?.pressEffectsEnabled == true
+        canShowPressEffects && showsClickEffects
+    }
+
+    var hasKeystrokes: Bool {
+        !keystrokeTimeline.isEmpty
+    }
+
+    /// Caption to draw over the card right now; nil when hidden or silent.
+    func keystrokeCaption(at time: TimeInterval) -> KeystrokeCaptionFrame? {
+        guard showsKeystrokes, hasKeystrokes else { return nil }
+        return keystrokeTimeline.frame(at: clipTimeline.sourceTime(at: time))
     }
 
     private var recordingPointSize: CGSize {
@@ -813,6 +850,8 @@ final class RecordingStudioModel {
             viewportTimeline: zoomEnabled ? viewportTimeline : .identity,
             pointerTimeline: pointerIsSynthesized ? pointerTimeline : nil,
             showsPressEffects: showsPressEffects,
+            keystrokeTimeline: showsKeystrokes && hasKeystrokes ? keystrokeTimeline : nil,
+            keystrokePlacement: keystrokePlacement,
             canvasSize: videoSize,
             clipTimeline: clipTimeline,
             exportSettings: exportSettings

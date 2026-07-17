@@ -63,6 +63,8 @@ struct ScreendropApp: App {
             if AfterCaptureActions.isEnabled(.showOverlay, for: .screenshot) {
                 PreviewPanelPresenter.shared.show(displayID: displayID)
             }
+
+            return historyURL
         }
 
         ScreenRecordingManager.shared.onFinishRecording = { session, displayID in

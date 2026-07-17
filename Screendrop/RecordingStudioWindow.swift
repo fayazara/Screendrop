@@ -237,6 +237,17 @@ private struct StudioCanvas: View {
                             }
                         }
                         .clipShape(RoundedRectangle(cornerRadius: layout.cardCornerRadius, style: .continuous))
+                        .overlay {
+                            // Keystroke caption in card space: pinned to its
+                            // edge, unaffected by the zoom transform.
+                            if let caption = model.keystrokeCaption(at: model.displayTime) {
+                                StudioKeystrokeCaptionView(
+                                    caption: caption,
+                                    placement: model.keystrokePlacement,
+                                    cardSize: layout.cardRect.size
+                                )
+                            }
+                        }
                         .shadow(
                             color: .black.opacity(model.style.background == .none ? 0 : 0.55 * model.style.shadow),
                             radius: min(canvasSize.width, canvasSize.height) * 0.045 * model.style.shadow,
@@ -281,21 +292,18 @@ private struct StudioCursorOverlay: View {
 
         ZStack(alignment: .topLeading) {
             if showsClickEffect, let progress = pointer.pressPulse {
-                let eased = 1 - pow(1 - progress, 3)
-                let baseRadius = cardSize.height
-                    * (16 / 1_080)
-                    * state.magnification
-                    * cursorScale
+                let radius = PointerPressEffectStyle.radius(
+                    progress: progress,
+                    referenceHeight: cardSize.height * state.magnification,
+                    cursorScale: cursorScale
+                )
+                let accent = PointerPressEffectStyle.color
                 Circle()
-                    .stroke(
-                        Color(red: 0, green: 122 / 255, blue: 1)
-                            .opacity(1 - progress),
-                        lineWidth: max(1, cardSize.height * (2 / 1_080) * state.magnification)
+                    .fill(
+                        Color(red: accent.red, green: accent.green, blue: accent.blue)
+                            .opacity(PointerPressEffectStyle.opacity(progress: progress))
                     )
-                    .frame(
-                        width: baseRadius * 2 * (0.75 + 0.55 * eased),
-                        height: baseRadius * 2 * (0.75 + 0.55 * eased)
-                    )
+                    .frame(width: radius * 2, height: radius * 2)
                     .position(x: tip.x, y: tip.y)
             }
 
@@ -332,6 +340,50 @@ private struct StudioCursorOverlay: View {
         }
         .frame(width: cardSize.width, height: cardSize.height)
         .allowsHitTesting(false)
+    }
+}
+
+/// The keystroke caption pill: one rounded container with the chord's
+/// modifiers and key. Geometry comes from KeystrokeCaptionMetrics so the
+/// exporter draws the identical pill.
+private struct StudioKeystrokeCaptionView: View {
+    let caption: KeystrokeCaptionFrame
+    let placement: RecordingKeystrokePlacement
+    let cardSize: CGSize
+
+    var body: some View {
+        let metrics = KeystrokeCaptionMetrics(cardHeight: cardSize.height)
+        let (modifiers, key) = KeystrokeCaptionMetrics.text(for: caption)
+
+        (Text(modifiers).foregroundStyle(.white.opacity(KeystrokeCaptionMetrics.modifierAlpha))
+            + Text(key).foregroundStyle(.white))
+            .font(.system(size: metrics.fontSize, weight: .semibold, design: .rounded))
+            .lineLimit(1)
+            .padding(.horizontal, metrics.paddingHorizontal)
+            .padding(.vertical, metrics.paddingVertical)
+            .background(
+                RoundedRectangle(cornerRadius: metrics.cornerRadius, style: .continuous)
+                    .fill(.black.opacity(KeystrokeCaptionMetrics.backgroundAlpha))
+            )
+            .scaleEffect(caption.scale)
+            .opacity(caption.opacity)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: placement.alignment)
+            .padding(metrics.margin)
+            .frame(width: cardSize.width, height: cardSize.height)
+            .allowsHitTesting(false)
+    }
+}
+
+private extension RecordingKeystrokePlacement {
+    var alignment: Alignment {
+        switch self {
+        case .topLeft: .topLeading
+        case .topCenter: .top
+        case .topRight: .topTrailing
+        case .bottomLeft: .bottomLeading
+        case .bottomCenter: .bottom
+        case .bottomRight: .bottomTrailing
+        }
     }
 }
 
@@ -1128,6 +1180,7 @@ private enum StudioInspectorSection: Hashable {
     case layout
     case motion
     case cursor
+    case keystrokes
     case camera
     case export
 }
@@ -1230,6 +1283,21 @@ private struct StudioInspector: View {
                         }
                     ) {
                         cursorControls
+                    }
+                }
+
+                if model.hasKeystrokes {
+                    InspectorDisclosureSection(
+                        title: "Keystrokes",
+                        isExpanded: expansionBinding(for: .keystrokes),
+                        accessory: {
+                            Toggle("Show keystrokes", isOn: $model.showsKeystrokes)
+                                .labelsHidden()
+                                .toggleStyle(.switch)
+                                .controlSize(.mini)
+                        }
+                    ) {
+                        keystrokeControls
                     }
                 }
 
@@ -1544,7 +1612,55 @@ private struct StudioInspector: View {
                 range: 1...4,
                 format: .magnification(fractionDigits: 1)
             )
+
+            if model.canShowPressEffects {
+                HStack(spacing: 8) {
+                    Text("Click highlights")
+                        .font(.inspectorLabel)
+                        .foregroundStyle(.primary.opacity(0.82))
+
+                    Spacer(minLength: 8)
+
+                    Toggle("Click highlights", isOn: $model.showsClickEffects)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                }
+            }
         }
+    }
+
+    // MARK: Keystrokes
+
+    private var keystrokeControls: some View {
+        VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
+            VStack(alignment: .leading, spacing: InspectorMetrics.groupLabelSpacing) {
+                InspectorGroupLabel("Top")
+                keystrokePlacementRow([.topLeft, .topCenter, .topRight])
+            }
+            VStack(alignment: .leading, spacing: InspectorMetrics.groupLabelSpacing) {
+                InspectorGroupLabel("Bottom")
+                keystrokePlacementRow([.bottomLeft, .bottomCenter, .bottomRight])
+            }
+
+            Text("Shortcuts you pressed while recording appear as a caption here.")
+                .font(.inspectorLabel)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .disabled(!model.showsKeystrokes)
+        .opacity(model.showsKeystrokes ? 1 : 0.48)
+    }
+
+    private func keystrokePlacementRow(
+        _ options: [RecordingKeystrokePlacement]
+    ) -> some View {
+        InspectorSegmented(
+            options: options,
+            isSelected: { $0 == model.keystrokePlacement },
+            onTap: { model.keystrokePlacement = $0 },
+            label: { Text($0.title).font(.inspectorLabel) }
+        )
     }
 
     // MARK: Camera

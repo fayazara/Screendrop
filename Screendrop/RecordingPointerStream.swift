@@ -116,6 +116,7 @@ nonisolated enum PointerStreamSanitizer {
         sanitized.formatVersion = PointerCaptureFile.currentFormatVersion
         sanitized.travel = sanitizedTravel
         sanitized.presses = sanitizedPresses
+        sanitized.keystrokes = sanitizedKeystrokes(capture.keystrokes)
         sanitized.artwork = artwork
         sanitized.isSanitized = true
         return buildStream(from: sanitized)
@@ -230,6 +231,19 @@ nonisolated enum PointerStreamSanitizer {
                 && toNext > spikeDistanceFloor
                 && neighbors < spikeNeighborCeiling)
         }.map(\.element)
+    }
+
+    private static func sanitizedKeystrokes(
+        _ keystrokes: [RecordingKeystrokeEvent]
+    ) -> [RecordingKeystrokeEvent] {
+        keystrokes.compactMap { event -> RecordingKeystrokeEvent? in
+            guard event.time.isFinite, !event.key.isEmpty else { return nil }
+            return RecordingKeystrokeEvent(
+                time: max(0, event.time),
+                modifiers: event.modifiers.filter { !$0.isEmpty },
+                key: event.key
+            )
+        }.sorted { $0.time < $1.time }
     }
 
     private static func validArtwork(

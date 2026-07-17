@@ -13,8 +13,10 @@
 //  blit plus the clipped video draws.
 //
 
+import AppKit
 import AVFoundation
 import CoreGraphics
+import CoreText
 import Foundation
 import ImageIO
 import SwiftUI
@@ -30,6 +32,9 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
         /// draw the synthetic pointer along this smoothed timeline.
         let pointerTimeline: PointerTimeline?
         let showsPressEffects: Bool
+        /// Non-nil when recorded keystroke chords should be captioned.
+        let keystrokeTimeline: KeystrokeCaptionTimeline?
+        let keystrokePlacement: RecordingKeystrokePlacement
         let canvasSize: CGSize
         let clipTimeline: RecordingClipTimeline
         let exportSettings: VideoCompressionSettings
@@ -192,6 +197,8 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
             viewportTimeline: configuration.viewportTimeline,
             pointerTimeline: configuration.pointerTimeline,
             showsPressEffects: configuration.showsPressEffects,
+            keystrokeTimeline: configuration.keystrokeTimeline,
+            keystrokePlacement: configuration.keystrokePlacement,
             includeBubble: cameraFeed != nil
         )
 
@@ -466,6 +473,8 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
     private let viewportTimeline: ViewportTimeline
     private let pointerTimeline: PointerTimeline?
     private let showsPressEffects: Bool
+    private let keystrokeTimeline: KeystrokeCaptionTimeline?
+    private let keystrokePlacement: RecordingKeystrokePlacement
     private var artworkImageCache: [String: CGImage] = [:]
     private let pointerScale: CGFloat
     private let colorSpace: CGColorSpace
@@ -478,6 +487,8 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
         viewportTimeline: ViewportTimeline,
         pointerTimeline: PointerTimeline?,
         showsPressEffects: Bool,
+        keystrokeTimeline: KeystrokeCaptionTimeline?,
+        keystrokePlacement: RecordingKeystrokePlacement,
         includeBubble: Bool
     ) {
         self.canvasSize = canvasSize
@@ -489,6 +500,8 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
         self.viewportTimeline = viewportTimeline
         self.pointerTimeline = pointerTimeline
         self.showsPressEffects = showsPressEffects
+        self.keystrokeTimeline = keystrokeTimeline
+        self.keystrokePlacement = keystrokePlacement
         self.pointerScale = style.cursorScale
         self.colorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
         self.backdrop = Self.renderBackdrop(
@@ -565,6 +578,10 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
         // source pixels.
         drawPointer(at: time, in: context)
 
+        // The keystroke caption stays in card space — pinned to its edge and
+        // unaffected by the zoom transform, like a broadcast lower third.
+        drawKeystrokeCaption(at: time, in: context)
+
         if let cameraFrame,
            layout.bubbleRect.width > 0,
            let cameraImage = Self.makeImage(from: cameraFrame, colorSpace: colorSpace) {
@@ -639,19 +656,20 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
         context.addPath(roundedPath(for: layout.cardRect, radius: layout.cardCornerRadius))
         context.clip()
         if showsPressEffects, let progress = pointer.pressPulse {
-            let eased = 1 - pow(1 - progress, 3)
-            let baseRadius = drawRect.height * CGFloat(16.0 / 1_080.0) * pointerScale
-            let radius = baseRadius * CGFloat(0.75 + 0.55 * eased)
+            let radius = PointerPressEffectStyle.radius(
+                progress: progress,
+                referenceHeight: drawRect.height,
+                cursorScale: pointerScale
+            )
+            let accent = PointerPressEffectStyle.color
             context.saveGState()
-            context.setAlpha(CGFloat(max(0, 1 - progress)))
-            context.setStrokeColor(CGColor(
-                red: 0,
-                green: 122.0 / 255.0,
-                blue: 1,
-                alpha: 1
+            context.setFillColor(CGColor(
+                red: accent.red,
+                green: accent.green,
+                blue: accent.blue,
+                alpha: PointerPressEffectStyle.opacity(progress: progress)
             ))
-            context.setLineWidth(max(1, drawRect.height * CGFloat(2.0 / 1_080.0)))
-            context.strokeEllipse(in: CGRect(
+            context.fillEllipse(in: CGRect(
                 x: tip.x - radius,
                 y: tip.y - radius,
                 width: radius * 2,
@@ -682,6 +700,79 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
             )
         }
         context.restoreGState()
+    }
+
+    private func drawKeystrokeCaption(at time: TimeInterval, in context: CGContext) {
+        guard let keystrokeTimeline,
+              let caption = keystrokeTimeline.frame(at: time) else {
+            return
+        }
+
+        let metrics = KeystrokeCaptionMetrics(cardHeight: layout.cardRect.height)
+        let font = Self.captionFont(size: metrics.fontSize)
+        let (modifierText, keyText) = KeystrokeCaptionMetrics.text(for: caption)
+
+        let text = NSMutableAttributedString()
+        if !modifierText.isEmpty {
+            text.append(NSAttributedString(string: modifierText, attributes: [
+                NSAttributedString.Key(kCTFontAttributeName as String): font,
+                NSAttributedString.Key(kCTForegroundColorAttributeName as String):
+                    CGColor(gray: 1, alpha: KeystrokeCaptionMetrics.modifierAlpha)
+            ]))
+        }
+        text.append(NSAttributedString(string: keyText, attributes: [
+            NSAttributedString.Key(kCTFontAttributeName as String): font,
+            NSAttributedString.Key(kCTForegroundColorAttributeName as String):
+                CGColor(gray: 1, alpha: 1)
+        ]))
+
+        let line = CTLineCreateWithAttributedString(text)
+        var ascent: CGFloat = 0
+        var descent: CGFloat = 0
+        var leading: CGFloat = 0
+        let textWidth = CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, &leading))
+        guard textWidth > 0 else { return }
+
+        let pillSize = CGSize(
+            width: textWidth + metrics.paddingHorizontal * 2,
+            height: ascent + descent + metrics.paddingVertical * 2
+        )
+        let origin = metrics.pillOrigin(
+            pillSize: pillSize,
+            cardRect: layout.cardRect,
+            placement: keystrokePlacement
+        )
+        let pillRect = flipped(CGRect(origin: origin, size: pillSize))
+
+        context.saveGState()
+        context.setAlpha(CGFloat(caption.opacity))
+        context.translateBy(x: pillRect.midX, y: pillRect.midY)
+        context.scaleBy(x: CGFloat(caption.scale), y: CGFloat(caption.scale))
+        context.translateBy(x: -pillRect.midX, y: -pillRect.midY)
+
+        let radius = min(metrics.cornerRadius, pillRect.height / 2)
+        context.addPath(CGPath(
+            roundedRect: pillRect,
+            cornerWidth: radius,
+            cornerHeight: radius,
+            transform: nil
+        ))
+        context.setFillColor(CGColor(gray: 0, alpha: KeystrokeCaptionMetrics.backgroundAlpha))
+        context.fillPath()
+
+        context.textMatrix = .identity
+        context.textPosition = CGPoint(
+            x: pillRect.minX + metrics.paddingHorizontal,
+            y: pillRect.midY - (ascent - descent) / 2
+        )
+        CTLineDraw(line, context)
+        context.restoreGState()
+    }
+
+    private static func captionFont(size: CGFloat) -> CTFont {
+        let descriptor = NSFont.systemFont(ofSize: size, weight: .semibold).fontDescriptor
+        let rounded = descriptor.withDesign(.rounded) ?? descriptor
+        return CTFontCreateWithFontDescriptor(rounded as CTFontDescriptor, size, nil)
     }
 
     private func artwork(

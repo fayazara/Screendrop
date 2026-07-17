@@ -32,6 +32,11 @@ struct RecordingEditDocument: Codable, Equatable {
     var trimStart: TimeInterval?
     var trimEnd: TimeInterval?
     var exportSettings: VideoCompressionSettings?
+    /// Optional so projects saved before post-record input feedback decode
+    /// to the defaults (clicks and keystrokes shown, bottom-center caption).
+    var showsClickEffects: Bool?
+    var showsKeystrokes: Bool?
+    var keystrokePlacement: RecordingKeystrokePlacement?
 
     private enum CodingKeys: String, CodingKey {
         case formatVersion
@@ -42,6 +47,9 @@ struct RecordingEditDocument: Codable, Equatable {
         case trimStart
         case trimEnd
         case exportSettings
+        case showsClickEffects
+        case showsKeystrokes
+        case keystrokePlacement
     }
 
     init(
@@ -50,7 +58,10 @@ struct RecordingEditDocument: Codable, Equatable {
         zoomCues: [ZoomCue],
         clipTimeline: RecordingClipTimeline? = nil,
         trimSelection: VideoTrimSelection? = nil,
-        exportSettings: VideoCompressionSettings? = nil
+        exportSettings: VideoCompressionSettings? = nil,
+        showsClickEffects: Bool? = nil,
+        showsKeystrokes: Bool? = nil,
+        keystrokePlacement: RecordingKeystrokePlacement? = nil
     ) {
         self.style = StoredRecordingStudioStyle(style)
         self.zoomEnabled = zoomEnabled
@@ -65,6 +76,9 @@ struct RecordingEditDocument: Codable, Equatable {
             trimEnd = trimSelection?.end
         }
         self.exportSettings = exportSettings
+        self.showsClickEffects = showsClickEffects
+        self.showsKeystrokes = showsKeystrokes
+        self.keystrokePlacement = keystrokePlacement
     }
 
     init(from decoder: any Decoder) throws {
@@ -80,6 +94,12 @@ struct RecordingEditDocument: Codable, Equatable {
             VideoCompressionSettings.self,
             forKey: .exportSettings
         )
+        showsClickEffects = try container.decodeIfPresent(Bool.self, forKey: .showsClickEffects)
+        showsKeystrokes = try container.decodeIfPresent(Bool.self, forKey: .showsKeystrokes)
+        keystrokePlacement = try container.decodeIfPresent(
+            RecordingKeystrokePlacement.self,
+            forKey: .keystrokePlacement
+        )
     }
 
     func encode(to encoder: any Encoder) throws {
@@ -92,6 +112,9 @@ struct RecordingEditDocument: Codable, Equatable {
         try container.encodeIfPresent(trimStart, forKey: .trimStart)
         try container.encodeIfPresent(trimEnd, forKey: .trimEnd)
         try container.encodeIfPresent(exportSettings, forKey: .exportSettings)
+        try container.encodeIfPresent(showsClickEffects, forKey: .showsClickEffects)
+        try container.encodeIfPresent(showsKeystrokes, forKey: .showsKeystrokes)
+        try container.encodeIfPresent(keystrokePlacement, forKey: .keystrokePlacement)
     }
 }
 

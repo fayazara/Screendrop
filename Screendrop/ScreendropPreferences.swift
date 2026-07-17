@@ -17,10 +17,6 @@ enum ScreendropPreferences {
     static let exportFormatKey = "exportFormat"
     static let compressionQualityKey = "compressionQuality"
     static let exportDirectoryPathKey = "exportDirectoryPath"
-    static let showRecordingMouseIndicatorsKey = "showRecordingMouseIndicators"
-    static let showRecordingKeyPressCaptionsKey = "showRecordingKeyPressCaptions"
-    static let recordingMouseIndicatorColorKey = "recordingMouseIndicatorColor"
-    static let recordingMouseIndicatorSizeKey = "recordingMouseIndicatorSize"
     static let fullscreenHotkeyKey = "captureHotkey.fullscreen"
     static let windowHotkeyKey = "captureHotkey.window"
     static let areaHotkeyKey = "captureHotkey.area"
@@ -40,9 +36,7 @@ enum ScreendropPreferences {
     static let recordingSystemAudioKey = "recordingSystemAudio"
 
     private static let defaultCompressionQuality = 0.8
-    static let defaultRecordingMouseIndicatorColor = "#007AFF"
-    static let defaultRecordingMouseIndicatorSize = 44.0
-    
+
     static var autoSave: Bool {
         UserDefaults.standard.bool(forKey: autoSaveKey)
     }
@@ -89,29 +83,6 @@ enum ScreendropPreferences {
         let picturesDirectory = FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask).first
         return (picturesDirectory ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Pictures"))
             .appendingPathComponent("Screendrop", isDirectory: true)
-    }
-
-    static var showRecordingMouseIndicators: Bool {
-        if UserDefaults.standard.object(forKey: showRecordingMouseIndicatorsKey) == nil {
-            return true
-        }
-
-        return UserDefaults.standard.bool(forKey: showRecordingMouseIndicatorsKey)
-    }
-
-    static var showRecordingKeyPressCaptions: Bool {
-        UserDefaults.standard.bool(forKey: showRecordingKeyPressCaptionsKey)
-    }
-
-    static var recordingMouseIndicatorColor: String {
-        let color = UserDefaults.standard.string(forKey: recordingMouseIndicatorColorKey) ?? defaultRecordingMouseIndicatorColor
-        return color.isEmpty ? defaultRecordingMouseIndicatorColor : color
-    }
-
-    static var recordingMouseIndicatorSize: Double {
-        let value = UserDefaults.standard.object(forKey: recordingMouseIndicatorSizeKey) as? Double
-            ?? defaultRecordingMouseIndicatorSize
-        return min(max(value, 24), 96)
     }
 
     /// Unique ID of the camera recorded alongside the screen. Empty = camera off.
