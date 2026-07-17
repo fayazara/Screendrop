@@ -105,6 +105,7 @@ enum RecordingSessionRenderer {
                 let shows = document?.showsSubtitles ?? true
                 return shows && !cues.isEmpty ? SubtitleTimeline(cues: cues) : nil
             }(),
+            subtitleStyle: document?.subtitleStyle ?? SubtitleBarStyle(),
             canvasSize: canvasSize,
             clipTimeline: clipTimeline,
             exportSettings: document?.exportSettings ?? VideoCompressionSettings()

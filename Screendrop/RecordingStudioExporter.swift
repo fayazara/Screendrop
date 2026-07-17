@@ -42,6 +42,7 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
         let keystrokePlacement: RecordingKeystrokePlacement
         /// Non-nil when transcribed narration should be subtitled.
         let subtitleTimeline: SubtitleTimeline?
+        let subtitleStyle: SubtitleBarStyle
         let canvasSize: CGSize
         let clipTimeline: RecordingClipTimeline
         let exportSettings: VideoCompressionSettings
@@ -207,6 +208,7 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
             keystrokeTimeline: configuration.keystrokeTimeline,
             keystrokePlacement: configuration.keystrokePlacement,
             subtitleTimeline: configuration.subtitleTimeline,
+            subtitleStyle: configuration.subtitleStyle,
             includeBubble: cameraFeed != nil,
             outputFrameInterval: 1 / Self.outputFrameRate
         )
@@ -486,6 +488,7 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
     private let keystrokeTimeline: KeystrokeCaptionTimeline?
     private let keystrokePlacement: RecordingKeystrokePlacement
     private let subtitleTimeline: SubtitleTimeline?
+    private let subtitleStyle: SubtitleBarStyle
     private var artworkImageCache: [String: CGImage] = [:]
     private let pointerScale: CGFloat
     private let colorSpace: CGColorSpace
@@ -505,6 +508,7 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
         keystrokeTimeline: KeystrokeCaptionTimeline?,
         keystrokePlacement: RecordingKeystrokePlacement,
         subtitleTimeline: SubtitleTimeline?,
+        subtitleStyle: SubtitleBarStyle = SubtitleBarStyle(),
         includeBubble: Bool,
         outputFrameInterval: TimeInterval = 1.0 / 60.0
     ) {
@@ -520,6 +524,7 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
         self.keystrokeTimeline = keystrokeTimeline
         self.keystrokePlacement = keystrokePlacement
         self.subtitleTimeline = subtitleTimeline
+        self.subtitleStyle = subtitleStyle
         self.outputFrameInterval = outputFrameInterval
         self.pointerScale = style.cursorScale
         self.colorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
@@ -599,9 +604,6 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
         // unaffected by the zoom transform, like a broadcast lower third.
         drawKeystrokeCaption(at: sourceTime, in: context)
 
-        // The subtitle bar lives in card space too, always bottom-center.
-        drawSubtitleBar(at: sourceTime, in: context)
-
         if let cameraFrame,
            layout.bubbleRect.width > 0,
            let cameraImage = Self.makeImage(from: cameraFrame, colorSpace: colorSpace) {
@@ -644,6 +646,10 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
             context.strokePath()
             context.restoreGState()
         }
+
+        // The subtitle bar lives in canvas space — over the background too,
+        // not just the card — and above everything else, camera included.
+        drawSubtitleBar(at: sourceTime, in: context)
     }
 
     /// How many shutter sub-samples this frame needs: one when the camera is
@@ -795,7 +801,7 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
             return
         }
 
-        let metrics = SubtitleBarMetrics(cardHeight: layout.cardRect.height)
+        let metrics = SubtitleBarMetrics(canvasHeight: canvasSize.height, style: subtitleStyle)
         let font = Self.captionFont(size: metrics.fontSize)
         let attributed = NSAttributedString(string: text, attributes: [
             NSAttributedString.Key(kCTFontAttributeName as String): font,
@@ -814,9 +820,10 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
             width: textWidth + metrics.paddingHorizontal * 2,
             height: ascent + descent + metrics.paddingVertical * 2
         )
+        let barCenterY = canvasSize.height * CGFloat(subtitleStyle.clampedVerticalPosition)
         let origin = CGPoint(
-            x: layout.cardRect.midX - barSize.width / 2,
-            y: layout.cardRect.maxY - metrics.margin - barSize.height
+            x: canvasSize.width / 2 - barSize.width / 2,
+            y: barCenterY - barSize.height / 2
         )
         let barRect = flipped(CGRect(origin: origin, size: barSize))
 

@@ -84,6 +84,9 @@ final class RecordingStudioModel {
     var showsSubtitles = true {
         didSet { scheduleProjectSave() }
     }
+    var subtitleStyle = SubtitleBarStyle() {
+        didSet { scheduleProjectSave() }
+    }
     private(set) var subtitleCues: [RecordingSubtitleCue] = []
     private(set) var subtitleTimeline = SubtitleTimeline.empty
     var transcriptionState = RecordingTranscriptionState.idle
@@ -207,6 +210,7 @@ final class RecordingStudioModel {
             showsSubtitles = document.showsSubtitles ?? true
             subtitleCues = document.subtitleCues ?? []
             subtitleTimeline = SubtitleTimeline(cues: subtitleCues)
+            subtitleStyle = document.subtitleStyle
         } else if session == nil {
             // Legacy bare movies use the same editor, but open visually
             // unchanged until the user explicitly adds styling.
@@ -836,7 +840,8 @@ final class RecordingStudioModel {
             showsKeystrokes: showsKeystrokes,
             keystrokePlacement: keystrokePlacement,
             showsSubtitles: showsSubtitles,
-            subtitleCues: subtitleCues.isEmpty ? nil : subtitleCues
+            subtitleCues: subtitleCues.isEmpty ? nil : subtitleCues,
+            subtitleStyle: subtitleStyle
         )
         guard document != lastSavedDocument else {
             hasUnsavedChanges = false
@@ -946,6 +951,32 @@ final class RecordingStudioModel {
         scheduleProjectSave()
     }
 
+    func updateSubtitleText(id: UUID, text: String) {
+        guard let index = subtitleCues.firstIndex(where: { $0.id == id }),
+              subtitleCues[index].text != text else {
+            return
+        }
+        subtitleCues[index].text = text
+        subtitleTimeline = SubtitleTimeline(cues: subtitleCues)
+        scheduleProjectSave()
+    }
+
+    /// Moves the paused playhead to a cue's first surviving frame; a cue
+    /// whose audio was cut out entirely has no home on the edited timeline.
+    func seekToSubtitle(_ cue: RecordingSubtitleCue) {
+        let target = clipTimeline.editorTime(forSourceTime: cue.start)
+            ?? clipTimeline.editorTime(forSourceTime: (cue.start + cue.end) / 2)
+        guard let target else { return }
+        pause()
+        seek(to: target)
+    }
+
+    /// Cue under the playhead right now, for highlighting the list row.
+    var activeSubtitleCue: RecordingSubtitleCue? {
+        guard hasSubtitles else { return nil }
+        return subtitleTimeline.cue(at: clipTimeline.sourceTime(at: currentTime))
+    }
+
     /// Caption to draw over the card right now; nil when hidden or silent.
     func keystrokeCaption(at time: TimeInterval) -> KeystrokeCaptionFrame? {
         guard showsKeystrokes, hasKeystrokes else { return nil }
@@ -981,6 +1012,7 @@ final class RecordingStudioModel {
             keystrokeTimeline: showsKeystrokes && hasKeystrokes ? keystrokeTimeline : nil,
             keystrokePlacement: keystrokePlacement,
             subtitleTimeline: showsSubtitles && hasSubtitles ? subtitleTimeline : nil,
+            subtitleStyle: subtitleStyle,
             canvasSize: videoSize,
             clipTimeline: clipTimeline,
             exportSettings: exportSettings

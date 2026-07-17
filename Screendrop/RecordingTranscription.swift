@@ -15,10 +15,56 @@ import Foundation
 import Speech
 
 /// One subtitle on the source (unedited) timeline, in seconds.
-nonisolated struct RecordingSubtitleCue: Codable, Sendable, Equatable {
+nonisolated struct RecordingSubtitleCue: Codable, Sendable, Equatable, Identifiable {
+    var id = UUID()
     var start: TimeInterval
     var end: TimeInterval
     var text: String
+
+    init(start: TimeInterval, end: TimeInterval, text: String) {
+        self.start = start
+        self.end = end
+        self.text = text
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case start
+        case end
+        case text
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        // Cues saved before editing shipped carry no identity; mint one so
+        // the editor's list rows stay stable for this session.
+        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        start = try container.decode(TimeInterval.self, forKey: .start)
+        end = try container.decode(TimeInterval.self, forKey: .end)
+        text = try container.decode(String.self, forKey: .text)
+    }
+}
+
+/// User-adjustable subtitle appearance. The bar is always center-locked
+/// horizontally; only its height position and text size are editable.
+nonisolated struct SubtitleBarStyle: Sendable, Equatable {
+    static let verticalRange: ClosedRange<Double> = 0.1...0.95
+    static let fontScaleRange: ClosedRange<Double> = 0.6...1.8
+
+    /// Normalized (0...1, top-left origin) center of the bar along the
+    /// card's height.
+    var verticalPosition: Double = 0.92
+    /// Multiplier on the default font size (which the paddings and corner
+    /// radius derive from, so the whole bar scales together).
+    var fontScale: Double = 1
+
+    var clampedVerticalPosition: Double {
+        min(max(verticalPosition, Self.verticalRange.lowerBound), Self.verticalRange.upperBound)
+    }
+
+    var clampedFontScale: Double {
+        min(max(fontScale, Self.fontScaleRange.lowerBound), Self.fontScaleRange.upperBound)
+    }
 }
 
 // MARK: - Subtitle timeline
@@ -44,6 +90,10 @@ nonisolated struct SubtitleTimeline: Sendable, Equatable {
     }
 
     func text(at time: TimeInterval) -> String? {
+        cue(at: time)?.text
+    }
+
+    func cue(at time: TimeInterval) -> RecordingSubtitleCue? {
         guard !cues.isEmpty, time.isFinite else { return nil }
 
         // Last cue that has already started.
@@ -61,31 +111,31 @@ nonisolated struct SubtitleTimeline: Sendable, Equatable {
         guard index >= 0 else { return nil }
 
         let cue = cues[index]
-        return time < cue.end ? cue.text : nil
+        return time < cue.end ? cue : nil
     }
 }
 
 // MARK: - Subtitle bar metrics
 
 /// Geometry shared verbatim by the SwiftUI preview and the CoreGraphics
-/// exporter: a rounded black bar with white text, pinned to the bottom
-/// center of the recording card. Everything derives from the card's height
-/// so the bar is identical at any render resolution.
+/// exporter: a rounded black bar with white text, center-locked
+/// horizontally at the style's vertical position. Everything derives from
+/// the full canvas height — the bar belongs to the composition, background
+/// included, not just the recording card — so it is identical at any
+/// render resolution and stays put in padded or portrait layouts.
 nonisolated struct SubtitleBarMetrics: Sendable {
     let fontSize: CGFloat
     let paddingHorizontal: CGFloat
     let paddingVertical: CGFloat
     let cornerRadius: CGFloat
-    let margin: CGFloat
 
     static let backgroundAlpha: Double = 0.78
 
-    init(cardHeight: CGFloat) {
-        fontSize = max(12, cardHeight * 0.034)
+    init(canvasHeight: CGFloat, style: SubtitleBarStyle = SubtitleBarStyle()) {
+        fontSize = max(11, canvasHeight * 0.032 * style.clampedFontScale)
         paddingHorizontal = fontSize * 0.85
         paddingVertical = fontSize * 0.5
         cornerRadius = fontSize * 0.6
-        margin = cardHeight * 0.045
     }
 }
 

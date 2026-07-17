@@ -41,6 +41,8 @@ struct RecordingEditDocument: Codable, Equatable {
     /// subtitles and the toggle defaulting on.
     var showsSubtitles: Bool?
     var subtitleCues: [RecordingSubtitleCue]?
+    var subtitleVerticalPosition: Double?
+    var subtitleFontScale: Double?
 
     private enum CodingKeys: String, CodingKey {
         case formatVersion
@@ -56,6 +58,8 @@ struct RecordingEditDocument: Codable, Equatable {
         case keystrokePlacement
         case showsSubtitles
         case subtitleCues
+        case subtitleVerticalPosition
+        case subtitleFontScale
     }
 
     init(
@@ -69,7 +73,8 @@ struct RecordingEditDocument: Codable, Equatable {
         showsKeystrokes: Bool? = nil,
         keystrokePlacement: RecordingKeystrokePlacement? = nil,
         showsSubtitles: Bool? = nil,
-        subtitleCues: [RecordingSubtitleCue]? = nil
+        subtitleCues: [RecordingSubtitleCue]? = nil,
+        subtitleStyle: SubtitleBarStyle? = nil
     ) {
         self.style = StoredRecordingStudioStyle(style)
         self.zoomEnabled = zoomEnabled
@@ -89,6 +94,19 @@ struct RecordingEditDocument: Codable, Equatable {
         self.keystrokePlacement = keystrokePlacement
         self.showsSubtitles = showsSubtitles
         self.subtitleCues = subtitleCues
+        subtitleVerticalPosition = subtitleStyle?.verticalPosition
+        subtitleFontScale = subtitleStyle?.fontScale
+    }
+
+    var subtitleStyle: SubtitleBarStyle {
+        var style = SubtitleBarStyle()
+        if let subtitleVerticalPosition {
+            style.verticalPosition = subtitleVerticalPosition
+        }
+        if let subtitleFontScale {
+            style.fontScale = subtitleFontScale
+        }
+        return style
     }
 
     init(from decoder: any Decoder) throws {
@@ -115,6 +133,11 @@ struct RecordingEditDocument: Codable, Equatable {
             [RecordingSubtitleCue].self,
             forKey: .subtitleCues
         )
+        subtitleVerticalPosition = try container.decodeIfPresent(
+            Double.self,
+            forKey: .subtitleVerticalPosition
+        )
+        subtitleFontScale = try container.decodeIfPresent(Double.self, forKey: .subtitleFontScale)
     }
 
     func encode(to encoder: any Encoder) throws {
@@ -132,6 +155,8 @@ struct RecordingEditDocument: Codable, Equatable {
         try container.encodeIfPresent(keystrokePlacement, forKey: .keystrokePlacement)
         try container.encodeIfPresent(showsSubtitles, forKey: .showsSubtitles)
         try container.encodeIfPresent(subtitleCues, forKey: .subtitleCues)
+        try container.encodeIfPresent(subtitleVerticalPosition, forKey: .subtitleVerticalPosition)
+        try container.encodeIfPresent(subtitleFontScale, forKey: .subtitleFontScale)
     }
 }
 
