@@ -35,6 +35,7 @@ final class RecordingStudioModel {
     private(set) var manifest: CaptureManifest?
     private(set) var pointerCapture = PointerCaptureFile()
     private(set) var recordedPressTimes: [TimeInterval] = []
+    private(set) var sourceDuration: TimeInterval = 0
     private(set) var duration: TimeInterval = 0
     private(set) var videoSize = CGSize(width: 1920, height: 1080)
     private(set) var hasCameraVideo = false
@@ -63,8 +64,10 @@ final class RecordingStudioModel {
     private(set) var viewportTimeline = ViewportTimeline.identity
     private(set) var pointerTimeline = PointerTimeline.empty
     var selectedCueID: UUID?
-    private(set) var trimSelection = VideoTrimSelection(start: 0, end: 0)
-    private(set) var timelineFrames: [NSImage] = []
+    private(set) var clipTimeline = RecordingClipTimeline(segments: [])
+    var selectedClipID: UUID?
+    var timelineHoverTime: TimeInterval?
+    private(set) var timelineFrames: [RecordingTimelineFrame] = []
 
     private(set) var isPlaying = false
     var currentTime: TimeInterval = 0
@@ -84,6 +87,12 @@ final class RecordingStudioModel {
     private var exportTask: Task<Void, Never>?
     private var projectSaveTask: Task<Void, Never>?
     private var timelineTask: Task<Void, Never>?
+    private var screenAsset: AVURLAsset?
+    private let editUndoManager = UndoManager()
+    private(set) var undoRevision = 0
+    private var zoomEditSnapshot: [ZoomCue]?
+    private var lastSavedDocument: RecordingEditDocument?
+    private var hasUnsavedChanges = false
 
     /// Accepts either a recording session folder or a bare video file (so
     /// history items and old recordings still open, just without events).
@@ -109,9 +118,11 @@ final class RecordingStudioModel {
         }
 
         let asset = AVURLAsset(url: screenURL)
+        screenAsset = asset
         do {
             let (durationTime, tracks) = try await asset.load(.duration, .tracks)
-            duration = durationTime.seconds
+            sourceDuration = durationTime.seconds
+            duration = sourceDuration
             if let videoTrack = tracks.first(where: { $0.mediaType == .video }) {
                 let naturalSize = try await videoTrack.load(.naturalSize)
                 if naturalSize.width > 0, naturalSize.height > 0 {
@@ -140,9 +151,6 @@ final class RecordingStudioModel {
                 .map(\.time)
         }
 
-        screenPlayer.replaceCurrentItem(with: AVPlayerItem(asset: asset))
-        screenPlayer.actionAtItemEnd = .pause
-
         if let session, session.hasCamera {
             hasCameraVideo = true
             cameraOffset = manifest?.cameraLeadIn ?? 0
@@ -154,6 +162,7 @@ final class RecordingStudioModel {
         }
 
         let document = session?.loadEditDocument()
+        lastSavedDocument = document
         if let document {
             style = document.style.value
             zoomEnabled = document.zoomEnabled
@@ -171,16 +180,32 @@ final class RecordingStudioModel {
             )
             zoomEnabled = false
         } else {
-            zoomCues = ZoomCueSynthesizer.cues(from: pointerCapture, duration: duration)
+            zoomCues = ZoomCueSynthesizer.cues(from: pointerCapture, duration: sourceDuration)
         }
-        trimSelection = VideoTrimSelection(
-            start: document?.trimStart ?? 0,
-            end: document?.trimEnd ?? duration
-        ).clamped(to: duration)
+
+        if let storedClips = document?.clips, !storedClips.isEmpty {
+            clipTimeline = RecordingClipTimeline(segments: storedClips)
+                .normalized(to: sourceDuration)
+        } else {
+            clipTimeline = .legacyTrim(
+                start: document?.trimStart,
+                end: document?.trimEnd,
+                sourceDuration: sourceDuration
+            )
+        }
+        duration = clipTimeline.duration
+        selectedClipID = clipTimeline.segments.first?.id
+
+        do {
+            try rebuildScreenPlayerItem(preserving: 0)
+        } catch {
+            loadError = "Could not prepare the recording timeline: \(error.localizedDescription)"
+            return
+        }
         if pointerIsSynthesized {
             pointerTimeline = PointerTimeline.build(
                 capture: pointerCapture,
-                duration: duration,
+                duration: sourceDuration,
                 recordingSizeInPoints: recordingPointSize,
                 fallbackArtwork: PointerArtworkCapture.defaultArtwork()
             )
@@ -188,7 +213,6 @@ final class RecordingStudioModel {
         rebuildViewportTimeline()
         installObservers()
         isLoaded = true
-        scheduleProjectSave()
         loadTimelineFrames()
     }
 
@@ -225,10 +249,9 @@ final class RecordingStudioModel {
         if hoverPreviewTime != nil {
             hoverPreviewTime = nil
         }
-        let selection = trimSelection.clamped(to: duration)
-        guard selection.duration >= VideoTrimSelection.minimumDuration else { return }
-        if currentTime < selection.start || currentTime >= selection.end - 0.05 {
-            seek(to: selection.start)
+        guard duration >= RecordingClipSegment.minimumDuration else { return }
+        if currentTime < 0 || currentTime >= duration - 0.05 {
+            seek(to: 0)
         }
         isPlaying = true
         screenPlayer.play()
@@ -255,11 +278,13 @@ final class RecordingStudioModel {
     /// so hover skimming can preview a frame and cleanly hand back to the
     /// real playhead position afterward.
     private func movePlayers(to time: TimeInterval) {
-        let target = CMTime(seconds: time, preferredTimescale: 600)
+        let editorTime = min(max(time, 0), max(duration, 0))
+        let sourceTime = clipTimeline.sourceTime(at: editorTime)
+        let target = CMTime(seconds: editorTime, preferredTimescale: 600)
         screenPlayer.seek(to: target, toleranceBefore: .zero, toleranceAfter: .zero)
         if hasCameraVideo {
-            if time >= cameraOffset {
-                let cameraTime = CMTime(seconds: max(0, time - cameraOffset), preferredTimescale: 600)
+            if sourceTime >= cameraOffset {
+                let cameraTime = CMTime(seconds: max(0, sourceTime - cameraOffset), preferredTimescale: 600)
                 cameraPlayer.seek(to: cameraTime, toleranceBefore: .zero, toleranceAfter: .zero)
             } else {
                 cameraPlayer.pause()
@@ -286,12 +311,11 @@ final class RecordingStudioModel {
                 guard let self else { return }
                 if self.isPlaying {
                     let seconds = time.seconds
-                    let selection = self.trimSelection.clamped(to: self.duration)
-                    if seconds >= selection.end - 0.001 {
+                    if seconds >= self.duration - 0.001 {
                         self.pause()
-                        self.currentTime = selection.end
+                        self.currentTime = self.duration
                         self.screenPlayer.seek(
-                            to: CMTime(seconds: selection.end, preferredTimescale: 600),
+                            to: CMTime(seconds: self.duration, preferredTimescale: 600),
                             toleranceBefore: .zero,
                             toleranceAfter: .zero
                         )
@@ -303,6 +327,13 @@ final class RecordingStudioModel {
             }
         }
 
+        installEndObserver()
+    }
+
+    private func installEndObserver() {
+        if let endObserver {
+            NotificationCenter.default.removeObserver(endObserver)
+        }
         endObserver = NotificationCenter.default.addObserver(
             forName: AVPlayerItem.didPlayToEndTimeNotification,
             object: screenPlayer.currentItem,
@@ -312,37 +343,192 @@ final class RecordingStudioModel {
                 guard let self else { return }
                 self.isPlaying = false
                 self.cameraPlayer.pause()
-                self.currentTime = self.trimSelection.clamped(to: self.duration).end
+                self.currentTime = self.duration
             }
         }
     }
 
-    // MARK: - Clip
+    // MARK: - Clips
 
-    func setTrimSelection(_ selection: VideoTrimSelection) {
-        let clamped = selection.clamped(to: duration)
-        guard clamped != trimSelection else { return }
-        trimSelection = clamped
-        if currentTime < clamped.start || currentTime > clamped.end {
-            seek(to: min(max(currentTime, clamped.start), clamped.end))
+    var canUndo: Bool {
+        _ = undoRevision
+        return editUndoManager.canUndo
+    }
+
+    var canRedo: Bool {
+        _ = undoRevision
+        return editUndoManager.canRedo
+    }
+
+    var selectedClip: RecordingClipSegment? {
+        guard let selectedClipID else { return nil }
+        return clipTimeline.segments.first { $0.id == selectedClipID }
+    }
+
+    var hasClipEdits: Bool {
+        !clipTimeline.isUnedited(sourceDuration: sourceDuration)
+    }
+
+    var canDeleteSelectedClip: Bool {
+        selectedClipID != nil && clipTimeline.segments.count > 1
+    }
+
+    func selectClip(id: UUID) {
+        guard clipTimeline.segments.contains(where: { $0.id == id }) else { return }
+        selectedClipID = id
+        selectedCueID = nil
+    }
+
+    func selectZoomCue(id: UUID) {
+        guard zoomCues.contains(where: { $0.id == id }) else { return }
+        selectedCueID = id
+        selectedClipID = nil
+    }
+
+    func undo() {
+        guard editUndoManager.canUndo else { return }
+        pause()
+        editUndoManager.undo()
+        undoRevision &+= 1
+    }
+
+    func redo() {
+        guard editUndoManager.canRedo else { return }
+        pause()
+        editUndoManager.redo()
+        undoRevision &+= 1
+    }
+
+    func splitClip(at editorTime: TimeInterval) {
+        guard let result = clipTimeline.split(at: editorTime) else { return }
+        applyClipTimeline(
+            result.timeline,
+            selectedID: result.selectedID,
+            playheadTime: min(max(editorTime, 0), duration),
+            actionName: "Split Clip"
+        )
+    }
+
+    func splitClipAtHover() {
+        guard let timelineHoverTime else { return }
+        splitClip(at: timelineHoverTime)
+    }
+
+    func deleteSelectedClip() {
+        guard let selectedClipID,
+              let deletedRange = clipTimeline.editorRange(for: selectedClipID),
+              let next = clipTimeline.deleting(segmentID: selectedClipID) else {
+            return
+        }
+        let seekTime = min(deletedRange.lowerBound, next.duration)
+        let nextSelection = next.location(at: seekTime)?.segmentID
+            ?? next.segments.last?.id
+        applyClipTimeline(
+            next,
+            selectedID: nextSelection,
+            playheadTime: seekTime,
+            actionName: "Delete Clip"
+        )
+    }
+
+    func trimClip(_ replacement: RecordingClipSegment) {
+        let next = clipTimeline.replacing(replacement)
+        guard next != clipTimeline else { return }
+        let editorTime = next.editorRange(for: replacement.id)?.lowerBound ?? currentTime
+        applyClipTimeline(
+            next,
+            selectedID: replacement.id,
+            playheadTime: min(currentTime, next.duration),
+            actionName: "Trim Clip",
+            hoverTime: editorTime
+        )
+    }
+
+    func resetClips() {
+        let full = RecordingClipTimeline.full(sourceDuration: sourceDuration)
+        guard full != clipTimeline else { return }
+        applyClipTimeline(
+            full,
+            selectedID: full.segments.first?.id,
+            playheadTime: 0,
+            actionName: "Reset Clips"
+        )
+    }
+
+    private func applyClipTimeline(
+        _ requestedTimeline: RecordingClipTimeline,
+        selectedID: UUID?,
+        playheadTime: TimeInterval,
+        actionName: String,
+        hoverTime: TimeInterval? = nil
+    ) {
+        let next = requestedTimeline.normalized(to: sourceDuration)
+        guard !next.segments.isEmpty, next != clipTimeline else { return }
+
+        let previousTimeline = clipTimeline
+        let previousSelection = selectedClipID
+        let previousTime = currentTime
+        registerUndo(actionName) { target in
+            target.applyClipTimeline(
+                previousTimeline,
+                selectedID: previousSelection,
+                playheadTime: previousTime,
+                actionName: actionName
+            )
+        }
+
+        pause()
+        hoverPreviewTime = nil
+        timelineHoverTime = nil
+        clipTimeline = next
+        duration = next.duration
+        selectedClipID = selectedID.flatMap { id in
+            next.segments.contains(where: { $0.id == id }) ? id : nil
+        } ?? next.segments.first?.id
+
+        do {
+            try rebuildScreenPlayerItem(preserving: min(max(playheadTime, 0), duration))
+            if let hoverTime {
+                hoverPreviewTime = min(max(hoverTime, 0), duration)
+            }
+        } catch {
+            loadError = "Could not update the recording timeline: \(error.localizedDescription)"
         }
         scheduleProjectSave()
     }
 
-    func resetTrim() {
-        setTrimSelection(VideoTrimSelection(start: 0, end: duration))
-        seek(to: 0)
+    private func rebuildScreenPlayerItem(preserving editorTime: TimeInterval) throws {
+        guard let screenAsset else { return }
+        let playbackAsset = try RecordingCompositionBuilder.makeAsset(
+            from: screenAsset,
+            timeline: clipTimeline,
+            sourceDuration: sourceDuration
+        )
+
+        screenPlayer.replaceCurrentItem(with: AVPlayerItem(asset: playbackAsset))
+        screenPlayer.actionAtItemEnd = .pause
+        currentTime = min(max(editorTime, 0), duration)
+        movePlayers(to: currentTime)
+        if timeObserver != nil {
+            installEndObserver()
+        }
     }
 
-    var isTrimmed: Bool {
-        let selection = trimSelection.clamped(to: duration)
-        return selection.start > 0.001 || abs(selection.end - duration) > 0.001
+    private func registerUndo(
+        _ actionName: String,
+        operation: @escaping @MainActor (RecordingStudioModel) -> Void
+    ) {
+        editUndoManager.registerUndo(withTarget: self) { target in
+            operation(target)
+        }
+        editUndoManager.setActionName(actionName)
+        undoRevision &+= 1
     }
 
     private func loadTimelineFrames() {
         timelineTask?.cancel()
         let url = screenURL
-        let videoDuration = duration
+        let videoDuration = sourceDuration
         timelineTask = Task { [weak self] in
             let frames = await Task.detached(priority: .userInitiated) {
                 let asset = AVURLAsset(url: url)
@@ -352,32 +538,34 @@ final class RecordingStudioModel {
                 generator.requestedTimeToleranceAfter = .zero
                 generator.maximumSize = CGSize(width: 180, height: 110)
 
-                let frameCount = 18
-                return (0..<frameCount).compactMap { index -> SendableRecordingTimelineFrame? in
+                let frameCount = 32
+                return (0..<frameCount).compactMap { index -> RecordingTimelineFrame? in
                     guard videoDuration > 0 else { return nil }
                     let seconds = videoDuration * (Double(index) + 0.5) / Double(frameCount)
                     let time = CMTime(seconds: seconds, preferredTimescale: 600)
                     guard let image = try? generator.copyCGImage(at: time, actualTime: nil) else {
                         return nil
                     }
-                    return SendableRecordingTimelineFrame(
+                    return RecordingTimelineFrame(
+                        sourceTime: seconds,
                         image: NSImage(cgImage: image, size: .zero)
                     )
                 }
             }.value
             guard !Task.isCancelled else { return }
-            self?.timelineFrames = frames.map(\.image)
+            self?.timelineFrames = frames
         }
     }
 
     private func syncCameraPlayback() {
         guard hasCameraVideo else { return }
-        guard currentTime >= cameraOffset else {
+        let sourceTime = clipTimeline.sourceTime(at: currentTime)
+        guard sourceTime >= cameraOffset else {
             cameraPlayer.pause()
             cameraPlayer.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero)
             return
         }
-        let cameraTime = CMTime(seconds: max(0, currentTime - cameraOffset), preferredTimescale: 600)
+        let cameraTime = CMTime(seconds: max(0, sourceTime - cameraOffset), preferredTimescale: 600)
         cameraPlayer.seek(to: cameraTime, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
             Task { @MainActor in
                 guard let self, self.isPlaying else { return }
@@ -388,7 +576,8 @@ final class RecordingStudioModel {
 
     private func correctCameraDriftIfNeeded() {
         guard hasCameraVideo, isPlaying else { return }
-        guard currentTime >= cameraOffset else {
+        let sourceTime = clipTimeline.sourceTime(at: currentTime)
+        guard sourceTime >= cameraOffset else {
             cameraPlayer.pause()
             return
         }
@@ -396,7 +585,7 @@ final class RecordingStudioModel {
             syncCameraPlayback()
             return
         }
-        let expected = screenPlayer.currentTime().seconds - cameraOffset
+        let expected = sourceTime - cameraOffset
         let actual = cameraPlayer.currentTime().seconds
         guard expected.isFinite, actual.isFinite else { return }
         if abs(expected - actual) > 0.12 {
@@ -410,23 +599,52 @@ final class RecordingStudioModel {
 
     // MARK: - Zoom cues
 
-    func setZoomCues(_ cues: [ZoomCue]) {
+    private func replaceZoomCues(_ cues: [ZoomCue]) {
         zoomCues = cues.sorted { $0.start < $1.start }
         rebuildViewportTimeline()
         scheduleProjectSave()
     }
 
+    private func applyZoomCues(_ cues: [ZoomCue], actionName: String) {
+        let sorted = cues.sorted { $0.start < $1.start }
+        guard sorted != zoomCues else { return }
+        let previous = zoomCues
+        registerUndo(actionName) { target in
+            target.applyZoomCues(previous, actionName: actionName)
+        }
+        replaceZoomCues(sorted)
+    }
+
+    func beginZoomCueEdit() {
+        if zoomEditSnapshot == nil {
+            zoomEditSnapshot = zoomCues
+        }
+    }
+
+    func endZoomCueEdit(actionName: String = "Edit Zoom") {
+        guard let previous = zoomEditSnapshot else { return }
+        zoomEditSnapshot = nil
+        guard previous != zoomCues else { return }
+        registerUndo(actionName) { target in
+            target.applyZoomCues(previous, actionName: actionName)
+        }
+    }
+
     func resynthesizeZoomCues() {
-        setZoomCues(ZoomCueSynthesizer.cues(from: pointerCapture, duration: duration))
+        applyZoomCues(
+            ZoomCueSynthesizer.cues(from: pointerCapture, duration: sourceDuration),
+            actionName: "Reset Zooms"
+        )
     }
 
     func addZoomCue(at time: TimeInterval) {
-        let start = min(max(0, time), max(0, duration - 1))
+        let sourceTime = clipTimeline.sourceTime(at: time)
+        let start = min(max(0, sourceTime), max(0, sourceDuration - 1))
         let hasPointerTrack = !pointerCapture.travel.isEmpty || !pointerCapture.presses.isEmpty
-        let target = pointerTimeline.location(at: time) ?? CGPoint(x: 0.5, y: 0.5)
+        let target = pointerTimeline.location(at: sourceTime) ?? CGPoint(x: 0.5, y: 0.5)
         let cue = ZoomCue(
             start: start,
-            end: min(duration, start + 3),
+            end: min(sourceDuration, start + 3),
             zoom: 1.5,
             anchorMode: hasPointerTrack ? .pointerAnchor : .pinnedAnchor,
             pinnedPoint: target,
@@ -434,12 +652,13 @@ final class RecordingStudioModel {
         )
         var cues = zoomCues
         cues.append(cue)
-        setZoomCues(cues)
+        applyZoomCues(cues, actionName: "Add Zoom")
         selectedCueID = cue.id
+        selectedClipID = nil
     }
 
     func removeZoomCue(id: UUID) {
-        setZoomCues(zoomCues.filter { $0.id != id })
+        applyZoomCues(zoomCues.filter { $0.id != id }, actionName: "Remove Zoom")
         if selectedCueID == id {
             selectedCueID = nil
         }
@@ -449,8 +668,8 @@ final class RecordingStudioModel {
         var cues = zoomCues
         guard let index = cues.firstIndex(where: { $0.id == cue.id }) else { return }
         var updated = cue
-        updated.start = min(max(0, updated.start), duration)
-        updated.end = min(max(updated.start + 0.5, updated.end), duration)
+        updated.start = min(max(0, updated.start), sourceDuration)
+        updated.end = min(max(updated.start + 0.5, updated.end), sourceDuration)
         updated.zoom = min(max(updated.zoom, 1), 4)
         updated.boundsBias = min(max(updated.boundsBias, 0), 1)
         updated.pinnedPoint = CGPoint(
@@ -458,27 +677,50 @@ final class RecordingStudioModel {
             y: min(max(updated.pinnedPoint.y, 0), 1)
         )
         cues[index] = updated
-        setZoomCues(cues)
+        replaceZoomCues(cues)
     }
 
     var selectedCue: ZoomCue? {
         zoomCues.first { $0.id == selectedCueID }
     }
 
+    var visibleRecordedPressTimes: [TimeInterval] {
+        recordedPressTimes.compactMap { clipTimeline.editorTime(forSourceTime: $0) }
+    }
+
+    var zoomTimelineSlices: [RecordingZoomTimelineSlice] {
+        zoomCues
+            .filter { !$0.isImplicit }
+            .flatMap { cue in
+                clipTimeline.slices(overlapping: cue.start, sourceEnd: cue.end).map { slice in
+                    RecordingZoomTimelineSlice(cue: cue, slice: slice)
+                }
+            }
+    }
+
+    func sourceTime(atEditorTime time: TimeInterval) -> TimeInterval {
+        clipTimeline.sourceTime(at: time)
+    }
+
+    func editorTime(forSourceTime time: TimeInterval) -> TimeInterval? {
+        clipTimeline.editorTime(forSourceTime: time)
+    }
+
     private func rebuildViewportTimeline() {
-        guard duration > 0 else {
+        guard sourceDuration > 0 else {
             viewportTimeline = .identity
             return
         }
         viewportTimeline = ViewportTimeline.build(
             cues: zoomCues,
             capture: pointerCapture,
-            duration: duration
+            duration: sourceDuration
         )
     }
 
     private func scheduleProjectSave() {
         guard isLoaded, session != nil else { return }
+        hasUnsavedChanges = true
         projectSaveTask?.cancel()
         projectSaveTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(250))
@@ -488,16 +730,25 @@ final class RecordingStudioModel {
     }
 
     private func saveProjectNow() {
-        guard isLoaded, let session else { return }
+        guard isLoaded, hasUnsavedChanges, let session else { return }
         let document = RecordingEditDocument(
             style: style,
             zoomEnabled: zoomEnabled,
             zoomCues: zoomCues.filter { !$0.isImplicit },
-            trimSelection: trimSelection,
+            clipTimeline: clipTimeline,
             exportSettings: exportSettings
         )
+        guard document != lastSavedDocument else {
+            hasUnsavedChanges = false
+            return
+        }
         do {
             try session.writeEditDocument(document)
+            lastSavedDocument = document
+            hasUnsavedChanges = false
+            if session.hasFinalVideo {
+                try? FileManager.default.removeItem(at: session.finalURL)
+            }
         } catch {
             print("Failed to save recording project: \(error)")
         }
@@ -506,7 +757,7 @@ final class RecordingStudioModel {
     /// Viewport frame to render at a given time, honoring the zoom toggle.
     func viewportFrame(at time: TimeInterval) -> ViewportFrame {
         guard zoomEnabled else { return .identity }
-        return viewportTimeline.frame(at: time)
+        return viewportTimeline.frame(at: clipTimeline.sourceTime(at: time))
     }
 
     /// True when this session was captured without the OS cursor, so the
@@ -519,12 +770,12 @@ final class RecordingStudioModel {
     /// the recording carries its cursor in the pixels.
     func pointerLocation(at time: TimeInterval) -> CGPoint? {
         guard pointerIsSynthesized else { return nil }
-        return pointerTimeline.location(at: time)
+        return pointerTimeline.location(at: clipTimeline.sourceTime(at: time))
     }
 
     func pointerFrame(at time: TimeInterval) -> PointerFrame? {
         guard pointerIsSynthesized else { return nil }
-        return pointerTimeline.frame(at: time)
+        return pointerTimeline.frame(at: clipTimeline.sourceTime(at: time))
     }
 
     func artwork(id: String?) -> PointerArtwork? {
@@ -563,7 +814,7 @@ final class RecordingStudioModel {
             pointerTimeline: pointerIsSynthesized ? pointerTimeline : nil,
             showsPressEffects: showsPressEffects,
             canvasSize: videoSize,
-            trimSelection: trimSelection,
+            clipTimeline: clipTimeline,
             exportSettings: exportSettings
         )
         let suggestedFileName = session.map {
@@ -603,6 +854,21 @@ final class RecordingStudioModel {
     }
 }
 
-private struct SendableRecordingTimelineFrame: @unchecked Sendable {
+struct RecordingTimelineFrame: @unchecked Sendable {
+    let sourceTime: TimeInterval
     let image: NSImage
+}
+
+struct RecordingZoomTimelineSlice: Identifiable, Equatable, Sendable {
+    struct ID: Hashable, Sendable {
+        let cueID: UUID
+        let segmentID: UUID
+    }
+
+    let cue: ZoomCue
+    let slice: RecordingClipTimeline.Slice
+
+    var id: ID {
+        ID(cueID: cue.id, segmentID: slice.segmentID)
+    }
 }

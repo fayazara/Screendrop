@@ -67,6 +67,16 @@ enum RecordingSessionRenderer {
         let viewportTimeline = zoomEnabled
             ? ViewportTimeline.build(cues: zoomCues, capture: capture, duration: duration)
             : .identity
+        let clipTimeline: RecordingClipTimeline
+        if let clips = document?.clips, !clips.isEmpty {
+            clipTimeline = RecordingClipTimeline(segments: clips).normalized(to: duration)
+        } else {
+            clipTimeline = .legacyTrim(
+                start: document?.trimStart,
+                end: document?.trimEnd,
+                sourceDuration: duration
+            )
+        }
         let configuration = RecordingStudioExporter.Configuration(
             screenURL: session.screenURL,
             cameraURL: session.hasCamera ? session.cameraURL : nil,
@@ -84,7 +94,7 @@ enum RecordingSessionRenderer {
             showsPressEffects: manifest?.pressEffectsBaked == false
                 && manifest?.pressEffectsEnabled == true,
             canvasSize: canvasSize,
-            trimSelection: nil,
+            clipTimeline: clipTimeline,
             exportSettings: document?.exportSettings ?? VideoCompressionSettings()
         )
 

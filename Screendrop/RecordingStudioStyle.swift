@@ -22,27 +22,82 @@ struct RecordingCameraBubbleSettings: Equatable {
 }
 
 struct RecordingEditDocument: Codable, Equatable {
-    var formatVersion = 1
+    var formatVersion = 4
     var style: StoredRecordingStudioStyle
     var zoomEnabled: Bool
     var zoomCues: [ZoomCue]
+    /// Ordered source ranges that make up the edited movie. Optional so v1
+    /// projects continue to decode through their single trim range.
+    var clips: [RecordingClipSegment]?
     var trimStart: TimeInterval?
     var trimEnd: TimeInterval?
     var exportSettings: VideoCompressionSettings?
+
+    private enum CodingKeys: String, CodingKey {
+        case formatVersion
+        case style
+        case zoomEnabled
+        case zoomCues
+        case clips
+        case trimStart
+        case trimEnd
+        case exportSettings
+    }
 
     init(
         style: RecordingStudioStyle,
         zoomEnabled: Bool,
         zoomCues: [ZoomCue],
+        clipTimeline: RecordingClipTimeline? = nil,
         trimSelection: VideoTrimSelection? = nil,
         exportSettings: VideoCompressionSettings? = nil
     ) {
         self.style = StoredRecordingStudioStyle(style)
         self.zoomEnabled = zoomEnabled
         self.zoomCues = zoomCues
-        trimStart = trimSelection?.start
-        trimEnd = trimSelection?.end
+        clips = clipTimeline?.segments
+        if let clip = clipTimeline?.segments.only {
+            // Keep the legacy envelope populated for older Screendrop builds.
+            trimStart = clip.sourceStart
+            trimEnd = clip.sourceEnd
+        } else {
+            trimStart = trimSelection?.start
+            trimEnd = trimSelection?.end
+        }
         self.exportSettings = exportSettings
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        formatVersion = try container.decodeIfPresent(Int.self, forKey: .formatVersion) ?? 1
+        style = try container.decode(StoredRecordingStudioStyle.self, forKey: .style)
+        zoomEnabled = try container.decodeIfPresent(Bool.self, forKey: .zoomEnabled) ?? true
+        zoomCues = try container.decodeIfPresent([ZoomCue].self, forKey: .zoomCues) ?? []
+        clips = try container.decodeIfPresent([RecordingClipSegment].self, forKey: .clips)
+        trimStart = try container.decodeIfPresent(TimeInterval.self, forKey: .trimStart)
+        trimEnd = try container.decodeIfPresent(TimeInterval.self, forKey: .trimEnd)
+        exportSettings = try container.decodeIfPresent(
+            VideoCompressionSettings.self,
+            forKey: .exportSettings
+        )
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(formatVersion, forKey: .formatVersion)
+        try container.encode(style, forKey: .style)
+        try container.encode(zoomEnabled, forKey: .zoomEnabled)
+        try container.encode(zoomCues, forKey: .zoomCues)
+        try container.encodeIfPresent(clips, forKey: .clips)
+        try container.encodeIfPresent(trimStart, forKey: .trimStart)
+        try container.encodeIfPresent(trimEnd, forKey: .trimEnd)
+        try container.encodeIfPresent(exportSettings, forKey: .exportSettings)
+    }
+}
+
+private extension Array {
+    var only: Element? {
+        count == 1 ? first : nil
     }
 }
 

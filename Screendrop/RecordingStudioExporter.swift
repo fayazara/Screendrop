@@ -31,7 +31,7 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
         let pointerTimeline: PointerTimeline?
         let showsPressEffects: Bool
         let canvasSize: CGSize
-        let trimSelection: VideoTrimSelection?
+        let clipTimeline: RecordingClipTimeline
         let exportSettings: VideoCompressionSettings
     }
 
@@ -82,25 +82,25 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
         cancelFlag: CancelFlag,
         progress: @escaping @Sendable (Double) -> Void
     ) async throws -> URL {
-        let screenAsset = AVURLAsset(url: configuration.screenURL)
+        let sourceAsset = AVURLAsset(url: configuration.screenURL)
+        let sourceDuration = try await sourceAsset.load(.duration).seconds
+        let clipTimeline = configuration.clipTimeline.normalized(to: sourceDuration)
+        guard clipTimeline.duration >= RecordingClipSegment.minimumDuration else {
+            throw VideoTrimExportError.invalidRange
+        }
+        let screenAsset = try RecordingCompositionBuilder.makeAsset(
+            from: sourceAsset,
+            timeline: clipTimeline,
+            sourceDuration: sourceDuration
+        )
         guard let videoTrack = try await screenAsset.loadTracks(withMediaType: .video).first else {
             throw ExportError.noVideoTrack
         }
         let audioTracks = try await screenAsset.loadTracks(withMediaType: .audio)
-        let sourceDuration = try await screenAsset.load(.duration).seconds
-        let trimSelection = (configuration.trimSelection
-            ?? VideoTrimSelection(start: 0, end: sourceDuration))
-            .clamped(to: sourceDuration)
-        guard trimSelection.duration >= VideoTrimSelection.minimumDuration else {
-            throw VideoTrimExportError.invalidRange
-        }
-        let exportStartTime = CMTime(
-            seconds: trimSelection.start,
-            preferredTimescale: 600
-        )
+        let exportStartTime = CMTime.zero
         let exportTimeRange = CMTimeRange(
             start: exportStartTime,
-            duration: CMTime(seconds: trimSelection.duration, preferredTimescale: 600)
+            duration: CMTime(seconds: clipTimeline.duration, preferredTimescale: 600)
         )
 
         let outputSize = Self.outputSize(
@@ -184,8 +184,6 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
         guard writer.startWriting() else {
             throw ExportError.writerFailed(writer.error)
         }
-        // Keep source timestamps for camera/zoom lookup while defining the
-        // selected source time as output time zero.
         writer.startSession(atSourceTime: exportStartTime)
 
         let compositor = StudioFrameCompositor(
@@ -207,8 +205,7 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
                 adaptor: adaptor,
                 compositor: compositor,
                 cameraFeed: cameraFeed,
-                exportStart: trimSelection.start,
-                duration: trimSelection.duration,
+                clipTimeline: clipTimeline,
                 cancelFlag: cancelFlag,
                 progress: progress
             )
@@ -247,8 +244,7 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
         adaptor: AVAssetWriterInputPixelBufferAdaptor,
         compositor: StudioFrameCompositor,
         cameraFeed: CameraFrameFeed?,
-        exportStart: TimeInterval,
-        duration: TimeInterval,
+        clipTimeline: RecordingClipTimeline,
         cancelFlag: CancelFlag,
         progress: @escaping @Sendable (Double) -> Void
     ) async throws {
@@ -260,6 +256,7 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
         // or before it; only writing on source arrivals would hold the last
         // zoomed frame through the move and then visibly jump.
         let frameRate: Double = 60
+        let duration = clipTimeline.duration
         let frameCount = max(1, Int((duration * frameRate).rounded()))
 
         func nextSourceFrame() -> (buffer: CVPixelBuffer, time: TimeInterval)? {
@@ -272,12 +269,25 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
 
         var currentBuffer: CVPixelBuffer?
         var pending = nextSourceFrame()
+        var previousClipID: UUID?
 
         for frame in 0..<frameCount {
             if cancelFlag.isCancelled { throw ExportError.cancelled }
-            let time = exportStart + Double(frame) / frameRate
+            let editorTime = Double(frame) / frameRate
+            guard let location = clipTimeline.location(at: editorTime) else { break }
+            let sourceTime = location.sourceTime
 
-            while let sample = pending, sample.time <= time {
+            if previousClipID != location.segmentID {
+                // Never carry a sparse screen-capture frame or a temporal blur
+                // history across a hard edit boundary.
+                if previousClipID != nil {
+                    currentBuffer = nil
+                    compositor.resetTemporalState()
+                }
+                previousClipID = location.segmentID
+            }
+
+            while let sample = pending, sample.time <= editorTime {
                 currentBuffer = sample.buffer
                 pending = nextSourceFrame()
             }
@@ -300,15 +310,15 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
                 throw ExportError.writerFailed(nil)
             }
 
-            let cameraBuffer = cameraFeed?.latestFrame(at: time)
+            let cameraBuffer = cameraFeed?.latestFrame(at: sourceTime)
             try compositor.render(
                 screenFrame: sourceBuffer,
                 cameraFrame: cameraBuffer,
-                time: time,
+                time: sourceTime,
                 into: destinationBuffer
             )
 
-            let pts = CMTime(seconds: time, preferredTimescale: 600)
+            let pts = CMTime(seconds: editorTime, preferredTimescale: 600)
             if !adaptor.append(destinationBuffer, withPresentationTime: pts) {
                 throw ExportError.writerFailed(nil)
             }
@@ -487,6 +497,10 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
             style: style,
             colorSpace: colorSpace
         )
+    }
+
+    func resetTemporalState() {
+        previousFrameTime = nil
     }
 
     func render(

@@ -97,8 +97,11 @@ private struct RecordingStudioContent: View {
         }
         .navigationTitle(model.sessionURL.deletingPathExtension().lastPathComponent)
         .onDeleteCommand {
-            guard let selectedCueID = model.selectedCueID else { return }
-            model.removeZoomCue(id: selectedCueID)
+            if model.selectedClipID != nil {
+                model.deleteSelectedClip()
+            } else if let selectedCueID = model.selectedCueID {
+                model.removeZoomCue(id: selectedCueID)
+            }
         }
         .onAppear {
             AppActivationPolicy.enter(hidePreview: true)
@@ -419,85 +422,53 @@ private struct StudioTimelineEditor: View {
     @Bindable var model: RecordingStudioModel
 
     var body: some View {
-        VStack(spacing: 8) {
-            StudioTimelineRuler(duration: model.duration)
-                .frame(height: 16)
+        VStack(spacing: StudioTimelineMetrics.rowSpacing) {
+            transport
 
-            HStack(spacing: StudioTimelineMetrics.itemSpacing) {
-                Button {
-                    model.togglePlayback()
-                } label: {
-                    Image(systemName: model.isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: 23, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: StudioTimelineMetrics.playButtonWidth, height: 52)
-                }
-                .buttonStyle(.plain)
-                .keyboardShortcut(.space, modifiers: [])
-                .help(model.isPlaying ? "Pause" : "Play")
-                .disabled(!model.isLoaded)
+            VStack(spacing: StudioTimelineMetrics.rowSpacing) {
+                Color.clear
+                    .frame(height: StudioTimelineMetrics.playheadLaneHeight)
 
-                VideoTrimTimelineView(
-                    selection: Binding(
-                        get: { model.trimSelection },
-                        set: { model.setTrimSelection($0) }
-                    ),
+                StudioTimelineRuler(duration: model.duration)
+                    .frame(height: 16)
+
+                RecordingClipTimelineView(
+                    selectedClipID: $model.selectedClipID,
                     playheadTime: $model.currentTime,
-                    duration: model.duration,
+                    timeline: model.clipTimeline,
+                    sourceDuration: model.sourceDuration,
                     frames: model.timelineFrames,
+                    onSelect: { model.selectClip(id: $0) },
                     onSeek: { time in
                         model.pause()
                         model.seek(to: time)
                     },
                     onHover: { time in
+                        model.timelineHoverTime = time
                         model.hoverPreviewTime = time
-                    }
+                    },
+                    onSplit: { model.splitClip(at: $0) },
+                    onDelete: { model.deleteSelectedClip() },
+                    onTrim: { model.trimClip($0) }
                 )
-                .frame(height: 54)
-
-                Button {
-                    model.resetTrim()
-                } label: {
-                    Image(systemName: "arrow.counterclockwise")
-                        .font(.system(size: 16, weight: .medium))
-                        .frame(width: StudioTimelineMetrics.resetButtonWidth, height: 32)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(Color.white.opacity(0.58))
-                .help("Reset trim")
-                .disabled(!model.isTrimmed)
-            }
-            .padding(.horizontal, StudioTimelineMetrics.horizontalPadding)
-            .padding(.vertical, 6)
-            .background(Color(white: 0.16), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
-            }
-            .shadow(color: .black.opacity(0.18), radius: 10, x: 0, y: 5)
-
-            HStack(spacing: 10) {
-                Label("Zoom", systemImage: "plus.magnifyingglass")
-                    .font(.inspectorLabel)
-                    .foregroundStyle(.secondary)
-                    .frame(width: 52, alignment: .leading)
+                .frame(height: 52)
 
                 StudioZoomLane(model: model)
                     .frame(height: 32)
-
-                Button {
-                    model.addZoomCue(at: model.currentTime)
-                } label: {
-                    Image(systemName: "plus")
-                        .frame(width: 32, height: 28)
+            }
+            .overlay {
+                StudioTimelinePlayhead(
+                    time: model.currentTime,
+                    duration: model.duration
+                ) { time in
+                    model.pause()
+                    model.seek(to: time)
                 }
-                .buttonStyle(.plain)
-                .help("Add zoom at playhead")
             }
         }
-        .padding(.horizontal, 24)
-        .padding(.top, 10)
-        .padding(.bottom, 16)
+        .padding(.horizontal, 16)
+        .padding(.top, 12)
+        .padding(.bottom, 14)
         .background(Color(nsColor: .windowBackgroundColor))
         .overlay(alignment: .top) {
             Rectangle()
@@ -505,16 +476,224 @@ private struct StudioTimelineEditor: View {
                 .frame(height: 0.5)
         }
     }
+
+    private var transport: some View {
+        ZStack {
+            HStack(spacing: 2) {
+                Spacer(minLength: 0)
+
+                timelineButton("Split at Playhead", systemImage: "scissors") {
+                    model.splitClip(at: model.currentTime)
+                }
+
+                timelineButton("Delete Selection", systemImage: "trash") {
+                    deleteSelection()
+                }
+                .disabled(!canDeleteSelection)
+
+                Rectangle()
+                    .fill(Color(nsColor: .separatorColor))
+                    .frame(width: 1, height: 14)
+                    .padding(.horizontal, 6)
+
+                timelineButton("Undo", systemImage: "arrow.uturn.backward") {
+                    model.undo()
+                }
+                .keyboardShortcut("z", modifiers: .command)
+                .disabled(!model.canUndo)
+
+                timelineButton("Redo", systemImage: "arrow.uturn.forward") {
+                    model.redo()
+                }
+                .keyboardShortcut("z", modifiers: [.command, .shift])
+                .disabled(!model.canRedo)
+
+                timelineButton("Reset Clips", systemImage: "arrow.counterclockwise") {
+                    model.resetClips()
+                }
+                .disabled(!model.hasClipEdits)
+            }
+
+            HStack(spacing: 10) {
+                Text(studioPreciseTimecode(model.displayTime))
+                    .font(.system(size: 12, weight: .semibold).monospacedDigit())
+                    .foregroundStyle(.primary.opacity(0.9))
+
+                HStack(spacing: 2) {
+                    timelineButton("Back to Start", systemImage: "backward.end.fill") {
+                        model.pause()
+                        model.seek(to: 0)
+                    }
+
+                    Button {
+                        model.togglePlayback()
+                    } label: {
+                        Image(systemName: model.isPlaying ? "pause.fill" : "play.fill")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(.primary.opacity(0.85))
+                            .frame(width: 30, height: 30)
+                            .background(Circle().fill(Color.primary.opacity(0.07)))
+                            .contentShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .keyboardShortcut(.space, modifiers: [])
+                    .help(model.isPlaying ? "Pause" : "Play")
+                    .disabled(!model.isLoaded)
+
+                    timelineButton("Skip to End", systemImage: "forward.end.fill") {
+                        model.pause()
+                        model.seek(to: model.duration)
+                    }
+                }
+
+                Text(studioPreciseTimecode(model.duration))
+                    .font(.system(size: 12, weight: .medium).monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(height: 32)
+    }
+
+    private var canDeleteSelection: Bool {
+        model.selectedCueID != nil || model.canDeleteSelectedClip
+    }
+
+    private func deleteSelection() {
+        if let cueID = model.selectedCueID {
+            model.removeZoomCue(id: cueID)
+        } else if model.selectedClipID != nil {
+            model.deleteSelectedClip()
+        }
+    }
+
+    private func timelineButton(
+        _ help: String,
+        systemImage: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 12, weight: .medium))
+                .frame(width: 26, height: 24)
+                .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        }
+        .buttonStyle(TransportIconButtonStyle())
+        .help(help)
+    }
+}
+
+private struct TransportIconButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(
+                .primary.opacity(
+                    isEnabled ? (configuration.isPressed ? 0.95 : 0.6) : 0.22
+                )
+            )
+    }
 }
 
 private enum StudioTimelineMetrics {
-    static let horizontalPadding: CGFloat = 10
-    static let itemSpacing: CGFloat = 10
-    static let playButtonWidth: CGFloat = 52
-    static let resetButtonWidth: CGFloat = 32
+    static let rowSpacing: CGFloat = 8
+    static let playheadLaneHeight: CGFloat = 14
+}
 
-    static let rulerLeadingInset = horizontalPadding + playButtonWidth + itemSpacing
-    static let rulerTrailingInset = horizontalPadding + resetButtonWidth + itemSpacing
+/// Full-height playhead with a grabbable crown pin in the lane above the
+/// ruler. The crown is the only hit target — everywhere else the overlay
+/// passes clicks through to the tracks underneath.
+private struct StudioTimelinePlayhead: View {
+    let time: TimeInterval
+    let duration: TimeInterval
+    let onScrub: (TimeInterval) -> Void
+
+    private enum Metrics {
+        static let crownWidth: CGFloat = 11
+        static let crownHeight: CGFloat = 13
+        static let hitWidth: CGFloat = 26
+        static let hitHeight: CGFloat = 22
+        static let lineWidth: CGFloat = 1.5
+    }
+
+    private static let coordinateSpace = "studio.playheadLane"
+
+    var body: some View {
+        GeometryReader { proxy in
+            let width = max(proxy.size.width, 1)
+            let fraction = duration > 0 ? min(max(time / duration, 0), 1) : 0
+            let x = CGFloat(fraction) * width
+
+            ZStack(alignment: .topLeading) {
+                Rectangle()
+                    .fill(Color.accentColor)
+                    .frame(
+                        width: Metrics.lineWidth,
+                        height: max(0, proxy.size.height - Metrics.crownHeight + 2)
+                    )
+                    .offset(x: x - Metrics.lineWidth / 2, y: Metrics.crownHeight - 2)
+                    .allowsHitTesting(false)
+
+                Color.clear
+                    .frame(width: Metrics.hitWidth, height: Metrics.hitHeight)
+                    .contentShape(Rectangle())
+                    .overlay(alignment: .top) {
+                        PlayheadCrownShape()
+                            .fill(Color.accentColor)
+                            .frame(width: Metrics.crownWidth, height: Metrics.crownHeight)
+                            .shadow(color: .black.opacity(0.22), radius: 1, y: 0.5)
+                    }
+                    .offset(x: x - Metrics.hitWidth / 2, y: 0)
+                    .gesture(
+                        DragGesture(
+                            minimumDistance: 0,
+                            coordinateSpace: .named(Self.coordinateSpace)
+                        )
+                        .onChanged { value in
+                            guard duration > 0 else { return }
+                            let fraction = min(max(value.location.x / width, 0), 1)
+                            onScrub(Double(fraction) * duration)
+                        }
+                    )
+            }
+        }
+        .coordinateSpace(name: Self.coordinateSpace)
+    }
+}
+
+/// Rounded flag with a pointed tail, the classic editor playhead pin.
+private struct PlayheadCrownShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        let cornerRadius: CGFloat = 3
+        let tailHeight: CGFloat = 4
+        let bodyBottom = rect.maxY - tailHeight
+
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX + cornerRadius, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX - cornerRadius, y: rect.minY))
+        path.addQuadCurve(
+            to: CGPoint(x: rect.maxX, y: rect.minY + cornerRadius),
+            control: CGPoint(x: rect.maxX, y: rect.minY)
+        )
+        path.addLine(to: CGPoint(x: rect.maxX, y: bodyBottom - cornerRadius))
+        path.addQuadCurve(
+            to: CGPoint(x: rect.maxX - cornerRadius, y: bodyBottom),
+            control: CGPoint(x: rect.maxX, y: bodyBottom)
+        )
+        path.addLine(to: CGPoint(x: rect.midX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX + cornerRadius, y: bodyBottom))
+        path.addQuadCurve(
+            to: CGPoint(x: rect.minX, y: bodyBottom - cornerRadius),
+            control: CGPoint(x: rect.minX, y: bodyBottom)
+        )
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + cornerRadius))
+        path.addQuadCurve(
+            to: CGPoint(x: rect.minX + cornerRadius, y: rect.minY),
+            control: CGPoint(x: rect.minX, y: rect.minY)
+        )
+        path.closeSubpath()
+        return path
+    }
 }
 
 /// Absolute-time ruler above the trim strip. Its endpoint labels are centered
@@ -525,8 +704,8 @@ private struct StudioTimelineRuler: View {
 
     var body: some View {
         Canvas { context, size in
-            let timelineMinX = StudioTimelineMetrics.rulerLeadingInset
-            let timelineMaxX = size.width - StudioTimelineMetrics.rulerTrailingInset
+            let timelineMinX: CGFloat = 2
+            let timelineMaxX = size.width - 2
             let timelineWidth = timelineMaxX - timelineMinX
             guard duration > 0.2, timelineWidth > 60 else { return }
 
@@ -568,7 +747,7 @@ private struct StudioTimelineRuler: View {
                             .foregroundStyle(Color.secondary)
                     )
                     let labelSize = label.measure(in: size)
-                    let labelX = x - labelSize.width / 2
+                    let labelX = time == 0 ? timelineMinX : x - labelSize.width / 2
                     if labelX >= lastLabelMaxX + 8 {
                         context.draw(label, in: CGRect(
                             x: labelX,
@@ -595,7 +774,7 @@ private struct StudioTimelineRuler: View {
             )
             let endpointSize = endpoint.measure(in: size)
             context.draw(endpoint, in: CGRect(
-                x: timelineMaxX - endpointSize.width / 2,
+                x: timelineMaxX - endpointSize.width,
                 y: size.height - 5 - endpointSize.height,
                 width: endpointSize.width,
                 height: endpointSize.height
@@ -623,6 +802,13 @@ private func studioTimecode(_ seconds: Double) -> String {
     return hours > 0
         ? String(format: "%d:%02d:%02d", hours, minutes, remainingSeconds)
         : String(format: "%02d:%02d", minutes, remainingSeconds)
+}
+
+private func studioPreciseTimecode(_ seconds: Double) -> String {
+    let safe = max(0, seconds.isFinite ? seconds : 0)
+    let totalMinutes = Int(safe) / 60
+    let remaining = safe.truncatingRemainder(dividingBy: 60)
+    return String(format: "%02d:%04.1f", totalMinutes, remaining)
 }
 
 private struct StudioZoomLane: View {
@@ -660,7 +846,7 @@ private struct StudioZoomLane: View {
                             }
                     )
 
-                ForEach(Array(model.recordedPressTimes.enumerated()), id: \.offset) { _, pressTime in
+                ForEach(Array(model.visibleRecordedPressTimes.enumerated()), id: \.offset) { _, pressTime in
                     Rectangle()
                         .fill(Color.accentColor.opacity(0.38))
                         .frame(width: 1, height: 10)
@@ -674,10 +860,10 @@ private struct StudioZoomLane: View {
                         .allowsHitTesting(false)
                 }
 
-                ForEach(model.zoomCues.filter { !$0.isImplicit }) { cue in
+                ForEach(model.zoomTimelineSlices) { slice in
                     StudioZoomCueBlock(
                         model: model,
-                        cue: cue,
+                        timelineSlice: slice,
                         secondsPerPoint: secondsPerPoint,
                         contentWidth: contentWidth
                     )
@@ -704,21 +890,33 @@ private enum StudioZoomLaneMetrics {
 
 private struct StudioZoomCueBlock: View {
     @Bindable var model: RecordingStudioModel
-    let cue: ZoomCue
+    let timelineSlice: RecordingZoomTimelineSlice
     let secondsPerPoint: Double
     let contentWidth: CGFloat
 
-    @State private var dragBase: ZoomCue?
+    /// Frozen at drag start. The live slice re-derives on every model update,
+    /// so measuring the drag against it would compound the translation each
+    /// event and send the block flying.
+    private struct DragBase {
+        let cue: ZoomCue
+        let editorStart: TimeInterval
+        let editorEnd: TimeInterval
+    }
+
+    @State private var dragBase: DragBase?
 
     private var isSelected: Bool {
-        model.selectedCueID == cue.id
+        model.selectedCueID == timelineSlice.cue.id
     }
 
     var body: some View {
         guard secondsPerPoint > 0 else { return AnyView(EmptyView()) }
 
-        let width = min(contentWidth, max(24, CGFloat(cue.duration / secondsPerPoint)))
-        let naturalX = CGFloat(cue.start / secondsPerPoint)
+        let cue = timelineSlice.cue
+        let slice = timelineSlice.slice
+        let sliceDuration = slice.editorEnd - slice.editorStart
+        let width = min(contentWidth, max(24, CGFloat(sliceDuration / secondsPerPoint)))
+        let naturalX = CGFloat(slice.editorStart / secondsPerPoint)
         let x = StudioZoomLaneMetrics.laneInset
             + min(max(naturalX, 0), max(0, contentWidth - width))
 
@@ -759,23 +957,37 @@ private struct StudioZoomCueBlock: View {
                 DragGesture(coordinateSpace: .global)
                     .onChanged { value in
                         if dragBase == nil {
-                            dragBase = cue
-                            model.selectedCueID = cue.id
+                            dragBase = DragBase(
+                                cue: cue,
+                                editorStart: slice.editorStart,
+                                editorEnd: slice.editorEnd
+                            )
+                            model.beginZoomCueEdit()
+                            model.selectZoomCue(id: cue.id)
                         }
                         guard let dragBase else { return }
                         let delta = Double(value.translation.width) * secondsPerPoint
-                        var moved = dragBase
-                        let length = dragBase.duration
-                        moved.start = min(max(0, dragBase.start + delta), max(0, model.duration - length))
-                        moved.end = moved.start + length
+                        var moved = dragBase.cue
+                        let length = dragBase.cue.duration
+                        let baseSliceDuration = dragBase.editorEnd - dragBase.editorStart
+                        let editorStart = min(
+                            max(0, dragBase.editorStart + delta),
+                            max(0, model.duration - baseSliceDuration)
+                        )
+                        moved.start = min(
+                            max(0, model.sourceTime(atEditorTime: editorStart)),
+                            max(0, model.sourceDuration - length)
+                        )
+                        moved.end = min(model.sourceDuration, moved.start + length)
                         model.updateZoomCue(moved)
                     }
                     .onEnded { _ in
                         dragBase = nil
+                        model.endZoomCueEdit(actionName: "Move Zoom")
                     }
             )
             .onTapGesture {
-                model.selectedCueID = cue.id
+                model.selectZoomCue(id: cue.id)
             }
             .contextMenu {
                 Button("Remove Zoom", role: .destructive) {
@@ -801,22 +1013,35 @@ private struct StudioZoomCueBlock: View {
                 DragGesture(coordinateSpace: .global)
                     .onChanged { value in
                         if dragBase == nil {
-                            dragBase = cue
-                            model.selectedCueID = cue.id
+                            dragBase = DragBase(
+                                cue: timelineSlice.cue,
+                                editorStart: timelineSlice.slice.editorStart,
+                                editorEnd: timelineSlice.slice.editorEnd
+                            )
+                            model.beginZoomCueEdit()
+                            model.selectZoomCue(id: timelineSlice.cue.id)
                         }
                         guard let dragBase else { return }
                         let delta = Double(value.translation.width) * secondsPerPoint
-                        var resized = dragBase
+                        var resized = dragBase.cue
                         switch edge {
                         case .leading:
-                            resized.start = min(max(0, dragBase.start + delta), dragBase.end - 0.5)
+                            let editorTime = dragBase.editorStart + delta
+                            let sourceTime = model.sourceTime(atEditorTime: editorTime)
+                            resized.start = min(max(0, sourceTime), dragBase.cue.end - 0.5)
                         case .trailing:
-                            resized.end = max(dragBase.start + 0.5, min(model.duration, dragBase.end + delta))
+                            let editorTime = dragBase.editorEnd + delta
+                            let sourceTime = model.sourceTime(atEditorTime: editorTime)
+                            resized.end = max(
+                                dragBase.cue.start + 0.5,
+                                min(model.sourceDuration, sourceTime)
+                            )
                         }
                         model.updateZoomCue(resized)
                     }
                     .onEnded { _ in
                         dragBase = nil
+                        model.endZoomCueEdit(actionName: "Resize Zoom")
                     }
             )
     }
@@ -874,6 +1099,43 @@ private struct StudioInspector: View {
                 // Selection editing always surfaces at the top, the way object
                 // inspectors do, so clicking a zoom block on the timeline maps
                 // to one stable place and the sections below never reshuffle.
+                if let selectedClip = model.selectedClip {
+                    InspectorSection(
+                        title: "Selected Clip",
+                        accessory: {
+                            if let index = model.clipTimeline.segments.firstIndex(where: {
+                                $0.id == selectedClip.id
+                            }) {
+                                Text("\(index + 1) of \(model.clipTimeline.segments.count)")
+                                    .font(.inspectorNumeric)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    ) {
+                        VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
+                            HStack(spacing: 8) {
+                                Text("Duration")
+                                    .font(.inspectorLabel)
+                                    .foregroundStyle(.primary.opacity(0.82))
+                                Spacer(minLength: 8)
+                                Text(studioPreciseTimecode(selectedClip.duration))
+                                    .font(.inspectorNumeric)
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            inspectorAction(
+                                "Delete Clip",
+                                systemImage: "trash",
+                                role: .destructive
+                            ) {
+                                model.deleteSelectedClip()
+                            }
+                            .disabled(!model.canDeleteSelectedClip)
+                        }
+                    }
+                    InspectorSectionDivider()
+                }
+
                 if let selected = model.selectedCue {
                     InspectorSection(
                         title: "Selected Zoom",
