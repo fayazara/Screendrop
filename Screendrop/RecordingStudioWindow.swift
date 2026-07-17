@@ -1245,9 +1245,38 @@ private struct StudioInspector: View {
     var body: some View {
         ScrollView(.vertical) {
             VStack(alignment: .leading, spacing: 0) {
-                // Selection editing always surfaces at the top, the way object
-                // inspectors do, so clicking a zoom block on the timeline maps
-                // to one stable place and the sections below never reshuffle.
+                InspectorDisclosureSection(
+                    title: "Background",
+                    isExpanded: expansionBinding(for: .background),
+                    accessory: {
+                        if model.style.background != .none {
+                            InspectorClearButton(help: "Remove background") {
+                                model.style.background = .none
+                            }
+                        }
+                    }
+                ) {
+                    backgroundControls
+                }
+
+                InspectorDisclosureSection(
+                    title: "Layout",
+                    isExpanded: expansionBinding(for: .layout),
+                    accessory: {
+                        if !usesDefaultLayout {
+                            InspectorClearButton(help: "Reset layout") {
+                                model.style.padding = 0.06
+                                model.style.cornerRadius = 0.02
+                                model.style.shadow = 0.45
+                            }
+                        }
+                    }
+                ) {
+                    layoutControls
+                }
+
+                // Selection editing surfaces here (between Layout and Zoom &
+                // Clicks) whenever a zoom or clip is selected on the timeline.
                 if let selected = model.selectedCue {
                     InspectorSection(
                         title: "Selected Zoom",
@@ -1277,36 +1306,6 @@ private struct StudioInspector: View {
                         selectedClipControls(for: selectedClip)
                     }
                     InspectorSectionDivider()
-                }
-
-                InspectorDisclosureSection(
-                    title: "Background",
-                    isExpanded: expansionBinding(for: .background),
-                    accessory: {
-                        if model.style.background != .none {
-                            InspectorClearButton(help: "Remove background") {
-                                model.style.background = .none
-                            }
-                        }
-                    }
-                ) {
-                    backgroundControls
-                }
-
-                InspectorDisclosureSection(
-                    title: "Layout",
-                    isExpanded: expansionBinding(for: .layout),
-                    accessory: {
-                        if !usesDefaultLayout {
-                            InspectorClearButton(help: "Reset layout") {
-                                model.style.padding = 0.06
-                                model.style.cornerRadius = 0.02
-                                model.style.shadow = 0.45
-                            }
-                        }
-                    }
-                ) {
-                    layoutControls
                 }
 
                 InspectorDisclosureSection(
