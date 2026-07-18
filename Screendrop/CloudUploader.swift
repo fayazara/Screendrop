@@ -58,9 +58,43 @@ final class CloudUploader: NSObject {
             throw CloudUploadError.notConfigured
         }
 
+        // The Dock mirrors the whole span — the deliverable render (when
+        // one is needed) plus the upload itself.
+        let dockProgressID = DockExportProgressCoordinator.shared.start()
+
+        // A session recording must upload what the user sees, not the raw
+        // screen master: render the saved project into the flattened
+        // deliverable first (cached until the edits change).
+        var fileURL = fileURL
+        let sessionDirectory = fileURL.deletingLastPathComponent()
+        if RecordingSession.isSessionDirectory(sessionDirectory) {
+            uploadingItems.insert(itemID)
+            uploadProgress[itemID] = 0
+            do {
+                fileURL = try await RecordingSessionRenderer.ensureDeliverable(
+                    for: RecordingSession(directoryURL: sessionDirectory)
+                )
+            } catch {
+                DockExportProgressCoordinator.shared.finish(dockProgressID)
+                uploadingItems.remove(itemID)
+                uploadProgress.removeValue(forKey: itemID)
+                failedItemIDs.insert(itemID)
+                throw error
+            }
+        }
+
         let creds = CloudCredentialStore.shared.snapshot()
         let fileName = fileURL.lastPathComponent
-        let fileData = try Data(contentsOf: fileURL, options: .mappedIfSafe)
+        let fileData: Data
+        do {
+            fileData = try Data(contentsOf: fileURL, options: .mappedIfSafe)
+        } catch {
+            DockExportProgressCoordinator.shared.finish(dockProgressID)
+            uploadingItems.remove(itemID)
+            uploadProgress.removeValue(forKey: itemID)
+            failedItemIDs.insert(itemID)
+            throw error
+        }
         let mimeType = mimeTypeForFile(fileURL)
         let isVideo = mimeType.hasPrefix("video/")
         let dimensions: (width: Int, height: Int)?
@@ -91,6 +125,10 @@ final class CloudUploader: NSObject {
                 progress: { [weak self] fraction in
                     Task { @MainActor [weak self] in
                         self?.uploadProgress[itemID] = fraction
+                        DockExportProgressCoordinator.shared.update(
+                            dockProgressID,
+                            progress: fraction
+                        )
                     }
                 }
             )
@@ -102,22 +140,48 @@ final class CloudUploader: NSObject {
 
         do {
             let result = try await uploadTask.value
+            DockExportProgressCoordinator.shared.finish(dockProgressID)
             activeTasks.removeValue(forKey: itemID)
             uploadingItems.remove(itemID)
             uploadProgress.removeValue(forKey: itemID)
             uploadedURLs[itemID] = result.url
+            if isVideo {
+                scheduleSidecarUpload(uploadID: result.id, fileURL: fileURL, creds: creds)
+            }
             return result
         } catch is CancellationError {
+            DockExportProgressCoordinator.shared.finish(dockProgressID)
             activeTasks.removeValue(forKey: itemID)
             uploadingItems.remove(itemID)
             uploadProgress.removeValue(forKey: itemID)
             throw CancellationError()
         } catch {
+            DockExportProgressCoordinator.shared.finish(dockProgressID)
             activeTasks.removeValue(forKey: itemID)
             uploadingItems.remove(itemID)
             uploadProgress.removeValue(forKey: itemID)
             failedItemIDs.insert(itemID)
             throw error
+        }
+    }
+
+    /// Ships the share-page extras (poster, title, transcript) after the
+    /// video itself is up. Best-effort and detached: the share link is
+    /// already usable, sidecars enrich the page when they land.
+    private func scheduleSidecarUpload(uploadID: String, fileURL: URL, creds: CloudCredentials) {
+        let item = ScreenshotHistoryStore.shared.items.first {
+            $0.url.standardizedFileURL == fileURL.standardizedFileURL
+        }
+        let sessionDirectory = item?.recordingSession?.directoryURL
+        let createdAt = item?.createdAt ?? Date()
+        Task.detached(priority: .utility) {
+            await CloudSidecarUploader.uploadVideoSidecars(
+                uploadID: uploadID,
+                uploadedFileURL: fileURL,
+                sessionDirectory: sessionDirectory,
+                createdAt: createdAt,
+                creds: creds
+            )
         }
     }
 

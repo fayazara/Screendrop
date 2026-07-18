@@ -68,6 +68,10 @@ private struct RecordingStudioContent: View {
         }
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
+                if model.canShareToCloud {
+                    shareStatus
+                }
+
                 exportStatus
 
                 Button {
@@ -94,6 +98,68 @@ private struct RecordingStudioContent: View {
         }
     }
 
+    /// Share pipeline in one toolbar slot: render → upload → link copied.
+    /// The upload leg reads the uploader's live progress so the pill keeps
+    /// moving through both stages.
+    @ViewBuilder
+    private var shareStatus: some View {
+        switch model.shareState {
+        case .idle:
+            Button {
+                model.shareToCloud()
+            } label: {
+                Label("Share", systemImage: "link")
+                    .labelStyle(.titleAndIcon)
+            }
+            .disabled(!model.isLoaded || model.exportState.isExporting)
+            .help("Upload this recording and copy the share link")
+        case .rendering(let progress):
+            SharePill(stage: "Rendering", progress: progress) {
+                model.cancelShare()
+            }
+        case .uploading:
+            SharePill(
+                stage: "Uploading",
+                progress: model.shareItemID.flatMap {
+                    CloudUploader.shared.uploadProgress[$0]
+                } ?? 0
+            ) {
+                model.cancelShare()
+            }
+        case .finished(let url):
+            HStack(spacing: 6) {
+                Button {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(url, forType: .string)
+                } label: {
+                    Label("Link Copied", systemImage: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                }
+                .help("Copy the share link again")
+
+                Button {
+                    model.shareToCloud()
+                } label: {
+                    Image(systemName: "link")
+                }
+                .help("Share Again")
+            }
+        case .failed(let message):
+            HStack(spacing: 6) {
+                Label("Share Failed", systemImage: "exclamationmark.triangle.fill")
+                    .labelStyle(.titleAndIcon)
+                    .foregroundStyle(.orange)
+                    .help(message)
+
+                Button {
+                    model.shareToCloud()
+                } label: {
+                    Text("Retry")
+                }
+            }
+        }
+    }
+
     @ViewBuilder
     private var exportStatus: some View {
         switch model.exportState {
@@ -105,7 +171,7 @@ private struct RecordingStudioContent: View {
                     .labelStyle(.titleAndIcon)
             }
             .tint(.accentColor)
-            .disabled(!model.isLoaded)
+            .disabled(!model.isLoaded || model.shareState.isBusy)
         case .exporting(let progress):
             ExportProgressPill(progress: progress) {
                 model.cancelExport()
@@ -141,6 +207,46 @@ private struct RecordingStudioContent: View {
                 }
             }
         }
+    }
+}
+
+/// Progress pill for the share pipeline: same ring treatment as the
+/// export pill, with the stage name so render and upload read distinctly.
+private struct SharePill: View {
+    let stage: String
+    let progress: Double
+    let onCancel: () -> Void
+
+    var body: some View {
+        HStack(spacing: 6) {
+            ZStack {
+                Circle()
+                    .stroke(Color.primary.opacity(0.15), lineWidth: 2)
+                Circle()
+                    .trim(from: 0, to: max(0.03, min(1, progress)))
+                    .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+            }
+            .frame(width: 14, height: 14)
+            .animation(.easeOut(duration: 0.15), value: progress)
+
+            Text("\(stage) \(Int((progress * 100).rounded()))%")
+                .font(.system(size: 12, weight: .medium).monospacedDigit())
+                .foregroundStyle(.primary.opacity(0.85))
+                .fixedSize()
+                .contentTransition(.numericText())
+
+            Button(action: onCancel) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 8.5, weight: .bold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 16, height: 16)
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .help("Cancel Share")
+        }
+        .padding(.leading, 12)
     }
 }
 

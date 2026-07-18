@@ -22,13 +22,17 @@ enum RecordingSessionRenderer {
     }
 
     /// Creates a flattened deliverable when explicitly requested for a session
-    /// with a camera source or a cursor-hidden capture. Screen-only sessions
-    /// recorded with the OS cursor already contain their complete audio/video
-    /// result and need no expensive second encode.
+    /// whose raw screen master would not match what the user sees: a camera
+    /// source, a cursor-hidden capture, or any saved Studio project. Only a
+    /// never-edited, cursor-visible, camera-less capture is already its own
+    /// complete result and skips the expensive second encode.
     static func ensureDeliverable(for session: RecordingSession) async throws -> URL {
         let manifest = session.loadCaptureManifest()
         let pointerSynthesized = manifest?.pointerSynthesized == true
-        guard session.hasCamera || pointerSynthesized else { return session.screenURL }
+        let hasProject = FileManager.default.fileExists(atPath: session.editDocumentURL.path)
+        guard session.hasCamera || pointerSynthesized || hasProject else {
+            return session.screenURL
+        }
         if session.hasFinalVideo { return session.finalURL }
 
         let asset = AVURLAsset(url: session.screenURL)
@@ -59,8 +63,8 @@ enum RecordingSessionRenderer {
         let document = session.loadEditDocument()
         var style = document?.style.value ?? RecordingStudioStyle()
         // Selecting a camera means the default delivered recording includes
-        // it. Hiding it remains an explicit Studio/manual-export choice.
-        style.camera.isVisible = session.hasCamera
+        // it; a saved Studio project that explicitly hid the bubble wins.
+        style.camera.isVisible = session.hasCamera && (document?.style.value.camera.isVisible ?? true)
         let zoomEnabled = document?.zoomEnabled ?? true
         let zoomCues = document?.zoomCues
             ?? ZoomCueSynthesizer.cues(from: capture, duration: duration)

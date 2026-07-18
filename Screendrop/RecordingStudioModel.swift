@@ -37,6 +37,22 @@ enum RecordingStudioExportState: Equatable {
     }
 }
 
+/// Share-to-cloud pipeline: render the current edits, upload, copy link.
+enum RecordingStudioShareState: Equatable {
+    case idle
+    case rendering(progress: Double)
+    case uploading
+    case finished(String)
+    case failed(String)
+
+    var isBusy: Bool {
+        switch self {
+        case .rendering, .uploading: true
+        default: false
+        }
+    }
+}
+
 @MainActor
 @Observable
 final class RecordingStudioModel {
@@ -118,10 +134,15 @@ final class RecordingStudioModel {
         }
     }
     var exportState: RecordingStudioExportState = .idle
+    var shareState: RecordingStudioShareState = .idle
+    /// Upload identity while sharing, so the UI can read the uploader's
+    /// live progress and the history card mirrors the state.
+    private(set) var shareItemID: UUID?
 
     private var timeObserver: Any?
     private var endObserver: NSObjectProtocol?
     private var exportTask: Task<Void, Never>?
+    private var shareTask: Task<Void, Never>?
     private var transcriptionTask: Task<Void, Never>?
     private var projectSaveTask: Task<Void, Never>?
     private var timelineTask: Task<Void, Never>?
@@ -268,6 +289,7 @@ final class RecordingStudioModel {
 
     func teardown() {
         exportTask?.cancel()
+        shareTask?.cancel()
         transcriptionTask?.cancel()
         projectSaveTask?.cancel()
         timelineTask?.cancel()
@@ -1200,12 +1222,8 @@ final class RecordingStudioModel {
 
     // MARK: - Export
 
-    func export() {
-        guard !exportState.isExporting, isLoaded else { return }
-        pause()
-        exportState = .exporting(progress: 0)
-
-        let configuration = RecordingStudioExporter.Configuration(
+    private func makeExportConfiguration() -> RecordingStudioExporter.Configuration {
+        RecordingStudioExporter.Configuration(
             screenURL: screenURL,
             cameraURL: hasCameraVideo && style.camera.isVisible ? session?.cameraURL : nil,
             cameraOffset: cameraOffset,
@@ -1221,6 +1239,16 @@ final class RecordingStudioModel {
             clipTimeline: clipTimeline,
             exportSettings: exportSettings
         )
+    }
+
+    func export() {
+        // One render at a time: the share pipeline uses the same exporter,
+        // so a second encode would just fight it for the media engine.
+        guard !exportState.isExporting, !shareState.isBusy, isLoaded else { return }
+        pause()
+        exportState = .exporting(progress: 0)
+
+        let configuration = makeExportConfiguration()
         let suggestedFileName = session.map {
             $0.directoryURL.deletingPathExtension().lastPathComponent.appending(".mov")
         } ?? VideoFileActions.exportFileName(for: screenURL)
@@ -1265,6 +1293,114 @@ final class RecordingStudioModel {
         if exportState.isExporting {
             exportState = .idle
         }
+    }
+
+    // MARK: - Share to cloud
+
+    var canShareToCloud: Bool {
+        CloudUploader.shared.isConfigured
+    }
+
+    /// The Loom loop: render the current edits, cache the result as the
+    /// session's flattened deliverable, upload it, and copy the share
+    /// link — without leaving the Studio or touching a save panel.
+    func shareToCloud() {
+        guard !shareState.isBusy, !exportState.isExporting, isLoaded,
+              canShareToCloud else {
+            return
+        }
+        pause()
+        // Persist the project first so the deliverable-invalidation in
+        // the debounced save can't race the file this render produces.
+        saveProjectNow()
+        shareState = .rendering(progress: 0)
+
+        let configuration = makeExportConfiguration()
+        let session = session
+        // The render leg gets its own Dock entry; the upload leg's Dock
+        // progress is owned by CloudUploader, so the two never overlap.
+        let dockProgressID = DockExportProgressCoordinator.shared.start()
+
+        shareTask = Task { [weak self] in
+            do {
+                let exporter = RecordingStudioExporter()
+                let temporaryURL = try await exporter.export(configuration) { progress in
+                    Task { @MainActor [weak self] in
+                        DockExportProgressCoordinator.shared.update(dockProgressID, progress: progress)
+                        if case .rendering = self?.shareState {
+                            self?.shareState = .rendering(progress: progress)
+                        }
+                    }
+                }
+                DockExportProgressCoordinator.shared.finish(dockProgressID)
+                guard let self, !Task.isCancelled else {
+                    try? FileManager.default.removeItem(at: temporaryURL)
+                    return
+                }
+
+                // Session recordings keep the render as the flattened
+                // deliverable, so history, preview, and sidecar mapping
+                // all agree on what was shared.
+                let uploadURL: URL
+                var temporaryUploadURL: URL?
+                if let session {
+                    if FileManager.default.fileExists(atPath: session.finalURL.path) {
+                        _ = try FileManager.default.replaceItemAt(session.finalURL, withItemAt: temporaryURL)
+                    } else {
+                        try FileManager.default.moveItem(at: temporaryURL, to: session.finalURL)
+                    }
+                    uploadURL = session.finalURL
+                } else {
+                    uploadURL = temporaryURL
+                    temporaryUploadURL = temporaryURL
+                }
+
+                self.shareState = .uploading
+                let itemID = self.historyItemID(for: session) ?? UUID()
+                self.shareItemID = itemID
+                let result = try await CloudUploader.shared.upload(itemID: itemID, fileURL: uploadURL)
+
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(result.url, forType: .string)
+                if session != nil {
+                    ScreenshotHistoryStore.shared.setCloudURL(for: uploadURL, cloudURL: result.url)
+                }
+                if let temporaryUploadURL {
+                    try? FileManager.default.removeItem(at: temporaryUploadURL)
+                }
+                self.shareState = .finished(result.url)
+            } catch is CancellationError {
+                DockExportProgressCoordinator.shared.finish(dockProgressID)
+                self?.shareState = .idle
+            } catch RecordingStudioExporter.ExportError.cancelled {
+                DockExportProgressCoordinator.shared.finish(dockProgressID)
+                self?.shareState = .idle
+            } catch {
+                DockExportProgressCoordinator.shared.finish(dockProgressID)
+                self?.shareState = .failed(error.localizedDescription)
+            }
+        }
+    }
+
+    func cancelShare() {
+        shareTask?.cancel()
+        shareTask = nil
+        if let shareItemID {
+            CloudUploader.shared.cancelUpload(for: shareItemID)
+        }
+        if shareState.isBusy {
+            shareState = .idle
+        }
+    }
+
+    /// History item for this session, so the share upload's progress and
+    /// resulting link also appear on the preview card.
+    private func historyItemID(for session: RecordingSession?) -> UUID? {
+        guard let session else { return nil }
+        let standardizedPath = session.directoryURL.standardizedFileURL.path
+        return ScreenshotHistoryStore.shared.items
+            .first { $0.recordingSessionPath == standardizedPath }?
+            .id
     }
 }
 
