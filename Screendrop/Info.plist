@@ -4,6 +4,8 @@
 <dict>
 	<key>NSInputMonitoringUsageDescription</key>
 	<string>Screendrop needs input monitoring permission to show key press captions while recording.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Screendrop needs microphone permission to include narration in screen recordings.</string>
 	<key>NSScreenCaptureUsageDescription</key>
 	<string>Screendrop needs screen recording permission to capture screenshots.</string>
 	<key>SUEnableInstallerLauncherService</key>

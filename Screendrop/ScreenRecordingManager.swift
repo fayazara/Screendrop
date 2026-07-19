@@ -129,7 +129,12 @@ final class ScreenRecordingManager {
             do {
                 let outputURL = Self.generateTemporaryRecordingURL()
                 let content = try await ScreenRecordingCapture.availableContent()
-                let target = try Self.captureTarget(for: source, content: content)
+                let recordMicrophoneAudio = ScreendropPreferences.recordMicrophoneAudio
+                let target = try Self.captureTarget(
+                    for: source,
+                    content: content,
+                    recordMicrophoneAudio: recordMicrophoneAudio
+                )
                 let mouseIndicatorStore = ScreendropPreferences.showRecordingMouseIndicators
                     ? RecordingMouseIndicatorController.shared.start(mapping: target.mouseIndicatorMapping)
                     : nil
@@ -141,12 +146,16 @@ final class ScreenRecordingManager {
                     outputURL: outputURL,
                     videoWidth: target.width,
                     videoHeight: target.height,
+                    recordMicrophoneAudio: recordMicrophoneAudio,
                     mouseIndicatorStore: mouseIndicatorStore,
                     keyCaptionStore: keyCaptionStore
                 )
 
                 capture.onVideoFrame = { [writer] sampleBuffer in
                     writer.writeVideoSample(sampleBuffer)
+                }
+                capture.onMicrophoneSample = { [writer] sampleBuffer in
+                    writer.writeAudioSample(sampleBuffer)
                 }
                 capture.onError = { [weak self] error in
                     Task { @MainActor in
@@ -308,6 +317,7 @@ final class ScreenRecordingManager {
         timer?.invalidate()
         timer = nil
         capture.onVideoFrame = nil
+        capture.onMicrophoneSample = nil
         capture.onError = nil
         RecordingMouseIndicatorController.shared.stop()
         RecordingKeyCaptionController.shared.stop()
@@ -332,7 +342,11 @@ final class ScreenRecordingManager {
         }
     }
 
-    private static func captureTarget(for source: ScreenRecordingSource, content: SCShareableContent) throws -> ScreenRecordingCaptureTarget {
+    private static func captureTarget(
+        for source: ScreenRecordingSource,
+        content: SCShareableContent,
+        recordMicrophoneAudio: Bool
+    ) throws -> ScreenRecordingCaptureTarget {
         let filter: SCContentFilter
         let sourceSize: CGSize
         var sourceRect: CGRect?
@@ -369,7 +383,12 @@ final class ScreenRecordingManager {
         let scaleFactor = max(1, CGFloat(filter.pointPixelScale))
         let width = max(2, Int((sourceSize.width * scaleFactor).rounded(.toNearestOrAwayFromZero)))
         let height = max(2, Int((sourceSize.height * scaleFactor).rounded(.toNearestOrAwayFromZero)))
-        let configuration = ScreenRecordingCapture.buildConfiguration(width: width, height: height, sourceRect: sourceRect)
+        let configuration = ScreenRecordingCapture.buildConfiguration(
+            width: width,
+            height: height,
+            sourceRect: sourceRect,
+            recordMicrophoneAudio: recordMicrophoneAudio
+        )
         let mouseIndicatorMapping = RecordingMouseIndicatorMapping(
             captureRect: captureRect,
             pixelWidth: width,
@@ -455,11 +474,20 @@ private struct ScreenRecordingCaptureTarget {
     let keyCaptionMapping: RecordingKeyCaptionMapping
 }
 
+private enum ScreenRecordingAudioSettings {
+    nonisolated static let sampleRate = 48_000
+    nonisolated static let channelCount = 2
+    nonisolated static let bitRate = 128_000
+}
+
 nonisolated final class ScreenRecordingCapture: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
     private var stream: SCStream?
+    private var isMicrophoneOutputAdded = false
     private let videoQueue = DispatchQueue(label: "com.screendrop.screen-recording.video", qos: .userInteractive)
+    private let microphoneQueue = DispatchQueue(label: "com.screendrop.screen-recording.microphone", qos: .userInitiated)
 
     var onVideoFrame: ((CMSampleBuffer) -> Void)?
+    var onMicrophoneSample: ((CMSampleBuffer) -> Void)?
     var onError: ((Error) -> Void)?
 
     static func availableContent() async throws -> SCShareableContent {
@@ -468,16 +496,46 @@ nonisolated final class ScreenRecordingCapture: NSObject, SCStreamOutput, SCStre
 
     func startCapture(filter: SCContentFilter, configuration: SCStreamConfiguration) async throws {
         let stream = SCStream(filter: filter, configuration: configuration, delegate: self)
-        try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: videoQueue)
-        try await stream.startCapture()
-        self.stream = stream
+        var isScreenOutputAdded = false
+        var isMicrophoneOutputAdded = false
+
+        do {
+            try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: videoQueue)
+            isScreenOutputAdded = true
+
+            if configuration.captureMicrophone {
+                do {
+                    try stream.addStreamOutput(self, type: .microphone, sampleHandlerQueue: microphoneQueue)
+                    isMicrophoneOutputAdded = true
+                } catch {
+                    print("Screen recording microphone capture unavailable: \(error)")
+                }
+            }
+
+            try await stream.startCapture()
+            self.stream = stream
+            self.isMicrophoneOutputAdded = isMicrophoneOutputAdded
+        } catch {
+            if isMicrophoneOutputAdded {
+                try? stream.removeStreamOutput(self, type: .microphone)
+            }
+            if isScreenOutputAdded {
+                try? stream.removeStreamOutput(self, type: .screen)
+            }
+            throw error
+        }
     }
 
     func stopCapture() async throws {
         guard let stream else { return }
+        let isMicrophoneOutputAdded = isMicrophoneOutputAdded
         self.stream = nil
+        self.isMicrophoneOutputAdded = false
         defer {
             try? stream.removeStreamOutput(self, type: .screen)
+            if isMicrophoneOutputAdded {
+                try? stream.removeStreamOutput(self, type: .microphone)
+            }
         }
         try await stream.stopCapture()
     }
@@ -494,7 +552,12 @@ nonisolated final class ScreenRecordingCapture: NSObject, SCStreamOutput, SCStre
         )
     }
 
-    static func buildConfiguration(width: Int, height: Int, sourceRect: CGRect?) -> SCStreamConfiguration {
+    static func buildConfiguration(
+        width: Int,
+        height: Int,
+        sourceRect: CGRect?,
+        recordMicrophoneAudio: Bool
+    ) -> SCStreamConfiguration {
         let configuration = SCStreamConfiguration()
         configuration.width = width
         configuration.height = height
@@ -507,7 +570,11 @@ nonisolated final class ScreenRecordingCapture: NSObject, SCStreamOutput, SCStre
         configuration.showsCursor = true
         configuration.showMouseClicks = false
         configuration.capturesAudio = false
-        configuration.captureMicrophone = false
+        configuration.captureMicrophone = recordMicrophoneAudio
+        if recordMicrophoneAudio {
+            configuration.sampleRate = ScreenRecordingAudioSettings.sampleRate
+            configuration.channelCount = ScreenRecordingAudioSettings.channelCount
+        }
         return configuration
     }
 
@@ -516,12 +583,20 @@ nonisolated final class ScreenRecordingCapture: NSObject, SCStreamOutput, SCStre
         didOutputSampleBuffer sampleBuffer: CMSampleBuffer,
         of type: SCStreamOutputType
     ) {
-        guard type == .screen, CMSampleBufferDataIsReady(sampleBuffer) else { return }
-        if let status = Self.frameStatus(for: sampleBuffer),
-           status == .blank || status == .suspended || status == .stopped {
+        guard CMSampleBufferDataIsReady(sampleBuffer) else { return }
+
+        switch type {
+        case .screen:
+            if let status = Self.frameStatus(for: sampleBuffer),
+               status == .blank || status == .suspended || status == .stopped {
+                return
+            }
+            onVideoFrame?(sampleBuffer)
+        case .microphone:
+            onMicrophoneSample?(sampleBuffer)
+        default:
             return
         }
-        onVideoFrame?(sampleBuffer)
     }
 
     nonisolated func stream(_ stream: SCStream, didStopWithError error: Error) {
@@ -544,6 +619,7 @@ nonisolated final class ScreenRecordingCapture: NSObject, SCStreamOutput, SCStre
 nonisolated private final class ScreenRecordingWriter: @unchecked Sendable {
     private var assetWriter: AVAssetWriter?
     private var videoInput: AVAssetWriterInput?
+    private var audioInput: AVAssetWriterInput?
     private var pixelBufferAdaptor: AVAssetWriterInputPixelBufferAdaptor?
     private let writingQueue = DispatchQueue(label: "com.screendrop.screen-recording.writer", qos: .userInitiated)
     private var outputURL: URL?
@@ -561,6 +637,7 @@ nonisolated private final class ScreenRecordingWriter: @unchecked Sendable {
         outputURL: URL,
         videoWidth: Int,
         videoHeight: Int,
+        recordMicrophoneAudio: Bool,
         mouseIndicatorStore: RecordingMouseIndicatorStore?,
         keyCaptionStore: RecordingKeyCaptionStore?
     ) throws {
@@ -581,7 +658,9 @@ nonisolated private final class ScreenRecordingWriter: @unchecked Sendable {
 
         let input = AVAssetWriterInput(mediaType: .video, outputSettings: videoSettings)
         input.expectsMediaDataInRealTime = true
-        writer.add(input)
+        try Self.add(input, to: writer)
+
+        let audioInput = try Self.makeAudioInputIfNeeded(for: writer, recordMicrophoneAudio: recordMicrophoneAudio)
 
         let adaptor = AVAssetWriterInputPixelBufferAdaptor(
             assetWriterInput: input,
@@ -598,6 +677,7 @@ nonisolated private final class ScreenRecordingWriter: @unchecked Sendable {
 
         assetWriter = writer
         videoInput = input
+        self.audioInput = audioInput
         pixelBufferAdaptor = adaptor
         self.outputURL = outputURL
         self.mouseIndicatorStore = mouseIndicatorStore
@@ -641,19 +721,10 @@ nonisolated private final class ScreenRecordingWriter: @unchecked Sendable {
 
                 let sampleBuffer = sendableSampleBuffer.sampleBuffer
                 guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-                let time = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-
-                if !self.isSessionStarted {
-                    self.sessionStartTime = time
-                    self.latestSampleTime = time
-                    self.assetWriter?.startSession(atSourceTime: .zero)
-                    self.isSessionStarted = true
+                guard let adjustedPTS = self.adjustedTimeForWritableSample(sampleBuffer),
+                      videoInput.isReadyForMoreMediaData else {
+                    return
                 }
-
-                guard self.handlePauseState(sampleTime: time) else { return }
-
-                let adjustedPTS = self.adjustedTime(time)
-                guard adjustedPTS >= .zero, videoInput.isReadyForMoreMediaData else { return }
 
                 if let snapshot = self.mouseIndicatorStore?.snapshot(at: adjustedPTS.seconds) {
                     RecordingMouseIndicatorRenderer.render(snapshot: snapshot, into: pixelBuffer)
@@ -663,6 +734,24 @@ nonisolated private final class ScreenRecordingWriter: @unchecked Sendable {
                 }
 
                 pixelBufferAdaptor.append(pixelBuffer, withPresentationTime: adjustedPTS)
+            }
+        }
+    }
+
+    func writeAudioSample(_ sampleBuffer: CMSampleBuffer) {
+        let sendableSampleBuffer = SendableSampleBuffer(sampleBuffer)
+        writingQueue.async { [weak self, sendableSampleBuffer] in
+            autoreleasepool {
+                guard let self, let audioInput = self.audioInput else { return }
+
+                let sampleBuffer = sendableSampleBuffer.sampleBuffer
+                guard let adjustedPTS = self.adjustedTimeForWritableSample(sampleBuffer),
+                      audioInput.isReadyForMoreMediaData,
+                      let retimedSampleBuffer = Self.retime(sampleBuffer, to: adjustedPTS) else {
+                    return
+                }
+
+                audioInput.append(retimedSampleBuffer)
             }
         }
     }
@@ -678,6 +767,7 @@ nonisolated private final class ScreenRecordingWriter: @unchecked Sendable {
                 }
 
                 videoInput?.markAsFinished()
+                audioInput?.markAsFinished()
                 assetWriter.finishWriting {
                     self.cleanup()
                     continuation.resume(returning: url)
@@ -713,6 +803,52 @@ nonisolated private final class ScreenRecordingWriter: @unchecked Sendable {
             adjusted = CMTimeSubtract(adjusted, totalPauseDuration)
         }
         return adjusted
+    }
+
+    private func adjustedTimeForWritableSample(_ sampleBuffer: CMSampleBuffer) -> CMTime? {
+        let time = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+
+        if !isSessionStarted {
+            startSession(at: time)
+        }
+
+        guard handlePauseState(sampleTime: time) else { return nil }
+
+        let adjustedPTS = adjustedTime(time)
+        return adjustedPTS >= .zero ? adjustedPTS : nil
+    }
+
+    private static func add(_ input: AVAssetWriterInput, to writer: AVAssetWriter) throws {
+        guard writer.canAdd(input) else {
+            throw writer.error ?? CocoaError(.fileWriteUnknown)
+        }
+
+        writer.add(input)
+    }
+
+    private static func makeAudioInputIfNeeded(
+        for writer: AVAssetWriter,
+        recordMicrophoneAudio: Bool
+    ) throws -> AVAssetWriterInput? {
+        guard recordMicrophoneAudio else { return nil }
+
+        let audioSettings: [String: Any] = [
+            AVFormatIDKey: kAudioFormatMPEG4AAC,
+            AVNumberOfChannelsKey: ScreenRecordingAudioSettings.channelCount,
+            AVSampleRateKey: ScreenRecordingAudioSettings.sampleRate,
+            AVEncoderBitRateKey: ScreenRecordingAudioSettings.bitRate
+        ]
+        let audioInput = AVAssetWriterInput(mediaType: .audio, outputSettings: audioSettings)
+        audioInput.expectsMediaDataInRealTime = true
+        try add(audioInput, to: writer)
+        return audioInput
+    }
+
+    private func startSession(at sampleTime: CMTime) {
+        sessionStartTime = sampleTime
+        latestSampleTime = sampleTime
+        assetWriter?.startSession(atSourceTime: .zero)
+        isSessionStarted = true
     }
 
     private func handlePauseState(sampleTime: CMTime) -> Bool {
@@ -756,6 +892,7 @@ nonisolated private final class ScreenRecordingWriter: @unchecked Sendable {
     private func cleanup() {
         assetWriter = nil
         videoInput = nil
+        audioInput = nil
         pixelBufferAdaptor = nil
         outputURL = nil
         mouseIndicatorStore = nil

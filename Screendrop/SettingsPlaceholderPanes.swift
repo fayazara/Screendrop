@@ -4,6 +4,8 @@ import SwiftUI
 struct VideoSettingsPane: View {
     @AppStorage(ScreendropPreferences.showRecordingMouseIndicatorsKey) private var showMouseIndicators = true
     @AppStorage(ScreendropPreferences.showRecordingKeyPressCaptionsKey) private var showKeyPressCaptions = false
+    @AppStorage(ScreendropPreferences.recordMicrophoneAudioKey)
+    private var recordMicrophoneAudio = ScreendropPreferences.defaultRecordMicrophoneAudio
     @AppStorage(ScreendropPreferences.recordingMouseIndicatorColorKey) private var mouseIndicatorColor = ScreendropPreferences.defaultRecordingMouseIndicatorColor
     @AppStorage(ScreendropPreferences.recordingMouseIndicatorSizeKey) private var mouseIndicatorSize = ScreendropPreferences.defaultRecordingMouseIndicatorSize
 
@@ -25,6 +27,18 @@ struct VideoSettingsPane: View {
             CaptureHotkeySettingsSection(actions: [.screenRecording])
 
             AfterCaptureActionsSection(type: .recording, title: "After Recording")
+
+            Section("Audio") {
+                Toggle(isOn: $recordMicrophoneAudio) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Record microphone audio")
+                        Text("Includes microphone narration in screen recordings.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .toggleStyle(.switch)
+            }
 
             Section("Recording Indicators") {
                 Toggle(isOn: $showMouseIndicators) {
