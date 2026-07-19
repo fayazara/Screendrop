@@ -51,14 +51,17 @@ brew upgrade --cask screendrop
 ## What It Does
 
 - Capture the full screen, a selected window, or a selected area.
-- Record the full screen, a selected window, or a selected area.
+- Record the full screen, a selected window, or a selected area, with optional camera and microphone.
 - Preview recent captures in a floating stack.
 - Annotate screenshots with shapes, arrows, freehand drawing, text, numbered markers, highlights, blur, pixelate, and background styling.
+- Edit recordings in a built-in Studio: backgrounds, padding, smooth zooms that follow the cursor, click effects, keystroke captions, camera bubble, clip splitting, and per-clip speed.
+- Transcribe narration on-device with Apple's Speech Analyzer, then edit the video by its transcript: cut a word or a passage from the text and the footage is cut with it, remove filler words in one click, and trim narration silences.
+- Show the transcript as burned-in subtitles, with position and size controls.
 - Trim and compress screen recordings.
 - Save captures automatically to your chosen folder.
 - Copy screenshots or recordings to the clipboard.
 - Keep a local history of screenshots and recordings.
-- Upload captures to your own Cloudflare-backed sharing setup.
+- Share to your own Cloudflare-backed cloud: recordings get a Loom-style share page with a proper player, scrub previews, a synced transcript, and comments.
 - Check for app updates with Sparkle.
 
 ## Capture Workflow
@@ -77,7 +80,26 @@ Screenshots are captured at native display resolution. Annotation coordinates ar
 
 ## Recording Workflow
 
-Screen recording supports display, area, and window sources. Screendrop can also show recording overlays such as mouse indicators and key press captions. Finished recordings are added to history and can be edited or compressed from the built-in video editor.
+Screen recording supports display, area, and window sources, with optional camera and microphone tracks. Recordings are stored as non-destructive session packages: the raw screen and camera masters stay untouched, and every edit lives in a small project file alongside them.
+
+Finished recordings open in the Studio, where editing is non-destructive and re-editable at any time:
+
+- Backgrounds, padding, rounded corners, and shadows around the recording.
+- Automatic zooms that follow the cursor, editable on a timeline.
+- Click effects and keystroke captions reconstructed from an input sidecar, so they can be toggled after the fact.
+- Clip splitting, deletion, and per-clip speed.
+- A floating camera bubble with position, size, and roundness controls.
+
+### Transcription and Editing by Text
+
+Narrated recordings can be transcribed entirely on-device using Apple's Speech Analyzer — no audio leaves your Mac. The transcript then works in two directions:
+
+- **Captions**: timed subtitles rendered onto the video, with position and size controls, editable line by line.
+- **Edit Video**: the transcript as flowing text. Click a word to jump there, select a passage and cut it to remove that part of the video, remove filler words ("um", "uh", …) in one click, and trim narration silences automatically. Cuts update the captions and are fully undoable.
+
+### Exporting and Sharing
+
+Export renders the project to your save folder. If cloud sharing is configured, **Share** renders and uploads in one step, then copies the link — no export-then-upload dance. Renders are cached per project state, so sharing and then exporting (or re-sharing) without new edits skips the re-render entirely.
 
 Video compression uses FFmpeg when available. Install it with Homebrew if you want conversion and compression features:
 
@@ -90,9 +112,18 @@ brew install ffmpeg
 Screendrop does not require a paid backend. Cloud sharing is designed around a small Cloudflare Worker setup that can run on the free tier:
 
 - A Cloudflare Worker receives authenticated uploads and returns share links.
-- Cloudflare R2 stores the actual screenshot or recording files.
+- Cloudflare R2 stores the actual screenshot or recording files (R2 egress is free).
 - Cloudflare D1 stores lightweight metadata for each uploaded capture.
 - Screendrop only needs your Worker URL and upload token. It does not store R2/S3 credentials.
+
+Shared recordings get a Loom-style page, not just a raw file link:
+
+- A proper video player with thumbnail previews while scrubbing, captions, playback speed, and theater mode.
+- A live transcript beside the video — the active line follows playback, clicking a line seeks, and it's searchable.
+- Comments, optionally pinned to a moment in the video.
+- View counts, a poster image, and rich link previews when the URL is pasted into chat apps.
+
+Shared screenshots keep a clean viewer with copy and download actions.
 
 The companion Worker lives here:
 
@@ -104,10 +135,11 @@ The companion Worker lives here:
 
 When you upload a capture:
 
-1. Screendrop sends the file to your Worker with `PUT /api/upload`.
+1. Screendrop sends the file to your Worker with `PUT /api/upload`. For a recording with Studio edits, the app renders the edited version first and uploads that — never the raw screen master.
 2. The Worker validates the upload token.
 3. The Worker writes the file to R2 and records metadata in D1.
 4. The Worker returns a share URL, which Screendrop copies to the clipboard and stores in local history.
+5. For videos, Screendrop then sends the share-page extras in the background: a poster frame, a human-readable title, the transcript (when one exists, remapped to the edited timeline), and a scrub-preview sprite sheet. The page works without them and upgrades as they land.
 
 The upload token is the only secret Screendrop needs. File storage and metadata stay in your own Cloudflare account.
 

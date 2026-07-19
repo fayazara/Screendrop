@@ -1241,17 +1241,48 @@ final class RecordingStudioModel {
         )
     }
 
+    /// The flattened deliverable when it's guaranteed to match the current
+    /// in-memory edits: the file exists and no change has happened since
+    /// the save that would have invalidated it. Both Export and Share can
+    /// then skip the render entirely.
+    private var freshDeliverableURL: URL? {
+        guard let session, session.hasFinalVideo, !hasUnsavedChanges else { return nil }
+        return session.finalURL
+    }
+
+    private var exportSuggestedFileName: String {
+        session.map {
+            $0.directoryURL.deletingPathExtension().lastPathComponent.appending(".mov")
+        } ?? VideoFileActions.exportFileName(for: screenURL)
+    }
+
     func export() {
         // One render at a time: the share pipeline uses the same exporter,
         // so a second encode would just fight it for the media engine.
         guard !exportState.isExporting, !shareState.isBusy, isLoaded else { return }
         pause()
+
+        // A fresh deliverable (e.g. right after a share) is byte-identical
+        // to what this render would produce — same configuration builds
+        // both — so exporting becomes a plain copy into the save folder.
+        if let cached = freshDeliverableURL {
+            do {
+                let savedURL = try VideoFileActions.saveToDefaultLocation(
+                    from: cached,
+                    suggestedFileName: exportSuggestedFileName
+                )
+                RecordingExportNotifier.notifySuccess(fileURL: savedURL)
+                exportState = .finished(savedURL)
+            } catch {
+                exportState = .failed(error.localizedDescription)
+            }
+            return
+        }
+
         exportState = .exporting(progress: 0)
 
         let configuration = makeExportConfiguration()
-        let suggestedFileName = session.map {
-            $0.directoryURL.deletingPathExtension().lastPathComponent.appending(".mov")
-        } ?? VideoFileActions.exportFileName(for: screenURL)
+        let suggestedFileName = exportSuggestedFileName
 
         let dockProgressID = DockExportProgressCoordinator.shared.start()
 
@@ -1313,48 +1344,70 @@ final class RecordingStudioModel {
         // Persist the project first so the deliverable-invalidation in
         // the debounced save can't race the file this render produces.
         saveProjectNow()
-        shareState = .rendering(progress: 0)
 
-        let configuration = makeExportConfiguration()
+        // A fresh deliverable (e.g. sharing again without edits) skips
+        // the render and goes straight to upload.
+        let cachedDeliverable = freshDeliverableURL
+        let configuration = cachedDeliverable == nil ? makeExportConfiguration() : nil
         let session = session
-        // The render leg gets its own Dock entry; the upload leg's Dock
-        // progress is owned by CloudUploader, so the two never overlap.
-        let dockProgressID = DockExportProgressCoordinator.shared.start()
+        shareState = cachedDeliverable == nil ? .rendering(progress: 0) : .uploading
 
         shareTask = Task { [weak self] in
-            do {
-                let exporter = RecordingStudioExporter()
-                let temporaryURL = try await exporter.export(configuration) { progress in
-                    Task { @MainActor [weak self] in
-                        DockExportProgressCoordinator.shared.update(dockProgressID, progress: progress)
-                        if case .rendering = self?.shareState {
-                            self?.shareState = .rendering(progress: progress)
-                        }
-                    }
+            // Bare (session-less) videos upload straight from the render's
+            // temp file; whatever happens, it must not outlive the share.
+            var temporaryUploadURL: URL?
+            defer {
+                if let temporaryUploadURL {
+                    try? FileManager.default.removeItem(at: temporaryUploadURL)
                 }
-                DockExportProgressCoordinator.shared.finish(dockProgressID)
-                guard let self, !Task.isCancelled else {
-                    try? FileManager.default.removeItem(at: temporaryURL)
+            }
+            do {
+                let uploadURL: URL
+                if let cachedDeliverable {
+                    uploadURL = cachedDeliverable
+                } else if let configuration {
+                    // The render leg gets its own Dock entry; the upload
+                    // leg's Dock progress is owned by CloudUploader, so
+                    // the two never overlap.
+                    let dockProgressID = DockExportProgressCoordinator.shared.start()
+                    let temporaryURL: URL
+                    do {
+                        temporaryURL = try await RecordingStudioExporter().export(configuration) { progress in
+                            Task { @MainActor [weak self] in
+                                DockExportProgressCoordinator.shared.update(dockProgressID, progress: progress)
+                                if case .rendering = self?.shareState {
+                                    self?.shareState = .rendering(progress: progress)
+                                }
+                            }
+                        }
+                        DockExportProgressCoordinator.shared.finish(dockProgressID)
+                    } catch {
+                        DockExportProgressCoordinator.shared.finish(dockProgressID)
+                        throw error
+                    }
+                    // From here the deferred cleanup owns the temp render;
+                    // once it moves into the session the delete is a
+                    // harmless no-op.
+                    temporaryUploadURL = temporaryURL
+
+                    // Session recordings keep the render as the flattened
+                    // deliverable, so history, preview, and sidecar mapping
+                    // all agree on what was shared.
+                    if let session {
+                        if FileManager.default.fileExists(atPath: session.finalURL.path) {
+                            _ = try FileManager.default.replaceItemAt(session.finalURL, withItemAt: temporaryURL)
+                        } else {
+                            try FileManager.default.moveItem(at: temporaryURL, to: session.finalURL)
+                        }
+                        uploadURL = session.finalURL
+                    } else {
+                        uploadURL = temporaryURL
+                    }
+                } else {
                     return
                 }
 
-                // Session recordings keep the render as the flattened
-                // deliverable, so history, preview, and sidecar mapping
-                // all agree on what was shared.
-                let uploadURL: URL
-                var temporaryUploadURL: URL?
-                if let session {
-                    if FileManager.default.fileExists(atPath: session.finalURL.path) {
-                        _ = try FileManager.default.replaceItemAt(session.finalURL, withItemAt: temporaryURL)
-                    } else {
-                        try FileManager.default.moveItem(at: temporaryURL, to: session.finalURL)
-                    }
-                    uploadURL = session.finalURL
-                } else {
-                    uploadURL = temporaryURL
-                    temporaryUploadURL = temporaryURL
-                }
-
+                guard let self, !Task.isCancelled else { return }
                 self.shareState = .uploading
                 let itemID = self.historyItemID(for: session) ?? UUID()
                 self.shareItemID = itemID
@@ -1365,18 +1418,12 @@ final class RecordingStudioModel {
                 if session != nil {
                     ScreenshotHistoryStore.shared.setCloudURL(for: uploadURL, cloudURL: result.url)
                 }
-                if let temporaryUploadURL {
-                    try? FileManager.default.removeItem(at: temporaryUploadURL)
-                }
                 self.shareState = .finished(result.url)
             } catch is CancellationError {
-                DockExportProgressCoordinator.shared.finish(dockProgressID)
                 self?.shareState = .idle
             } catch RecordingStudioExporter.ExportError.cancelled {
-                DockExportProgressCoordinator.shared.finish(dockProgressID)
                 self?.shareState = .idle
             } catch {
-                DockExportProgressCoordinator.shared.finish(dockProgressID)
                 self?.shareState = .failed(error.localizedDescription)
             }
         }
