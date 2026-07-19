@@ -46,6 +46,12 @@ struct RecordingEditDocument: Codable, Equatable {
     var subtitleWords: [RecordingTranscriptWord]?
     var subtitleVerticalPosition: Double?
     var subtitleFontScale: Double?
+    var subtitleWordHighlight: Bool?
+    /// Raw ExportAspectPreset value; optional so older projects keep the
+    /// original aspect.
+    var exportAspect: String?
+    /// Raw ExportAspectContentMode value; defaults to fill (crop).
+    var exportAspectMode: String?
 
     private enum CodingKeys: String, CodingKey {
         case formatVersion
@@ -64,6 +70,9 @@ struct RecordingEditDocument: Codable, Equatable {
         case subtitleWords
         case subtitleVerticalPosition
         case subtitleFontScale
+        case subtitleWordHighlight
+        case exportAspect
+        case exportAspectMode
     }
 
     init(
@@ -79,7 +88,9 @@ struct RecordingEditDocument: Codable, Equatable {
         showsSubtitles: Bool? = nil,
         subtitleCues: [RecordingSubtitleCue]? = nil,
         subtitleWords: [RecordingTranscriptWord]? = nil,
-        subtitleStyle: SubtitleBarStyle? = nil
+        subtitleStyle: SubtitleBarStyle? = nil,
+        exportAspect: ExportAspectPreset? = nil,
+        exportAspectMode: ExportAspectContentMode? = nil
     ) {
         self.style = StoredRecordingStudioStyle(style)
         self.zoomEnabled = zoomEnabled
@@ -102,6 +113,9 @@ struct RecordingEditDocument: Codable, Equatable {
         self.subtitleWords = subtitleWords
         subtitleVerticalPosition = subtitleStyle?.verticalPosition
         subtitleFontScale = subtitleStyle?.fontScale
+        subtitleWordHighlight = subtitleStyle?.highlightsSpokenWord
+        self.exportAspect = exportAspect.map(\.rawValue)
+        self.exportAspectMode = exportAspectMode.map(\.rawValue)
     }
 
     var subtitleStyle: SubtitleBarStyle {
@@ -112,7 +126,18 @@ struct RecordingEditDocument: Codable, Equatable {
         if let subtitleFontScale {
             style.fontScale = subtitleFontScale
         }
+        if let subtitleWordHighlight {
+            style.highlightsSpokenWord = subtitleWordHighlight
+        }
         return style
+    }
+
+    var exportAspectPreset: ExportAspectPreset {
+        exportAspect.flatMap(ExportAspectPreset.init(rawValue:)) ?? .original
+    }
+
+    var exportAspectContentMode: ExportAspectContentMode {
+        exportAspectMode.flatMap(ExportAspectContentMode.init(rawValue:)) ?? .fill
     }
 
     init(from decoder: any Decoder) throws {
@@ -148,6 +173,9 @@ struct RecordingEditDocument: Codable, Equatable {
             forKey: .subtitleVerticalPosition
         )
         subtitleFontScale = try container.decodeIfPresent(Double.self, forKey: .subtitleFontScale)
+        subtitleWordHighlight = try container.decodeIfPresent(Bool.self, forKey: .subtitleWordHighlight)
+        exportAspect = try container.decodeIfPresent(String.self, forKey: .exportAspect)
+        exportAspectMode = try container.decodeIfPresent(String.self, forKey: .exportAspectMode)
     }
 
     func encode(to encoder: any Encoder) throws {
@@ -168,6 +196,9 @@ struct RecordingEditDocument: Codable, Equatable {
         try container.encodeIfPresent(subtitleWords, forKey: .subtitleWords)
         try container.encodeIfPresent(subtitleVerticalPosition, forKey: .subtitleVerticalPosition)
         try container.encodeIfPresent(subtitleFontScale, forKey: .subtitleFontScale)
+        try container.encodeIfPresent(subtitleWordHighlight, forKey: .subtitleWordHighlight)
+        try container.encodeIfPresent(exportAspect, forKey: .exportAspect)
+        try container.encodeIfPresent(exportAspectMode, forKey: .exportAspectMode)
     }
 }
 
@@ -322,21 +353,46 @@ nonisolated struct RecordingStudioLayout: Sendable {
     let cardCornerRadius: CGFloat
     let bubbleRect: CGRect
     let bubbleCornerRadius: CGFloat
+    /// The video's base draw size at magnification 1. Equal to the card
+    /// when the content shares its aspect (the normal case); when a
+    /// reframe export renders into a different aspect, this is the
+    /// aspect-fill size so the content covers the card without stretching.
+    let contentFillSize: CGSize
+
+    /// How content occupies a card whose aspect differs from the video's.
+    enum ContentMode: Sendable {
+        /// Aspect-fill: content covers the card and gets cropped.
+        case fill
+        /// Aspect-fit: the card itself shrinks to the content's aspect so
+        /// the whole recording stays visible.
+        case fit
+    }
 
     static func make(
         canvasSize: CGSize,
         style: RecordingStudioStyle,
-        includeBubble: Bool
+        includeBubble: Bool,
+        contentAspect: CGFloat? = nil,
+        contentMode: ContentMode = .fill
     ) -> RecordingStudioLayout {
         let minDimension = min(canvasSize.width, canvasSize.height)
         let inset = (style.padding * minDimension).rounded()
         // Shrink the card uniformly so it keeps the video's aspect ratio —
         // insetting both axes by the same amount would stretch the recording.
         let cardScale = max(0.05, 1 - 2 * inset / minDimension)
-        let cardSize = CGSize(
+        var cardSize = CGSize(
             width: (canvasSize.width * cardScale).rounded(),
             height: (canvasSize.height * cardScale).rounded()
         )
+        if case .fit = contentMode, let contentAspect, contentAspect > 0 {
+            // The card adopts the content's aspect inside the padded area,
+            // so the whole recording shows and the background frames it.
+            let fitHeight = min(cardSize.height, cardSize.width / contentAspect)
+            cardSize = CGSize(
+                width: (contentAspect * fitHeight).rounded(),
+                height: fitHeight.rounded()
+            )
+        }
         let cardRect = CGRect(
             x: ((canvasSize.width - cardSize.width) / 2).rounded(),
             y: ((canvasSize.height - cardSize.height) / 2).rounded(),
@@ -364,21 +420,32 @@ nonisolated struct RecordingStudioLayout: Sendable {
             bubbleCornerRadius = max(4, style.camera.roundness * diameter)
         }
 
+        var contentFillSize = cardRect.size
+        if let contentAspect, contentAspect > 0, cardRect.height > 0 {
+            let fillHeight = max(cardRect.height, cardRect.width / contentAspect)
+            contentFillSize = CGSize(
+                width: contentAspect * fillHeight,
+                height: fillHeight
+            )
+        }
+
         return RecordingStudioLayout(
             canvasSize: canvasSize,
             cardRect: cardRect,
             cardCornerRadius: cardCornerRadius,
             bubbleRect: bubbleRect,
-            bubbleCornerRadius: bubbleCornerRadius
+            bubbleCornerRadius: bubbleCornerRadius,
+            contentFillSize: contentFillSize
         )
     }
 
     /// Where the (zoomed) screen video draws, given a viewport frame. The
-    /// video fills the card at magnification 1; zooming grows the draw rect
-    /// while keeping the viewport anchor point pinned to the card center.
+    /// video fills the card at magnification 1 (aspect-filling when the
+    /// content and card aspects differ); zooming grows the draw rect while
+    /// keeping the viewport anchor point pinned to the card center.
     func frameRect(for viewport: ViewportFrame) -> CGRect {
-        let drawWidth = cardRect.width * viewport.magnification
-        let drawHeight = cardRect.height * viewport.magnification
+        let drawWidth = contentFillSize.width * viewport.magnification
+        let drawHeight = contentFillSize.height * viewport.magnification
         return CGRect(
             x: cardRect.midX - viewport.anchor.x * drawWidth,
             y: cardRect.midY - viewport.anchor.y * drawHeight,

@@ -81,7 +81,10 @@ final class RecordingStudioModel {
         }
     }
     var zoomEnabled = true {
-        didSet { scheduleProjectSave() }
+        didSet {
+            scheduleProjectSave()
+            rebuildPreviewReframe()
+        }
     }
     var exportSettings = VideoCompressionSettings() {
         didSet { scheduleProjectSave() }
@@ -103,11 +106,35 @@ final class RecordingStudioModel {
     var subtitleStyle = SubtitleBarStyle() {
         didSet { scheduleProjectSave() }
     }
+    /// Output aspect for Export/Share. Anything but `.original` crops the
+    /// render with a virtual camera that follows the pointer and zooms;
+    /// the Studio preview shows the same crop live.
+    var exportAspect: ExportAspectPreset = .original {
+        didSet {
+            scheduleProjectSave()
+            rebuildPreviewReframe()
+        }
+    }
+    /// Fill crops with the follow camera; Fit shows the whole recording
+    /// framed on the background.
+    var exportAspectMode: ExportAspectContentMode = .fill {
+        didSet {
+            scheduleProjectSave()
+            rebuildPreviewReframe()
+        }
+    }
+    /// The preview's copy of the reframe camera, kept current with every
+    /// edit that would change the exported crop.
+    private(set) var previewReframe: ReframeTrack?
+    private var reframeFocusTimeline: PointerTimeline?
+    private var reframeFocusResolved = false
     private(set) var subtitleCues: [RecordingSubtitleCue] = []
     private(set) var subtitleTimeline = SubtitleTimeline.empty
     /// Word-level timing behind the cues; empty for projects transcribed
     /// before transcript editing shipped (cues only).
     private(set) var transcriptWords: [RecordingTranscriptWord] = []
+    /// Word-timing lookup for karaoke captions; rebuilt with the cues.
+    private(set) var karaokeTimeline = KaraokeTimeline.empty
     /// Word under the playhead, updated only on word boundaries so the
     /// transcript view isn't invalidated on every 20 ms playback tick.
     private(set) var activeTranscriptWordIndex: Int?
@@ -238,7 +265,10 @@ final class RecordingStudioModel {
             subtitleCues = document.subtitleCues ?? []
             subtitleTimeline = SubtitleTimeline(cues: subtitleCues)
             transcriptWords = document.subtitleWords ?? []
+            karaokeTimeline = KaraokeTimeline(cues: subtitleCues, words: transcriptWords)
             subtitleStyle = document.subtitleStyle
+            exportAspect = document.exportAspectPreset
+            exportAspectMode = document.exportAspectContentMode
         } else if session == nil {
             // Legacy bare movies use the same editor, but open visually
             // unchanged until the user explicitly adds styling.
@@ -284,6 +314,7 @@ final class RecordingStudioModel {
         rebuildViewportTimeline()
         installObservers()
         isLoaded = true
+        rebuildPreviewReframe()
         loadTimelineFrames()
     }
 
@@ -847,6 +878,9 @@ final class RecordingStudioModel {
             capture: pointerCapture,
             clipTimeline: clipTimeline
         )
+        // The reframe camera derives from the viewport, so it follows
+        // every rebuild (zoom edits, cuts, speed changes).
+        rebuildPreviewReframe()
     }
 
     private func scheduleProjectSave() {
@@ -874,7 +908,9 @@ final class RecordingStudioModel {
             showsSubtitles: showsSubtitles,
             subtitleCues: subtitleCues.isEmpty ? nil : subtitleCues,
             subtitleWords: transcriptWords.isEmpty ? nil : transcriptWords,
-            subtitleStyle: subtitleStyle
+            subtitleStyle: subtitleStyle,
+            exportAspect: exportAspect,
+            exportAspectMode: exportAspectMode
         )
         guard document != lastSavedDocument else {
             hasUnsavedChanges = false
@@ -953,6 +989,17 @@ final class RecordingStudioModel {
         return subtitleTimeline.text(at: clipTimeline.sourceTime(at: time))
     }
 
+    /// Karaoke word state for the bar at this editor time; nil when the
+    /// style doesn't highlight words or no timings exist, in which case
+    /// the bar renders `subtitleText` plainly.
+    func subtitleKaraokeLine(at time: TimeInterval) -> KaraokeTimeline.Line? {
+        guard showsSubtitles, subtitleStyle.highlightsSpokenWord,
+              !karaokeTimeline.isEmpty else {
+            return nil
+        }
+        return karaokeTimeline.line(at: clipTimeline.sourceTime(at: time))
+    }
+
     func transcribe() {
         guard !transcriptionState.isTranscribing, isLoaded else { return }
         transcriptionState = .transcribing
@@ -973,6 +1020,7 @@ final class RecordingStudioModel {
         subtitleCues = transcript.cues
         subtitleTimeline = SubtitleTimeline(cues: transcript.cues)
         transcriptWords = transcript.words
+        karaokeTimeline = KaraokeTimeline(cues: transcript.cues, words: transcript.words)
         showsSubtitles = true
         transcriptionState = .idle
         updateActiveTranscriptWord()
@@ -983,6 +1031,7 @@ final class RecordingStudioModel {
         subtitleCues = []
         subtitleTimeline = .empty
         transcriptWords = []
+        karaokeTimeline = .empty
         activeTranscriptWordIndex = nil
         transcriptionState = .idle
         scheduleProjectSave()
@@ -995,6 +1044,7 @@ final class RecordingStudioModel {
         }
         subtitleCues[index].text = text
         subtitleTimeline = SubtitleTimeline(cues: subtitleCues)
+        karaokeTimeline = KaraokeTimeline(cues: subtitleCues, words: transcriptWords)
         scheduleProjectSave()
     }
 
@@ -1122,6 +1172,7 @@ final class RecordingStudioModel {
         }
         subtitleCues = cues
         subtitleTimeline = SubtitleTimeline(cues: cues)
+        karaokeTimeline = KaraokeTimeline(cues: cues, words: transcriptWords)
         scheduleProjectSave()
     }
 
@@ -1223,7 +1274,12 @@ final class RecordingStudioModel {
     // MARK: - Export
 
     private func makeExportConfiguration() -> RecordingStudioExporter.Configuration {
-        RecordingStudioExporter.Configuration(
+        let reframe = makeReframeTrack()
+        let fitContentAspect: CGFloat? =
+            exportAspect != .original && exportAspectMode == .fit && videoSize.height > 0
+                ? videoSize.width / videoSize.height
+                : nil
+        return RecordingStudioExporter.Configuration(
             screenURL: screenURL,
             cameraURL: hasCameraVideo && style.camera.isVisible ? session?.cameraURL : nil,
             cameraOffset: cameraOffset,
@@ -1235,10 +1291,84 @@ final class RecordingStudioModel {
             keystrokePlacement: keystrokePlacement,
             subtitleTimeline: showsSubtitles && hasSubtitles ? subtitleTimeline : nil,
             subtitleStyle: subtitleStyle,
-            canvasSize: videoSize,
+            karaokeTimeline: showsSubtitles && hasSubtitles && !karaokeTimeline.isEmpty
+                ? karaokeTimeline
+                : nil,
+            canvasSize: exportAspect == .original
+                ? videoSize
+                : exportAspect.canvasSize(for: videoSize),
             clipTimeline: clipTimeline,
-            exportSettings: exportSettings
+            exportSettings: exportSettings,
+            reframe: reframe,
+            fitContentAspect: fitContentAspect
         )
+    }
+
+    /// The crop-and-follow camera for non-original aspect exports. Focus
+    /// comes from the recorded pointer whenever the session captured one,
+    /// whether or not the cursor is drawn synthetically.
+    private func makeReframeTrack() -> ReframeTrack? {
+        guard exportAspect != .original, exportAspectMode == .fill else { return nil }
+        let focusTimeline = reframeFocusPointer()
+        let clips = clipTimeline
+        let effectiveViewport = zoomEnabled ? viewportTimeline : .identity
+        return ReframeTrack.build(
+            preset: exportAspect,
+            sourceSize: videoSize,
+            viewportTimeline: effectiveViewport,
+            duration: duration
+        ) { editorTime in
+            focusTimeline?.location(at: clips.sourceTime(at: editorTime))
+        }
+    }
+
+    /// The focus source is immutable per session, so it resolves once.
+    private func reframeFocusPointer() -> PointerTimeline? {
+        if reframeFocusResolved { return reframeFocusTimeline }
+        reframeFocusResolved = true
+        if pointerIsSynthesized {
+            reframeFocusTimeline = pointerTimeline
+        } else if !pointerCapture.travel.isEmpty || !pointerCapture.presses.isEmpty {
+            reframeFocusTimeline = PointerTimeline.build(
+                capture: pointerCapture,
+                duration: sourceDuration,
+                recordingSizeInPoints: recordingPointSize,
+                fallbackArtwork: PointerArtworkCapture.defaultArtwork()
+            )
+        }
+        return reframeFocusTimeline
+    }
+
+    private func rebuildPreviewReframe() {
+        guard isLoaded else { return }
+        previewReframe = makeReframeTrack()
+    }
+
+    // MARK: - Preview canvas
+
+    /// What the Studio canvas shows: the target-aspect canvas when a
+    /// non-original aspect is selected, the source canvas otherwise.
+    var previewCanvasSize: CGSize {
+        exportAspect == .original ? videoSize : exportAspect.canvasSize(for: videoSize)
+    }
+
+    /// Source aspect for laying out the card on a target-aspect canvas;
+    /// nil in the original-aspect layout where card and content agree.
+    var previewContentAspect: CGFloat? {
+        guard exportAspect != .original, videoSize.height > 0 else { return nil }
+        return videoSize.width / videoSize.height
+    }
+
+    /// How the content occupies the card on a target-aspect canvas.
+    var previewContentMode: RecordingStudioLayout.ContentMode {
+        exportAspect != .original && exportAspectMode == .fit ? .fit : .fill
+    }
+
+    /// Virtual camera for the preview: the reframe crop when active, the
+    /// zoom viewport otherwise (including Fit mode, where zooms play
+    /// inside the fitted card).
+    func previewViewportFrame(at time: TimeInterval) -> ViewportFrame {
+        previewReframe?.frame(at: time) ?? viewportFrame(at: time)
     }
 
     /// The flattened deliverable when it's guaranteed to match the current

@@ -85,34 +85,66 @@ enum RecordingSessionRenderer {
             && manifest?.pressEffectsBaked == false
             && (document?.showsClickEffects ?? manifest?.pressEffectsEnabled ?? true)
         let showsKeystrokes = (document?.showsKeystrokes ?? true) && !capture.keystrokes.isEmpty
+
+        // One pointer timeline serves both jobs: drawing the synthetic
+        // cursor and steering the reframe camera's focus.
+        let hasPointerData = !capture.travel.isEmpty || !capture.presses.isEmpty
+        let pointerTimeline = hasPointerData
+            ? PointerTimeline.build(
+                capture: capture,
+                duration: duration,
+                recordingSizeInPoints: recordingPointSize,
+                fallbackArtwork: PointerArtworkCapture.defaultArtwork()
+            )
+            : nil
+
+        let showsSubtitles = document?.showsSubtitles ?? true
+        let cues = document?.subtitleCues ?? []
+        let words = document?.subtitleWords ?? []
+
+        let aspect = document?.exportAspectPreset ?? .original
+        let aspectMode = document?.exportAspectContentMode ?? .fill
+        let reframe: ReframeTrack? = aspectMode == .fill
+            ? ReframeTrack.build(
+                preset: aspect,
+                sourceSize: canvasSize,
+                viewportTimeline: viewportTimeline,
+                duration: clipTimeline.duration
+            ) { editorTime in
+                pointerTimeline?.location(at: clipTimeline.sourceTime(at: editorTime))
+            }
+            : nil
+        let fitContentAspect: CGFloat? =
+            aspect != .original && aspectMode == .fit && canvasSize.height > 0
+                ? canvasSize.width / canvasSize.height
+                : nil
+
         let configuration = RecordingStudioExporter.Configuration(
             screenURL: session.screenURL,
             cameraURL: session.hasCamera ? session.cameraURL : nil,
             cameraOffset: manifest?.cameraLeadIn ?? 0,
             style: style,
             viewportTimeline: viewportTimeline,
-            pointerTimeline: pointerSynthesized
-                ? PointerTimeline.build(
-                    capture: capture,
-                    duration: duration,
-                    recordingSizeInPoints: recordingPointSize,
-                    fallbackArtwork: PointerArtworkCapture.defaultArtwork()
-                )
-                : nil,
+            pointerTimeline: pointerSynthesized ? pointerTimeline : nil,
             showsPressEffects: showsPressEffects,
             keystrokeTimeline: showsKeystrokes
                 ? KeystrokeCaptionTimeline(events: capture.keystrokes)
                 : nil,
             keystrokePlacement: document?.keystrokePlacement ?? .bottomCenter,
-            subtitleTimeline: {
-                let cues = document?.subtitleCues ?? []
-                let shows = document?.showsSubtitles ?? true
-                return shows && !cues.isEmpty ? SubtitleTimeline(cues: cues) : nil
-            }(),
+            subtitleTimeline: showsSubtitles && !cues.isEmpty
+                ? SubtitleTimeline(cues: cues)
+                : nil,
             subtitleStyle: document?.subtitleStyle ?? SubtitleBarStyle(),
-            canvasSize: canvasSize,
+            karaokeTimeline: showsSubtitles && !cues.isEmpty && !words.isEmpty
+                ? KaraokeTimeline(cues: cues, words: words)
+                : nil,
+            canvasSize: aspect == .original
+                ? canvasSize
+                : aspect.canvasSize(for: canvasSize),
             clipTimeline: clipTimeline,
-            exportSettings: document?.exportSettings ?? VideoCompressionSettings()
+            exportSettings: document?.exportSettings ?? VideoCompressionSettings(),
+            reframe: reframe,
+            fitContentAspect: fitContentAspect
         )
 
         let temporaryURL = try await RecordingStudioExporter().export(configuration) { _ in }

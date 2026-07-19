@@ -83,6 +83,9 @@ nonisolated struct SubtitleBarStyle: Sendable, Equatable {
     /// Multiplier on the default font size (which the paddings and corner
     /// radius derive from, so the whole bar scales together).
     var fontScale: Double = 1
+    /// Karaoke mode: the word being spoken renders in the accent color.
+    /// Needs word-level timings; the bar falls back to plain cues without.
+    var highlightsSpokenWord: Bool = false
 
     var clampedVerticalPosition: Double {
         min(max(verticalPosition, Self.verticalRange.lowerBound), Self.verticalRange.upperBound)
@@ -141,6 +144,121 @@ nonisolated struct SubtitleTimeline: Sendable, Equatable {
     }
 }
 
+// MARK: - Karaoke word timing
+
+/// Word-level state of the subtitle bar at a moment in time: the active
+/// cue's words plus which one is being spoken. Shared verbatim by the
+/// SwiftUI preview and the CoreGraphics exporter so highlights match.
+nonisolated struct KaraokeTimeline: Sendable {
+    struct Line: Equatable {
+        /// Display words of the active cue, original order, trimmed.
+        var words: [String]
+        /// Index into `words` currently being spoken; nil between words
+        /// and after the cue's last word ends.
+        var activeIndex: Int?
+        /// How many words have started; spoken words render fully lit
+        /// even once the active highlight has moved on.
+        var spokenCount: Int
+    }
+
+    private struct CueLine {
+        var start: TimeInterval
+        var end: TimeInterval
+        /// Display words from the cue's (possibly hand-edited) text.
+        var words: [String]
+        /// Per-display-word timing, index-mapped from the timed words so
+        /// text edits keep working even when word counts drift.
+        var timings: [(start: TimeInterval, end: TimeInterval)]
+    }
+
+    private let cues: [CueLine]
+
+    static let empty = KaraokeTimeline(cues: [], words: [])
+
+    /// Groups timed words into cues the same way the cues were chunked
+    /// from them (a word belongs to the last cue starting at or before
+    /// it), but displays the cue's *text* — the editable source of truth —
+    /// with timings carried over from the recognizer's words.
+    init(cues: [RecordingSubtitleCue], words: [RecordingTranscriptWord]) {
+        let sortedCues = cues
+            .filter { $0.start.isFinite && $0.end > $0.start }
+            .sorted { $0.start < $1.start }
+        var timedByCue: [[RecordingTranscriptWord]] = sortedCues.map { _ in [] }
+        var cueIndex = 0
+        for word in words.sorted(by: { $0.start < $1.start }) {
+            while cueIndex < sortedCues.count - 1,
+                  word.start >= sortedCues[cueIndex + 1].start - 0.001 {
+                cueIndex += 1
+            }
+            if !timedByCue.isEmpty {
+                timedByCue[min(cueIndex, timedByCue.count - 1)].append(word)
+            }
+        }
+
+        self.cues = zip(sortedCues, timedByCue).compactMap { cue, timed in
+            guard !timed.isEmpty else { return nil }
+            let displayWords = cue.text
+                .split(whereSeparator: \.isWhitespace)
+                .map(String.init)
+            guard !displayWords.isEmpty else { return nil }
+            let timings = displayWords.indices.map { index in
+                let timedIndex = min(
+                    timed.count - 1,
+                    index * timed.count / displayWords.count
+                )
+                return (start: timed[timedIndex].start, end: timed[timedIndex].end)
+            }
+            return CueLine(
+                start: cue.start,
+                end: cue.end,
+                words: displayWords,
+                timings: timings
+            )
+        }
+    }
+
+    var isEmpty: Bool {
+        cues.isEmpty
+    }
+
+    /// The karaoke line covering a source time; nil when nobody is
+    /// speaking or the cue carries no word timings.
+    func line(at time: TimeInterval) -> Line? {
+        guard !cues.isEmpty, time.isFinite else { return nil }
+        var low = 0
+        var high = cues.count
+        while low < high {
+            let middle = (low + high) / 2
+            if cues[middle].start <= time {
+                low = middle + 1
+            } else {
+                high = middle
+            }
+        }
+        let index = low - 1
+        guard index >= 0, time < cues[index].end else { return nil }
+
+        let cue = cues[index]
+        var activeIndex: Int?
+        var spokenCount = 0
+        if let lastStarted = cue.timings.lastIndex(where: { $0.start <= time }) {
+            spokenCount = lastStarted + 1
+            let timing = cue.timings[lastStarted]
+            // The highlight rides each word until the next one starts; on
+            // the cue's last word a small bridge past its end keeps it from
+            // flickering off early, after which the line reads fully spoken.
+            if lastStarted < cue.timings.count - 1 || time <= timing.end + 0.25 {
+                activeIndex = lastStarted
+            }
+        }
+        return Line(
+            words: cue.words,
+            activeIndex: activeIndex,
+            spokenCount: spokenCount
+        )
+    }
+}
+
 // MARK: - Subtitle bar metrics
 
 /// Geometry shared verbatim by the SwiftUI preview and the CoreGraphics
@@ -157,11 +275,34 @@ nonisolated struct SubtitleBarMetrics: Sendable {
 
     static let backgroundAlpha: Double = 0.78
 
-    init(canvasHeight: CGFloat, style: SubtitleBarStyle = SubtitleBarStyle()) {
-        fontSize = max(11, canvasHeight * 0.032 * style.clampedFontScale)
+    /// Karaoke palette, shared by preview and export: the spoken word in
+    /// warm yellow, words not yet spoken slightly dimmed.
+    static let karaokeAccent = CGColor(red: 1, green: 0.84, blue: 0.04, alpha: 1)
+    static let karaokeUpcomingAlpha: Double = 0.55
+
+    /// Widest the bar may grow, as a fraction of the canvas width; text
+    /// that would exceed it wraps into centered lines.
+    static let maximumWidthFraction: CGFloat = 0.92
+    /// Wrapped lines allowed before the font starts scaling down.
+    static let maximumLineCount = 3
+    /// Baseline-to-baseline advance as a multiple of ascent + descent,
+    /// shared by the preview's lineSpacing and the exporter's layout.
+    static let lineSpacingFactor: CGFloat = 1.12
+
+    /// Sized off the canvas's smaller dimension: identical to the old
+    /// height-based sizing in landscape, and keeps the bar inside narrow
+    /// portrait/square canvases.
+    init(canvasSize: CGSize, style: SubtitleBarStyle = SubtitleBarStyle()) {
+        let reference = min(canvasSize.width, canvasSize.height)
+        fontSize = max(11, reference * 0.032 * style.clampedFontScale)
         paddingHorizontal = fontSize * 0.85
         paddingVertical = fontSize * 0.5
         cornerRadius = fontSize * 0.6
+    }
+
+    /// Room available for the text line itself on this canvas.
+    func maximumTextWidth(canvasWidth: CGFloat) -> CGFloat {
+        max(24, canvasWidth * Self.maximumWidthFraction - paddingHorizontal * 2)
     }
 }
 

@@ -43,9 +43,57 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
         /// Non-nil when transcribed narration should be subtitled.
         let subtitleTimeline: SubtitleTimeline?
         let subtitleStyle: SubtitleBarStyle
+        /// Word timings behind the subtitles, for karaoke highlighting.
+        let karaokeTimeline: KaraokeTimeline?
         let canvasSize: CGSize
         let clipTimeline: RecordingClipTimeline
         let exportSettings: VideoCompressionSettings
+        /// Non-nil when exporting into a different aspect ratio; drives the
+        /// crop-and-follow virtual camera in place of the zoom viewport.
+        let reframe: ReframeTrack?
+        /// Non-nil when exporting into a different aspect ratio in Fit
+        /// mode: the whole recording shows in a content-aspect card and
+        /// the background fills the rest. Mutually exclusive with
+        /// `reframe`.
+        let fitContentAspect: CGFloat?
+
+        init(
+            screenURL: URL,
+            cameraURL: URL?,
+            cameraOffset: TimeInterval,
+            style: RecordingStudioStyle,
+            viewportTimeline: ViewportTimeline,
+            pointerTimeline: PointerTimeline?,
+            showsPressEffects: Bool,
+            keystrokeTimeline: KeystrokeCaptionTimeline?,
+            keystrokePlacement: RecordingKeystrokePlacement,
+            subtitleTimeline: SubtitleTimeline?,
+            subtitleStyle: SubtitleBarStyle,
+            karaokeTimeline: KaraokeTimeline? = nil,
+            canvasSize: CGSize,
+            clipTimeline: RecordingClipTimeline,
+            exportSettings: VideoCompressionSettings,
+            reframe: ReframeTrack? = nil,
+            fitContentAspect: CGFloat? = nil
+        ) {
+            self.screenURL = screenURL
+            self.cameraURL = cameraURL
+            self.cameraOffset = cameraOffset
+            self.style = style
+            self.viewportTimeline = viewportTimeline
+            self.pointerTimeline = pointerTimeline
+            self.showsPressEffects = showsPressEffects
+            self.keystrokeTimeline = keystrokeTimeline
+            self.keystrokePlacement = keystrokePlacement
+            self.subtitleTimeline = subtitleTimeline
+            self.subtitleStyle = subtitleStyle
+            self.karaokeTimeline = karaokeTimeline
+            self.canvasSize = canvasSize
+            self.clipTimeline = clipTimeline
+            self.exportSettings = exportSettings
+            self.reframe = reframe
+            self.fitContentAspect = fitContentAspect
+        }
     }
 
     enum ExportError: LocalizedError {
@@ -209,8 +257,11 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
             keystrokePlacement: configuration.keystrokePlacement,
             subtitleTimeline: configuration.subtitleTimeline,
             subtitleStyle: configuration.subtitleStyle,
+            karaokeTimeline: configuration.karaokeTimeline,
             includeBubble: cameraFeed != nil,
-            outputFrameInterval: 1 / Self.outputFrameRate
+            outputFrameInterval: 1 / Self.outputFrameRate,
+            reframe: configuration.reframe,
+            fitContentAspect: configuration.fitContentAspect
         )
 
         let screenAudioOutput = audioOutput
@@ -489,6 +540,8 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
     private let keystrokePlacement: RecordingKeystrokePlacement
     private let subtitleTimeline: SubtitleTimeline?
     private let subtitleStyle: SubtitleBarStyle
+    private let karaokeTimeline: KaraokeTimeline?
+    private let reframe: ReframeTrack?
     private var artworkImageCache: [String: CGImage] = [:]
     private let pointerScale: CGFloat
     private let colorSpace: CGColorSpace
@@ -509,14 +562,19 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
         keystrokePlacement: RecordingKeystrokePlacement,
         subtitleTimeline: SubtitleTimeline?,
         subtitleStyle: SubtitleBarStyle = SubtitleBarStyle(),
+        karaokeTimeline: KaraokeTimeline? = nil,
         includeBubble: Bool,
-        outputFrameInterval: TimeInterval = 1.0 / 60.0
+        outputFrameInterval: TimeInterval = 1.0 / 60.0,
+        reframe: ReframeTrack? = nil,
+        fitContentAspect: CGFloat? = nil
     ) {
         self.canvasSize = canvasSize
         self.layout = RecordingStudioLayout.make(
             canvasSize: canvasSize,
             style: style,
-            includeBubble: includeBubble
+            includeBubble: includeBubble,
+            contentAspect: reframe?.sourceAspect ?? fitContentAspect,
+            contentMode: fitContentAspect != nil && reframe == nil ? .fit : .fill
         )
         self.viewportTimeline = viewportTimeline
         self.pointerTimeline = pointerTimeline
@@ -525,6 +583,8 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
         self.keystrokePlacement = keystrokePlacement
         self.subtitleTimeline = subtitleTimeline
         self.subtitleStyle = subtitleStyle
+        self.karaokeTimeline = karaokeTimeline
+        self.reframe = reframe
         self.outputFrameInterval = outputFrameInterval
         self.pointerScale = style.cursorScale
         self.colorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
@@ -534,6 +594,12 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
             style: style,
             colorSpace: colorSpace
         )
+    }
+
+    /// The virtual camera for a frame: the reframe crop-and-follow track
+    /// when exporting into a different aspect, the zoom viewport otherwise.
+    private func viewportFrame(at editorTime: TimeInterval) -> ViewportFrame {
+        reframe?.frame(at: editorTime) ?? viewportTimeline.frame(at: editorTime)
     }
 
     func render(
@@ -583,7 +649,7 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
             for sample in 0..<sampleCount {
                 let sampleTime = editorTime - shutter / 2
                     + shutter * (Double(sample) + 0.5) / Double(sampleCount)
-                let drawRect = layout.frameRect(for: viewportTimeline.frame(at: sampleTime))
+                let drawRect = layout.frameRect(for: viewportFrame(at: sampleTime))
                 // Drawing sample i at alpha 1/(i+1) keeps the buffer equal to
                 // the running average of all samples so far.
                 context.setAlpha(1 / CGFloat(sample + 1))
@@ -656,8 +722,8 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
     /// still, up to twenty-four when it sweeps, spaced so consecutive samples
     /// land roughly two output pixels apart.
     private func blurSampleCount(at editorTime: TimeInterval, shutter: TimeInterval) -> Int {
-        let a = layout.frameRect(for: viewportTimeline.frame(at: editorTime - shutter / 2))
-        let b = layout.frameRect(for: viewportTimeline.frame(at: editorTime + shutter / 2))
+        let a = layout.frameRect(for: viewportFrame(at: editorTime - shutter / 2))
+        let b = layout.frameRect(for: viewportFrame(at: editorTime + shutter / 2))
         let displacement = max(
             max(abs(a.minX - b.minX), abs(a.minY - b.minY)),
             max(abs(a.maxX - b.maxX), abs(a.maxY - b.maxY))
@@ -672,7 +738,7 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
             return
         }
 
-        let drawRect = layout.frameRect(for: viewportTimeline.frame(at: editorTime))
+        let drawRect = layout.frameRect(for: viewportFrame(at: editorTime))
         let tip = CGPoint(
             x: drawRect.minX + pointer.location.x * drawRect.width,
             y: canvasSize.height - (drawRect.minY + pointer.location.y * drawRect.height)
@@ -801,24 +867,38 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
             return
         }
 
-        let metrics = SubtitleBarMetrics(canvasHeight: canvasSize.height, style: subtitleStyle)
-        let font = Self.captionFont(size: metrics.fontSize)
-        let attributed = NSAttributedString(string: text, attributes: [
-            NSAttributedString.Key(kCTFontAttributeName as String): font,
-            NSAttributedString.Key(kCTForegroundColorAttributeName as String):
-                CGColor(gray: 1, alpha: 1)
-        ])
+        let metrics = SubtitleBarMetrics(canvasSize: canvasSize, style: subtitleStyle)
+        let maximumTextWidth = metrics.maximumTextWidth(canvasWidth: canvasSize.width)
 
-        let line = CTLineCreateWithAttributedString(attributed)
+        // On narrow canvases the text wraps into centered lines rather
+        // than shrinking into a full-width sliver; the font only scales
+        // down when even the maximum line count can't hold it.
+        var fontSize = metrics.fontSize
+        var wrappedLines: [CTLine] = []
+        for _ in 0..<3 {
+            let font = Self.captionFont(size: fontSize)
+            let attributed = subtitleAttributedText(plainText: text, at: time, font: font)
+            wrappedLines = Self.wrapLines(attributed, width: maximumTextWidth)
+            if wrappedLines.count <= SubtitleBarMetrics.maximumLineCount || fontSize <= 11 {
+                break
+            }
+            fontSize *= CGFloat(SubtitleBarMetrics.maximumLineCount) / CGFloat(wrappedLines.count)
+        }
+        guard !wrappedLines.isEmpty else { return }
+
         var ascent: CGFloat = 0
         var descent: CGFloat = 0
         var leading: CGFloat = 0
-        let textWidth = CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, &leading))
-        guard textWidth > 0 else { return }
+        let lineWidths = wrappedLines.map {
+            CGFloat(CTLineGetTypographicBounds($0, &ascent, &descent, &leading))
+        }
+        guard let widestLine = lineWidths.max(), widestLine > 0 else { return }
+        let lineAdvance = (ascent + descent) * SubtitleBarMetrics.lineSpacingFactor
+        let textHeight = ascent + descent + lineAdvance * CGFloat(wrappedLines.count - 1)
 
         let barSize = CGSize(
-            width: textWidth + metrics.paddingHorizontal * 2,
-            height: ascent + descent + metrics.paddingVertical * 2
+            width: widestLine + metrics.paddingHorizontal * 2,
+            height: textHeight + metrics.paddingVertical * 2
         )
         let barCenterY = canvasSize.height * CGFloat(subtitleStyle.clampedVerticalPosition)
         let origin = CGPoint(
@@ -839,12 +919,75 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
         context.fillPath()
 
         context.textMatrix = .identity
-        context.textPosition = CGPoint(
-            x: barRect.minX + metrics.paddingHorizontal,
-            y: barRect.midY - (ascent - descent) / 2
-        )
-        CTLineDraw(line, context)
+        // The CG context is bottom-up, so the first wrapped line sits at
+        // the top of the bar and subsequent lines step downward.
+        let firstBaseline = barRect.maxY - metrics.paddingVertical - ascent
+        for (index, wrappedLine) in wrappedLines.enumerated() {
+            context.textPosition = CGPoint(
+                x: barRect.midX - lineWidths[index] / 2,
+                y: firstBaseline - lineAdvance * CGFloat(index)
+            )
+            CTLineDraw(wrappedLine, context)
+        }
         context.restoreGState()
+    }
+
+    /// Word-wraps an attributed string into CTLines within a width.
+    private static func wrapLines(
+        _ attributed: NSAttributedString,
+        width: CGFloat
+    ) -> [CTLine] {
+        let framesetter = CTFramesetterCreateWithAttributedString(attributed)
+        let path = CGPath(
+            rect: CGRect(x: 0, y: 0, width: max(24, width), height: 100_000),
+            transform: nil
+        )
+        let frame = CTFramesetterCreateFrame(
+            framesetter,
+            CFRange(location: 0, length: attributed.length),
+            path,
+            nil
+        )
+        return (CTFrameGetLines(frame) as? [CTLine]) ?? []
+    }
+
+    /// The bar's text: karaoke-colored words when word timings exist and
+    /// the style asks for them, the plain cue text otherwise. Colors match
+    /// StudioSubtitleBarView exactly.
+    private func subtitleAttributedText(
+        plainText: String,
+        at time: TimeInterval,
+        font: CTFont
+    ) -> NSAttributedString {
+        let fontKey = NSAttributedString.Key(kCTFontAttributeName as String)
+        let colorKey = NSAttributedString.Key(kCTForegroundColorAttributeName as String)
+
+        guard subtitleStyle.highlightsSpokenWord,
+              let karaokeTimeline,
+              let karaokeLine = karaokeTimeline.line(at: time),
+              !karaokeLine.words.isEmpty else {
+            return NSAttributedString(string: plainText, attributes: [
+                fontKey: font,
+                colorKey: CGColor(gray: 1, alpha: 1)
+            ])
+        }
+
+        let text = NSMutableAttributedString()
+        for (index, word) in karaokeLine.words.enumerated() {
+            let color: CGColor
+            if index == karaokeLine.activeIndex {
+                color = SubtitleBarMetrics.karaokeAccent
+            } else if index < karaokeLine.spokenCount {
+                color = CGColor(gray: 1, alpha: 1)
+            } else {
+                color = CGColor(gray: 1, alpha: SubtitleBarMetrics.karaokeUpcomingAlpha)
+            }
+            text.append(NSAttributedString(
+                string: index > 0 ? " \(word)" : word,
+                attributes: [fontKey: font, colorKey: color]
+            ))
+        }
+        return text
     }
 
     private static func captionFont(size: CGFloat) -> CTFont {

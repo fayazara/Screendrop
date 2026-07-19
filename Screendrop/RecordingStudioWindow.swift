@@ -301,15 +301,17 @@ private struct StudioCanvas: View {
                 width: max(proxy.size.width - 68, 100),
                 height: max(proxy.size.height - 56, 100)
             )
-            let canvasSize = Self.aspectFit(model.videoSize, into: available)
+            let canvasSize = Self.aspectFit(model.previewCanvasSize, into: available)
             let layout = RecordingStudioLayout.make(
                 canvasSize: canvasSize,
                 style: model.style,
-                includeBubble: model.hasCameraVideo
+                includeBubble: model.hasCameraVideo,
+                contentAspect: model.previewContentAspect,
+                contentMode: model.previewContentMode
             )
 
             TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !model.isPlaying)) { _ in
-                let state = model.viewportFrame(at: model.displayTime)
+                let state = model.previewViewportFrame(at: model.displayTime)
 
                 ZStack {
                     // Fixed frame + clip so a scaledToFill wallpaper can never
@@ -323,11 +325,14 @@ private struct StudioCanvas: View {
                     // synthetic cursor overlays inside the same clip so it
                     // pans, zooms, and crops exactly like the pixels below.
                     StudioPlayerLayerView(player: model.screenPlayer, gravity: .resize)
-                        .frame(width: layout.cardRect.width, height: layout.cardRect.height)
+                        .frame(
+                            width: layout.contentFillSize.width,
+                            height: layout.contentFillSize.height
+                        )
                         .scaleEffect(state.magnification)
                         .offset(
-                            x: (0.5 - state.anchor.x) * state.magnification * layout.cardRect.width,
-                            y: (0.5 - state.anchor.y) * state.magnification * layout.cardRect.height
+                            x: (0.5 - state.anchor.x) * state.magnification * layout.contentFillSize.width,
+                            y: (0.5 - state.anchor.y) * state.magnification * layout.contentFillSize.height
                         )
                         .frame(width: layout.cardRect.width, height: layout.cardRect.height)
                         .overlay {
@@ -337,6 +342,7 @@ private struct StudioCanvas: View {
                                     artwork: model.artwork(id: pointer.artworkID),
                                     state: state,
                                     cardSize: layout.cardRect.size,
+                                    contentSize: layout.contentFillSize,
                                     cursorScale: model.style.cursorScale,
                                     showsClickEffect: model.showsPressEffects
                                 )
@@ -371,6 +377,7 @@ private struct StudioCanvas: View {
                     if let subtitle = model.subtitleText(at: model.displayTime) {
                         StudioSubtitleBarView(
                             text: subtitle,
+                            karaokeLine: model.subtitleKaraokeLine(at: model.displayTime),
                             style: model.subtitleStyle,
                             canvasSize: canvasSize
                         )
@@ -398,20 +405,24 @@ private struct StudioCursorOverlay: View {
     let artwork: PointerArtwork?
     let state: ViewportFrame
     let cardSize: CGSize
+    /// The video's draw size at magnification 1 — equal to the card
+    /// normally, larger when a reframe aspect-fills it.
+    var contentSize: CGSize?
     let cursorScale: CGFloat
     let showsClickEffect: Bool
 
     var body: some View {
+        let content = contentSize ?? cardSize
         let tip = CGPoint(
-            x: cardSize.width * (0.5 + state.magnification * (pointer.location.x - state.anchor.x)),
-            y: cardSize.height * (0.5 + state.magnification * (pointer.location.y - state.anchor.y))
+            x: cardSize.width / 2 + content.width * state.magnification * (pointer.location.x - state.anchor.x),
+            y: cardSize.height / 2 + content.height * state.magnification * (pointer.location.y - state.anchor.y)
         )
 
         ZStack(alignment: .topLeading) {
             if showsClickEffect, let progress = pointer.pressPulse {
                 let radius = PointerPressEffectStyle.radius(
                     progress: progress,
-                    referenceHeight: cardSize.height * state.magnification,
+                    referenceHeight: content.height * state.magnification,
                     cursorScale: cursorScale
                 )
                 let accent = PointerPressEffectStyle.color
@@ -427,7 +438,7 @@ private struct StudioCursorOverlay: View {
             if let artwork,
                let image = StudioCursorImageCache.image(for: artwork) {
                 let anchor = artwork.normalizedAnchor
-                let height = cardSize.height
+                let height = content.height
                     * PointerArtworkMetrics.heightRatio
                     * state.magnification
                     * cursorScale
@@ -497,22 +508,35 @@ private struct StudioKeystrokeCaptionView: View {
 /// exporter draws the identical bar.
 private struct StudioSubtitleBarView: View {
     let text: String
+    var karaokeLine: KaraokeTimeline.Line?
     let style: SubtitleBarStyle
     let canvasSize: CGSize
 
     var body: some View {
-        let metrics = SubtitleBarMetrics(canvasHeight: canvasSize.height, style: style)
+        let metrics = SubtitleBarMetrics(canvasSize: canvasSize, style: style)
 
-        Text(text)
+        barText
             .font(.system(size: metrics.fontSize, weight: .semibold, design: .rounded))
-            .foregroundStyle(.white)
-            .lineLimit(1)
-            .fixedSize()
+            // Long lines wrap into centered lines on narrow canvases,
+            // matching the exporter's framesetter layout; the scale
+            // factor only kicks in past the shared line cap.
+            .lineLimit(SubtitleBarMetrics.maximumLineCount)
+            .multilineTextAlignment(.center)
+            .lineSpacing(metrics.fontSize * (SubtitleBarMetrics.lineSpacingFactor - 1))
+            .minimumScaleFactor(0.4)
+            .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, metrics.paddingHorizontal)
             .padding(.vertical, metrics.paddingVertical)
             .background(
                 RoundedRectangle(cornerRadius: metrics.cornerRadius, style: .continuous)
                     .fill(.black.opacity(SubtitleBarMetrics.backgroundAlpha))
+            )
+            // Invisible width cap: constrains where the text wraps while
+            // the pill above hugs the text, so the bar never spans the
+            // canvas.
+            .frame(
+                maxWidth: metrics.maximumTextWidth(canvasWidth: canvasSize.width)
+                    + metrics.paddingHorizontal * 2
             )
             .position(
                 x: canvasSize.width / 2,
@@ -520,6 +544,29 @@ private struct StudioSubtitleBarView: View {
             )
             .frame(width: canvasSize.width, height: canvasSize.height)
             .allowsHitTesting(false)
+    }
+
+    /// Plain white cue text, or karaoke-colored words matching the
+    /// exporter's palette exactly (SubtitleBarMetrics.karaoke*).
+    private var barText: Text {
+        guard let karaokeLine, !karaokeLine.words.isEmpty else {
+            return Text(text).foregroundStyle(.white)
+        }
+        var combined = Text(verbatim: "")
+        for (index, word) in karaokeLine.words.enumerated() {
+            let color: Color
+            if index == karaokeLine.activeIndex {
+                color = Color(cgColor: SubtitleBarMetrics.karaokeAccent)
+            } else if index < karaokeLine.spokenCount {
+                color = .white
+            } else {
+                color = .white.opacity(SubtitleBarMetrics.karaokeUpcomingAlpha)
+            }
+            let piece = Text(verbatim: index > 0 ? " \(word)" : word)
+                .foregroundStyle(color)
+            combined = combined + piece
+        }
+        return combined
     }
 }
 
@@ -1896,6 +1943,39 @@ private struct StudioInspector: View {
 
     private var backgroundControls: some View {
         VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
+            InspectorGroupLabel("Aspect")
+            InspectorSegmented(
+                options: ExportAspectPreset.allCases,
+                isSelected: { $0 == model.exportAspect },
+                onTap: { model.exportAspect = $0 },
+                label: { preset in
+                    Text(preset.title)
+                        .font(.inspectorLabel)
+                        .help(preset.help)
+                }
+            )
+            if model.exportAspect != .original {
+                InspectorSegmented(
+                    options: ExportAspectContentMode.allCases,
+                    isSelected: { $0 == model.exportAspectMode },
+                    onTap: { model.exportAspectMode = $0 },
+                    label: { mode in
+                        Text(mode.title)
+                            .font(.inspectorLabel)
+                            .help(mode.help)
+                    }
+                )
+                Text(
+                    model.exportAspectMode == .fill
+                        ? "Crops into the recording; the camera follows your cursor and zooms."
+                        : "Shows the whole recording framed on the background."
+                )
+                .font(.inspectorLabel)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+
+            InspectorGroupLabel("Style")
             InspectorSegmented(
                 options: StudioBackgroundKind.allCases,
                 isSelected: { $0 == backgroundKind },
@@ -2318,6 +2398,24 @@ private struct StudioInspector: View {
                 range: CGFloat(fontScaleRange.lowerBound)...CGFloat(fontScaleRange.upperBound),
                 format: .magnification(fractionDigits: 1)
             )
+
+            if model.hasTranscriptWords {
+                HStack(spacing: 8) {
+                    Text("Highlight spoken word")
+                        .font(.inspectorLabel)
+                        .foregroundStyle(.primary.opacity(0.82))
+
+                    Spacer(minLength: 8)
+
+                    Toggle(
+                        "Highlight spoken word",
+                        isOn: $model.subtitleStyle.highlightsSpokenWord
+                    )
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .controlSize(.mini)
+                }
+            }
 
             subtitleList
 
