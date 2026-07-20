@@ -4,7 +4,6 @@
 //
 
 import CoreGraphics
-import SwiftUI
 
 /// Shared preview/export geometry for the rounded screenshot and its optional
 /// outer border. Keeping both paths together prevents the border from drifting
@@ -26,7 +25,7 @@ nonisolated struct AnnotationScreenshotFrameGeometry {
 
         let horizontalInset = max(0, (cardRect.width - imageRect.width) / 2)
         let verticalInset = max(0, (cardRect.height - imageRect.height) / 2)
-        borderWidth = settings.border.isActive
+        borderWidth = settings.border.isVisible
             ? min(horizontalInset, verticalInset)
             : 0
 
@@ -59,55 +58,5 @@ nonisolated struct AnnotationScreenshotFrameGeometry {
 
     var cardPath: CGPath {
         PerCornerRadii.path(in: cardRect, radii: cardCornerRadii)
-    }
-}
-
-/// SwiftUI's coordinate system points down, while the shared Core Graphics
-/// path builder points up. Flipping that exact path lets live preview use the
-/// same circular corner geometry as the exported image.
-struct AnnotationPerCornerRoundedRectangle: Shape {
-    let radii: PerCornerRadii
-
-    func path(in rect: CGRect) -> Path {
-        Path(Self.cgPath(in: rect, radii: radii))
-    }
-
-    static func cgPath(in rect: CGRect, radii: PerCornerRadii) -> CGPath {
-        let source = PerCornerRadii.path(in: rect, radii: radii)
-        var flip = CGAffineTransform(
-            a: 1,
-            b: 0,
-            c: 0,
-            d: -1,
-            tx: 0,
-            ty: rect.minY + rect.maxY
-        )
-        return source.copy(using: &flip) ?? source
-    }
-}
-
-/// A true even-odd ring. The screenshot's interior is deliberately absent,
-/// rather than merely being covered by another layer, so transparent source
-/// pixels cannot reveal the border material.
-struct AnnotationScreenshotBorderRingShape: Shape {
-    let outerRadii: PerCornerRadii
-    let innerRadii: PerCornerRadii
-    let thickness: CGFloat
-
-    func path(in rect: CGRect) -> Path {
-        let innerRect = rect.insetBy(dx: thickness, dy: thickness)
-        let outerPath = AnnotationPerCornerRoundedRectangle.cgPath(
-            in: rect,
-            radii: outerRadii
-        )
-        guard innerRect.width > 0, innerRect.height > 0 else {
-            return Path(outerPath)
-        }
-
-        let innerPath = AnnotationPerCornerRoundedRectangle.cgPath(
-            in: innerRect,
-            radii: innerRadii
-        )
-        return Path(outerPath.subtracting(innerPath))
     }
 }
