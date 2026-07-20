@@ -108,6 +108,7 @@ struct StoredBackground: Codable, Equatable {
     var customWallpaperPath: String?
     var camera: StoredCameraSettings?
     var progressiveBlur: StoredProgressiveBlurSettings?
+    var border: StoredScreenshotBorder?
     var watermark: StoredWatermark?
 
     init(_ settings: AnnotationBackgroundSettings) {
@@ -130,6 +131,7 @@ struct StoredBackground: Codable, Equatable {
         customWallpaperPath = settings.customWallpaper?.url.path
         camera = StoredCameraSettings(settings.camera)
         progressiveBlur = StoredProgressiveBlurSettings(settings.progressiveBlur)
+        border = StoredScreenshotBorder(settings.border)
         watermark = StoredWatermark(settings.watermark)
     }
 
@@ -160,10 +162,36 @@ struct StoredBackground: Codable, Equatable {
         if let progressiveBlur {
             output.progressiveBlur = progressiveBlur.settings
         }
+        if let border {
+            output.border = border.settings
+        }
         if let watermark {
             output.watermark = watermark.settings
         }
         return output
+    }
+}
+
+struct StoredScreenshotBorder: Codable, Equatable {
+    var isEnabled: Bool
+    var color: CodableSwatch
+    var thickness: Double
+    var opacity: Double
+
+    init(_ settings: AnnotationScreenshotBorderSettings) {
+        isEnabled = settings.isEnabled
+        color = CodableSwatch(swatch: settings.color)
+        thickness = Double(settings.thickness)
+        opacity = Double(settings.opacity)
+    }
+
+    var settings: AnnotationScreenshotBorderSettings {
+        AnnotationScreenshotBorderSettings(
+            isEnabled: isEnabled,
+            color: color.annotationSwatch,
+            thickness: CGFloat(thickness),
+            opacity: CGFloat(opacity)
+        )
     }
 }
 

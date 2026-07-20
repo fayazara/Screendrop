@@ -50,13 +50,12 @@ struct AnnotationCanvas: View {
             let imageFrame = displayLayout.imageFrame
             let boundaryFrame = model.backgroundSettings.usesCanvasLayout ? displayLayout.canvasFrame : imageFrame
             let allowedBounds = model.annotationBounds(for: imageFrame, boundaryFrame: boundaryFrame)
-            let cornerRadii = screenshotCornerRadii(for: imageFrame)
-            let clipCorners = RectangleCornerRadii(
-                topLeading: cornerRadii.topLeft,
-                bottomLeading: cornerRadii.bottomLeft,
-                bottomTrailing: cornerRadii.bottomRight,
-                topTrailing: cornerRadii.topRight
+            let screenshotGeometry = AnnotationScreenshotFrameGeometry(
+                imageRect: imageFrame,
+                cardRect: displayLayout.cardFrame,
+                settings: model.backgroundSettings
             )
+            let clipCorners = swiftUICornerRadii(screenshotGeometry.imageCornerRadii)
             let effectiveCamera = model.isCropping || model.editingTextItemID != nil
                 ? AnnotationCameraSettings()
                 : model.backgroundSettings.camera
@@ -105,7 +104,7 @@ struct AnnotationCanvas: View {
                     canvasFrame: displayLayout.canvasFrame,
                     backgroundStyle: model.backgroundSettings.style,
                     showsBackground: model.backgroundSettings.isEnabled,
-                    imageFrame: imageFrame,
+                    screenshotGeometry: screenshotGeometry,
                     allowedBounds: allowedBounds,
                     clipCorners: clipCorners,
                     displayedImage: displayedImage,
@@ -201,7 +200,7 @@ struct AnnotationCanvas: View {
         canvasFrame: CGRect,
         backgroundStyle: AnnotationBackgroundStyle,
         showsBackground: Bool,
-        imageFrame: CGRect,
+        screenshotGeometry: AnnotationScreenshotFrameGeometry,
         allowedBounds: CGRect,
         clipCorners: RectangleCornerRadii,
         displayedImage: NSImage,
@@ -222,7 +221,7 @@ struct AnnotationCanvas: View {
                     canvasFrame: canvasFrame,
                     backgroundStyle: backgroundStyle,
                     showsBackground: showsBackground,
-                    imageFrame: imageFrame,
+                    screenshotGeometry: screenshotGeometry,
                     allowedBounds: allowedBounds,
                     clipCorners: clipCorners,
                     displayedImage: displayedImage,
@@ -236,7 +235,7 @@ struct AnnotationCanvas: View {
                         canvasFrame: canvasFrame,
                         backgroundStyle: backgroundStyle,
                         showsBackground: showsBackground,
-                        imageFrame: imageFrame,
+                        screenshotGeometry: screenshotGeometry,
                         allowedBounds: allowedBounds,
                         clipCorners: clipCorners,
                         displayedImage: displayedImage,
@@ -280,7 +279,7 @@ struct AnnotationCanvas: View {
                 canvasFrame: canvasFrame,
                 backgroundStyle: backgroundStyle,
                 showsBackground: showsBackground,
-                imageFrame: imageFrame,
+                screenshotGeometry: screenshotGeometry,
                 allowedBounds: allowedBounds,
                 clipCorners: clipCorners,
                 displayedImage: displayedImage,
@@ -295,7 +294,7 @@ struct AnnotationCanvas: View {
         canvasFrame: CGRect,
         backgroundStyle: AnnotationBackgroundStyle,
         showsBackground: Bool,
-        imageFrame: CGRect,
+        screenshotGeometry: AnnotationScreenshotFrameGeometry,
         allowedBounds: CGRect,
         clipCorners: RectangleCornerRadii,
         displayedImage: NSImage,
@@ -311,7 +310,7 @@ struct AnnotationCanvas: View {
 
             transformedCameraForeground(
                 viewportSize: viewportSize,
-                imageFrame: imageFrame,
+                screenshotGeometry: screenshotGeometry,
                 allowedBounds: allowedBounds,
                 clipCorners: clipCorners,
                 displayedImage: displayedImage,
@@ -325,7 +324,7 @@ struct AnnotationCanvas: View {
 
     private func transformedCameraForeground(
         viewportSize: CGSize,
-        imageFrame: CGRect,
+        screenshotGeometry: AnnotationScreenshotFrameGeometry,
         allowedBounds: CGRect,
         clipCorners: RectangleCornerRadii,
         displayedImage: NSImage,
@@ -335,7 +334,7 @@ struct AnnotationCanvas: View {
     ) -> some View {
         cameraForeground(
             viewportSize: viewportSize,
-            imageFrame: imageFrame,
+            screenshotGeometry: screenshotGeometry,
             allowedBounds: allowedBounds,
             clipCorners: clipCorners,
             displayedImage: displayedImage
@@ -369,13 +368,18 @@ struct AnnotationCanvas: View {
 
     private func cameraForeground(
         viewportSize: CGSize,
-        imageFrame: CGRect,
+        screenshotGeometry: AnnotationScreenshotFrameGeometry,
         allowedBounds: CGRect,
         clipCorners: RectangleCornerRadii,
         displayedImage: NSImage
     ) -> some View {
-        ZStack(alignment: .topLeading) {
-            screenshotShadow(imageFrame: imageFrame, cornerRadii: clipCorners)
+        let imageFrame = screenshotGeometry.imageRect
+
+        return ZStack(alignment: .topLeading) {
+            screenshotFrameBacking(
+                geometry: screenshotGeometry,
+                imageCornerRadii: clipCorners
+            )
 
             screenshot(
                 displayedImage,
@@ -687,28 +691,49 @@ struct AnnotationCanvas: View {
     }
 
     @ViewBuilder
-    private func screenshotShadow(imageFrame: CGRect, cornerRadii: RectangleCornerRadii) -> some View {
+    private func screenshotFrameBacking(
+        geometry: AnnotationScreenshotFrameGeometry,
+        imageCornerRadii: RectangleCornerRadii
+    ) -> some View {
         let settings = model.backgroundSettings
-        let opacity = settings.usesCanvasLayout ? Double(settings.shadow) * 0.50 : 0.26
-        if (settings.isEnabled || settings.camera.hasEffect) && opacity > 0 {
-            UnevenRoundedRectangle(cornerRadii: cornerRadii, style: .continuous)
-                .fill(Color.black.opacity(0.18))
-                .frame(width: imageFrame.width, height: imageFrame.height)
-                .position(x: imageFrame.midX, y: imageFrame.midY)
+        let shadowOpacity = Double(settings.shadow) * 0.50
+        let shadowRadius = 16 + settings.shadow * 40
+        let shadowOffset = 8 + settings.shadow * 26
+        let castsShadow = settings.isEnabled || settings.camera.hasEffect
+
+        if settings.border.isVisible, geometry.borderWidth > 0 {
+            let cardCornerRadii = swiftUICornerRadii(geometry.cardCornerRadii)
+            UnevenRoundedRectangle(cornerRadii: cardCornerRadii, style: .continuous)
+                .fill(settings.border.color.color.opacity(min(max(settings.border.opacity, 0), 1)))
+                .frame(width: geometry.cardRect.width, height: geometry.cardRect.height)
+                .position(x: geometry.cardRect.midX, y: geometry.cardRect.midY)
                 .shadow(
-                    color: .black.opacity(opacity),
-                    radius: settings.usesCanvasLayout ? 16 + settings.shadow * 40 : 18,
+                    color: .black.opacity(castsShadow ? shadowOpacity : 0),
+                    radius: shadowRadius,
                     x: 0,
-                    y: settings.usesCanvasLayout ? 8 + settings.shadow * 26 : 8
+                    y: shadowOffset
+                )
+        } else if (settings.isEnabled || settings.camera.hasEffect) && shadowOpacity > 0 {
+            UnevenRoundedRectangle(cornerRadii: imageCornerRadii, style: .continuous)
+                .fill(Color.black.opacity(0.18))
+                .frame(width: geometry.imageRect.width, height: geometry.imageRect.height)
+                .position(x: geometry.imageRect.midX, y: geometry.imageRect.midY)
+                .shadow(
+                    color: .black.opacity(shadowOpacity),
+                    radius: shadowRadius,
+                    x: 0,
+                    y: shadowOffset
                 )
         }
     }
 
-    private func screenshotCornerRadii(for imageFrame: CGRect) -> (topLeft: CGFloat, topRight: CGFloat, bottomLeft: CGFloat, bottomRight: CGFloat) {
-        guard model.backgroundSettings.usesCanvasLayout else { return (0, 0, 0, 0) }
-        let base = model.backgroundSettings.cornerRadius * min(imageFrame.width, imageFrame.height)
-        let m = model.backgroundSettings.effectiveCanvasAlignment.cornerRadiusMultipliers
-        return (base * m.topLeft, base * m.topRight, base * m.bottomLeft, base * m.bottomRight)
+    private func swiftUICornerRadii(_ radii: PerCornerRadii) -> RectangleCornerRadii {
+        RectangleCornerRadii(
+            topLeading: radii.topLeft,
+            bottomLeading: radii.bottomLeft,
+            bottomTrailing: radii.bottomRight,
+            topTrailing: radii.topRight
+        )
     }
 
     private func interactionGesture(

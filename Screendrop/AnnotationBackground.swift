@@ -14,6 +14,7 @@ struct AnnotationBackgroundSettings: Equatable {
     var padding: CGFloat = 0.08
     var cornerRadius: CGFloat = 0.018
     var shadow: CGFloat = 0.36
+    var border = AnnotationScreenshotBorderSettings()
     var aspectRatio: AnnotationBackgroundAspectRatio = .auto
     var alignment: AnnotationBackgroundAlignment = .center
     var customWallpaper: AnnotationCustomWallpaper?
@@ -34,14 +35,42 @@ struct AnnotationBackgroundSettings: Equatable {
             || (progressiveBlur.isActive && progressiveBlur.edgeMode == .bleed)
     }
 
+    /// An outer screenshot border needs a canvas large enough to preserve the
+    /// ring even when no fill, camera transform, or scene blur is active.
+    var requiresCanvasLayout: Bool {
+        usesCanvasLayout || border.isVisible
+    }
+
     /// Once the card leaves the flat plane, "stuck" edges no longer describe
     /// the projected geometry. Camera pan replaces alignment for that mode.
     var effectiveCanvasAlignment: AnnotationBackgroundAlignment {
-        camera.hasEffect ? .center : alignment
+        camera.hasEffect || !usesCanvasLayout ? .center : alignment
     }
 
     var hasRenderableContent: Bool {
-        isEnabled || camera.hasEffect || progressiveBlur.isActive || watermark.isVisible
+        isEnabled
+            || camera.hasEffect
+            || progressiveBlur.isActive
+            || border.isVisible
+            || watermark.isVisible
+    }
+}
+
+struct AnnotationScreenshotBorderSettings: Equatable {
+    var isEnabled = false
+    var color: AnnotationSwatch = .white
+    /// Thickness as a fraction of the screenshot's shortest edge so saved
+    /// presets keep the same visual weight across different capture sizes.
+    var thickness: CGFloat = 0.012
+    var opacity: CGFloat = 1
+
+    var isVisible: Bool {
+        isEnabled && thickness > 0.0001 && opacity > 0.0001
+    }
+
+    func pixelThickness(for imageSize: CGSize) -> CGFloat {
+        guard isVisible, imageSize.width > 0, imageSize.height > 0 else { return 0 }
+        return max(0, thickness) * min(imageSize.width, imageSize.height)
     }
 }
 

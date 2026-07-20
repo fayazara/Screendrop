@@ -16,6 +16,7 @@ private enum AnnotationInspectorAdvancedSection: Hashable {
     case camera
     case progressiveBlur
     case background
+    case border
     case watermark
 }
 
@@ -228,6 +229,57 @@ struct AnnotationEditorInspector: View {
                         onEditorAction: onEditorAction,
                         onPickWallpaper: onPickWallpaper
                     )
+                }
+
+                InspectorDisclosureSection(
+                    title: "Border",
+                    isExpanded: expansionBinding(for: .border),
+                    accessory: {
+                        HStack(spacing: 5) {
+                            if model.backgroundSettings.border != AnnotationScreenshotBorderSettings() {
+                                InspectorClearButton(help: "Reset border") {
+                                    onEditorAction()
+                                    model.backgroundSettings.border = AnnotationScreenshotBorderSettings()
+                                    if expandedAdvancedSections.contains(.border) {
+                                        withAnimation(sectionAnimation) {
+                                            expandedAdvancedSections.remove(.border)
+                                        }
+                                    }
+                                }
+                            }
+
+                            Toggle(
+                                "Enable border",
+                                isOn: Binding(
+                                    get: { model.backgroundSettings.border.isEnabled },
+                                    set: { value in
+                                        onEditorAction()
+                                        model.backgroundSettings.border.isEnabled = value
+                                        withAnimation(sectionAnimation) {
+                                            if value {
+                                                expandedAdvancedSections.insert(.border)
+                                            } else {
+                                                expandedAdvancedSections.remove(.border)
+                                            }
+                                        }
+                                    }
+                                )
+                            )
+                            .labelsHidden()
+                            .toggleStyle(.switch)
+                            .controlSize(.mini)
+                        }
+                    }
+                ) {
+                    AnnotationScreenshotBorderInspector(
+                        settings: Binding(
+                            get: { model.backgroundSettings.border },
+                            set: { model.backgroundSettings.border = $0 }
+                        ),
+                        onEditorAction: onEditorAction
+                    )
+                    .disabled(!model.backgroundSettings.border.isEnabled)
+                    .opacity(model.backgroundSettings.border.isEnabled ? 1 : 0.48)
                 }
 
                 InspectorDisclosureSection(

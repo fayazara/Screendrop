@@ -7,8 +7,9 @@ import Foundation
 import Observation
 
 /// A named, reusable snapshot of the annotation editor's background, layout,
-/// camera, focus blur, and watermark settings. `StoredBackground` is shared with editable
-/// `.screendrop` documents so both persistence paths round-trip identically.
+/// camera, focus blur, screenshot border, and watermark settings.
+/// `StoredBackground` is shared with editable `.screendrop` documents so both
+/// persistence paths round-trip identically.
 struct AnnotationBackgroundPreset: Identifiable, Codable, Equatable {
     let id: UUID
     var name: String
@@ -58,6 +59,9 @@ extension AnnotationBackgroundSettings {
         }
         if !comparable.progressiveBlur.isEnabled {
             comparable.progressiveBlur = AnnotationProgressiveBlurSettings()
+        }
+        if !comparable.border.isEnabled {
+            comparable.border = AnnotationScreenshotBorderSettings()
         }
         return comparable
     }

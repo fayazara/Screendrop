@@ -67,22 +67,19 @@ nonisolated enum AnnotationBackgroundRenderer {
         context.interpolationQuality = .high
         drawBackground(settings.style, in: canvasRect, context: context)
 
+        let borderWidth = settings.border.pixelThickness(for: contentSize)
         let imageRect = pixelAlignedImageRect(
             flipped(layout.imageRect, canvasHeight: CGFloat(height)),
             contentSize: contentSize,
-            canvasSize: canvasRect.size
+            canvasSize: canvasRect.size,
+            minimumInset: borderWidth
         )
-        let baseCornerRadius = settings.usesCanvasLayout
-            ? settings.cornerRadius * min(imageRect.width, imageRect.height)
-            : 0
-        let m = settings.effectiveCanvasAlignment.cornerRadiusMultipliers
-        let cornerRadii = PerCornerRadii(
-            topLeft: baseCornerRadius * m.topLeft,
-            topRight: baseCornerRadius * m.topRight,
-            bottomLeft: baseCornerRadius * m.bottomLeft,
-            bottomRight: baseCornerRadius * m.bottomRight
+        let frameGeometry = AnnotationScreenshotFrameGeometry(
+            imageRect: imageRect,
+            cardRect: imageRect.insetBy(dx: -borderWidth, dy: -borderWidth),
+            settings: settings
         )
-        let clipPath = PerCornerRadii.path(in: imageRect, radii: cornerRadii)
+        let clipPath = frameGeometry.imagePath
         let usesSceneBlur = settings.progressiveBlur.isActive
             && settings.progressiveBlur.edgeMode == .bleed
         let displayedImage = if settings.progressiveBlur.edgeMode == .clipped {
@@ -108,7 +105,12 @@ nonisolated enum AnnotationBackgroundRenderer {
                 throw CocoaError(.fileWriteUnknown)
             }
 
-            drawShadow(path: clipPath, strength: settings.shadow, context: foregroundContext)
+            drawScreenshotFrameBacking(
+                settings,
+                geometry: frameGeometry,
+                castsShadow: true,
+                context: foregroundContext
+            )
             drawImage(displayedImage, in: imageRect, clippedTo: clipPath, context: foregroundContext)
             foregroundOverlay?(foregroundContext, layout, imageRect, clipPath)
 
@@ -131,9 +133,12 @@ nonisolated enum AnnotationBackgroundRenderer {
                 into: context
             )
         } else {
-            if settings.isEnabled {
-                drawShadow(path: clipPath, strength: settings.shadow, context: context)
-            }
+            drawScreenshotFrameBacking(
+                settings,
+                geometry: frameGeometry,
+                castsShadow: settings.isEnabled,
+                context: context
+            )
             drawImage(displayedImage, in: imageRect, clippedTo: clipPath, context: context)
             foregroundOverlay?(context, layout, imageRect, clipPath)
         }
@@ -172,6 +177,39 @@ nonisolated enum AnnotationBackgroundRenderer {
         context.clip()
         context.draw(image, in: rect)
         context.restoreGState()
+    }
+
+    private static func drawScreenshotFrameBacking(
+        _ settings: AnnotationBackgroundSettings,
+        geometry: AnnotationScreenshotFrameGeometry,
+        castsShadow: Bool,
+        context: CGContext
+    ) {
+        if settings.border.isVisible, geometry.borderWidth > 0 {
+            let opacity = min(max(settings.border.opacity, 0), 1)
+                * min(max(settings.border.color.alpha, 0), 1)
+
+            context.saveGState()
+            if castsShadow, settings.shadow > 0 {
+                configureShadow(
+                    path: geometry.cardPath,
+                    strength: settings.shadow,
+                    context: context
+                )
+            }
+            context.setFillColor(
+                settings.border.color.nsColor.withAlphaComponent(opacity).cgColor
+            )
+            context.addPath(geometry.cardPath)
+            context.fillPath()
+            context.restoreGState()
+        } else if castsShadow {
+            drawShadow(
+                path: geometry.imagePath,
+                strength: settings.shadow,
+                context: context
+            )
+        }
     }
 
     static func drawWatermark(
@@ -382,18 +420,29 @@ nonisolated enum AnnotationBackgroundRenderer {
     ) {
         guard strength > 0 else { return }
 
+        context.saveGState()
+        configureShadow(path: path, strength: strength, context: context)
+        context.setFillColor(NSColor.black.cgColor)
+        context.addPath(path)
+        context.fillPath()
+        context.restoreGState()
+    }
+
+    private static func configureShadow(
+        path: CGPath,
+        strength: CGFloat,
+        context: CGContext
+    ) {
         let rect = path.boundingBoxOfPath
         let shortestEdge = min(rect.width, rect.height)
         let radius = max(2, shortestEdge * (0.035 + strength * 0.035))
         let offset = CGSize(width: 0, height: -shortestEdge * (0.012 + strength * 0.018))
         let alpha = min(max(strength, 0), 1) * 0.36
-
-        context.saveGState()
-        context.setShadow(offset: offset, blur: radius, color: NSColor.black.withAlphaComponent(alpha).cgColor)
-        context.setFillColor(NSColor.black.cgColor)
-        context.addPath(path)
-        context.fillPath()
-        context.restoreGState()
+        context.setShadow(
+            offset: offset,
+            blur: radius,
+            color: NSColor.black.withAlphaComponent(alpha).cgColor
+        )
     }
 
     private static func flipped(_ rect: CGRect, canvasHeight: CGFloat) -> CGRect {
@@ -408,14 +457,18 @@ nonisolated enum AnnotationBackgroundRenderer {
     private static func pixelAlignedImageRect(
         _ rect: CGRect,
         contentSize: CGSize,
-        canvasSize: CGSize
+        canvasSize: CGSize,
+        minimumInset: CGFloat
     ) -> CGRect {
         let width = min(contentSize.width, canvasSize.width)
         let height = min(contentSize.height, canvasSize.height)
-        let maxX = max(0, canvasSize.width - width)
-        let maxY = max(0, canvasSize.height - height)
-        let x = min(max(0, rect.minX.rounded()), maxX)
-        let y = min(max(0, rect.minY.rounded()), maxY)
+        let inset = max(0, minimumInset)
+        let minX = min(inset, max(0, canvasSize.width - width))
+        let minY = min(inset, max(0, canvasSize.height - height))
+        let maxX = max(minX, canvasSize.width - width - inset)
+        let maxY = max(minY, canvasSize.height - height - inset)
+        let x = min(max(minX, rect.minX.rounded()), maxX)
+        let y = min(max(minY, rect.minY.rounded()), maxY)
 
         return CGRect(x: x, y: y, width: width, height: height)
     }

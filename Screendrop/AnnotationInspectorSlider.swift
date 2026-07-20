@@ -35,13 +35,16 @@ struct InspectorValueFormat {
         acceptedSuffixes: ["pixels", "pixel", "px"]
     )
 
-    static func percent(signed: Bool = false) -> InspectorValueFormat {
+    static func percent(
+        signed: Bool = false,
+        fractionDigits: Int = 0
+    ) -> InspectorValueFormat {
         InspectorValueFormat(
             multiplier: 100,
-            fractionDigits: 0,
+            fractionDigits: fractionDigits,
             suffix: "%",
             showsPositiveSign: signed,
-            step: 0.01,
+            step: step(forFractionDigits: fractionDigits) / 100,
             acceptedSuffixes: ["%"]
         )
     }
