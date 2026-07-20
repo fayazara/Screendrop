@@ -174,12 +174,14 @@ struct StoredBackground: Codable, Equatable {
 
 struct StoredScreenshotBorder: Codable, Equatable {
     var isEnabled: Bool
+    var materialRawValue: String?
     var color: CodableSwatch
     var thickness: Double
     var opacity: Double
 
     init(_ settings: AnnotationScreenshotBorderSettings) {
         isEnabled = settings.isEnabled
+        materialRawValue = settings.material.rawValue
         color = CodableSwatch(swatch: settings.color)
         thickness = Double(settings.thickness)
         opacity = Double(settings.opacity)
@@ -188,6 +190,7 @@ struct StoredScreenshotBorder: Codable, Equatable {
     var settings: AnnotationScreenshotBorderSettings {
         AnnotationScreenshotBorderSettings(
             isEnabled: isEnabled,
+            material: AnnotationScreenshotBorderMaterial(rawValue: materialRawValue ?? "") ?? .solid,
             color: color.annotationSwatch,
             thickness: CGFloat(thickness),
             opacity: CGFloat(opacity)

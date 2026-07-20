@@ -38,7 +38,7 @@ struct AnnotationBackgroundSettings: Equatable {
     /// An outer screenshot border needs a canvas large enough to preserve the
     /// ring even when no fill, camera transform, or scene blur is active.
     var requiresCanvasLayout: Bool {
-        usesCanvasLayout || border.isVisible
+        usesCanvasLayout || border.isActive
     }
 
     /// Once the card leaves the flat plane, "stuck" edges no longer describe
@@ -51,25 +51,46 @@ struct AnnotationBackgroundSettings: Equatable {
         isEnabled
             || camera.hasEffect
             || progressiveBlur.isActive
-            || border.isVisible
+            || border.isActive
             || watermark.isVisible
+    }
+}
+
+enum AnnotationScreenshotBorderMaterial: String, CaseIterable, Identifiable, Sendable {
+    case solid
+    case liquidGlass
+    case frosted
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .solid: "Solid"
+        case .liquidGlass: "Liquid Glass"
+        case .frosted: "Frosted"
+        }
     }
 }
 
 struct AnnotationScreenshotBorderSettings: Equatable {
     var isEnabled = false
+    var material: AnnotationScreenshotBorderMaterial = .solid
     var color: AnnotationSwatch = .white
     /// Thickness as a fraction of the screenshot's shortest edge so saved
     /// presets keep the same visual weight across different capture sizes.
     var thickness: CGFloat = 0.012
     var opacity: CGFloat = 1
 
+    var isActive: Bool {
+        isEnabled && thickness > 0.0001
+    }
+
     var isVisible: Bool {
-        isEnabled && thickness > 0.0001 && opacity > 0.0001
+        isActive && opacity > 0.0001
     }
 
     func pixelThickness(for imageSize: CGSize) -> CGFloat {
-        guard isVisible, imageSize.width > 0, imageSize.height > 0 else { return 0 }
+        guard isActive, imageSize.width > 0, imageSize.height > 0 else { return 0 }
         return max(0, thickness) * min(imageSize.width, imageSize.height)
     }
 }

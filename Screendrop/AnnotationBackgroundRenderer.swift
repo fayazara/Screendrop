@@ -5,10 +5,19 @@
 
 import AppKit
 import CoreGraphics
+import CoreImage
+import CoreImage.CIFilterBuiltins
 import ImageIO
 import SwiftUI
 
 nonisolated enum AnnotationBackgroundRenderer {
+    /// Native window materials are dynamic, so exports flatten them from the
+    /// pixels already drawn behind the card. Reusing one CIContext keeps the
+    /// two material filters inexpensive across settled previews and exports.
+    nonisolated(unsafe) private static let materialContext = CIContext(
+        options: [.cacheIntermediates: false]
+    )
+
     /// Decoded wallpapers are reused across settled previews and exports so
     /// compose doesn't pay a disk read + full decode per render. NSCache is
     /// thread-safe and evicts under memory pressure.
@@ -66,6 +75,12 @@ nonisolated enum AnnotationBackgroundRenderer {
         let canvasRect = CGRect(x: 0, y: 0, width: width, height: height)
         context.interpolationQuality = .high
         drawBackground(settings.style, in: canvasRect, context: context)
+        let materialBackdrop: CGImage? = if settings.border.isVisible,
+                                           settings.border.material != .solid {
+            context.makeImage()
+        } else {
+            nil
+        }
 
         let borderWidth = settings.border.pixelThickness(for: contentSize)
         let imageRect = pixelAlignedImageRect(
@@ -105,12 +120,18 @@ nonisolated enum AnnotationBackgroundRenderer {
                 throw CocoaError(.fileWriteUnknown)
             }
 
-            drawScreenshotFrameBacking(
+            drawScreenshotShadow(
                 settings,
                 geometry: frameGeometry,
-                castsShadow: true,
                 context: foregroundContext
             )
+            if settings.border.material == .solid {
+                drawSolidBorder(
+                    settings.border,
+                    geometry: frameGeometry,
+                    context: foregroundContext
+                )
+            }
             drawImage(displayedImage, in: imageRect, clippedTo: clipPath, context: foregroundContext)
             foregroundOverlay?(foregroundContext, layout, imageRect, clipPath)
 
@@ -125,6 +146,33 @@ nonisolated enum AnnotationBackgroundRenderer {
                 canvasSize: canvasRect.size,
                 settings: settings.camera
             )
+            if settings.border.isVisible,
+               settings.border.material != .solid,
+               let projectedMask = try projectedBorderMask(
+                   geometry: frameGeometry,
+                   projection: projection,
+                   canvasRect: canvasRect,
+                   colorSpace: colorSpace
+               ) {
+                let projectedKeylines = try projectedMaterialKeylines(
+                    settings.border,
+                    geometry: frameGeometry,
+                    projection: projection,
+                    canvasRect: canvasRect,
+                    colorSpace: colorSpace
+                )
+                drawBakedMaterialBorder(
+                    settings.border,
+                    geometry: frameGeometry,
+                    backdropImage: materialBackdrop,
+                    canvasRect: canvasRect,
+                    effectRect: canvasRect,
+                    maskImage: projectedMask,
+                    decorationImage: projectedKeylines,
+                    colorSpace: colorSpace,
+                    context: context
+                )
+            }
             try AnnotationMockupEffectsRenderer.drawProjectedForeground(
                 foregroundImage,
                 projection: projection,
@@ -133,12 +181,33 @@ nonisolated enum AnnotationBackgroundRenderer {
                 into: context
             )
         } else {
-            drawScreenshotFrameBacking(
+            drawScreenshotShadow(
                 settings,
                 geometry: frameGeometry,
-                castsShadow: settings.isEnabled,
                 context: context
             )
+            switch settings.border.material {
+            case .solid:
+                drawSolidBorder(
+                    settings.border,
+                    geometry: frameGeometry,
+                    context: context
+                )
+            case .liquidGlass, .frosted:
+                drawBakedMaterialBorder(
+                    settings.border,
+                    geometry: frameGeometry,
+                    backdropImage: materialBackdrop,
+                    canvasRect: canvasRect,
+                    effectRect: materialEffectRect(
+                        geometry: frameGeometry,
+                        canvasRect: canvasRect,
+                        material: settings.border.material
+                    ),
+                    colorSpace: colorSpace,
+                    context: context
+                )
+            }
             drawImage(displayedImage, in: imageRect, clippedTo: clipPath, context: context)
             foregroundOverlay?(context, layout, imageRect, clipPath)
         }
@@ -179,37 +248,304 @@ nonisolated enum AnnotationBackgroundRenderer {
         context.restoreGState()
     }
 
-    private static func drawScreenshotFrameBacking(
+    private static func drawScreenshotShadow(
         _ settings: AnnotationBackgroundSettings,
         geometry: AnnotationScreenshotFrameGeometry,
-        castsShadow: Bool,
         context: CGContext
     ) {
-        if settings.border.isVisible, geometry.borderWidth > 0 {
-            let opacity = min(max(settings.border.opacity, 0), 1)
-                * min(max(settings.border.color.alpha, 0), 1)
+        guard settings.isEnabled || settings.camera.hasEffect else { return }
 
-            context.saveGState()
-            if castsShadow, settings.shadow > 0 {
-                configureShadow(
-                    path: geometry.cardPath,
-                    strength: settings.shadow,
-                    context: context
-                )
-            }
-            context.setFillColor(
-                settings.border.color.nsColor.withAlphaComponent(opacity).cgColor
-            )
-            context.addPath(geometry.cardPath)
-            context.fillPath()
-            context.restoreGState()
-        } else if castsShadow {
-            drawShadow(
-                path: geometry.imagePath,
-                strength: settings.shadow,
+        let usesCardPath = settings.border.isActive && geometry.borderWidth > 0
+        drawShadow(
+            path: usesCardPath ? geometry.cardPath : geometry.imagePath,
+            strength: settings.shadow,
+            context: context
+        )
+    }
+
+    private static func drawSolidBorder(
+        _ border: AnnotationScreenshotBorderSettings,
+        geometry: AnnotationScreenshotFrameGeometry,
+        context: CGContext
+    ) {
+        guard border.isVisible, geometry.borderWidth > 0 else { return }
+
+        let opacity = min(max(border.opacity, 0), 1)
+            * min(max(border.color.alpha, 0), 1)
+        context.saveGState()
+        context.setFillColor(
+            border.color.nsColor.withAlphaComponent(opacity).cgColor
+        )
+        context.addPath(borderRingPath(geometry: geometry))
+        context.drawPath(using: .eoFill)
+        context.restoreGState()
+    }
+
+    /// Flattens a deterministic material from the actual canvas pixels behind
+    /// the card. Liquid Glass remains native in the live SwiftUI preview; the
+    /// PNG path cannot invoke WindowServer's dynamic backdrop compositor.
+    private static func drawBakedMaterialBorder(
+        _ border: AnnotationScreenshotBorderSettings,
+        geometry: AnnotationScreenshotFrameGeometry,
+        backdropImage: CGImage?,
+        canvasRect: CGRect,
+        effectRect: CGRect,
+        maskImage: CGImage? = nil,
+        decorationImage: CGImage? = nil,
+        colorSpace: CGColorSpace,
+        context: CGContext
+    ) {
+        guard border.isVisible,
+              border.material != .solid,
+              geometry.borderWidth > 0,
+              !effectRect.isEmpty else {
+            return
+        }
+
+        context.saveGState()
+        if let maskImage {
+            context.clip(to: canvasRect, mask: maskImage)
+        } else {
+            context.addPath(borderRingPath(geometry: geometry))
+            context.clip(using: .evenOdd)
+        }
+        context.setAlpha(min(max(border.opacity, 0), 1))
+        context.beginTransparencyLayer(auxiliaryInfo: nil)
+
+        if let backdropImage,
+           let materialImage = bakedMaterialBackdrop(
+               backdropImage,
+               material: border.material,
+               borderWidth: geometry.borderWidth,
+               effectRect: effectRect,
+               colorSpace: colorSpace
+           ) {
+            context.interpolationQuality = .high
+            context.draw(materialImage, in: effectRect)
+        }
+
+        let swatchAlpha = min(max(border.color.alpha, 0), 1)
+        let tintAlpha: CGFloat = switch border.material {
+        case .solid: 0
+        case .liquidGlass: 0.10 * swatchAlpha
+        case .frosted: 0.18 * swatchAlpha
+        }
+        context.setFillColor(
+            border.color.nsColor.withAlphaComponent(tintAlpha).cgColor
+        )
+        context.fill(effectRect)
+
+        let hazeAlpha: CGFloat = border.material == .frosted ? 0.12 : 0.035
+        context.setFillColor(NSColor.white.withAlphaComponent(hazeAlpha).cgColor)
+        context.fill(effectRect)
+
+        if let decorationImage {
+            context.interpolationQuality = .high
+            context.draw(decorationImage, in: canvasRect)
+        } else {
+            drawMaterialKeylines(
+                border,
+                geometry: geometry,
                 context: context
             )
         }
+        context.endTransparencyLayer()
+        context.restoreGState()
+    }
+
+    private static func drawMaterialKeylines(
+        _ border: AnnotationScreenshotBorderSettings,
+        geometry: AnnotationScreenshotFrameGeometry,
+        context: CGContext
+    ) {
+        guard border.isVisible,
+              border.material != .solid,
+              geometry.borderWidth > 0 else {
+            return
+        }
+
+        let outerAlpha: CGFloat = border.material == .liquidGlass ? 0.58 : 0.36
+        let innerAlpha: CGFloat = border.material == .liquidGlass ? 0.30 : 0.20
+
+        context.saveGState()
+        context.addPath(borderRingPath(geometry: geometry))
+        context.clip(using: .evenOdd)
+        context.setLineJoin(.round)
+
+        context.setStrokeColor(NSColor.white.withAlphaComponent(outerAlpha).cgColor)
+        context.setLineWidth(max(1, geometry.borderWidth * 0.14))
+        context.addPath(geometry.cardPath)
+        context.strokePath()
+
+        context.setStrokeColor(NSColor.white.withAlphaComponent(innerAlpha).cgColor)
+        context.setLineWidth(max(1, geometry.borderWidth * 0.10))
+        context.addPath(geometry.imagePath)
+        context.strokePath()
+        context.restoreGState()
+    }
+
+    private static func borderRingPath(
+        geometry: AnnotationScreenshotFrameGeometry
+    ) -> CGPath {
+        let path = CGMutablePath()
+        path.addPath(geometry.cardPath)
+        path.addPath(geometry.imagePath)
+        return path
+    }
+
+    private static func projectedBorderMask(
+        geometry: AnnotationScreenshotFrameGeometry,
+        projection: AnnotationCameraProjection,
+        canvasRect: CGRect,
+        colorSpace: CGColorSpace
+    ) throws -> CGImage? {
+        guard geometry.borderWidth > 0 else { return nil }
+        let width = max(1, Int(canvasRect.width.rounded(.up)))
+        let height = max(1, Int(canvasRect.height.rounded(.up)))
+        guard let localContext = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            return nil
+        }
+
+        localContext.setFillColor(NSColor.white.cgColor)
+        localContext.addPath(borderRingPath(geometry: geometry))
+        localContext.drawPath(using: .eoFill)
+        guard let localMask = localContext.makeImage() else { return nil }
+
+        return try projectedImage(
+            localMask,
+            projection: projection,
+            canvasRect: canvasRect,
+            colorSpace: colorSpace
+        )
+    }
+
+    private static func projectedMaterialKeylines(
+        _ border: AnnotationScreenshotBorderSettings,
+        geometry: AnnotationScreenshotFrameGeometry,
+        projection: AnnotationCameraProjection,
+        canvasRect: CGRect,
+        colorSpace: CGColorSpace
+    ) throws -> CGImage? {
+        let width = max(1, Int(canvasRect.width.rounded(.up)))
+        let height = max(1, Int(canvasRect.height.rounded(.up)))
+        guard let localContext = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            return nil
+        }
+
+        drawMaterialKeylines(
+            border,
+            geometry: geometry,
+            context: localContext
+        )
+        guard let localKeylines = localContext.makeImage() else { return nil }
+
+        return try projectedImage(
+            localKeylines,
+            projection: projection,
+            canvasRect: canvasRect,
+            colorSpace: colorSpace
+        )
+    }
+
+    private static func projectedImage(
+        _ image: CGImage,
+        projection: AnnotationCameraProjection,
+        canvasRect: CGRect,
+        colorSpace: CGColorSpace
+    ) throws -> CGImage? {
+        let width = max(1, Int(canvasRect.width.rounded(.up)))
+        let height = max(1, Int(canvasRect.height.rounded(.up)))
+        guard let projectedContext = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            return nil
+        }
+
+        try AnnotationMockupEffectsRenderer.drawProjectedForeground(
+            image,
+            projection: projection,
+            canvasSize: canvasRect.size,
+            colorSpace: colorSpace,
+            into: projectedContext
+        )
+        return projectedContext.makeImage()
+    }
+
+    private static func bakedMaterialBackdrop(
+        _ backdropImage: CGImage,
+        material: AnnotationScreenshotBorderMaterial,
+        borderWidth: CGFloat,
+        effectRect: CGRect,
+        colorSpace: CGColorSpace
+    ) -> CGImage? {
+        let extent = effectRect.integral
+        guard extent.width > 0, extent.height > 0 else { return nil }
+
+        let blurRadius: CGFloat = switch material {
+        case .solid: 0
+        case .liquidGlass: min(14, max(1, borderWidth * 0.35))
+        case .frosted: min(30, max(2, borderWidth * 0.80))
+        }
+        let input = CIImage(cgImage: backdropImage)
+            .cropped(to: extent)
+            .clampedToExtent()
+        let blur = CIFilter.gaussianBlur()
+        blur.inputImage = input
+        blur.radius = Float(blurRadius)
+
+        let controls = CIFilter.colorControls()
+        controls.inputImage = blur.outputImage
+        controls.saturation = material == .frosted ? 1.10 : 1.20
+        controls.brightness = material == .frosted ? 0.025 : 0.015
+        controls.contrast = material == .frosted ? 1 : 1.03
+        guard let output = controls.outputImage?.cropped(to: extent) else {
+            return nil
+        }
+
+        return materialContext.createCGImage(
+            output,
+            from: extent,
+            format: .RGBA8,
+            colorSpace: colorSpace
+        )
+    }
+
+    private static func materialEffectRect(
+        geometry: AnnotationScreenshotFrameGeometry,
+        canvasRect: CGRect,
+        material: AnnotationScreenshotBorderMaterial
+    ) -> CGRect {
+        let blurRadius: CGFloat = switch material {
+        case .solid: 0
+        case .liquidGlass: min(14, max(1, geometry.borderWidth * 0.35))
+        case .frosted: min(30, max(2, geometry.borderWidth * 0.80))
+        }
+        return geometry.cardRect
+            .insetBy(dx: -blurRadius * 3, dy: -blurRadius * 3)
+            .intersection(canvasRect)
+            .integral
     }
 
     static func drawWatermark(
@@ -420,7 +756,19 @@ nonisolated enum AnnotationBackgroundRenderer {
     ) {
         guard strength > 0 else { return }
 
+        let canvasRect = CGRect(
+            x: 0,
+            y: 0,
+            width: CGFloat(context.width),
+            height: CGFloat(context.height)
+        )
+        let exterior = CGMutablePath()
+        exterior.addRect(canvasRect)
+        exterior.addPath(path)
+
         context.saveGState()
+        context.addPath(exterior)
+        context.clip(using: .evenOdd)
         configureShadow(path: path, strength: strength, context: context)
         context.setFillColor(NSColor.black.cgColor)
         context.addPath(path)
@@ -478,6 +826,10 @@ nonisolated enum AnnotationBackgroundRenderer {
             x: rect.minX + unitPoint.x * rect.width,
             y: rect.minY + (1 - unitPoint.y) * rect.height
         )
+    }
+
+    static func clearCaches() {
+        materialContext.clearCaches()
     }
 }
 

@@ -75,6 +75,7 @@ enum AnnotationRenderer {
     ) throws {
         defer {
             ciContext.clearCaches()
+            AnnotationBackgroundRenderer.clearCaches()
             AnnotationMockupEffectsRenderer.clearCaches()
         }
 

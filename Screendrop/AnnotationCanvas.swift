@@ -49,6 +49,9 @@ struct AnnotationCanvas: View {
             let displayLayout = backgroundLayout.scaled(to: canvasFrame)
             let imageFrame = displayLayout.imageFrame
             let boundaryFrame = model.backgroundSettings.usesCanvasLayout ? displayLayout.canvasFrame : imageFrame
+            let watermarkFrame = model.backgroundSettings.requiresCanvasLayout
+                ? displayLayout.canvasFrame
+                : imageFrame
             let allowedBounds = model.annotationBounds(for: imageFrame, boundaryFrame: boundaryFrame)
             let screenshotGeometry = AnnotationScreenshotFrameGeometry(
                 imageRect: imageFrame,
@@ -109,7 +112,9 @@ struct AnnotationCanvas: View {
                     clipCorners: clipCorners,
                     displayedImage: displayedImage,
                     projection: projection,
-                    clipsForegroundToCanvas: effectiveCamera.hasEffect || usesSceneBlur,
+                    clipsForegroundToCanvas: model.backgroundSettings.requiresCanvasLayout
+                        || effectiveCamera.hasEffect
+                        || usesSceneBlur,
                     sceneBlurSettings: usesSceneBlur
                         ? model.backgroundSettings.progressiveBlur
                         : nil,
@@ -123,8 +128,8 @@ struct AnnotationCanvas: View {
                         settings: model.backgroundSettings.watermark,
                         fontScale: displayLayout.scale
                     )
-                    .frame(width: boundaryFrame.width, height: boundaryFrame.height)
-                    .position(x: boundaryFrame.midX, y: boundaryFrame.midY)
+                    .frame(width: watermarkFrame.width, height: watermarkFrame.height)
+                    .position(x: watermarkFrame.midX, y: watermarkFrame.midY)
                     .allowsHitTesting(false)
                 }
             }
@@ -376,15 +381,14 @@ struct AnnotationCanvas: View {
         let imageFrame = screenshotGeometry.imageRect
 
         return ZStack(alignment: .topLeading) {
-            screenshotFrameBacking(
-                geometry: screenshotGeometry,
-                imageCornerRadii: clipCorners
-            )
+            screenshotShadow(geometry: screenshotGeometry)
+
+            screenshotBorder(geometry: screenshotGeometry)
 
             screenshot(
                 displayedImage,
                 imageFrame: imageFrame,
-                clipCorners: clipCorners
+                cornerRadii: screenshotGeometry.imageCornerRadii
             )
 
             // Redactions alter the screenshot itself, so keep them beneath the
@@ -537,12 +541,12 @@ struct AnnotationCanvas: View {
     private func screenshot(
         _ displayedImage: NSImage,
         imageFrame: CGRect,
-        clipCorners: RectangleCornerRadii
+        cornerRadii: PerCornerRadii
     ) -> some View {
         Image(nsImage: displayedImage)
             .resizable()
             .frame(width: imageFrame.width, height: imageFrame.height)
-            .clipShape(UnevenRoundedRectangle(cornerRadii: clipCorners, style: .continuous))
+            .clipShape(AnnotationPerCornerRoundedRectangle(radii: cornerRadii))
             .position(x: imageFrame.midX, y: imageFrame.midY)
     }
 
@@ -691,39 +695,112 @@ struct AnnotationCanvas: View {
     }
 
     @ViewBuilder
-    private func screenshotFrameBacking(
-        geometry: AnnotationScreenshotFrameGeometry,
-        imageCornerRadii: RectangleCornerRadii
+    private func screenshotShadow(
+        geometry: AnnotationScreenshotFrameGeometry
     ) -> some View {
         let settings = model.backgroundSettings
-        let shadowOpacity = Double(settings.shadow) * 0.50
-        let shadowRadius = 16 + settings.shadow * 40
-        let shadowOffset = 8 + settings.shadow * 26
         let castsShadow = settings.isEnabled || settings.camera.hasEffect
 
-        if settings.border.isVisible, geometry.borderWidth > 0 {
-            let cardCornerRadii = swiftUICornerRadii(geometry.cardCornerRadii)
-            UnevenRoundedRectangle(cornerRadii: cardCornerRadii, style: .continuous)
-                .fill(settings.border.color.color.opacity(min(max(settings.border.opacity, 0), 1)))
-                .frame(width: geometry.cardRect.width, height: geometry.cardRect.height)
-                .position(x: geometry.cardRect.midX, y: geometry.cardRect.midY)
-                .shadow(
-                    color: .black.opacity(castsShadow ? shadowOpacity : 0),
-                    radius: shadowRadius,
+        if castsShadow, settings.shadow > 0 {
+            let usesCardPath = settings.border.isActive && geometry.borderWidth > 0
+            let shadowRect = usesCardPath ? geometry.cardRect : geometry.imageRect
+            let shadowRadii = usesCardPath ? geometry.cardCornerRadii : geometry.imageCornerRadii
+            let shortestEdge = min(shadowRect.width, shadowRect.height)
+            let radius = max(2, shortestEdge * (0.035 + settings.shadow * 0.035))
+            let offset = shortestEdge * (0.012 + settings.shadow * 0.018)
+            let opacity = min(max(settings.shadow, 0), 1) * 0.36
+
+            Canvas { context, _ in
+                context.addFilter(.shadow(
+                    color: .black.opacity(opacity),
+                    radius: radius,
                     x: 0,
-                    y: shadowOffset
+                    y: offset,
+                    options: .shadowOnly
+                ))
+                context.fill(
+                    AnnotationPerCornerRoundedRectangle(radii: shadowRadii).path(in: shadowRect),
+                    with: .color(.black)
                 )
-        } else if (settings.isEnabled || settings.camera.hasEffect) && shadowOpacity > 0 {
-            UnevenRoundedRectangle(cornerRadii: imageCornerRadii, style: .continuous)
-                .fill(Color.black.opacity(0.18))
-                .frame(width: geometry.imageRect.width, height: geometry.imageRect.height)
-                .position(x: geometry.imageRect.midX, y: geometry.imageRect.midY)
-                .shadow(
-                    color: .black.opacity(shadowOpacity),
-                    radius: shadowRadius,
-                    x: 0,
-                    y: shadowOffset
-                )
+            }
+            .allowsHitTesting(false)
+        }
+    }
+
+    @ViewBuilder
+    private func screenshotBorder(
+        geometry: AnnotationScreenshotFrameGeometry
+    ) -> some View {
+        let border = model.backgroundSettings.border
+
+        if border.isActive, geometry.borderWidth > 0 {
+            let localCardRect = CGRect(origin: .zero, size: geometry.cardRect.size)
+            let outerShape = AnnotationPerCornerRoundedRectangle(radii: geometry.cardCornerRadii)
+            let innerShape = AnnotationPerCornerRoundedRectangle(radii: geometry.imageCornerRadii)
+            let ringShape = AnnotationScreenshotBorderRingShape(
+                outerRadii: geometry.cardCornerRadii,
+                innerRadii: geometry.imageCornerRadii,
+                thickness: geometry.borderWidth
+            )
+            let ringFill = FillStyle(eoFill: true)
+            let opacity = min(max(border.opacity, 0), 1)
+
+            Group {
+                switch border.material {
+                case .solid:
+                    ringShape
+                        .fill(border.color.color, style: ringFill)
+
+                case .liquidGlass:
+                    ZStack {
+                        Color.clear
+                            .glassEffect(
+                                .regular.tint(border.color.color),
+                                in: ringShape
+                            )
+                        outerShape
+                            .stroke(
+                                Color.white.opacity(0.58),
+                                lineWidth: max(0.75, geometry.borderWidth * 0.14)
+                            )
+                        innerShape
+                            .stroke(
+                                Color.white.opacity(0.30),
+                                lineWidth: max(0.5, geometry.borderWidth * 0.10)
+                            )
+                            .padding(geometry.borderWidth)
+                    }
+                    .mask {
+                        ringShape.fill(style: ringFill)
+                    }
+
+                case .frosted:
+                    ZStack {
+                        ringShape
+                            .fill(.regularMaterial, style: ringFill)
+                        ringShape
+                            .fill(border.color.color.opacity(0.24), style: ringFill)
+                        outerShape
+                            .stroke(
+                                Color.white.opacity(0.34),
+                                lineWidth: max(0.75, geometry.borderWidth * 0.14)
+                            )
+                        innerShape
+                            .stroke(
+                                Color.white.opacity(0.18),
+                                lineWidth: max(0.5, geometry.borderWidth * 0.10)
+                            )
+                            .padding(geometry.borderWidth)
+                    }
+                    .mask {
+                        ringShape.fill(style: ringFill)
+                    }
+                }
+            }
+            .frame(width: localCardRect.width, height: localCardRect.height)
+            .opacity(opacity)
+            .position(x: geometry.cardRect.midX, y: geometry.cardRect.midY)
+            .allowsHitTesting(false)
         }
     }
 
