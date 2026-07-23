@@ -246,31 +246,18 @@ final class AnnotationEditorModel {
         }
     }
 
+    /// Called right before the editor window closes (Cmd+W, Finish Editing,
+    /// or dismissing with nothing to save). Only releases real resources —
+    /// on-disk crop temp files and the shared redaction preview cache. It
+    /// deliberately leaves `previewImage`/`items`/`backgroundSettings` alone:
+    /// this model is owned by the closing window's `@State` and is deallocated
+    /// with it, so blanking those here only forced `AnnotationCanvas` through
+    /// one more render (back to its empty-state spinner) while the window was
+    /// still visually closing, which is what produced the brief spinner flash
+    /// and the "multiple times per frame" SwiftUI warnings on close.
     func releaseEditorResources() {
         removeOwnedCropFiles()
-        sourceURL = nil
-        baseImageURL = nil
-        previewImage = nil
-        isPreviewDownscaled = false
-        imageSize = .zero
-        items = []
-        draftItem = nil
-        selectedItemIDs = []
-        editingTextItemID = nil
-        isTextPlacementArmed = false
-        selectionRect = nil
-        backgroundSettings = AnnotationBackgroundSettings()
-        appliedBackgroundPresetID = nil
-        interaction = nil
         history.reset()
-        isCropping = false
-        cropRect = CGRect(x: 0, y: 0, width: 1, height: 1)
-        cropAspect = .freeform
-        cropUndoStack = []
-        cropRedoStack = []
-        errorMessage = nil
-        isSmartRedacting = false
-        smartRedactionMessage = nil
         RedactionImageProcessor.removeAllCachedPreviewImages()
     }
 

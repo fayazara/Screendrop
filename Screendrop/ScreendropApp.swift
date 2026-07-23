@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import UniformTypeIdentifiers
 import UserNotifications
 
 @main
@@ -68,6 +69,13 @@ struct ScreendropApp: App {
             return historyURL
         }
 
+        appDelegate.onOpenFiles = { [openWindow] urls in
+            for url in urls where UTType(filenameExtension: url.pathExtension)?.conforms(to: .image) == true {
+                let historyURL = ScreenshotHistoryStore.shared.importScreenshot(from: url)
+                openWindow(id: "ANNOTATION_EDITOR", value: historyURL)
+            }
+        }
+
         ScreenRecordingManager.shared.onFinishRecording = { session, displayID in
             Task { @MainActor in
                 // A recording session is already an editable project: the
@@ -90,12 +98,34 @@ struct ScreendropApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let updaterManager = UpdaterManager.shared
 
+    /// Files handed to us via Finder's "Open With" (or `open -a Screendrop`)
+    /// before `onOpenFiles` is wired up, e.g. a cold launch where SwiftUI's
+    /// scene body — and therefore the `openWindow` closure — hasn't run yet.
+    private var pendingOpenURLs: [URL] = []
+    var onOpenFiles: (([URL]) -> Void)? {
+        didSet {
+            guard let onOpenFiles, !pendingOpenURLs.isEmpty else { return }
+            let urls = pendingOpenURLs
+            pendingOpenURLs = []
+            onOpenFiles(urls)
+        }
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         HotkeyManager.shared.registerHotkeys()
         updaterManager.start()
         RecordingRecoveryCoordinator.recoverInterruptedRecordings()
         UNUserNotificationCenter.current().delegate = RecordingExportNotificationDelegate.shared
+    }
+
+    /// Finder "Open With" / `open -a Screendrop file.png` entry point.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        guard let onOpenFiles else {
+            pendingOpenURLs.append(contentsOf: urls)
+            return
+        }
+        onOpenFiles(urls)
     }
 
     /// When the menu bar icon is hidden, reopening Screendrop (e.g. from
