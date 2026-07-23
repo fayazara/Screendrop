@@ -69,6 +69,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 
         let hostingController = NSHostingController(rootView: SettingsView())
         window.contentViewController = hostingController
+        PreviewWindowCaptureExclusion.shared.register(window: window)
     }
 
     override func showWindow(_ sender: Any?) {

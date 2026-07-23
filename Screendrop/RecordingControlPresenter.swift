@@ -19,6 +19,7 @@ final class RecordingControlPresenter {
 
     func show(displayID: CGDirectDisplayID?) {
         let panel = panel ?? makePanel()
+        PreviewWindowCaptureExclusion.shared.register(window: panel)
         positionPanel(panel, displayID: displayID)
         panel.orderFrontRegardless()
     }
@@ -52,9 +53,7 @@ final class RecordingControlPresenter {
         panel.isMovableByWindowBackground = true
         panel.titleVisibility = .hidden
         panel.titlebarAppearsTransparent = true
-        if !PreviewWindowCaptureExclusion.isDemoMode {
-            panel.sharingType = .none
-        }
+        PreviewWindowCaptureExclusion.shared.register(window: panel)
         let hostingView = RecordingControlHostingView(rootView: RecordingControlView())
         hostingView.frame = CGRect(origin: .zero, size: panelSize)
         hostingView.autoresizingMask = [.width, .height]

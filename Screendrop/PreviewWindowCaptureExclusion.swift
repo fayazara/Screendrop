@@ -12,14 +12,39 @@ import SwiftUI
 final class PreviewWindowCaptureExclusion {
     static let shared = PreviewWindowCaptureExclusion()
 
-    /// When true, the preview panel is visible in screen recordings.
-    /// Activated via the --demo-mode launch argument.
+    /// Developer override retained for the Screendrop Demo scheme.
     static let isDemoMode = CommandLine.arguments.contains("--demo-mode")
+
+    /// Whether Screendrop's UI should be available to screenshot and screen
+    /// recording APIs. The production preference is opt-in; demo mode always
+    /// includes it so existing developer workflows continue to work.
+    static var includesAppWindowsInCaptures: Bool {
+        isDemoMode || ScreendropPreferences.includeAppWindowsInCaptures
+    }
+
+    private let registeredWindows = NSHashTable<NSWindow>.weakObjects()
 
     private init() {}
 
-    /// Excludes the overlay panel from screen capture (unless in demo mode) and
-    /// wires it into the placement manager.
+    /// Registers any Screendrop-owned window whose capture visibility should
+    /// follow the production preference.
+    func register(window: NSWindow?) {
+        guard let window else { return }
+
+        registeredWindows.add(window)
+        applyCaptureVisibility(to: window)
+    }
+
+    /// Applies a changed Settings value immediately to windows that already
+    /// exist, rather than waiting for them to be recreated.
+    func refreshRegisteredWindows() {
+        for window in registeredWindows.allObjects {
+            applyCaptureVisibility(to: window)
+        }
+    }
+
+    /// Applies capture visibility to the overlay panel and wires it into the
+    /// placement manager.
     ///
     /// The overlay no longer hides itself for editors or Quick Look — it stays
     /// mounted and collapses into the peek tab instead (see
@@ -28,10 +53,12 @@ final class PreviewWindowCaptureExclusion {
     func attach(window: NSWindow?) {
         guard let window else { return }
 
-        if !Self.isDemoMode {
-            window.sharingType = .none
-        }
+        register(window: window)
         PreviewWindowPlacement.shared.attach(window: window)
+    }
+
+    private func applyCaptureVisibility(to window: NSWindow) {
+        window.sharingType = Self.includesAppWindowsInCaptures ? .readOnly : .none
     }
 }
 

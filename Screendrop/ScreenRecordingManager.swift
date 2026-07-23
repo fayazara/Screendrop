@@ -667,11 +667,16 @@ final class ScreenRecordingManager {
         let captureRect: CGRect
         let displayID: CGDirectDisplayID?
         let tracksDynamicGeometry: Bool
+        let includesAppWindows = PreviewWindowCaptureExclusion.includesAppWindowsInCaptures
 
         switch source.kind {
         case .fullscreen(let display):
             let freshDisplay = content.displays.first(where: { $0.displayID == display.displayID }) ?? display
-            filter = ScreenRecordingCapture.displayFilter(display: freshDisplay, content: content)
+            filter = ScreenRecordingCapture.displayFilter(
+                display: freshDisplay,
+                content: content,
+                includesAppWindows: includesAppWindows
+            )
             sourceSize = CGSize(width: freshDisplay.width, height: freshDisplay.height)
             // SCDisplay.frame follows Quartz's top-left global coordinate
             // space, while NSPanel/NSEvent mappings use AppKit's bottom-left
@@ -690,7 +695,11 @@ final class ScreenRecordingManager {
             tracksDynamicGeometry = true
         case .area(let display, let rect):
             let freshDisplay = content.displays.first(where: { $0.displayID == display.displayID }) ?? display
-            filter = ScreenRecordingCapture.displayFilter(display: freshDisplay, content: content)
+            filter = ScreenRecordingCapture.displayFilter(
+                display: freshDisplay,
+                content: content,
+                includesAppWindows: includesAppWindows
+            )
             let mappedSourceRect = Self.sourceRect(
                 forAppKitSelectionRect: rect,
                 screenFrame: ActiveDisplayResolver.screen(for: freshDisplay.displayID)?.frame,
@@ -847,10 +856,16 @@ nonisolated final class ScreenRecordingCapture: NSObject, SCStreamOutput, SCStre
         try await stream.stopCapture()
     }
 
-    static func displayFilter(display: SCDisplay, content: SCShareableContent) -> SCContentFilter {
-        let excludedApps = content.applications.filter { application in
-            application.bundleIdentifier == Bundle.main.bundleIdentifier
-        }
+    static func displayFilter(
+        display: SCDisplay,
+        content: SCShareableContent,
+        includesAppWindows: Bool
+    ) -> SCContentFilter {
+        let excludedApps = includesAppWindows
+            ? []
+            : content.applications.filter { application in
+                application.bundleIdentifier == Bundle.main.bundleIdentifier
+            }
 
         return SCContentFilter(
             display: display,

@@ -136,9 +136,7 @@ final class CameraRecordingManager {
         panel.level = .floating
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isMovableByWindowBackground = true
-        if !PreviewWindowCaptureExclusion.isDemoMode {
-            panel.sharingType = .none
-        }
+        PreviewWindowCaptureExclusion.shared.register(window: panel)
 
         let container = NSView(frame: CGRect(origin: .zero, size: CGSize(width: diameter, height: diameter)))
         container.wantsLayer = true

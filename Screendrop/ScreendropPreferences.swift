@@ -23,6 +23,7 @@ enum ScreendropPreferences {
     static let screenRecordingHotkeyKey = "captureHotkey.screenRecording"
     static let playSoundsKey = "playSounds"
     static let showMenuBarIconKey = "showMenuBarIcon"
+    static let includeAppWindowsInCapturesKey = "includeAppWindowsInCaptures"
     static let captureWindowShadowKey = "captureWindowShadow"
     static let captureDelaySecondsKey = "captureDelaySeconds"
     static let previewPositionKey = "previewPosition"
@@ -117,6 +118,12 @@ enum ScreendropPreferences {
             return true
         }
         return UserDefaults.standard.bool(forKey: showMenuBarIconKey)
+    }
+
+    /// Whether Screendrop's own windows and floating controls are visible in
+    /// screenshots and screen recordings. Defaults to off for capture privacy.
+    static var includeAppWindowsInCaptures: Bool {
+        UserDefaults.standard.bool(forKey: includeAppWindowsInCapturesKey)
     }
 
     /// Whether captured windows include their drop shadow. Defaults to off

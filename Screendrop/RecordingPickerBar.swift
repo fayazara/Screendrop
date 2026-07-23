@@ -32,6 +32,7 @@ final class RecordingPickerPresenter {
 
     func show() {
         let panel = panel ?? makePanel()
+        PreviewWindowCaptureExclusion.shared.register(window: panel)
         Task {
             await RecordingSourceCatalog.shared.refresh()
         }
@@ -64,9 +65,7 @@ final class RecordingPickerPresenter {
         panel.isMovableByWindowBackground = true
         panel.titleVisibility = .hidden
         panel.titlebarAppearsTransparent = true
-        if !PreviewWindowCaptureExclusion.isDemoMode {
-            panel.sharingType = .none
-        }
+        PreviewWindowCaptureExclusion.shared.register(window: panel)
 
         let hostingView = RecordingPickerHostingView(rootView: RecordingPickerView())
         hostingView.wantsLayer = true
