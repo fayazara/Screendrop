@@ -80,6 +80,10 @@ final class RecordingStudioModel {
             scheduleProjectSave()
         }
     }
+    /// The style preset currently applied, so the Studio's preset bar can
+    /// show its name and detect whether the user has since edited away from
+    /// it. Not persisted in the project file: reapplied by content match.
+    var appliedStylePresetID: RecordingStudioStylePreset.ID?
     var zoomEnabled = true {
         didSet {
             scheduleProjectSave()
@@ -282,6 +286,10 @@ final class RecordingStudioModel {
             zoomEnabled = false
         } else {
             zoomCues = ZoomCueSynthesizer.cues(from: pointerCapture, duration: sourceDuration)
+            if let defaultPreset = RecordingStudioStylePresetStore.shared.activePreset {
+                style = defaultPreset.value
+                appliedStylePresetID = defaultPreset.id
+            }
         }
 
         if let storedClips = document?.clips, !storedClips.isEmpty {
@@ -336,6 +344,13 @@ final class RecordingStudioModel {
         endObserver = nil
         screenPlayer.replaceCurrentItem(with: nil)
         cameraPlayer.replaceCurrentItem(with: nil)
+    }
+
+    // MARK: - Style presets
+
+    func applyStylePreset(_ preset: RecordingStudioStylePreset) {
+        style = preset.value
+        appliedStylePresetID = preset.id
     }
 
     // MARK: - Playback

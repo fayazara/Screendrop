@@ -1740,6 +1740,7 @@ private enum StudioTranscriptTab: CaseIterable, Identifiable {
 private struct StudioInspector: View {
     @Bindable var model: RecordingStudioModel
     @State private var wallpaperStore = AnnotationWallpaperStore.shared
+    @State private var stylePresetStore = RecordingStudioStylePresetStore.shared
     @State private var expandedSections: Set<StudioInspectorSection> = [
         .background, .layout, .motion
     ]
@@ -1919,6 +1920,16 @@ private struct StudioInspector: View {
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
             .padding(.bottom, PreviewPeekTab.pillHeight * 1.1)
+        }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            VStack(spacing: 0) {
+                RecordingStudioStylePresetBar(model: model, presetStore: stylePresetStore)
+
+                Rectangle()
+                    .fill(Color(nsColor: .separatorColor).opacity(0.45))
+                    .frame(height: 0.5)
+            }
+            .background(sidebarBackground)
         }
         .scrollContentBackground(.hidden)
         .scrollEdgeEffectSoftIfAvailable()
