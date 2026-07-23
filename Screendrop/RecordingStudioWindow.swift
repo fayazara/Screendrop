@@ -2168,32 +2168,28 @@ private struct StudioInspector: View {
             )
 
             if selected.anchorMode == .pinnedAnchor {
-                InspectorSlider(
-                    "Target X",
-                    value: Binding(
-                        get: { selected.pinnedPoint.x },
-                        set: { targetX in
-                            var updated = selected
-                            updated.pinnedPoint.x = targetX
-                            model.updateZoomCue(updated)
-                        }
-                    ),
-                    range: 0...1,
-                    format: .percent()
-                )
-                InspectorSlider(
-                    "Target Y",
-                    value: Binding(
-                        get: { selected.pinnedPoint.y },
-                        set: { targetY in
-                            var updated = selected
-                            updated.pinnedPoint.y = targetY
-                            model.updateZoomCue(updated)
-                        }
-                    ),
-                    range: 0...1,
-                    format: .percent()
-                )
+                VStack(alignment: .leading, spacing: InspectorMetrics.groupLabelSpacing) {
+                    HStack(spacing: 8) {
+                        InspectorGroupLabel("Target position")
+                        Spacer(minLength: 0)
+                        Text(zoomTargetPositionText(selected.pinnedPoint))
+                            .font(.inspectorNumeric)
+                            .foregroundStyle(.tertiary)
+                    }
+
+                    RecordingZoomFocusPad(
+                        position: Binding(
+                            get: { selected.pinnedPoint },
+                            set: { target in
+                                var updated = selected
+                                updated.pinnedPoint = target
+                                model.updateZoomCue(updated)
+                            }
+                        ),
+                        magnification: selected.zoom
+                    )
+                }
+
                 inspectorAction("Set Target to Pointer", systemImage: "scope") {
                     guard let pointer = model.pointerLocation(at: model.currentTime) else { return }
                     var updated = selected
@@ -2227,6 +2223,12 @@ private struct StudioInspector: View {
         }
         .disabled(!model.zoomEnabled)
         .opacity(model.zoomEnabled ? 1 : 0.48)
+    }
+
+    private func zoomTargetPositionText(_ position: CGPoint) -> String {
+        let x = Int((position.x * 100).rounded())
+        let y = Int((position.y * 100).rounded())
+        return "\(x), \(y)"
     }
 
     // MARK: Selected clip
