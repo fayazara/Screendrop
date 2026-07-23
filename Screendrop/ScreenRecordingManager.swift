@@ -158,6 +158,9 @@ final class ScreenRecordingManager {
 
         PreviewWindowPlacement.shared.setTargetDisplayID(targetDisplayID)
         RecordingControlPresenter.shared.show(displayID: targetDisplayID)
+        if case .area(let display, let rect) = source.kind {
+            RecordingAreaHighlightPresenter.shared.show(display: display, rect: rect)
+        }
 
         Task {
             do {
@@ -305,6 +308,7 @@ final class ScreenRecordingManager {
     func deleteRecording() {
         guard state != .idle else {
             RecordingControlPresenter.shared.hide()
+            RecordingAreaHighlightPresenter.shared.hide()
             return
         }
 
@@ -401,6 +405,7 @@ final class ScreenRecordingManager {
             errorMessage = result.error.map { "Recording failed: \($0.localizedDescription)" }
                 ?? "Failed to finish recording."
             RecordingControlPresenter.shared.hide()
+            RecordingAreaHighlightPresenter.shared.hide()
             if action == .terminate {
                 terminationCompletion?(nil)
             } else if let errorMessage {
@@ -428,6 +433,7 @@ final class ScreenRecordingManager {
         switch action {
         case .preview:
             RecordingControlPresenter.shared.hide()
+            RecordingAreaHighlightPresenter.shared.hide()
             if let errorMessage {
                 Self.presentRecordingResultAlert(message: errorMessage, footageWasSaved: true)
             }
@@ -435,6 +441,7 @@ final class ScreenRecordingManager {
         case .discard:
             RecordingSessionStore.deleteSession(session)
             RecordingControlPresenter.shared.hide()
+            RecordingAreaHighlightPresenter.shared.hide()
         case .restart:
             RecordingSessionStore.deleteSession(session)
             if let restartSource {
@@ -442,6 +449,7 @@ final class ScreenRecordingManager {
             }
         case .terminate:
             RecordingControlPresenter.shared.hide()
+            RecordingAreaHighlightPresenter.shared.hide()
             terminationCompletion?(session)
         }
     }
@@ -485,6 +493,7 @@ final class ScreenRecordingManager {
         cleanupAfterRecording()
         errorMessage = "Failed to start screen recording: \(error.localizedDescription)"
         RecordingControlPresenter.shared.hide()
+        RecordingAreaHighlightPresenter.shared.hide()
         Self.presentStartFailureAlert(error: error)
     }
 
