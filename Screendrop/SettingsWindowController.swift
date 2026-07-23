@@ -53,6 +53,11 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         window.titleVisibility = .visible
         window.titlebarAppearsTransparent = false
         window.toolbarStyle = .automatic
+        // AppKit's inferred order-front transition animates the custom
+        // full-size-content window's shadow independently from its frame on
+        // Tahoe. Keep the WindowServer geometry static and provide a simple
+        // opacity entrance in `showWindow` instead.
+        window.animationBehavior = .none
         // Keep the window movable only via its title bar. Background dragging
         // makes the whole content area move the window, which both feels off and
         // swallows in-content drag gestures (e.g. the overlay card editor).
@@ -67,13 +72,27 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     }
 
     override func showWindow(_ sender: Any?) {
-        super.showWindow(sender)
-        window?.makeKeyAndOrderFront(nil)
+        guard let window else { return }
+
         if !didEnterActivationPolicy {
             AppActivationPolicy.enter()
             didEnterActivationPolicy = true
+        } else {
+            NSApp.activate(ignoringOtherApps: true)
         }
-        NSApp.activate(ignoringOtherApps: true)
+
+        let shouldAnimate = !window.isVisible
+            && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        window.alphaValue = shouldAnimate ? 0 : 1
+
+        super.showWindow(sender)
+
+        guard shouldAnimate else { return }
+        window.displayIfNeeded()
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.16
+            window.animator().alphaValue = 1
+        }
     }
 
     func windowWillClose(_ notification: Notification) {
