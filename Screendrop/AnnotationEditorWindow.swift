@@ -214,6 +214,11 @@ struct AnnotationEditorWindow: View {
                 )
                     .padding(.horizontal, 34)
                     .padding(.vertical, 28)
+            } else if let errorMessage = model.errorMessage {
+                // A load failure (missing/unreadable source file, e.g. a stale
+                // URL replayed by macOS window restoration) should never sit
+                // behind an unexplained spinner with no way out.
+                AnnotationLoadFailureView(message: errorMessage, onClose: closeAfterLoadFailure)
             } else {
                 ProgressView()
                     .controlSize(.large)
@@ -243,7 +248,10 @@ struct AnnotationEditorWindow: View {
             }
         }
         .overlay(alignment: .bottomLeading) {
-            if let errorMessage = model.errorMessage {
+            // Only inline saves/uploads (which fail with an image already on
+            // screen) land here; a load failure shows the full-canvas state
+            // above instead of stacking a second copy of the same message.
+            if let errorMessage = model.errorMessage, model.previewImage != nil {
                 Text(errorMessage)
                     .font(.footnote)
                     .foregroundStyle(.red)
@@ -253,6 +261,11 @@ struct AnnotationEditorWindow: View {
                     .background(.bar)
             }
         }
+    }
+
+    private func closeAfterLoadFailure() {
+        model.releaseEditorResources()
+        dismissWindow()
     }
 
     private func saveAs() {
@@ -422,5 +435,28 @@ struct AnnotationEditorWindow: View {
 
     private func clearInspectorFocus() {
         focusedField = nil
+    }
+}
+
+private struct AnnotationLoadFailureView: View {
+    let message: String
+    let onClose: () -> Void
+
+    var body: some View {
+        VStack(spacing: 14) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 34, weight: .medium))
+                .foregroundStyle(.secondary)
+
+            Text(message)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 360)
+
+            Button("Close", action: onClose)
+                .keyboardShortcut(.cancelAction)
+        }
+        .padding(32)
     }
 }

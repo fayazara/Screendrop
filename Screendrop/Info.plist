@@ -23,6 +23,8 @@
 	<string>Screendrop needs input monitoring permission to show key press captions while recording.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Screendrop captures your microphone so recordings can include narration.</string>
+	<key>NSQuitAlwaysKeepsWindows</key>
+	<false/>
 	<key>NSScreenCaptureUsageDescription</key>
 	<string>Screendrop needs screen recording permission to capture screenshots.</string>
 	<key>SUEnableInstallerLauncherService</key>
