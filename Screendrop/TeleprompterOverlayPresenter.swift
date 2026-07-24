@@ -146,7 +146,7 @@ final class TeleprompterOverlayPresenter {
         hideGeneration += 1
         model.mode = Self.notchMode(for: screen) ?? .pill
         model.visibleLineCount = ScreendropPreferences.recordingTeleprompterLineCount
-        model.expandedWidth = min(520, max(400, screen.frame.width * 0.28))
+        model.expandedWidth = 320
         model.layout = TeleprompterScriptLayout(
             script: script,
             maximumLineWidth: model.textWidth,
@@ -225,6 +225,17 @@ final class TeleprompterOverlayPresenter {
         let hostingView = TeleprompterOverlayHostingView(
             rootView: TeleprompterOverlayView(model: model)
         )
+        // The content springs its own width/height every frame (expand
+        // collapse, line-scroll). Left at its default, NSHostingView fights
+        // that by continuously re-deriving window min/max size constraints
+        // from the mid-animation ideal size, which never settles — AppKit's
+        // constraint-update watchdog eventually kills the app. The window
+        // is sized explicitly via `position(_:on:)` instead, so bridging is
+        // switched off and the hosting view just fills whatever frame the
+        // window gives it.
+        hostingView.sizingOptions = []
+        hostingView.translatesAutoresizingMaskIntoConstraints = true
+        hostingView.autoresizingMask = [.width, .height]
         hostingView.wantsLayer = true
         hostingView.layer?.backgroundColor = NSColor.clear.cgColor
         hostingView.layer?.isOpaque = false
