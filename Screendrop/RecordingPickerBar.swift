@@ -137,15 +137,12 @@ private struct RecordingPickerView: View {
     @AppStorage(ScreendropPreferences.recordingCameraDeviceIDKey) private var cameraID = ""
     @AppStorage(ScreendropPreferences.recordingMicrophoneDeviceIDKey) private var microphoneID = ""
     @AppStorage(ScreendropPreferences.recordingSystemAudioKey) private var systemAudio = false
+    @AppStorage(ScreendropPreferences.recordingStartDelaySecondsKey) private var startDelaySeconds = 0
+
+    private static let timerOptions = [0, 1, 3, 5]
 
     var body: some View {
         HStack(spacing: 6) {
-            iconButton(systemImage: "xmark", help: "Close") {
-                dismissPicker()
-            }
-
-            barDivider
-
             displaySource
             windowSource
             sourceButton(title: "Area", systemImage: "rectangle.dashed") {
@@ -177,11 +174,10 @@ private struct RecordingPickerView: View {
                 systemAudio.toggle()
             }
 
-            barDivider
+            timerMenu
 
-            iconButton(systemImage: "gearshape.fill", help: "Recording settings") {
+            iconButton(systemImage: "xmark", help: "Close") {
                 dismissPicker()
-                SettingsWindowController.show(tab: .video)
             }
         }
         .padding(.horizontal, 12)
@@ -212,13 +208,13 @@ private struct RecordingPickerView: View {
                     }
                 }
             } label: {
-                sourceLabel(title: "Display", systemImage: "display")
+                sourceLabel(title: "Display", systemImage: "menubar.rectangle")
             }
             .menuStyle(.button)
             .buttonStyle(.plain)
             .menuIndicator(.hidden)
         } else {
-            sourceButton(title: "Display", systemImage: "display") {
+            sourceButton(title: "Display", systemImage: "menubar.rectangle") {
                 guard let display = sources.displays.first else { return }
                 startRecording {
                     CaptureCoordinator.shared.recordFullscreen(display)
@@ -350,6 +346,41 @@ private struct RecordingPickerView: View {
         .buttonStyle(.plain)
         .menuIndicator(.hidden)
         .help(microphoneHelp)
+    }
+
+    /// Replaces the old gear button that opened Settings: a self-contained
+    /// menu for options that only matter for the next recording, starting
+    /// with a start-delay timer.
+    private var timerMenu: some View {
+        Menu {
+            ForEach(Self.timerOptions, id: \.self) { seconds in
+                Button {
+                    startDelaySeconds = seconds
+                } label: {
+                    menuSelectionLabel(timerLabel(seconds), isSelected: startDelaySeconds == seconds)
+                }
+            }
+        } label: {
+            Image(systemName: "timer")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(startDelaySeconds == 0 ? Color.white.opacity(0.35) : Color.white)
+                .frame(width: 34, height: 34)
+                .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .help(timerHelp)
+    }
+
+    private func timerLabel(_ seconds: Int) -> String {
+        seconds == 0 ? "None" : "\(seconds) second\(seconds == 1 ? "" : "s")"
+    }
+
+    private var timerHelp: String {
+        startDelaySeconds == 0
+            ? "Timer off — click to add a countdown before recording starts"
+            : "Timer: \(timerLabel(startDelaySeconds)) before recording starts"
     }
 
     @ViewBuilder

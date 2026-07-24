@@ -35,6 +35,7 @@ enum ScreendropPreferences {
     static let recordingCameraDeviceIDKey = "recordingCameraDeviceID"
     static let recordingMicrophoneDeviceIDKey = "recordingMicrophoneDeviceID"
     static let recordingSystemAudioKey = "recordingSystemAudio"
+    static let recordingStartDelaySecondsKey = "recordingStartDelaySeconds"
 
     private static let defaultCompressionQuality = 0.8
 
@@ -102,6 +103,11 @@ enum ScreendropPreferences {
     static var recordingSystemAudio: Bool {
         get { UserDefaults.standard.bool(forKey: recordingSystemAudioKey) }
         set { UserDefaults.standard.set(newValue, forKey: recordingSystemAudioKey) }
+    }
+
+    /// Countdown delay (in seconds) before a recording starts. 0 means off.
+    static var recordingStartDelaySeconds: Int {
+        max(0, UserDefaults.standard.integer(forKey: recordingStartDelaySecondsKey))
     }
 
     /// Whether to play the shutter sound after a screenshot. Defaults to on.

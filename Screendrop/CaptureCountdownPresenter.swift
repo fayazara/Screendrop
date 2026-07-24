@@ -18,9 +18,11 @@ final class CaptureCountdownPresenter {
 
     private init() {}
 
-    /// Runs the countdown if a delay is configured, otherwise returns immediately.
-    func runIfNeeded(displayID: CGDirectDisplayID?) async {
-        let seconds = ScreendropPreferences.captureDelaySeconds
+    /// Runs the countdown if `seconds` is positive, otherwise returns
+    /// immediately. Shared by screenshots (`captureDelaySeconds`) and
+    /// recordings (`recordingStartDelaySeconds`) — callers pass whichever
+    /// preference applies.
+    func runIfNeeded(seconds: Int, displayID: CGDirectDisplayID?) async {
         guard seconds > 0 else { return }
         await run(seconds: seconds, displayID: displayID)
     }
