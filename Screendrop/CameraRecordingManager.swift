@@ -59,46 +59,107 @@ final class CameraRecordingManager {
 
     private let engine = CameraCaptureEngine()
     private var previewPanel: NSPanel?
+    private var activePreviewDisplayID: CGDirectDisplayID?
     private(set) var isRunning = false
+    /// True once frames are actually being written to a `camera.mov`, as
+    /// opposed to just warming the sensor for the floating preview.
+    private(set) var isWriting = false
+    private var activeDeviceID: String?
 
     private init() {}
 
-    /// Starts camera capture into `outputURL` and shows the floating preview.
-    /// Returns false (without throwing) when the camera can't start —
-    /// a missing device or denied permission should never abort the
-    /// screen recording itself.
-    func start(outputURL: URL, deviceID: String, displayID: CGDirectDisplayID?) async -> Bool {
-        guard !isRunning else { return true }
+    /// Starts the capture session and shows the floating preview, without
+    /// writing anything to disk yet. Call this as soon as the camera is
+    /// enabled in the pre-record picker (or whenever it's re-shown with the
+    /// camera already on) so the sensor's exposure/white-balance ramp — the
+    /// visible fade-in macOS shows whenever a capture session starts cold —
+    /// finishes before "Start Recording", instead of showing up live and at
+    /// the start of the recorded footage.
+    @discardableResult
+    func startPreview(deviceID: String, displayID: CGDirectDisplayID?) async -> Bool {
+        guard !isWriting else { return true }
+        if isRunning {
+            if activeDeviceID == deviceID {
+                showPreview(displayID: displayID)
+                return true
+            }
+            await stopPreview()
+        }
         guard let device = RecordingDeviceCatalog.camera(withID: deviceID) else { return false }
 
         let authorized = await AVCaptureDevice.requestAccess(for: .video)
         guard authorized else { return false }
 
         do {
-            try await engine.start(device: device, outputURL: outputURL)
+            try await engine.startSession(device: device)
         } catch {
-            print("Camera recording failed to start: \(error)")
+            print("Camera preview failed to start: \(error)")
             return false
         }
 
         isRunning = true
+        activeDeviceID = deviceID
         showPreview(displayID: displayID)
         return true
     }
 
+    /// Tears down a warm preview that never turned into a recording — the
+    /// camera was toggled off, or the pre-record picker was dismissed
+    /// without starting. No-op while an actual recording is using the camera.
+    func stopPreview() async {
+        guard isRunning, !isWriting else { return }
+        isRunning = false
+        activeDeviceID = nil
+        hidePreview()
+        await engine.stopSessionOnly()
+    }
+
+    /// Starts writing camera frames to `outputURL`. Reuses an already-warm
+    /// preview session for the same device when one is running — so
+    /// recording never re-triggers the startup ramp — otherwise it starts a
+    /// fresh session (e.g. a recording started without the picker bar).
+    /// Returns false (without throwing) when the camera can't start —
+    /// a missing device or denied permission should never abort the
+    /// screen recording itself.
+    func start(outputURL: URL, deviceID: String, displayID: CGDirectDisplayID?) async -> Bool {
+        guard !isWriting else { return true }
+
+        if !isRunning || activeDeviceID != deviceID {
+            guard await startPreview(deviceID: deviceID, displayID: displayID) else { return false }
+        } else {
+            showPreview(displayID: displayID)
+        }
+
+        do {
+            try await engine.beginWriting(outputURL: outputURL)
+        } catch {
+            print("Camera recording failed to start: \(error)")
+            isRunning = false
+            activeDeviceID = nil
+            hidePreview()
+            await engine.stopSessionOnly()
+            return false
+        }
+
+        isWriting = true
+        return true
+    }
+
     func pause() {
-        guard isRunning else { return }
+        guard isWriting else { return }
         engine.pause()
     }
 
     func resume() {
-        guard isRunning else { return }
+        guard isWriting else { return }
         engine.resume()
     }
 
     func stop() async -> CameraRecordingResult? {
-        guard isRunning else { return nil }
+        guard isWriting else { return nil }
         isRunning = false
+        isWriting = false
+        activeDeviceID = nil
         hidePreview()
         return await engine.finish()
     }
@@ -106,11 +167,19 @@ final class CameraRecordingManager {
     func cancel() async {
         guard isRunning else { return }
         isRunning = false
+        isWriting = false
+        activeDeviceID = nil
         hidePreview()
         await engine.cancel()
     }
 
     private func showPreview(displayID: CGDirectDisplayID?) {
+        // Already showing in the right place: the session (and its exposure)
+        // is untouched, so recreating the panel here would only cost a
+        // pointless layer swap.
+        if previewPanel != nil, activePreviewDisplayID == displayID {
+            return
+        }
         hidePreview()
 
         let diameter: CGFloat = 160
@@ -155,11 +224,13 @@ final class CameraRecordingManager {
         panel.contentView = container
         panel.orderFrontRegardless()
         previewPanel = panel
+        activePreviewDisplayID = displayID
     }
 
     private func hidePreview() {
         previewPanel?.orderOut(nil)
         previewPanel = nil
+        activePreviewDisplayID = nil
     }
 }
 
@@ -172,22 +243,46 @@ nonisolated private final class CameraCaptureEngine: NSObject, AVCaptureVideoDat
     private let writer = CameraMovieWriter()
     private var input: AVCaptureDeviceInput?
     private var output: AVCaptureVideoDataOutput?
+    private var activeDevice: AVCaptureDevice?
 
-    func start(device: AVCaptureDevice, outputURL: URL) async throws {
+    /// Starts the capture session only — no movie is written yet. Frames
+    /// reach `captureOutput` immediately (for the live preview layer), but
+    /// `CameraMovieWriter.writeVideoSample` silently no-ops until
+    /// `beginWriting` has run, since it has no asset writer to append to.
+    func startSession(device: AVCaptureDevice) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             sessionQueue.async { [self] in
                 do {
                     try configureSession(device: device)
-                    let dimensions = CMVideoFormatDescriptionGetDimensions(device.activeFormat.formatDescription)
+                    activeDevice = device
+                    session.startRunning()
+                    continuation.resume()
+                } catch {
+                    teardownSession()
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    /// Sets up the movie writer for the already-running session so its
+    /// frames start landing on disk.
+    func beginWriting(outputURL: URL) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            sessionQueue.async { [self] in
+                guard let activeDevice else {
+                    continuation.resume(throwing: CocoaError(.fileWriteUnknown))
+                    return
+                }
+                do {
+                    let dimensions = CMVideoFormatDescriptionGetDimensions(activeDevice.activeFormat.formatDescription)
                     try writer.setup(
                         outputURL: outputURL,
                         width: Int(dimensions.width),
                         height: Int(dimensions.height)
                     )
-                    session.startRunning()
                     continuation.resume()
                 } catch {
-                    teardownSession()
                     continuation.resume(throwing: error)
                 }
             }
@@ -210,6 +305,12 @@ nonisolated private final class CameraCaptureEngine: NSObject, AVCaptureVideoDat
     func cancel() async {
         await stopSession()
         await writer.cancel()
+    }
+
+    /// Tears the session down without ever having written a movie — the
+    /// warm preview was toggled off or dismissed before recording began.
+    func stopSessionOnly() async {
+        await stopSession()
     }
 
     func makePreviewLayer() -> AVCaptureVideoPreviewLayer {
@@ -281,6 +382,7 @@ nonisolated private final class CameraCaptureEngine: NSObject, AVCaptureVideoDat
         session.commitConfiguration()
         input = nil
         output = nil
+        activeDevice = nil
     }
 
     func captureOutput(

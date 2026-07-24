@@ -38,10 +38,25 @@ final class RecordingPickerPresenter {
         }
         positionPanel(panel)
         panel.orderFrontRegardless()
+        warmCameraPreviewIfEnabled()
     }
 
     func hide() {
         panel?.orderOut(nil)
+    }
+
+    /// The bar's hosting view is created once and just reordered in/out on
+    /// every `show()`/`hide()`, so its SwiftUI `.task` never reruns after the
+    /// first appearance. Reading the camera preference here — on every real
+    /// `show()` — is what makes a camera left on from a previous session
+    /// warm up immediately instead of needing an off/on toggle to kick it.
+    private func warmCameraPreviewIfEnabled() {
+        let cameraID = ScreendropPreferences.recordingCameraDeviceID
+        guard !cameraID.isEmpty else { return }
+        let displayID = ActiveDisplayResolver.activeDisplayID(preferPointer: false)
+        Task {
+            await CameraRecordingManager.shared.startPreview(deviceID: cameraID, displayID: displayID)
+        }
     }
 
     private func makePanel() -> NSPanel {
@@ -105,6 +120,7 @@ private final class RecordingPickerPanel: NSPanel {
 
     override func cancelOperation(_ sender: Any?) {
         RecordingPickerPresenter.shared.hide()
+        Task { await CameraRecordingManager.shared.stopPreview() }
     }
 }
 
@@ -125,7 +141,7 @@ private struct RecordingPickerView: View {
     var body: some View {
         HStack(spacing: 6) {
             iconButton(systemImage: "xmark", help: "Close") {
-                RecordingPickerPresenter.shared.hide()
+                dismissPicker()
             }
 
             barDivider
@@ -164,7 +180,7 @@ private struct RecordingPickerView: View {
             barDivider
 
             iconButton(systemImage: "gearshape.fill", help: "Recording settings") {
-                RecordingPickerPresenter.shared.hide()
+                dismissPicker()
                 SettingsWindowController.show(tab: .video)
             }
         }
@@ -249,8 +265,18 @@ private struct RecordingPickerView: View {
     }
 
     private func startRecording(_ start: () -> Void) {
+        // Only hides the bar — the warm camera preview (if any) is left
+        // running so it flows straight into the actual recording instead of
+        // restarting the session and refading.
         RecordingPickerPresenter.shared.hide()
         start()
+    }
+
+    /// Backs out of the picker without recording: stop any warm camera
+    /// preview so it doesn't keep running in the background.
+    private func dismissPicker() {
+        RecordingPickerPresenter.shared.hide()
+        Task { await CameraRecordingManager.shared.stopPreview() }
     }
 
     // MARK: Input toggles
@@ -260,6 +286,7 @@ private struct RecordingPickerView: View {
             selectCamera(RecordingDeviceCatalog.cameras().first?.uniqueID)
         } else {
             cameraID = ""
+            Task { await CameraRecordingManager.shared.stopPreview() }
         }
     }
 
@@ -283,6 +310,7 @@ private struct RecordingPickerView: View {
                         selectCamera(device.uniqueID)
                     } else {
                         cameraID = ""
+                        Task { await CameraRecordingManager.shared.stopPreview() }
                     }
                 }
             )) {
@@ -336,8 +364,22 @@ private struct RecordingPickerView: View {
     private func selectCamera(_ deviceID: String?) {
         guard let deviceID else { return }
         Task { @MainActor in
-            cameraID = await RecordingInputAuthorization.ensureAccess(for: .camera) ? deviceID : ""
+            let authorized = await RecordingInputAuthorization.ensureAccess(for: .camera)
+            cameraID = authorized ? deviceID : ""
+            if authorized {
+                await warmCameraPreview()
+            }
         }
+    }
+
+    /// Starts the camera session (and its floating preview) ahead of "Start
+    /// Recording", so its exposure/white-balance ramp — the fade-in macOS
+    /// shows whenever a capture session starts cold — finishes before
+    /// anything is actually being recorded.
+    private func warmCameraPreview() async {
+        guard !cameraID.isEmpty else { return }
+        let displayID = ActiveDisplayResolver.activeDisplayID(preferPointer: false)
+        await CameraRecordingManager.shared.startPreview(deviceID: cameraID, displayID: displayID)
     }
 
     private func selectMicrophone(_ deviceID: String?) {
