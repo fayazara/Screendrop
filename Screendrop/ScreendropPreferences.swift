@@ -36,6 +36,9 @@ enum ScreendropPreferences {
     static let recordingMicrophoneDeviceIDKey = "recordingMicrophoneDeviceID"
     static let recordingSystemAudioKey = "recordingSystemAudio"
     static let recordingStartDelaySecondsKey = "recordingStartDelaySeconds"
+    static let recordingTeleprompterEnabledKey = "recordingTeleprompterEnabled"
+    static let recordingTeleprompterScriptKey = "recordingTeleprompterScript"
+    static let recordingTeleprompterLineCountKey = "recordingTeleprompterLineCount"
 
     private static let defaultCompressionQuality = 0.8
 
@@ -108,6 +111,30 @@ enum ScreendropPreferences {
     /// Countdown delay (in seconds) before a recording starts. 0 means off.
     static var recordingStartDelaySeconds: Int {
         max(0, UserDefaults.standard.integer(forKey: recordingStartDelaySecondsKey))
+    }
+
+    /// Whether the notch teleprompter appears during recordings. Defaults to off.
+    static var recordingTeleprompterEnabled: Bool {
+        get { UserDefaults.standard.bool(forKey: recordingTeleprompterEnabledKey) }
+        set { UserDefaults.standard.set(newValue, forKey: recordingTeleprompterEnabledKey) }
+    }
+
+    /// The script read from the teleprompter. Empty means nothing to show.
+    static var recordingTeleprompterScript: String {
+        get { UserDefaults.standard.string(forKey: recordingTeleprompterScriptKey) ?? "" }
+        set { UserDefaults.standard.set(newValue, forKey: recordingTeleprompterScriptKey) }
+    }
+
+    static let teleprompterLineCountRange = 2...5
+
+    /// How many script lines the teleprompter shows at once.
+    static var recordingTeleprompterLineCount: Int {
+        get {
+            let stored = UserDefaults.standard.integer(forKey: recordingTeleprompterLineCountKey)
+            guard stored != 0 else { return 3 }
+            return min(max(stored, teleprompterLineCountRange.lowerBound), teleprompterLineCountRange.upperBound)
+        }
+        set { UserDefaults.standard.set(newValue, forKey: recordingTeleprompterLineCountKey) }
     }
 
     /// Whether to play the shutter sound after a screenshot. Defaults to on.

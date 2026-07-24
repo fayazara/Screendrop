@@ -43,6 +43,15 @@ final class RecordingPickerPresenter {
 
     func hide() {
         panel?.orderOut(nil)
+        // The composer only makes sense floating above the bar.
+        TeleprompterComposerPresenter.shared.hide()
+    }
+
+    /// Where the bar currently sits, so satellite windows (the teleprompter
+    /// composer) can anchor to it even after the user drags it around.
+    var barFrame: CGRect? {
+        guard let panel, panel.isVisible else { return nil }
+        return panel.frame
     }
 
     /// The bar's hosting view is created once and just reordered in/out on
@@ -138,6 +147,7 @@ private struct RecordingPickerView: View {
     @AppStorage(ScreendropPreferences.recordingMicrophoneDeviceIDKey) private var microphoneID = ""
     @AppStorage(ScreendropPreferences.recordingSystemAudioKey) private var systemAudio = false
     @AppStorage(ScreendropPreferences.recordingStartDelaySecondsKey) private var startDelaySeconds = 0
+    @AppStorage(ScreendropPreferences.recordingTeleprompterEnabledKey) private var teleprompterEnabled = false
 
     private static let timerOptions = [0, 1, 3, 5]
 
@@ -172,6 +182,17 @@ private struct RecordingPickerView: View {
                 help: systemAudio ? "System audio on" : "System audio off"
             ) {
                 systemAudio.toggle()
+            }
+
+            inputToggle(
+                isOn: teleprompterEnabled,
+                onIcon: "text.line.first.and.arrowtriangle.forward",
+                offIcon: "text.line.first.and.arrowtriangle.forward",
+                help: teleprompterEnabled
+                    ? "Teleprompter on — click to edit the script"
+                    : "Teleprompter off — click to write a script"
+            ) {
+                TeleprompterComposerPresenter.shared.toggle()
             }
 
             timerMenu

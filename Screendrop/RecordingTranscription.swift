@@ -371,8 +371,9 @@ nonisolated enum RecordingTranscriptionService {
 
     /// Best transcription locale for the user's language; on-device models
     /// are per-locale, so an unsupported language has to fail loudly rather
-    /// than produce gibberish English cues.
-    private static func resolveLocale() async throws -> Locale {
+    /// than produce gibberish English cues. Also used by the live
+    /// teleprompter, which tracks the same narration as it is spoken.
+    static func resolveLocale() async throws -> Locale {
         let supported = await SpeechTranscriber.supportedLocales
         let current = Locale.current
         if let exact = supported.first(where: {

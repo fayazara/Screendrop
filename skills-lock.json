@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "macos-notch-ui": {
+      "source": "fayazara/macos-app-skills",
+      "sourceType": "github",
+      "skillPath": "notch-ui/SKILL.md",
+      "computedHash": "e39093236fbccf2957182c117af013129000985205a3bf65c39eb42a7606afd4"
+    }
+  }
+}

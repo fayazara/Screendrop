@@ -172,6 +172,14 @@ final class ScreenRecordingManager {
                     Self.presentInputWarnings(inputWarnings)
                 }
 
+                // The teleprompter session starts before the capture wires
+                // its callbacks so the microphone tee below can capture the
+                // engine once, without a main-actor hop per audio buffer.
+                TeleprompterController.shared.beginRecordingSession(
+                    displayID: targetDisplayID,
+                    microphoneActive: options.microphoneDeviceID != nil
+                )
+
                 let session = try RecordingSessionStore.createSession()
                 // Own the session as soon as it exists. Any failure after this
                 // point must be able to remove or recover the directory.
@@ -192,7 +200,11 @@ final class ScreenRecordingManager {
                     pointerActivityRecorder.recordFrameGeometry(sampleBuffer)
                     writer.writeVideoSample(sampleBuffer)
                 }
+                let teleprompterEngine = TeleprompterController.shared.activeEngine
                 capture.onAudioSample = { [writer] sampleBuffer, kind in
+                    if kind == .microphone {
+                        teleprompterEngine?.ingest(sampleBuffer)
+                    }
                     writer.writeAudioSample(sampleBuffer, kind: kind)
                 }
                 capture.onError = { [weak self] error in
@@ -278,6 +290,7 @@ final class ScreenRecordingManager {
         pointerActivityRecorder.pause()
         keystrokeRecorder.pause()
         CameraRecordingManager.shared.pause()
+        TeleprompterController.shared.setPaused(true)
         pausedAt = Date()
         state = .paused
         updateElapsedTime()
@@ -295,6 +308,7 @@ final class ScreenRecordingManager {
         pointerActivityRecorder.resume()
         keystrokeRecorder.resume()
         CameraRecordingManager.shared.resume()
+        TeleprompterController.shared.setPaused(false)
         state = .recording
         updateElapsedTime()
     }
@@ -653,6 +667,7 @@ final class ScreenRecordingManager {
         writer.onFailure = nil
         pointerActivityRecorder.stop()
         keystrokeRecorder.stop()
+        TeleprompterController.shared.endRecordingSession()
         endActivity()
         session = nil
         displayID = nil
