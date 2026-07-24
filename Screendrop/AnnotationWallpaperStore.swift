@@ -99,7 +99,7 @@ final class AnnotationWallpaperStore {
         guard Self.isSupportedImageFile(standardizedURL) else { return }
 
         var paths = UserDefaults.standard.stringArray(forKey: Self.recentWallpaperPathsKey) ?? []
-        paths.removeAll { $0 == standardizedPath }
+        guard !paths.contains(standardizedPath) else { return }
         paths.insert(standardizedPath, at: 0)
 
         let filteredPaths = paths

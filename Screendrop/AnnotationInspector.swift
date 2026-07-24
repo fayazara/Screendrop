@@ -12,12 +12,25 @@ enum AnnotationEditorFocusedField: Hashable {
     case watermarkText
 }
 
-private enum AnnotationInspectorAdvancedSection: Hashable {
+private enum AnnotationInspectorAdvancedSection: String, Hashable, CaseIterable {
     case camera
     case progressiveBlur
     case background
     case border
     case watermark
+}
+
+private enum AnnotationInspectorSectionState {
+    static let expandedSectionsKey = "annotationInspector.expandedAdvancedSections"
+
+    static func loadExpandedSections() -> Set<AnnotationInspectorAdvancedSection> {
+        let rawValues = UserDefaults.standard.stringArray(forKey: expandedSectionsKey) ?? []
+        return Set(rawValues.compactMap(AnnotationInspectorAdvancedSection.init(rawValue:)))
+    }
+
+    static func saveExpandedSections(_ sections: Set<AnnotationInspectorAdvancedSection>) {
+        UserDefaults.standard.set(sections.map(\.rawValue), forKey: expandedSectionsKey)
+    }
 }
 
 struct AnnotationEditorInspector: View {
@@ -33,7 +46,7 @@ struct AnnotationEditorInspector: View {
     let onPickWallpaper: () -> Void
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
-    @State private var expandedAdvancedSections: Set<AnnotationInspectorAdvancedSection> = []
+    @State private var expandedAdvancedSections: Set<AnnotationInspectorAdvancedSection> = AnnotationInspectorSectionState.loadExpandedSections()
 
     var body: some View {
         ScrollView(.vertical) {
@@ -350,6 +363,7 @@ struct AnnotationEditorInspector: View {
                 } else {
                     expandedAdvancedSections.remove(section)
                 }
+                AnnotationInspectorSectionState.saveExpandedSections(expandedAdvancedSections)
             }
         )
     }

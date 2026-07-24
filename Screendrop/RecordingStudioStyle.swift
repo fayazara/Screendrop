@@ -18,7 +18,7 @@ struct RecordingCameraBubbleSettings: Equatable {
     /// Bubble diameter as a fraction of the canvas's smaller dimension.
     var size: CGFloat = 0.26
     /// 0.5 = circle, smaller values square the bubble off.
-    var roundness: CGFloat = 0.5
+    var roundness: CGFloat = 0.25
 }
 
 struct RecordingEditDocument: Codable, Equatable {
