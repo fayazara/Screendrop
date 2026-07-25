@@ -29,6 +29,9 @@ nonisolated enum ZoomAnchorMode: String, Codable, CaseIterable, Sendable {
 }
 
 nonisolated struct ZoomCue: Identifiable, Codable, Equatable, Sendable {
+    /// Shortest cue the timeline will create or leave behind after a resize.
+    static let minimumDuration: TimeInterval = 0.5
+
     var id: UUID
     var start: TimeInterval
     var end: TimeInterval

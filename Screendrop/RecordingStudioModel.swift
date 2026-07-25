@@ -771,6 +771,44 @@ final class RecordingStudioModel {
         insertZoomCue(start: start, end: min(sourceDuration, start + 3))
     }
 
+    /// Room a cue has to grow or slide into before it would run into a
+    /// neighbor. Cues are kept sorted and non-overlapping, so the only cues
+    /// that can be in the way are the ones on either side.
+    private func neighborBounds(
+        forCueAt index: Int,
+        in cues: [ZoomCue]
+    ) -> (lower: TimeInterval, upper: TimeInterval) {
+        (
+            lower: index > 0 ? max(0, cues[index - 1].end) : 0,
+            upper: index + 1 < cues.count
+                ? min(cues[index + 1].start, sourceDuration)
+                : sourceDuration
+        )
+    }
+
+    /// Where a new cue can actually go. A request landing inside an existing
+    /// zoom is pushed past it rather than dropped, and the span is trimmed to
+    /// the next cue; nil when no gap from here on is long enough to use.
+    private func freeSpan(
+        from start: TimeInterval,
+        preferredEnd: TimeInterval
+    ) -> ClosedRange<TimeInterval>? {
+        guard sourceDuration > 0 else { return nil }
+        let length = max(preferredEnd - start, ZoomCue.minimumDuration)
+        var lower = min(max(start, 0), sourceDuration)
+        // Walks chains of touching cues, so "add at playhead" inside a run of
+        // zooms lands in the first real gap after them.
+        while let covering = zoomCues.first(where: { $0.start <= lower && $0.end > lower }) {
+            lower = covering.end
+        }
+        let upper = zoomCues
+            .filter { $0.start > lower }
+            .map(\.start)
+            .min() ?? sourceDuration
+        guard upper - lower >= ZoomCue.minimumDuration else { return nil }
+        return lower...min(lower + length, upper)
+    }
+
     /// Creates a zoom cue spanning a dragged range in the zoom lane. Times
     /// are editor time and need not be ordered.
     func addZoomCue(fromEditorTime editorStart: TimeInterval, toEditorTime editorEnd: TimeInterval) {
@@ -782,11 +820,12 @@ final class RecordingStudioModel {
     }
 
     private func insertZoomCue(start: TimeInterval, end: TimeInterval) {
+        guard let span = freeSpan(from: start, preferredEnd: end) else { return }
         let hasPointerTrack = !pointerCapture.travel.isEmpty || !pointerCapture.presses.isEmpty
-        let target = pointerTimeline.location(at: start) ?? CGPoint(x: 0.5, y: 0.5)
+        let target = pointerTimeline.location(at: span.lowerBound) ?? CGPoint(x: 0.5, y: 0.5)
         let cue = ZoomCue(
-            start: start,
-            end: end,
+            start: span.lowerBound,
+            end: span.upperBound,
             zoom: 1.5,
             anchorMode: hasPointerTrack ? .pointerAnchor : .pinnedAnchor,
             pinnedPoint: target,
@@ -806,20 +845,53 @@ final class RecordingStudioModel {
         }
     }
 
+    /// Applies an edited cue, stopping either edge at the neighboring cues so
+    /// blocks can be resized right up to each other but never through.
     func updateZoomCue(_ cue: ZoomCue) {
         var cues = zoomCues
         guard let index = cues.firstIndex(where: { $0.id == cue.id }) else { return }
-        var updated = cue
-        updated.start = min(max(0, updated.start), sourceDuration)
-        updated.end = min(max(updated.start + 0.5, updated.end), sourceDuration)
-        updated.zoom = min(max(updated.zoom, 1), 4)
-        updated.boundsBias = min(max(updated.boundsBias, 0), 1)
-        updated.pinnedPoint = CGPoint(
-            x: min(max(updated.pinnedPoint.x, 0), 1),
-            y: min(max(updated.pinnedPoint.y, 0), 1)
+        let bounds = neighborBounds(forCueAt: index, in: cues)
+        var updated = sanitized(cue)
+        updated.start = min(
+            max(updated.start, bounds.lower),
+            max(bounds.lower, bounds.upper - ZoomCue.minimumDuration)
+        )
+        updated.end = min(
+            max(updated.end, updated.start + ZoomCue.minimumDuration),
+            bounds.upper
         )
         cues[index] = updated
         replaceZoomCues(cues)
+    }
+
+    /// Slides a cue without changing its length. Unlike a resize, running into
+    /// a neighbor parks the block against it rather than squashing it.
+    func moveZoomCue(_ cue: ZoomCue) {
+        var cues = zoomCues
+        guard let index = cues.firstIndex(where: { $0.id == cue.id }) else { return }
+        let bounds = neighborBounds(forCueAt: index, in: cues)
+        let room = max(bounds.upper - bounds.lower, ZoomCue.minimumDuration)
+        let length = min(max(cue.duration, ZoomCue.minimumDuration), room)
+        var moved = sanitized(cue)
+        moved.start = min(max(cue.start, bounds.lower), max(bounds.lower, bounds.upper - length))
+        moved.end = min(moved.start + length, bounds.upper)
+        cues[index] = moved
+        replaceZoomCues(cues)
+    }
+
+    /// Everything about a cue except its placement, which the caller clamps
+    /// against its neighbors.
+    private func sanitized(_ cue: ZoomCue) -> ZoomCue {
+        var cue = cue
+        cue.start = min(max(0, cue.start), sourceDuration)
+        cue.end = min(max(cue.start, cue.end), sourceDuration)
+        cue.zoom = min(max(cue.zoom, 1), 4)
+        cue.boundsBias = min(max(cue.boundsBias, 0), 1)
+        cue.pinnedPoint = CGPoint(
+            x: min(max(cue.pinnedPoint.x, 0), 1),
+            y: min(max(cue.pinnedPoint.y, 0), 1)
+        )
+        return cue
     }
 
     var selectedCue: ZoomCue? {

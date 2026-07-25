@@ -1761,10 +1761,14 @@ private struct StudioZoomLane: View {
                                 return
                             }
 
-                            pendingZoomRange = min(startTime, time)...max(startTime, time)
+                            pendingZoomRange = pendingRange(from: startTime, to: time)
                         }
                         .onEnded { _ in
-                            if let range = pendingZoomRange {
+                            // A range clamped to nothing means the drag ran
+                            // entirely into a neighboring block; there is no
+                            // gap here to put a zoom in.
+                            if let range = pendingZoomRange,
+                               range.upperBound - range.lowerBound > 0.001 {
                                 model.addZoomCue(
                                     fromEditorTime: range.lowerBound,
                                     toEditorTime: range.upperBound
@@ -1808,6 +1812,27 @@ private struct StudioZoomLane: View {
                 model.addZoomCue(at: model.currentTime)
             }
         }
+    }
+
+    /// The range a drag-created zoom would cover, stopped at the blocks on
+    /// either side of where the drag began so the preview matches the cue the
+    /// model will actually allow.
+    private func pendingRange(
+        from startTime: TimeInterval,
+        to currentTime: TimeInterval
+    ) -> ClosedRange<TimeInterval> {
+        let blocks = model.zoomTimelineBlocks
+        let lowerLimit = blocks
+            .filter { $0.editorEnd <= startTime }
+            .map(\.editorEnd)
+            .max() ?? 0
+        let upperLimit = blocks
+            .filter { $0.editorStart >= startTime }
+            .map(\.editorStart)
+            .min() ?? model.duration
+        let low = max(min(startTime, currentTime), lowerLimit)
+        let high = min(max(startTime, currentTime), upperLimit)
+        return low...max(low, high)
     }
 
     private var visiblePressTimes: [TimeInterval] {
@@ -1926,7 +1951,7 @@ private struct StudioZoomCueBlock: View {
                             max(0, model.sourceDuration - length)
                         )
                         moved.end = min(model.sourceDuration, moved.start + length)
-                        model.updateZoomCue(moved)
+                        model.moveZoomCue(moved)
                     }
                     .onEnded { _ in
                         dragBase = nil
@@ -1975,12 +2000,15 @@ private struct StudioZoomCueBlock: View {
                         case .leading:
                             let editorTime = dragBase.editorStart + delta
                             let sourceTime = model.sourceTime(atEditorTime: editorTime)
-                            resized.start = min(max(0, sourceTime), dragBase.cue.end - 0.5)
+                            resized.start = min(
+                                max(0, sourceTime),
+                                dragBase.cue.end - ZoomCue.minimumDuration
+                            )
                         case .trailing:
                             let editorTime = dragBase.editorEnd + delta
                             let sourceTime = model.sourceTime(atEditorTime: editorTime)
                             resized.end = max(
-                                dragBase.cue.start + 0.5,
+                                dragBase.cue.start + ZoomCue.minimumDuration,
                                 min(model.sourceDuration, sourceTime)
                             )
                         }
