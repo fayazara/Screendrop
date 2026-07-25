@@ -16,13 +16,17 @@ struct RecordingClipTimelineView: NSViewRepresentable {
 
     let timeline: RecordingClipTimeline
     let sourceDuration: TimeInterval
-    let frames: [RecordingTimelineFrame]
+    let thumbnails: RecordingTimelineThumbnailStore
     let onSelect: (UUID) -> Void
     let onSeek: (TimeInterval) -> Void
     let onHover: (TimeInterval?) -> Void
     let onSplit: (TimeInterval) -> Void
     let onDelete: () -> Void
     let onTrim: (RecordingClipSegment) -> Void
+    /// Pinch or ⌘-scroll over the lane: `(factor, anchor editor time)`. The
+    /// anchor is the time under the pointer, which the caller keeps pinned to
+    /// its current screen position while the scale changes.
+    let onZoom: (Double, TimeInterval) -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
@@ -33,7 +37,8 @@ struct RecordingClipTimelineView: NSViewRepresentable {
             onHover: onHover,
             onSplit: onSplit,
             onDelete: onDelete,
-            onTrim: onTrim
+            onTrim: onTrim,
+            onZoom: onZoom
         )
     }
 
@@ -50,12 +55,13 @@ struct RecordingClipTimelineView: NSViewRepresentable {
             onHover: onHover,
             onSplit: onSplit,
             onDelete: onDelete,
-            onTrim: onTrim
+            onTrim: onTrim,
+            onZoom: onZoom
         )
         nsView.update(
             timeline: timeline,
             sourceDuration: sourceDuration,
-            frames: frames,
+            thumbnails: thumbnails,
             selectedClipID: selectedClipID,
             playheadTime: playheadTime
         )
@@ -71,6 +77,7 @@ struct RecordingClipTimelineView: NSViewRepresentable {
         private var onSplit: (TimeInterval) -> Void
         private var onDelete: () -> Void
         private var onTrim: (RecordingClipSegment) -> Void
+        private var onZoom: (Double, TimeInterval) -> Void
 
         init(
             selectedClipID: Binding<UUID?>,
@@ -80,7 +87,8 @@ struct RecordingClipTimelineView: NSViewRepresentable {
             onHover: @escaping (TimeInterval?) -> Void,
             onSplit: @escaping (TimeInterval) -> Void,
             onDelete: @escaping () -> Void,
-            onTrim: @escaping (RecordingClipSegment) -> Void
+            onTrim: @escaping (RecordingClipSegment) -> Void,
+            onZoom: @escaping (Double, TimeInterval) -> Void
         ) {
             _selectedClipID = selectedClipID
             _playheadTime = playheadTime
@@ -90,6 +98,7 @@ struct RecordingClipTimelineView: NSViewRepresentable {
             self.onSplit = onSplit
             self.onDelete = onDelete
             self.onTrim = onTrim
+            self.onZoom = onZoom
         }
 
         func updateCallbacks(
@@ -98,7 +107,8 @@ struct RecordingClipTimelineView: NSViewRepresentable {
             onHover: @escaping (TimeInterval?) -> Void,
             onSplit: @escaping (TimeInterval) -> Void,
             onDelete: @escaping () -> Void,
-            onTrim: @escaping (RecordingClipSegment) -> Void
+            onTrim: @escaping (RecordingClipSegment) -> Void,
+            onZoom: @escaping (Double, TimeInterval) -> Void
         ) {
             self.onSelect = onSelect
             self.onSeek = onSeek
@@ -106,6 +116,7 @@ struct RecordingClipTimelineView: NSViewRepresentable {
             self.onSplit = onSplit
             self.onDelete = onDelete
             self.onTrim = onTrim
+            self.onZoom = onZoom
         }
 
         func connect(to view: RecordingClipTimelineControl) {
@@ -129,6 +140,9 @@ struct RecordingClipTimelineView: NSViewRepresentable {
             view.trimDidCommit = { [weak self] clip in
                 self?.onTrim(clip)
             }
+            view.zoomRequested = { [weak self] factor, anchorTime in
+                self?.onZoom(factor, anchorTime)
+            }
         }
     }
 }
@@ -140,6 +154,7 @@ final class RecordingClipTimelineControl: NSView {
     var splitRequested: ((TimeInterval) -> Void)?
     var deleteRequested: (() -> Void)?
     var trimDidCommit: ((RecordingClipSegment) -> Void)?
+    var zoomRequested: ((Double, TimeInterval) -> Void)?
 
     private enum Edge: Equatable {
         case leading
@@ -162,11 +177,14 @@ final class RecordingClipTimelineControl: NSView {
         static let selectionHandleGrooveWidth: CGFloat = 3
         static let selectionHandleGrooveHeight: CGFloat = 18
         static let thumbnailWidth: CGFloat = 58
+        /// Scroll distance that equals one doubling of the timeline scale
+        /// under ⌘-scroll.
+        static let zoomScrollPointsPerDoubling: CGFloat = 220
     }
 
     private var timeline = RecordingClipTimeline(segments: [])
     private var sourceDuration: TimeInterval = 0
-    private var frames: [RecordingTimelineFrame] = []
+    private var thumbnails: RecordingTimelineThumbnailStore?
     private var selectedClipID: UUID?
     private var playheadTime: TimeInterval = 0
 
@@ -192,7 +210,7 @@ final class RecordingClipTimelineControl: NSView {
     func update(
         timeline: RecordingClipTimeline,
         sourceDuration: TimeInterval,
-        frames: [RecordingTimelineFrame],
+        thumbnails: RecordingTimelineThumbnailStore,
         selectedClipID: UUID?,
         playheadTime: TimeInterval
     ) {
@@ -200,7 +218,14 @@ final class RecordingClipTimelineControl: NSView {
             self.timeline = timeline
         }
         self.sourceDuration = sourceDuration
-        self.frames = frames
+        if self.thumbnails !== thumbnails {
+            self.thumbnails = thumbnails
+            // Newly sampled tiles arrive outside SwiftUI's update cycle, so
+            // the lane refreshes itself rather than invalidating the editor.
+            thumbnails.onChange = { [weak self] in
+                self?.needsDisplay = true
+            }
+        }
         self.selectedClipID = selectedClipID
         self.playheadTime = min(max(playheadTime, 0), max(timeline.duration, 0))
         needsDisplay = true
@@ -233,7 +258,7 @@ final class RecordingClipTimelineControl: NSView {
 
         drawTrack()
         drawSelectionChrome()
-        drawClips()
+        drawClips(in: dirtyRect)
         drawSelectionGrooves()
         drawHoverSkimmer()
     }
@@ -318,6 +343,30 @@ final class RecordingClipTimelineControl: NSView {
         dragStartClip = nil
         updateHover(with: event, forceCallback: true)
         needsDisplay = true
+    }
+
+    /// ⌘-scroll zooms around the pointer; a plain scroll is left to the
+    /// enclosing scroll view so two-finger swipes still pan the timeline.
+    override func scrollWheel(with event: NSEvent) {
+        guard event.modifierFlags.contains(.command), zoomRequested != nil else {
+            super.scrollWheel(with: event)
+            return
+        }
+        let rawDelta = event.hasPreciseScrollingDeltas
+            ? event.scrollingDeltaY
+            : event.scrollingDeltaY * 16
+        guard abs(rawDelta) > 0.001 else { return }
+        let factor = pow(2, Double(rawDelta / Metrics.zoomScrollPointsPerDoubling))
+        zoomRequested?(factor, anchorTime(for: event))
+    }
+
+    override func magnify(with event: NSEvent) {
+        guard event.magnification != 0 else { return }
+        zoomRequested?(1 + Double(event.magnification), anchorTime(for: event))
+    }
+
+    private func anchorTime(for event: NSEvent) -> TimeInterval {
+        editorTime(forX: convert(event.locationInWindow, from: nil).x)
     }
 
     override func keyDown(with event: NSEvent) {
@@ -519,49 +568,86 @@ final class RecordingClipTimelineControl: NSView {
         ).fill()
     }
 
-    private func drawClips() {
+    private func drawClips(in dirtyRect: CGRect) {
         for clip in timeline.segments {
-            guard let rect = clipRect(for: clip.id) else { continue }
+            guard let rect = clipRect(for: clip.id), rect.intersects(dirtyRect) else { continue }
             NSGraphicsContext.saveGraphicsState()
             NSBezierPath(
                 roundedRect: rect,
                 xRadius: clipRadius(for: rect),
                 yRadius: clipRadius(for: rect)
             ).addClip()
-            drawThumbnails(in: rect, clip: clip)
+            drawThumbnails(in: rect, clip: clip, dirtyRect: dirtyRect)
             NSColor.black.withAlphaComponent(0.08).setFill()
-            rect.fill()
+            rect.intersection(dirtyRect).fill()
             NSGraphicsContext.restoreGraphicsState()
         }
     }
 
-    private func drawThumbnails(in rect: CGRect, clip: RecordingClipSegment) {
-        guard !frames.isEmpty else {
-            drawPlaceholder(in: rect)
-            return
-        }
-        let tileCount = max(1, Int(ceil(rect.width / Metrics.thumbnailWidth)))
-        let tileWidth = rect.width / CGFloat(tileCount)
-        for index in 0..<tileCount {
-            let sourceTime = clip.sourceStart
-                + (Double(index) + 0.5) / Double(tileCount) * clip.duration
-            guard let frame = frames.min(by: {
-                abs($0.sourceTime - sourceTime) < abs($1.sourceTime - sourceTime)
-            }) else { continue }
-            let target = CGRect(
-                x: rect.minX + CGFloat(index) * tileWidth,
+    private func drawThumbnails(in rect: CGRect, clip: RecordingClipSegment, dirtyRect: CGRect) {
+        // The striped placeholder stays underneath, so tiles still being
+        // sampled read as "loading" rather than as holes in the strip.
+        drawPlaceholder(in: rect, dirtyRect: dirtyRect)
+        guard let thumbnails, clip.duration > 0, rect.width > 0 else { return }
+
+        // Tiles live on the store's source-time grid rather than on a pixel
+        // grid of this rect: that keeps a tile anchored to the same moment
+        // while the lane is zoomed or the clip is trimmed, instead of the whole
+        // strip re-flowing on every scale change.
+        let pointsPerSourceSecond = rect.width / CGFloat(clip.duration)
+        guard pointsPerSourceSecond > 0 else { return }
+        let grid = thumbnails.grid(
+            forTargetSpan: Double(Metrics.thumbnailWidth / pointsPerSourceSecond)
+        )
+        guard grid.spacing > 0 else { return }
+
+        let visible = rect.intersection(dirtyRect)
+        guard !visible.isEmpty else { return }
+        let startTime = clip.sourceStart
+            + Double((visible.minX - rect.minX) / pointsPerSourceSecond)
+        let endTime = clip.sourceStart
+            + Double((visible.maxX - rect.minX) / pointsPerSourceSecond)
+        let firstIndex = max(0, Int(floor(startTime / grid.spacing)))
+        let lastIndex = max(firstIndex, Int(floor(min(endTime, clip.sourceEnd) / grid.spacing)))
+
+        for index in firstIndex...lastIndex {
+            let tileStart = max(Double(index) * grid.spacing, clip.sourceStart)
+            let tileEnd = min(Double(index + 1) * grid.spacing, clip.sourceEnd)
+            guard tileEnd > tileStart,
+                  let image = thumbnails.image(in: grid, tileIndex: index) else { continue }
+            let minX = rect.minX
+                + CGFloat(tileStart - clip.sourceStart) * pointsPerSourceSecond
+            let maxX = rect.minX
+                + CGFloat(tileEnd - clip.sourceStart) * pointsPerSourceSecond
+            draw(image: image, filling: CGRect(
+                x: minX,
                 y: rect.minY,
-                width: ceil(tileWidth),
+                width: ceil(maxX - minX),
                 height: rect.height
-            )
-            draw(image: frame.image, filling: target)
+            ))
         }
     }
 
-    private func drawPlaceholder(in rect: CGRect) {
+    /// Only the tiles the current redraw actually touches. A zoomed lane can
+    /// be tens of thousands of points wide, so drawing every tile on every
+    /// scroll step would be wasted work.
+    private func tileIndices(
+        in rect: CGRect,
+        tileWidth: CGFloat,
+        dirtyRect: CGRect
+    ) -> Range<Int> {
+        guard tileWidth > 0 else { return 0..<0 }
+        let count = max(1, Int((rect.width / tileWidth).rounded()))
+        let first = max(0, Int(floor((dirtyRect.minX - rect.minX) / tileWidth)))
+        let last = min(count, Int(ceil((dirtyRect.maxX - rect.minX) / tileWidth)) + 1)
+        guard first < last else { return 0..<0 }
+        return first..<last
+    }
+
+    private func drawPlaceholder(in rect: CGRect, dirtyRect: CGRect) {
         let count = max(3, Int(rect.width / 42))
         let width = rect.width / CGFloat(count)
-        for index in 0..<count {
+        for index in tileIndices(in: rect, tileWidth: width, dirtyRect: dirtyRect) {
             NSColor.labelColor.withAlphaComponent(0.07 + CGFloat(index % 3) * 0.025).setFill()
             CGRect(
                 x: rect.minX + CGFloat(index) * width,

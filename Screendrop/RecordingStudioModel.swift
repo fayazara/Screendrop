@@ -151,7 +151,9 @@ final class RecordingStudioModel {
     private(set) var clipTimeline = RecordingClipTimeline(segments: [])
     var selectedClipID: UUID?
     var timelineHoverTime: TimeInterval?
-    private(set) var timelineFrames: [RecordingTimelineFrame] = []
+    /// Storyboard tiles for the clip lane, sampled on demand at whatever
+    /// density the lane's current zoom needs.
+    let timelineThumbnails = RecordingTimelineThumbnailStore()
 
     private(set) var isPlaying = false
     var currentTime: TimeInterval = 0
@@ -176,7 +178,6 @@ final class RecordingStudioModel {
     private var shareTask: Task<Void, Never>?
     private var transcriptionTask: Task<Void, Never>?
     private var projectSaveTask: Task<Void, Never>?
-    private var timelineTask: Task<Void, Never>?
     private var screenAsset: AVURLAsset?
     private let editUndoManager = UndoManager()
     private(set) var undoRevision = 0
@@ -323,7 +324,7 @@ final class RecordingStudioModel {
         installObservers()
         isLoaded = true
         rebuildPreviewReframe()
-        loadTimelineFrames()
+        loadTimelineThumbnails()
     }
 
     func teardown() {
@@ -331,7 +332,7 @@ final class RecordingStudioModel {
         shareTask?.cancel()
         transcriptionTask?.cancel()
         projectSaveTask?.cancel()
-        timelineTask?.cancel()
+        timelineThumbnails.cancel()
         saveProjectNow()
         pause()
         if let timeObserver {
@@ -665,36 +666,8 @@ final class RecordingStudioModel {
         undoRevision &+= 1
     }
 
-    private func loadTimelineFrames() {
-        timelineTask?.cancel()
-        let url = screenURL
-        let videoDuration = sourceDuration
-        timelineTask = Task { [weak self] in
-            let frames = await Task.detached(priority: .userInitiated) {
-                let asset = AVURLAsset(url: url)
-                let generator = AVAssetImageGenerator(asset: asset)
-                generator.appliesPreferredTrackTransform = true
-                generator.requestedTimeToleranceBefore = .zero
-                generator.requestedTimeToleranceAfter = .zero
-                generator.maximumSize = CGSize(width: 180, height: 110)
-
-                let frameCount = 32
-                return (0..<frameCount).compactMap { index -> RecordingTimelineFrame? in
-                    guard videoDuration > 0 else { return nil }
-                    let seconds = videoDuration * (Double(index) + 0.5) / Double(frameCount)
-                    let time = CMTime(seconds: seconds, preferredTimescale: 600)
-                    guard let image = try? generator.copyCGImage(at: time, actualTime: nil) else {
-                        return nil
-                    }
-                    return RecordingTimelineFrame(
-                        sourceTime: seconds,
-                        image: NSImage(cgImage: image, size: .zero)
-                    )
-                }
-            }.value
-            guard !Task.isCancelled else { return }
-            self?.timelineFrames = frames
-        }
+    private func loadTimelineThumbnails() {
+        timelineThumbnails.prepare(url: screenURL, duration: sourceDuration)
     }
 
     /// Speed of whichever clip covers this editor time; 1 when nothing
@@ -1594,11 +1567,6 @@ final class RecordingStudioModel {
             .first { $0.recordingSessionPath == standardizedPath }?
             .id
     }
-}
-
-struct RecordingTimelineFrame: @unchecked Sendable {
-    let sourceTime: TimeInterval
-    let image: NSImage
 }
 
 /// A zoom cue's single merged footprint on the edited timeline.
