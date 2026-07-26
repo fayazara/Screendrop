@@ -65,6 +65,7 @@ final class RecordingStudioModel {
     private(set) var duration: TimeInterval = 0
     private(set) var videoSize = CGSize(width: 1920, height: 1080)
     private(set) var hasCameraVideo = false
+    private(set) var hasRecordedAudio = false
     private(set) var cameraOffset: TimeInterval = 0
     private(set) var isLoaded = false
     private(set) var loadError: String?
@@ -167,14 +168,32 @@ final class RecordingStudioModel {
         }
     }
     var exportState: RecordingStudioExportState = .idle
+    var audioExportState: RecordingStudioExportState = .idle
     var shareState: RecordingStudioShareState = .idle
     /// Upload identity while sharing, so the UI can read the uploader's
     /// live progress and the history card mirrors the state.
     private(set) var shareItemID: UUID?
 
+    /// Format the audio-only export writes. Persisted so the round trip
+    /// through an external tool keeps whatever that tool accepts.
+    var audioExportFormat: RecordingAudioFormat = .m4a {
+        didSet { scheduleProjectSave() }
+    }
+    /// The soundtrack standing in for the recording's own audio, resolved
+    /// so both playback and export can use it without reloading tracks.
+    private(set) var replacementAudio: RecordingReplacementAudio?
+    /// Why the last import was rejected, shown next to the Replace control.
+    private(set) var replacementAudioError: String?
+
     private var timeObserver: Any?
     private var endObserver: NSObjectProtocol?
     private var exportTask: Task<Void, Never>?
+    private var audioExportTask: Task<Void, Never>?
+    private var replacementAudioTask: Task<Void, Never>?
+    /// The screen movie's video track, kept from load so the player item
+    /// can be rebuilt synchronously when an imported soundtrack means the
+    /// composition has to be assembled track by track.
+    private var screenVideoTrack: AVAssetTrack?
     private var shareTask: Task<Void, Never>?
     private var transcriptionTask: Task<Void, Never>?
     private var projectSaveTask: Task<Void, Never>?
@@ -215,11 +234,13 @@ final class RecordingStudioModel {
             sourceDuration = durationTime.seconds
             duration = sourceDuration
             if let videoTrack = tracks.first(where: { $0.mediaType == .video }) {
+                screenVideoTrack = videoTrack
                 let naturalSize = try await videoTrack.load(.naturalSize)
                 if naturalSize.width > 0, naturalSize.height > 0 {
                     videoSize = naturalSize
                 }
             }
+            hasRecordedAudio = tracks.contains { $0.mediaType == .audio }
         } catch {
             loadError = "Could not open the recording: \(error.localizedDescription)"
             return
@@ -274,6 +295,7 @@ final class RecordingStudioModel {
             subtitleStyle = document.subtitleStyle
             exportAspect = document.exportAspectPreset
             exportAspectMode = document.exportAspectContentMode
+            audioExportFormat = document.audioExportFormatValue
         } else if session == nil {
             // Legacy bare movies use the same editor, but open visually
             // unchanged until the user explicitly adds styling.
@@ -306,6 +328,18 @@ final class RecordingStudioModel {
         duration = clipTimeline.duration
         selectedClipID = clipTimeline.segments.first?.id
 
+        // Resolve the imported soundtrack before the first player item is
+        // built, so the editor opens already playing what it will export.
+        if let session, let fileName = document?.replacementAudioFileName {
+            let url = session.directoryURL.appendingPathComponent(fileName)
+            if FileManager.default.fileExists(atPath: url.path) {
+                replacementAudio = await RecordingReplacementAudio.load(
+                    url: url,
+                    displayName: document?.replacementAudioDisplayName ?? fileName
+                )
+            }
+        }
+
         do {
             try rebuildScreenPlayerItem(preserving: 0)
         } catch {
@@ -329,6 +363,8 @@ final class RecordingStudioModel {
 
     func teardown() {
         exportTask?.cancel()
+        audioExportTask?.cancel()
+        replacementAudioTask?.cancel()
         shareTask?.cancel()
         transcriptionTask?.cancel()
         projectSaveTask?.cancel()
@@ -640,11 +676,21 @@ final class RecordingStudioModel {
 
     private func rebuildScreenPlayerItem(preserving editorTime: TimeInterval) throws {
         guard let screenAsset else { return }
-        let playbackAsset = try RecordingCompositionBuilder.makeAsset(
-            from: screenAsset,
-            timeline: clipTimeline,
-            sourceDuration: sourceDuration
-        )
+        let playbackAsset: AVAsset
+        if let replacementAudio, let screenVideoTrack {
+            playbackAsset = try RecordingCompositionBuilder.makeAsset(
+                videoTrack: screenVideoTrack,
+                timeline: clipTimeline,
+                sourceDuration: sourceDuration,
+                replacementAudio: replacementAudio
+            )
+        } else {
+            playbackAsset = try RecordingCompositionBuilder.makeAsset(
+                from: screenAsset,
+                timeline: clipTimeline,
+                sourceDuration: sourceDuration
+            )
+        }
 
         screenPlayer.replaceCurrentItem(with: AVPlayerItem(asset: playbackAsset))
         screenPlayer.actionAtItemEnd = .pause
@@ -970,7 +1016,10 @@ final class RecordingStudioModel {
             subtitleWords: transcriptWords.isEmpty ? nil : transcriptWords,
             subtitleStyle: subtitleStyle,
             exportAspect: exportAspect,
-            exportAspectMode: exportAspectMode
+            exportAspectMode: exportAspectMode,
+            replacementAudioFileName: replacementAudio?.url.lastPathComponent,
+            replacementAudioDisplayName: replacementAudio?.displayName,
+            audioExportFormat: audioExportFormat
         )
         guard document != lastSavedDocument else {
             hasUnsavedChanges = false
@@ -1359,6 +1408,7 @@ final class RecordingStudioModel {
                 : exportAspect.canvasSize(for: videoSize),
             clipTimeline: clipTimeline,
             exportSettings: exportSettings,
+            audioReplacementURL: replacementAudio?.url,
             reframe: reframe,
             fitContentAspect: fitContentAspect
         )
@@ -1513,6 +1563,176 @@ final class RecordingStudioModel {
         exportTask = nil
         if exportState.isExporting {
             exportState = .idle
+        }
+    }
+
+    // MARK: - Audio only
+
+    /// True once there is a soundtrack to export or swap — the recording's
+    /// own audio, or one already imported over it.
+    var hasAudio: Bool {
+        hasRecordedAudio || replacementAudio != nil
+    }
+
+    /// How far the imported soundtrack falls short of (or overruns) the
+    /// edited timeline. Nil when there is nothing imported or the two
+    /// agree closely enough to be the same take.
+    var replacementAudioDrift: TimeInterval? {
+        guard let replacementAudio else { return nil }
+        let drift = replacementAudio.duration - duration
+        return abs(drift) > 0.25 ? drift : nil
+    }
+
+    private var audioExportSuggestedFileName: String {
+        let base = session.map {
+            $0.directoryURL.deletingPathExtension().lastPathComponent
+        } ?? screenURL.deletingPathExtension().lastPathComponent
+        return "\(base).\(audioExportFormat.fileExtension)"
+    }
+
+    /// Writes the edited soundtrack on its own, for cleanup in a tool that
+    /// has no API — the outbound half of the replace-audio round trip.
+    func exportAudio() {
+        guard !audioExportState.isExporting, isLoaded, hasAudio else { return }
+        pause()
+
+        audioExportState = .exporting(progress: 0)
+
+        let configuration = RecordingAudioExporter.Configuration(
+            screenURL: screenURL,
+            clipTimeline: clipTimeline,
+            replacementURL: replacementAudio?.url,
+            format: audioExportFormat
+        )
+        let suggestedFileName = audioExportSuggestedFileName
+        let dockProgressID = DockExportProgressCoordinator.shared.start()
+
+        audioExportTask = Task { [weak self] in
+            do {
+                let temporaryURL = try await RecordingAudioExporter().export(configuration) { progress in
+                    Task { @MainActor [weak self] in
+                        DockExportProgressCoordinator.shared.update(dockProgressID, progress: progress)
+                        if self?.audioExportState.isExporting == true {
+                            self?.audioExportState = .exporting(progress: progress)
+                        }
+                    }
+                }
+                let savedURL = try VideoFileActions.saveToDefaultLocation(
+                    from: temporaryURL,
+                    suggestedFileName: suggestedFileName
+                )
+                try? FileManager.default.removeItem(at: temporaryURL)
+                DockExportProgressCoordinator.shared.finish(dockProgressID)
+                RecordingExportNotifier.notifySuccess(fileURL: savedURL)
+                self?.audioExportState = .finished(savedURL)
+            } catch is CancellationError {
+                DockExportProgressCoordinator.shared.finish(dockProgressID)
+                self?.audioExportState = .idle
+            } catch {
+                DockExportProgressCoordinator.shared.finish(dockProgressID)
+                self?.audioExportState = .failed(error.localizedDescription)
+            }
+        }
+    }
+
+    func cancelAudioExport() {
+        audioExportTask?.cancel()
+        audioExportTask = nil
+        if audioExportState.isExporting {
+            audioExportState = .idle
+        }
+    }
+
+    /// The inbound half: adopts a cleaned-up soundtrack as the project's
+    /// audio. The file is copied into the session so the project keeps
+    /// playing after the original is moved, and playback switches to it
+    /// immediately rather than only revealing itself at export.
+    func replaceAudio(with pickedURL: URL) {
+        guard isLoaded else { return }
+        pause()
+        replacementAudioTask?.cancel()
+
+        replacementAudioError = nil
+        let displayName = pickedURL.lastPathComponent
+        let storedURL: URL
+        if let session {
+            let destination = session.directoryURL
+                .appendingPathComponent(RecordingSession.replacementAudioBaseName)
+                .appendingPathExtension(pickedURL.pathExtension.isEmpty ? "m4a" : pickedURL.pathExtension)
+            do {
+                // Clear every previous import, whatever extension it had,
+                // so the session never accumulates orphaned soundtracks.
+                removeStoredReplacementAudio(in: session)
+                try FileManager.default.copyItem(at: pickedURL, to: destination)
+            } catch {
+                replacementAudioError = "Could not import that file: \(error.localizedDescription)"
+                clearReplacementAudio()
+                return
+            }
+            storedURL = destination
+        } else {
+            // Bare movies have no project folder to copy into; they
+            // reference the picked file where it sits.
+            storedURL = pickedURL
+        }
+
+        replacementAudioTask = Task { [weak self] in
+            let resolved = await RecordingReplacementAudio.load(
+                url: storedURL,
+                displayName: displayName
+            )
+            guard let self, !Task.isCancelled else { return }
+            guard let resolved else {
+                if let session = self.session {
+                    self.removeStoredReplacementAudio(in: session)
+                }
+                self.replacementAudioError = "That file has no audio track."
+                self.clearReplacementAudio()
+                return
+            }
+            self.replacementAudio = resolved
+            self.applyReplacementAudioToPlayback()
+        }
+    }
+
+    func removeReplacementAudio() {
+        guard replacementAudio != nil else { return }
+        replacementAudioTask?.cancel()
+        replacementAudioTask = nil
+        pause()
+        if let session {
+            removeStoredReplacementAudio(in: session)
+        }
+        replacementAudioError = nil
+        clearReplacementAudio()
+    }
+
+    /// Drops back to the recorded audio, whether that follows a removal or
+    /// a failed import that already deleted the copy.
+    private func clearReplacementAudio() {
+        guard replacementAudio != nil else { return }
+        replacementAudio = nil
+        applyReplacementAudioToPlayback()
+    }
+
+    private func applyReplacementAudioToPlayback() {
+        do {
+            try rebuildScreenPlayerItem(preserving: currentTime)
+        } catch {
+            loadError = "Could not update the recording timeline: \(error.localizedDescription)"
+        }
+        scheduleProjectSave()
+    }
+
+    private func removeStoredReplacementAudio(in session: RecordingSession) {
+        let names = (try? FileManager.default.contentsOfDirectory(
+            atPath: session.directoryURL.path
+        )) ?? []
+        for name in names
+        where name.hasPrefix("\(RecordingSession.replacementAudioBaseName).") {
+            try? FileManager.default.removeItem(
+                at: session.directoryURL.appendingPathComponent(name)
+            )
         }
     }
 

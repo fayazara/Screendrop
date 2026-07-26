@@ -210,6 +210,27 @@ private struct RecordingStudioContent: View {
     }
 }
 
+/// The determinate ring shared by every Studio progress affordance, so the
+/// toolbar pills and the inspector's export button read as one control.
+private struct StudioProgressRing: View {
+    let progress: Double
+
+    var size: CGFloat = 14
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(Color.primary.opacity(0.15), lineWidth: 2)
+            Circle()
+                .trim(from: 0, to: max(0.03, min(1, progress)))
+                .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+        }
+        .frame(width: size, height: size)
+        .animation(.easeOut(duration: 0.15), value: progress)
+    }
+}
+
 /// Progress pill for the share pipeline: same ring treatment as the
 /// export pill, with the stage name so render and upload read distinctly.
 private struct SharePill: View {
@@ -219,16 +240,7 @@ private struct SharePill: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            ZStack {
-                Circle()
-                    .stroke(Color.primary.opacity(0.15), lineWidth: 2)
-                Circle()
-                    .trim(from: 0, to: max(0.03, min(1, progress)))
-                    .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                    .rotationEffect(.degrees(-90))
-            }
-            .frame(width: 14, height: 14)
-            .animation(.easeOut(duration: 0.15), value: progress)
+            StudioProgressRing(progress: progress)
 
             Text("\(stage) \(Int((progress * 100).rounded()))%")
                 .font(.system(size: 12, weight: .medium).monospacedDigit())
@@ -259,16 +271,7 @@ private struct ExportProgressPill: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            ZStack {
-                Circle()
-                    .stroke(Color.primary.opacity(0.15), lineWidth: 2)
-                Circle()
-                    .trim(from: 0, to: max(0.03, min(1, progress)))
-                    .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                    .rotationEffect(.degrees(-90))
-            }
-            .frame(width: 14, height: 14)
-            .animation(.easeOut(duration: 0.15), value: progress)
+            StudioProgressRing(progress: progress)
 
             Text("Exporting \(Int((progress * 100).rounded()))%")
                 .font(.system(size: 12, weight: .medium).monospacedDigit())
@@ -2057,6 +2060,7 @@ private enum StudioInspectorSection: Hashable {
     case keystrokes
     case transcription
     case camera
+    case audio
     case export
 }
 
@@ -2246,6 +2250,24 @@ private struct StudioInspector: View {
                     ) {
                         cameraControls
                     }
+                }
+
+                InspectorDisclosureSection(
+                    title: "Audio",
+                    isExpanded: expansionBinding(for: .audio),
+                    accessory: {
+                        if model.replacementAudio != nil {
+                            InspectorClearButton(
+                                help: model.hasRecordedAudio
+                                    ? "Use the recorded audio again"
+                                    : "Remove this audio"
+                            ) {
+                                model.removeReplacementAudio()
+                            }
+                        }
+                    }
+                ) {
+                    audioControls
                 }
 
                 InspectorDisclosureSection(
@@ -2880,6 +2902,174 @@ private struct StudioInspector: View {
         }
         .disabled(!model.style.camera.isVisible)
         .opacity(model.style.camera.isVisible ? 1 : 0.48)
+    }
+
+    // MARK: Audio
+
+    /// The round trip around tools that clean up speech but offer no API:
+    /// write the cut's soundtrack out, run it through the tool, bring the
+    /// result back in as the project's audio. Two buttons and a file chip —
+    /// the explaining is left to tooltips.
+    private var audioControls: some View {
+        VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
+            // A silent recording has nothing to send out, but it can still
+            // be given a soundtrack — so only the export half is withheld.
+            if model.hasAudio {
+                InspectorSegmented(
+                    options: RecordingAudioFormat.allCases,
+                    isSelected: { $0 == model.audioExportFormat },
+                    onTap: { model.audioExportFormat = $0 },
+                    label: { Text($0.title).font(.inspectorLabel) }
+                )
+            }
+
+            HStack(spacing: 6) {
+                if model.hasAudio {
+                    audioExportButton
+                }
+
+                inspectorAction(
+                    model.hasRecordedAudio ? "Replace" : "Add",
+                    systemImage: "waveform.badge.plus"
+                ) {
+                    pickReplacementAudio()
+                }
+                .help(
+                    model.hasRecordedAudio
+                        ? "Swap in an audio file, aligned to the start of the edited timeline"
+                        : "Lay an audio file over this silent recording"
+                )
+            }
+
+            if let replacement = model.replacementAudio {
+                replacementChip(for: replacement)
+            }
+
+            if let message = model.replacementAudioError {
+                Text(message)
+                    .font(.inspectorLabel)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    /// One button carrying the whole export state, so progress and results
+    /// never cost the section an extra row.
+    @ViewBuilder
+    private var audioExportButton: some View {
+        switch model.audioExportState {
+        case .idle:
+            inspectorAction("Export", systemImage: "arrow.down.circle") {
+                model.exportAudio()
+            }
+            .help("Export just the soundtrack of the current cut")
+        case .exporting(let progress):
+            audioExportChrome(help: "Cancel") {
+                model.cancelAudioExport()
+            } label: {
+                StudioProgressRing(progress: progress, size: 12)
+                Text("\(Int((progress * 100).rounded()))%")
+                    .font(.inspectorValue.monospacedDigit())
+                    .contentTransition(.numericText())
+            }
+        case .finished(let url):
+            audioExportChrome(help: "Reveal \(url.lastPathComponent) in Finder") {
+                NSWorkspace.shared.activateFileViewerSelecting([url])
+            } label: {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.green)
+                Text("Reveal")
+                    .font(.inspectorValue)
+            }
+        case .failed(let message):
+            audioExportChrome(help: message) {
+                model.exportAudio()
+            } label: {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.orange)
+                Text("Retry")
+                    .font(.inspectorValue)
+            }
+        }
+    }
+
+    /// Matches `inspectorAction`'s chrome for the export button's non-idle
+    /// states, which carry richer content than a symbol and a title.
+    private func audioExportChrome<Label: View>(
+        help: String,
+        action: @escaping () -> Void,
+        @ViewBuilder label: () -> Label
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                label()
+            }
+            .lineLimit(1)
+            .frame(maxWidth: .infinity)
+            .inspectorField(height: 28)
+        }
+        .buttonStyle(.plain)
+        .help(help)
+    }
+
+    private func replacementChip(for replacement: RecordingReplacementAudio) -> some View {
+        HStack(spacing: 7) {
+            Image(systemName: "waveform")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Color.accentColor)
+
+            Text(replacement.displayName)
+                .font(.inspectorValue)
+                .lineLimit(1)
+                .truncationMode(.middle)
+
+            Spacer(minLength: 4)
+
+            if let drift = model.replacementAudioDrift {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.orange)
+                    .help(
+                        drift > 0
+                            ? "Runs \(Self.spanText(drift)) longer than the cut — the tail is dropped"
+                            : "Runs \(Self.spanText(-drift)) shorter than the cut — the end plays silent"
+                    )
+            }
+
+            Text(Self.clockText(replacement.duration))
+                .font(.inspectorLabel.monospacedDigit())
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .inspectorField(height: 30)
+        .help(replacement.displayName)
+    }
+
+    private func pickReplacementAudio() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = RecordingAudioFormat.importContentTypes
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.title = "Choose Replacement Audio"
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            model.replaceAudio(with: url)
+        }
+    }
+
+    private static func clockText(_ seconds: TimeInterval) -> String {
+        let total = Int(max(0, seconds).rounded())
+        return String(format: "%d:%02d", total / 60, total % 60)
+    }
+
+    /// Short spans read better in seconds than as 0:00 timecode.
+    private static func spanText(_ seconds: TimeInterval) -> String {
+        let value = max(0, seconds)
+        return value < 60 ? String(format: "%.1fs", value) : clockText(value)
     }
 
     // MARK: Export

@@ -111,12 +111,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// The notification delegate has to be in place *before* launch
+    /// finishes, or the system handles clicks on export notifications
+    /// itself — activating the app and never calling us back to reveal the
+    /// file. `applicationDidFinishLaunching` is already too late.
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        UNUserNotificationCenter.current().delegate = RecordingExportNotificationDelegate.shared
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         HotkeyManager.shared.registerHotkeys()
         updaterManager.start()
         RecordingRecoveryCoordinator.recoverInterruptedRecordings()
-        UNUserNotificationCenter.current().delegate = RecordingExportNotificationDelegate.shared
     }
 
     /// Finder "Open With" / `open -a Screendrop file.png` entry point.

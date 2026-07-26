@@ -19,6 +19,10 @@ nonisolated struct RecordingSession: Sendable, Equatable {
     static let pointerCaptureFileName = "input.json"
     static let captureManifestFileName = "capture.json"
     static let editDocumentFileName = "edit.json"
+    /// Base name for an imported soundtrack. The picked file is copied in
+    /// beside the footage (keeping its own extension) so the project keeps
+    /// playing after the original is moved or deleted.
+    static let replacementAudioBaseName = "audio-replacement"
 
     let directoryURL: URL
 

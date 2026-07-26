@@ -89,10 +89,23 @@ enum RecordingExportNotifier {
         UNUserNotificationCenter.current().add(request)
     }
 
+    /// Pulled out of the payload before hopping to the main actor, since
+    /// the userInfo dictionary itself can't cross isolation boundaries.
+    nonisolated static func filePath(in userInfo: [AnyHashable: Any]) -> String? {
+        userInfo[fileURLKey] as? String
+    }
+
     @MainActor
-    static func revealFileIfPresent(in userInfo: [AnyHashable: Any]) {
-        guard let path = userInfo[fileURLKey] as? String else { return }
-        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+    static func reveal(path: String) {
+        let url = URL(fileURLWithPath: path)
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            // Exported files get renamed or moved between the notification
+            // and the click; the folder they were written to is still the
+            // right place to land.
+            NSWorkspace.shared.open(url.deletingLastPathComponent())
+            return
+        }
+        NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 }
 
@@ -103,23 +116,33 @@ final class RecordingExportNotificationDelegate: NSObject, UNUserNotificationCen
 
     private override init() {}
 
-    func userNotificationCenter(
+    nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
-        completionHandler([.banner, .sound])
+        // `.list` keeps the notification in Notification Center once the
+        // banner auto-dismisses, so a missed banner is still clickable.
+        completionHandler([.banner, .list, .sound])
     }
 
-    func userNotificationCenter(
+    nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
-        let userInfo = response.notification.request.content.userInfo
-        Task { @MainActor in
-            RecordingExportNotifier.revealFileIfPresent(in: userInfo)
+        // Swiping a banner away is not a request to open anything.
+        guard response.actionIdentifier != UNNotificationDismissActionIdentifier,
+              let path = RecordingExportNotifier.filePath(
+                  in: response.notification.request.content.userInfo
+              ) else {
+            completionHandler()
+            return
         }
-        completionHandler()
+
+        Task { @MainActor in
+            RecordingExportNotifier.reveal(path: path)
+            completionHandler()
+        }
     }
 }

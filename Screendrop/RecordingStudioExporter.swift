@@ -6,7 +6,8 @@
 //  recordings frame by frame, draws each frame through the same
 //  RecordingStudioLayout / ViewportTimeline math the live preview
 //  uses, and writes a new HEVC movie. Audio tracks (system + microphone)
-//  are mixed and passed through on the unchanged timeline.
+//  are mixed and passed through on the unchanged timeline, unless the
+//  project imported a soundtrack to replace them.
 //
 //  Everything static — the background fill and the card shadow — is
 //  rendered once into a backdrop image; per frame the work is one backdrop
@@ -48,6 +49,10 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
         let canvasSize: CGSize
         let clipTimeline: RecordingClipTimeline
         let exportSettings: VideoCompressionSettings
+        /// Non-nil when an imported soundtrack stands in for the recorded
+        /// audio. It is already the finished cut's audio, so it plays flat
+        /// from zero instead of being re-cut through the clip timeline.
+        let audioReplacementURL: URL?
         /// Non-nil when exporting into a different aspect ratio; drives the
         /// crop-and-follow virtual camera in place of the zoom viewport.
         let reframe: ReframeTrack?
@@ -73,6 +78,7 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
             canvasSize: CGSize,
             clipTimeline: RecordingClipTimeline,
             exportSettings: VideoCompressionSettings,
+            audioReplacementURL: URL? = nil,
             reframe: ReframeTrack? = nil,
             fitContentAspect: CGFloat? = nil
         ) {
@@ -91,6 +97,7 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
             self.canvasSize = canvasSize
             self.clipTimeline = clipTimeline
             self.exportSettings = exportSettings
+            self.audioReplacementURL = audioReplacementURL
             self.reframe = reframe
             self.fitContentAspect = fitContentAspect
         }
@@ -182,12 +189,39 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
         screenReader.add(videoOutput)
         screenReader.timeRange = exportTimeRange
 
+        // An imported soundtrack replaces the recorded one wholesale, and it
+        // needs its own reader: it is a different file, already carrying the
+        // finished cut's timing, so it plays straight through from zero
+        // while the screen reader stays on the composed video.
         var audioOutput: AVAssetReaderAudioMixOutput?
-        if !configuration.exportSettings.removeAudio, !audioTracks.isEmpty {
-            let output = AVAssetReaderAudioMixOutput(audioTracks: audioTracks, audioSettings: nil)
-            output.alwaysCopiesSampleData = false
-            screenReader.add(output)
-            audioOutput = output
+        var replacementReader: AVAssetReader?
+        if !configuration.exportSettings.removeAudio {
+            if let replacementURL = configuration.audioReplacementURL {
+                let replacementAsset = AVURLAsset(url: replacementURL)
+                let replacementTracks = try await replacementAsset.loadTracks(withMediaType: .audio)
+                if !replacementTracks.isEmpty {
+                    let reader = try AVAssetReader(asset: replacementAsset)
+                    // Clamps a soundtrack that overruns the cut; a shorter
+                    // one simply leaves the tail silent.
+                    reader.timeRange = exportTimeRange
+                    let output = AVAssetReaderAudioMixOutput(
+                        audioTracks: replacementTracks,
+                        audioSettings: nil
+                    )
+                    output.alwaysCopiesSampleData = false
+                    reader.add(output)
+                    replacementReader = reader
+                    audioOutput = output
+                }
+            } else if !audioTracks.isEmpty {
+                let output = AVAssetReaderAudioMixOutput(
+                    audioTracks: audioTracks,
+                    audioSettings: nil
+                )
+                output.alwaysCopiesSampleData = false
+                screenReader.add(output)
+                audioOutput = output
+            }
         }
 
         let cameraFeed = try await CameraFrameFeed(
@@ -242,6 +276,10 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
         guard screenReader.startReading() else {
             throw screenReader.error ?? ExportError.writerFailed(nil)
         }
+        if let replacementReader, !replacementReader.startReading() {
+            screenReader.cancelReading()
+            throw replacementReader.error ?? ExportError.writerFailed(nil)
+        }
         guard writer.startWriting() else {
             throw ExportError.writerFailed(writer.error)
         }
@@ -286,6 +324,7 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
             _ = try await (videoDone, audioDone)
         } catch {
             screenReader.cancelReading()
+            replacementReader?.cancelReading()
             cameraFeed?.cancel()
             writer.cancelWriting()
             try? FileManager.default.removeItem(at: outputURL)

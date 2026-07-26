@@ -22,7 +22,7 @@ struct RecordingCameraBubbleSettings: Equatable {
 }
 
 struct RecordingEditDocument: Codable, Equatable {
-    var formatVersion = 4
+    var formatVersion = 5
     var style: StoredRecordingStudioStyle
     var zoomEnabled: Bool
     var zoomCues: [ZoomCue]
@@ -52,6 +52,13 @@ struct RecordingEditDocument: Codable, Equatable {
     var exportAspect: String?
     /// Raw ExportAspectContentMode value; defaults to fill (crop).
     var exportAspectMode: String?
+    /// File name, inside the session folder, of a soundtrack imported to
+    /// stand in for the recording's own audio; nil when none was imported.
+    var replacementAudioFileName: String?
+    /// The imported file's original name, for the inspector.
+    var replacementAudioDisplayName: String?
+    /// Raw RecordingAudioFormat value for the audio-only export.
+    var audioExportFormat: String?
 
     private enum CodingKeys: String, CodingKey {
         case formatVersion
@@ -73,6 +80,9 @@ struct RecordingEditDocument: Codable, Equatable {
         case subtitleWordHighlight
         case exportAspect
         case exportAspectMode
+        case replacementAudioFileName
+        case replacementAudioDisplayName
+        case audioExportFormat
     }
 
     init(
@@ -90,7 +100,10 @@ struct RecordingEditDocument: Codable, Equatable {
         subtitleWords: [RecordingTranscriptWord]? = nil,
         subtitleStyle: SubtitleBarStyle? = nil,
         exportAspect: ExportAspectPreset? = nil,
-        exportAspectMode: ExportAspectContentMode? = nil
+        exportAspectMode: ExportAspectContentMode? = nil,
+        replacementAudioFileName: String? = nil,
+        replacementAudioDisplayName: String? = nil,
+        audioExportFormat: RecordingAudioFormat? = nil
     ) {
         self.style = StoredRecordingStudioStyle(style)
         self.zoomEnabled = zoomEnabled
@@ -116,6 +129,13 @@ struct RecordingEditDocument: Codable, Equatable {
         subtitleWordHighlight = subtitleStyle?.highlightsSpokenWord
         self.exportAspect = exportAspect.map(\.rawValue)
         self.exportAspectMode = exportAspectMode.map(\.rawValue)
+        self.replacementAudioFileName = replacementAudioFileName
+        self.replacementAudioDisplayName = replacementAudioDisplayName
+        self.audioExportFormat = audioExportFormat.map(\.rawValue)
+    }
+
+    var audioExportFormatValue: RecordingAudioFormat {
+        audioExportFormat.flatMap(RecordingAudioFormat.init(rawValue:)) ?? .m4a
     }
 
     var subtitleStyle: SubtitleBarStyle {
@@ -176,6 +196,15 @@ struct RecordingEditDocument: Codable, Equatable {
         subtitleWordHighlight = try container.decodeIfPresent(Bool.self, forKey: .subtitleWordHighlight)
         exportAspect = try container.decodeIfPresent(String.self, forKey: .exportAspect)
         exportAspectMode = try container.decodeIfPresent(String.self, forKey: .exportAspectMode)
+        replacementAudioFileName = try container.decodeIfPresent(
+            String.self,
+            forKey: .replacementAudioFileName
+        )
+        replacementAudioDisplayName = try container.decodeIfPresent(
+            String.self,
+            forKey: .replacementAudioDisplayName
+        )
+        audioExportFormat = try container.decodeIfPresent(String.self, forKey: .audioExportFormat)
     }
 
     func encode(to encoder: any Encoder) throws {
@@ -199,6 +228,12 @@ struct RecordingEditDocument: Codable, Equatable {
         try container.encodeIfPresent(subtitleWordHighlight, forKey: .subtitleWordHighlight)
         try container.encodeIfPresent(exportAspect, forKey: .exportAspect)
         try container.encodeIfPresent(exportAspectMode, forKey: .exportAspectMode)
+        try container.encodeIfPresent(replacementAudioFileName, forKey: .replacementAudioFileName)
+        try container.encodeIfPresent(
+            replacementAudioDisplayName,
+            forKey: .replacementAudioDisplayName
+        )
+        try container.encodeIfPresent(audioExportFormat, forKey: .audioExportFormat)
     }
 }
 
