@@ -12,14 +12,10 @@ import SwiftUI
 final class PreviewWindowCaptureExclusion {
     static let shared = PreviewWindowCaptureExclusion()
 
-    /// Developer override retained for the Screendrop Demo scheme.
-    static let isDemoMode = CommandLine.arguments.contains("--demo-mode")
-
     /// Whether Screendrop's UI should be available to screenshot and screen
-    /// recording APIs. The production preference is opt-in; demo mode always
-    /// includes it so existing developer workflows continue to work.
+    /// recording APIs. Opt-in via Settings only.
     static var includesAppWindowsInCaptures: Bool {
-        isDemoMode || ScreendropPreferences.includeAppWindowsInCaptures
+        ScreendropPreferences.includeAppWindowsInCaptures
     }
 
     private let registeredWindows = NSHashTable<NSWindow>.weakObjects()
