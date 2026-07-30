@@ -211,6 +211,44 @@ final class CloudUploader: NSObject {
         failedItemIDs.remove(itemID)
     }
 
+    // MARK: - Delete
+
+    /// Deletes an upload from the cloud entirely: R2 files (main file, poster,
+    /// transcript, storyboard) plus its D1 row and comments/likes/view events.
+    /// Irreversible — the share link 404s immediately after.
+    func deleteFromCloud(uploadID: String) async throws {
+        let creds = CloudCredentialStore.shared.snapshot()
+        guard creds.isConfigured else {
+            throw CloudUploadError.notConfigured
+        }
+        try await Self.performDelete(uploadID: uploadID, creds: creds)
+    }
+
+    nonisolated private static func performDelete(uploadID: String, creds: CloudCredentials) async throws {
+        let workerBase = normalizeWorkerURL(creds.workerURL)
+        let token = creds.uploadToken.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard let url = URL(string: "\(workerBase)/api/upload/\(uploadID)") else {
+            throw CloudUploadError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        request.timeoutInterval = 30
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+
+        let (responseData, response) = try await URLSession.shared.data(for: request)
+
+        guard let http = response as? HTTPURLResponse else {
+            throw CloudUploadError.invalidResponse
+        }
+
+        guard http.statusCode == 200 else {
+            let body = String(data: responseData, encoding: .utf8) ?? ""
+            throw CloudUploadError.serverError(http.statusCode, body)
+        }
+    }
+
     // MARK: - Streaming Upload
 
     /// Sends the raw file bytes as the request body to PUT /api/upload.

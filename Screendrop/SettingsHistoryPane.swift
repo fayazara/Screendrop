@@ -117,6 +117,8 @@ private struct SettingsHistoryItemRow: View {
     @State private var thumbnail: NSImage?
     @State private var cloudUploader = CloudUploader.shared
     @State private var isHovering = false
+    @State private var isDeletingFromCloud = false
+    @State private var showDeleteCloudConfirm = false
 
     var body: some View {
         HStack(spacing: 14) {
@@ -168,6 +170,19 @@ private struct SettingsHistoryItemRow: View {
                         Image(systemName: "link")
                     }
                     .help("Copy cloud link")
+
+                    if isDeletingFromCloud {
+                        ProgressView()
+                            .controlSize(.small)
+                            .frame(width: 20, height: 20)
+                    } else {
+                        Button(role: .destructive) {
+                            showDeleteCloudConfirm = true
+                        } label: {
+                            Image(systemName: "icloud.slash")
+                        }
+                        .help("Delete from cloud")
+                    }
                 } else if cloudUploader.isConfigured {
                     if cloudUploader.uploadingItems.contains(item.id) {
                         ProgressView()
@@ -210,6 +225,9 @@ private struct SettingsHistoryItemRow: View {
 
             if item.cloudURL != nil {
                 Button("Copy Cloud Link", systemImage: "link") { copyCloudURL() }
+                Button("Delete from Cloud", systemImage: "icloud.slash", role: .destructive) {
+                    showDeleteCloudConfirm = true
+                }
             } else if cloudUploader.isConfigured && !cloudUploader.uploadingItems.contains(item.id) {
                 // Context menu can't anchor a popover, so this quick path
                 // skips it and uses the remembered comments/likes default.
@@ -229,6 +247,17 @@ private struct SettingsHistoryItemRow: View {
 
             Button("Delete", systemImage: "trash", role: .destructive) { onDelete() }
         }
+        .confirmationDialog(
+            "Delete from cloud?",
+            isPresented: $showDeleteCloudConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                deleteFromCloud()
+            }
+        } message: {
+            Text("This permanently removes the file and breaks its share link for anyone who has it.")
+        }
         .task(id: item.fileName) {
             let url = item.url
             let isVideo = item.isVideo
@@ -247,6 +276,21 @@ private struct SettingsHistoryItemRow: View {
         guard let cloudURL = item.cloudURL else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(cloudURL, forType: .string)
+    }
+
+    private func deleteFromCloud() {
+        guard let cloudURL = item.cloudURL,
+              let uploadID = URL(string: cloudURL)?.lastPathComponent else { return }
+        isDeletingFromCloud = true
+        Task {
+            defer { isDeletingFromCloud = false }
+            do {
+                try await CloudUploader.shared.deleteFromCloud(uploadID: uploadID)
+                ScreenshotHistoryStore.shared.clearCloudURL(for: item.url)
+            } catch {
+                print("Delete from cloud failed: \(error)")
+            }
+        }
     }
 
     private var itemSubtitle: String {
