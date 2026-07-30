@@ -51,6 +51,10 @@ nonisolated final class PointerActivityRecorder: NSObject, @unchecked Sendable {
         let end: TimeInterval
     }
 
+    /// Mirrors RecordingKeystrokeRecorder.duplicateEventWindow: the same
+    /// physical input can arrive from the event tap and the AppKit monitors.
+    private static let duplicatePressWindow: TimeInterval = 0.05
+
     private let lock = NSLock()
     private var mapping: RecordingInputMapping?
     private var tracksDynamicGeometry = false
@@ -104,8 +108,15 @@ nonisolated final class PointerActivityRecorder: NSObject, @unchecked Sendable {
         if !CGPreflightListenEventAccess() {
             _ = CGRequestListenEventAccess()
         }
-        if !installEventTap() {
-            installFallbackCapture()
+        let tapIsLive = installEventTap()
+        // Presses are the feature users notice missing first, so the AppKit
+        // monitors run even beside a live tap: they need no Input Monitoring
+        // grant, and appendPress discards whichever copy of a click lands
+        // second. Only the 60 Hz travel sampler is exclusive to the tap
+        // being dead, since it would otherwise fight the tap's native timing.
+        installPressMonitors()
+        if !tapIsLive {
+            installSampledTravelFallback()
         }
 
         let appearanceTimer = Timer(
@@ -351,6 +362,18 @@ nonisolated final class PointerActivityRecorder: NSObject, @unchecked Sendable {
         let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
         CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
         CGEvent.tapEnable(tap: tap, enable: true)
+
+        // Without Input Monitoring, tapCreate still hands back a valid port —
+        // it just never enables and silently delivers nothing. Non-nil is
+        // therefore not proof of a working tap; only an enabled tap may stand
+        // in for the sampled fallback.
+        guard CGEvent.tapIsEnabled(tap: tap) else {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
+            CFMachPortInvalidate(tap)
+            NSLog("[Screendrop] Pointer event tap created but not enabled (Input Monitoring not granted); using sampled cursor fallback.")
+            return false
+        }
+
         eventTap = tap
         eventTapRunLoopSource = source
         return true
@@ -411,8 +434,11 @@ nonisolated final class PointerActivityRecorder: NSObject, @unchecked Sendable {
 
     // MARK: - Degraded fallback
 
+    /// AppKit press monitors, which unlike an event tap need no Input
+    /// Monitoring grant. They always run so a missing or silently dead tap
+    /// can never cost the recording its clicks.
     @MainActor
-    private func installFallbackCapture() {
+    private func installPressMonitors() {
         let clickMask: NSEvent.EventTypeMask = [
             .leftMouseDown, .leftMouseUp,
             .rightMouseDown, .rightMouseUp,
@@ -425,7 +451,10 @@ nonisolated final class PointerActivityRecorder: NSObject, @unchecked Sendable {
             self?.handleFallbackPress(event)
             return event
         }
+    }
 
+    @MainActor
+    private func installSampledTravelFallback() {
         let timer = DispatchSource.makeTimerSource(queue: DispatchQueue(
             label: "com.screendrop.recording.pointer-capture",
             qos: .utility
@@ -514,11 +543,15 @@ nonisolated final class PointerActivityRecorder: NSObject, @unchecked Sendable {
         samples.append(sample)
     }
 
+    /// One physical click reaches here from both the event tap and the AppKit
+    /// monitors. Matching button, phase, and location inside
+    /// `duplicatePressWindow` marks a duplicate rather than a human
+    /// double-click — those repeat far slower and interleave a release.
     private func appendPress(_ press: CapturedPressEvent) {
         if let last = presses.last,
            last.button == press.button,
            last.phase == press.phase,
-           abs(last.uptime - press.uptime) < 0.01,
+           abs(last.uptime - press.uptime) < Self.duplicatePressWindow,
            hypot(last.point.x - press.point.x, last.point.y - press.point.y) < 1 {
             return
         }
