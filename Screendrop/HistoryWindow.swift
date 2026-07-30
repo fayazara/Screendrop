@@ -37,8 +37,8 @@ struct HistoryWindow: View {
                                         openWindow(id: "ANNOTATION_EDITOR", value: item.url)
                                     }
                                 },
-                                onUpload: {
-                                    uploadHistoryItem(item)
+                                onUpload: { options in
+                                    uploadHistoryItem(item, options: options)
                                 }
                             )
 
@@ -58,10 +58,15 @@ struct HistoryWindow: View {
         }
     }
 
-    private func uploadHistoryItem(_ item: ScreenshotHistoryItem) {
+    private func uploadHistoryItem(_ item: ScreenshotHistoryItem, options: CloudUploadOptions) {
         Task {
             do {
-                let result = try await CloudUploader.shared.upload(itemID: item.id, fileURL: item.url)
+                let result = try await CloudUploader.shared.upload(
+                    itemID: item.id,
+                    fileURL: item.url,
+                    title: options.trimmedTitleOrNil,
+                    socialEnabled: options.socialEnabled
+                )
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(result.url, forType: .string)
                 ScreenshotHistoryStore.shared.setCloudURL(for: item.url, cloudURL: result.url)
@@ -94,7 +99,7 @@ struct HistoryWindow: View {
 private struct HistoryItemRow: View {
     let item: ScreenshotHistoryItem
     let onEdit: () -> Void
-    let onUpload: () -> Void
+    let onUpload: (CloudUploadOptions) -> Void
 
     @State private var thumbnail: NSImage?
     @State private var cloudUploader = CloudUploader.shared
@@ -152,7 +157,7 @@ private struct HistoryItemRow: View {
                             .controlSize(.small)
                             .frame(width: 16, height: 16)
                     } else {
-                        Button(action: onUpload) {
+                        CloudUploadButton(suggestedTitle: item.fileName, onUpload: onUpload) {
                             Image(systemName: "square.and.arrow.up")
                         }
                         .help("Upload to cloud")

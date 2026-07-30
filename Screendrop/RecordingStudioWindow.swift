@@ -98,6 +98,10 @@ private struct RecordingStudioContent: View {
         }
     }
 
+    private var shareSuggestedTitle: String {
+        model.sessionURL.deletingPathExtension().lastPathComponent
+    }
+
     /// Share pipeline in one toolbar slot: render → upload → link copied.
     /// The upload leg reads the uploader's live progress so the pill keeps
     /// moving through both stages.
@@ -105,9 +109,7 @@ private struct RecordingStudioContent: View {
     private var shareStatus: some View {
         switch model.shareState {
         case .idle:
-            Button {
-                model.shareToCloud()
-            } label: {
+            CloudUploadButton(suggestedTitle: shareSuggestedTitle, onUpload: model.shareToCloud) {
                 Label("Share", systemImage: "link")
                     .labelStyle(.titleAndIcon)
             }
@@ -137,9 +139,7 @@ private struct RecordingStudioContent: View {
                 }
                 .help("Copy the share link again")
 
-                Button {
-                    model.shareToCloud()
-                } label: {
+                CloudUploadButton(suggestedTitle: shareSuggestedTitle, onUpload: model.shareToCloud) {
                     Image(systemName: "link")
                 }
                 .help("Share Again")
@@ -151,9 +151,7 @@ private struct RecordingStudioContent: View {
                     .foregroundStyle(.orange)
                     .help(message)
 
-                Button {
-                    model.shareToCloud()
-                } label: {
+                CloudUploadButton(suggestedTitle: shareSuggestedTitle, onUpload: model.shareToCloud) {
                     Text("Retry")
                 }
             }

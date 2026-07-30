@@ -196,9 +196,16 @@ struct PreviewWindowView: View {
                         }
                     },
                     onUpload: {
+                        // This overlay card can auto-dismiss, so it isn't a
+                        // good popover anchor — use the remembered default
+                        // instead of prompting per upload.
                         Task {
                             do {
-                                let result = try await CloudUploader.shared.upload(itemID: item.id, fileURL: item.url)
+                                let result = try await CloudUploader.shared.upload(
+                                    itemID: item.id,
+                                    fileURL: item.url,
+                                    socialEnabled: CloudUploadPreferences.lastSocialEnabled
+                                )
                                 NSPasteboard.general.clearContents()
                                 NSPasteboard.general.setString(result.url, forType: .string)
                                 ScreenshotHistoryStore.shared.setCloudURL(for: item.url, cloudURL: result.url)

@@ -50,7 +50,7 @@ struct AnnotationEditorWindow: View {
             .onDeleteCommand {
                 model.deleteSelectedAnnotation()
             }
-            .onChange(of: model.items) { _, _ in
+            .onChange(of: model.revision) { _, _ in
                 if didCopyLink { withAnimation(.snappy(duration: 0.2)) { didCopyLink = false } }
             }
             .onChange(of: model.backgroundSettings) { _, _ in
@@ -97,7 +97,10 @@ struct AnnotationEditorWindow: View {
         .disabled(model.previewImage == nil || model.imageSize == .zero)
 
         if CloudUploader.shared.isConfigured {
-            Button(action: uploadAnnotation) {
+            CloudUploadButton(
+                suggestedTitle: model.sourceURL?.deletingPathExtension().lastPathComponent ?? "",
+                onUpload: uploadAnnotation
+            ) {
                 if isUploading {
                     HStack(spacing: 6) {
                         ProgressView()
@@ -286,7 +289,7 @@ struct AnnotationEditorWindow: View {
                 do {
                     try await AnnotationRenderer.renderInBackground(
                         sourceURL: baseURL,
-                        items: model.items,
+                        shapes: model.shapes,
                         backgroundSettings: model.backgroundSettings,
                         destinationURL: destinationURL,
                         contentType: ScreenshotFileActions.exportContentType
@@ -316,14 +319,15 @@ struct AnnotationEditorWindow: View {
         }
     }
 
-    private func uploadAnnotation() {
+    private func uploadAnnotation(options: CloudUploadOptions) {
         clearInspectorFocus()
         guard let sourceURL = model.sourceURL, !isUploading else { return }
 
         let baseURL = model.baseImageURL ?? sourceURL
-        let items = model.items
+        let shapes = model.shapes
+        let bindings = model.bindings
         let backgroundSettings = model.backgroundSettings
-        let hasContent = !items.isEmpty || backgroundSettings.hasRenderableContent || model.isCropped
+        let hasContent = !shapes.isEmpty || backgroundSettings.hasRenderableContent || model.isCropped
 
         isUploading = true
         Task {
@@ -336,10 +340,10 @@ struct AnnotationEditorWindow: View {
                 if hasContent {
                     let annotatedURL = try await AnnotationRenderer.renderToTemporaryFileInBackground(
                         sourceURL: baseURL,
-                        items: items,
+                        shapes: shapes,
                         backgroundSettings: backgroundSettings
                     )
-                    let document = AnnotationDocument(items: items, background: backgroundSettings)
+                    let document = AnnotationDocument(shapes: shapes, bindings: bindings, background: backgroundSettings)
                     resultURL = ScreenshotHistoryStore.shared.commitAnnotations(
                         displayURL: sourceURL,
                         baseURL: baseURL,
@@ -360,7 +364,12 @@ struct AnnotationEditorWindow: View {
                     historyURL: resultURL
                 )
 
-                let result = try await CloudUploader.shared.upload(itemID: UUID(), fileURL: resultURL)
+                let result = try await CloudUploader.shared.upload(
+                    itemID: UUID(),
+                    fileURL: resultURL,
+                    title: options.trimmedTitleOrNil,
+                    socialEnabled: options.socialEnabled
+                )
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(result.url, forType: .string)
                 ScreenshotHistoryStore.shared.setCloudURL(for: resultURL, cloudURL: result.url)
@@ -382,9 +391,10 @@ struct AnnotationEditorWindow: View {
         guard !isFinishing else { return }
 
         let baseURL = model.baseImageURL ?? sourceURL
-        let items = model.items
+        let shapes = model.shapes
+        let bindings = model.bindings
         let backgroundSettings = model.backgroundSettings
-        let hasContent = !items.isEmpty || backgroundSettings.hasRenderableContent || model.isCropped
+        let hasContent = !shapes.isEmpty || backgroundSettings.hasRenderableContent || model.isCropped
         let hadDocument = ScreenshotHistoryStore.shared.hasEditDocument(for: sourceURL)
 
         // Nothing drawn and nothing previously saved -- just close.
@@ -401,10 +411,10 @@ struct AnnotationEditorWindow: View {
                 if hasContent {
                     let annotatedURL = try await AnnotationRenderer.renderToTemporaryFileInBackground(
                         sourceURL: baseURL,
-                        items: items,
+                        shapes: shapes,
                         backgroundSettings: backgroundSettings
                     )
-                    let document = AnnotationDocument(items: items, background: backgroundSettings)
+                    let document = AnnotationDocument(shapes: shapes, bindings: bindings, background: backgroundSettings)
                     resultURL = ScreenshotHistoryStore.shared.commitAnnotations(
                         displayURL: sourceURL,
                         baseURL: baseURL,

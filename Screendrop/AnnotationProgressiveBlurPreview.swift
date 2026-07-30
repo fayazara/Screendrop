@@ -199,7 +199,7 @@ actor AnnotationProgressiveBlurPreviewWorker {
 
     func renderScene(
         source: CGImage,
-        items: [AnnotationItem],
+        shapes: [AnnoShape],
         settings: AnnotationBackgroundSettings,
         contentPixelWidth: CGFloat,
         colorSpace: CGColorSpace
@@ -209,7 +209,7 @@ actor AnnotationProgressiveBlurPreviewWorker {
         defer { signposter.endInterval("settleRender", state) }
         return try? AnnotationScenePreviewRenderer.render(
             source: source,
-            items: items,
+            shapes: shapes,
             settings: settings,
             contentPixelWidth: contentPixelWidth,
             colorSpace: colorSpace
@@ -222,7 +222,7 @@ actor AnnotationProgressiveBlurPreviewWorker {
 /// any change hides the frame instantly instead of showing stale output.
 struct AnnotationSceneSettleKey: Equatable {
     let sourceID: ObjectIdentifier
-    let items: [AnnotationItem]
+    let shapes: [AnnoShape]
     let settings: AnnotationBackgroundSettings
     let contentPixelWidth: CGFloat
     let isEligible: Bool
@@ -239,7 +239,7 @@ struct AnnotationSceneSettleResult {
 nonisolated enum AnnotationScenePreviewRenderer {
     static func render(
         source: CGImage,
-        items: [AnnotationItem],
+        shapes: [AnnoShape],
         settings: AnnotationBackgroundSettings,
         contentPixelWidth: CGFloat,
         colorSpace: CGColorSpace
@@ -255,8 +255,10 @@ nonisolated enum AnnotationScenePreviewRenderer {
             colorSpace: colorSpace,
             foregroundOverlay: { context, layout, imageRect, imageClipPath in
                 AnnotationRenderer.drawAnnotations(
-                    items,
+                    shapes,
                     in: imageRect,
+                    // Shapes are in the *source* image's pixels; this render may be downscaled.
+                    pageSize: CGSize(width: source.width, height: source.height),
                     canvasSize: layout.canvasSize,
                     context: context,
                     colorSpace: colorSpace,

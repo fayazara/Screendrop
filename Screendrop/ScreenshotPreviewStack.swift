@@ -134,7 +134,13 @@ final class ScreenshotPreviewStack {
         guard CloudUploader.shared.isConfigured else { return }
         Task {
             do {
-                let result = try await CloudUploader.shared.upload(itemID: itemID, fileURL: url)
+                // Automatic, unattended upload — no popover, just the
+                // remembered comments/likes default.
+                let result = try await CloudUploader.shared.upload(
+                    itemID: itemID,
+                    fileURL: url,
+                    socialEnabled: CloudUploadPreferences.lastSocialEnabled
+                )
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(result.url, forType: .string)
                 ScreenshotHistoryStore.shared.setCloudURL(for: url, cloudURL: result.url)

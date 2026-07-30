@@ -50,8 +50,8 @@ struct SettingsHistoryPane: View {
                                         openWindow(id: "ANNOTATION_EDITOR", value: item.url)
                                     }
                                 },
-                                onUpload: {
-                                    uploadHistoryItem(item)
+                                onUpload: { options in
+                                    uploadHistoryItem(item, options: options)
                                 },
                                 onReveal: {
                                     historyStore.reveal(item)
@@ -86,10 +86,15 @@ struct SettingsHistoryPane: View {
         }
     }
 
-    private func uploadHistoryItem(_ item: ScreenshotHistoryItem) {
+    private func uploadHistoryItem(_ item: ScreenshotHistoryItem, options: CloudUploadOptions) {
         Task {
             do {
-                let result = try await CloudUploader.shared.upload(itemID: item.id, fileURL: item.url)
+                let result = try await CloudUploader.shared.upload(
+                    itemID: item.id,
+                    fileURL: item.url,
+                    title: options.trimmedTitleOrNil,
+                    socialEnabled: options.socialEnabled
+                )
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(result.url, forType: .string)
                 ScreenshotHistoryStore.shared.setCloudURL(for: item.url, cloudURL: result.url)
@@ -105,7 +110,7 @@ private struct SettingsHistoryItemRow: View {
     let onPreview: () -> Void
     let onCopy: () -> Void
     let onEdit: () -> Void
-    let onUpload: () -> Void
+    let onUpload: (CloudUploadOptions) -> Void
     let onReveal: () -> Void
     let onDelete: () -> Void
 
@@ -169,7 +174,7 @@ private struct SettingsHistoryItemRow: View {
                             .controlSize(.small)
                             .frame(width: 20, height: 20)
                     } else {
-                        Button(action: onUpload) {
+                        CloudUploadButton(suggestedTitle: item.fileName, onUpload: onUpload) {
                             Image(systemName: "icloud.and.arrow.up")
                         }
                         .help("Upload to cloud")
@@ -206,7 +211,16 @@ private struct SettingsHistoryItemRow: View {
             if item.cloudURL != nil {
                 Button("Copy Cloud Link", systemImage: "link") { copyCloudURL() }
             } else if cloudUploader.isConfigured && !cloudUploader.uploadingItems.contains(item.id) {
-                Button("Upload to Cloud", systemImage: "icloud.and.arrow.up") { onUpload() }
+                // Context menu can't anchor a popover, so this quick path
+                // skips it and uses the remembered comments/likes default.
+                Button("Upload to Cloud", systemImage: "icloud.and.arrow.up") {
+                    onUpload(
+                        CloudUploadOptions(
+                            title: item.fileName,
+                            socialEnabled: CloudUploadPreferences.lastSocialEnabled
+                        )
+                    )
+                }
             }
 
             Button("Reveal in Finder", systemImage: "folder") { onReveal() }

@@ -53,7 +53,12 @@ final class CloudUploader: NSObject {
         CloudCredentialStore.shared.isConfigured
     }
 
-    func upload(itemID: UUID, fileURL: URL) async throws -> CloudUploadResult {
+    func upload(
+        itemID: UUID,
+        fileURL: URL,
+        title: String? = nil,
+        socialEnabled: Bool = true
+    ) async throws -> CloudUploadResult {
         guard isConfigured else {
             throw CloudUploadError.notConfigured
         }
@@ -121,6 +126,8 @@ final class CloudUploader: NSObject {
                 width: dimensions?.width,
                 height: dimensions?.height,
                 duration: duration,
+                title: title,
+                socialEnabled: socialEnabled,
                 creds: creds,
                 progress: { [weak self] fraction in
                     Task { @MainActor [weak self] in
@@ -146,7 +153,7 @@ final class CloudUploader: NSObject {
             uploadProgress.removeValue(forKey: itemID)
             uploadedURLs[itemID] = result.url
             if isVideo {
-                scheduleSidecarUpload(uploadID: result.id, fileURL: fileURL, creds: creds)
+                scheduleSidecarUpload(uploadID: result.id, fileURL: fileURL, title: title, creds: creds)
             }
             return result
         } catch is CancellationError {
@@ -168,7 +175,7 @@ final class CloudUploader: NSObject {
     /// Ships the share-page extras (poster, title, transcript) after the
     /// video itself is up. Best-effort and detached: the share link is
     /// already usable, sidecars enrich the page when they land.
-    private func scheduleSidecarUpload(uploadID: String, fileURL: URL, creds: CloudCredentials) {
+    private func scheduleSidecarUpload(uploadID: String, fileURL: URL, title: String?, creds: CloudCredentials) {
         let item = ScreenshotHistoryStore.shared.items.first {
             $0.url.standardizedFileURL == fileURL.standardizedFileURL
         }
@@ -180,6 +187,7 @@ final class CloudUploader: NSObject {
                 uploadedFileURL: fileURL,
                 sessionDirectory: sessionDirectory,
                 createdAt: createdAt,
+                customTitle: title,
                 creds: creds
             )
         }
@@ -216,6 +224,8 @@ final class CloudUploader: NSObject {
         width: Int?,
         height: Int?,
         duration: Double?,
+        title: String?,
+        socialEnabled: Bool,
         creds: CloudCredentials,
         progress: (@Sendable (Double) -> Void)?
     ) async throws -> CloudUploadResult {
@@ -237,6 +247,11 @@ final class CloudUploader: NSObject {
         if let width { request.setValue(String(width), forHTTPHeaderField: "X-Width") }
         if let height { request.setValue(String(height), forHTTPHeaderField: "X-Height") }
         if let duration { request.setValue(String(duration), forHTTPHeaderField: "X-Duration") }
+        if let title, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let encoded = title.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? title
+            request.setValue(encoded, forHTTPHeaderField: "X-Title")
+        }
+        request.setValue(socialEnabled ? "true" : "false", forHTTPHeaderField: "X-Social-Enabled")
 
         let progressDelegate = UploadProgressDelegate { sent, expected in
             guard expected > 0 else { return }

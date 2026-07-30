@@ -6,130 +6,101 @@
 import AppKit
 import CoreGraphics
 
+/// The inspector's text controls. Each setter updates the style new text will use *and* whatever
+/// text is selected; the engine re-measures the box from the same layout the glyphs come from, so
+/// a font change reflows it without a round trip through a text view.
 extension AnnotationEditorModel {
-    var selectedTextFontSize: CGFloat {
-        get {
-            guard let item = selectedTextItem else { return textFontSize }
-            return AnnotationTextMetrics.renderedFontSize(
-                lineHeight: item.textLineHeight,
-                imagePixelHeight: imageSize.height
-            ).rounded()
+    private var selectedTextShape: AnnoShape? {
+        guard engine.selectedIds.count == 1, let shape = engine.selectedShapes.first, shape.isText else {
+            return nil
         }
-        set {
-            setTextFontSize(newValue)
-        }
+        return shape
     }
 
-    var selectedTextFontName: String {
-        get { selectedTextItem?.fontName ?? textFontName }
-        set { setTextFontName(newValue) }
+    var isTextStyleAvailable: Bool {
+        if !engine.selectedIds.isEmpty { return selectedTextShape != nil }
+        return selectedTool == .text
+    }
+
+    var selectedTextFontSize: CGFloat {
+        get { selectedTextShape?.textProps.map { CGFloat($0.fontSize) } ?? textFontSize }
+        set { setTextFontSize(newValue) }
+    }
+
+    var selectedTextFontFamily: AnnoFontFamily {
+        get { selectedTextShape?.textProps?.fontFamily ?? textFontFamily }
+        set { setTextFontFamily(newValue) }
     }
 
     var selectedTextIsBold: Bool {
-        get { selectedTextItem?.isBold ?? textIsBold }
+        get { selectedTextShape?.textProps?.isBold ?? textIsBold }
         set { setTextBold(newValue) }
     }
 
     var selectedTextIsItalic: Bool {
-        get { selectedTextItem?.isItalic ?? textIsItalic }
+        get { selectedTextShape?.textProps?.isItalic ?? textIsItalic }
         set { setTextItalic(newValue) }
     }
 
     var selectedTextIsUnderline: Bool {
-        get { selectedTextItem?.isUnderline ?? textIsUnderline }
+        get { selectedTextShape?.textProps?.isUnderline ?? textIsUnderline }
         set { setTextUnderline(newValue) }
     }
 
     var selectedTextAlignment: NSTextAlignment {
-        get { selectedTextItem?.textAlignment ?? textAlignment }
+        get { selectedTextShape?.textProps?.align.nsTextAlignment ?? textAlignment }
         set { setTextAlignment(newValue) }
     }
 
-    var isTextStyleAvailable: Bool {
-        if !selectedItemIDs.isEmpty {
-            return selectedTextItem != nil
-        }
-        return selectedTool == .text
-    }
-
-    private var selectedTextItem: AnnotationItem? {
-        guard let selectedItemID else { return nil }
-        return items.first { $0.id == selectedItemID && $0.tool == .text }
-    }
-
     func setTextFontSize(_ pointSize: CGFloat) {
-        let clamped = max(pointSize, AnnotationTextMetrics.minimumFontSize)
+        let clamped = max(pointSize, 4)
         textFontSize = clamped
+        engine.currentTextFontSize = Double(clamped)
         saveAnnotationPreset()
-
-        guard let selectedItemID, selectedTextItem != nil else { return }
-        guard imageSize.height > 0 else { return }
-        let newLineHeight = clamped / (imageSize.height * AnnotationTextMetrics.fontScale)
-        registerItemEdit()
-        updateItem(id: selectedItemID) { item in
-            item.textLineHeight = newLineHeight
-        }
+        updateSelectedText { $0.fontSize = Double(clamped) }
     }
 
-    func setTextFontName(_ name: String) {
-        textFontName = name
+    func setTextFontFamily(_ family: AnnoFontFamily) {
+        textFontFamily = family
+        engine.currentFontFamily = family
         saveAnnotationPreset()
-        guard let selectedItemID, selectedTextItem != nil else { return }
-        registerItemEdit()
-        updateItem(id: selectedItemID) { item in
-            item.fontName = name
-        }
+        updateSelectedText { $0.fontFamily = family }
     }
 
     func setTextBold(_ bold: Bool) {
         textIsBold = bold
+        engine.currentTextIsBold = bold
         saveAnnotationPreset()
-        guard let selectedItemID, selectedTextItem != nil else { return }
-        registerItemEdit()
-        updateItem(id: selectedItemID) { item in
-            item.isBold = bold
-        }
+        updateSelectedText { $0.isBold = bold }
     }
 
     func setTextItalic(_ italic: Bool) {
         textIsItalic = italic
+        engine.currentTextIsItalic = italic
         saveAnnotationPreset()
-        guard let selectedItemID, selectedTextItem != nil else { return }
-        registerItemEdit()
-        updateItem(id: selectedItemID) { item in
-            item.isItalic = italic
-        }
+        updateSelectedText { $0.isItalic = italic }
     }
 
     func setTextUnderline(_ underline: Bool) {
         textIsUnderline = underline
+        engine.currentTextIsUnderline = underline
         saveAnnotationPreset()
-        guard let selectedItemID, selectedTextItem != nil else { return }
-        registerItemEdit()
-        updateItem(id: selectedItemID) { item in
-            item.isUnderline = underline
-        }
+        updateSelectedText { $0.isUnderline = underline }
     }
 
     func setTextAlignment(_ alignment: NSTextAlignment) {
         textAlignment = alignment
+        engine.currentTextAlign = TextAlign(alignment)
         saveAnnotationPreset()
-        guard let selectedItemID, selectedTextItem != nil else { return }
-        registerItemEdit()
-        updateItem(id: selectedItemID) { item in
-            item.textAlignment = alignment
-        }
+        updateSelectedText { $0.align = TextAlign(alignment) }
     }
 
-    func commitTextEditing() {
-        guard let editingTextItemID else { return }
-
-        if let item = items.first(where: { $0.id == editingTextItemID }),
-           item.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            items.removeAll { $0.id == editingTextItemID }
-            selectedItemIDs.remove(editingTextItemID)
+    private func updateSelectedText(_ mutate: (inout TextProps) -> Void) {
+        guard selectedTextShape != nil else { return }
+        engine.applyStyleToSelection { shape in
+            guard case var .text(props) = shape.kind else { return }
+            mutate(&props)
+            shape.kind = .text(props)
         }
-
-        self.editingTextItemID = nil
     }
 }

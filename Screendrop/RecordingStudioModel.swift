@@ -1745,7 +1745,7 @@ final class RecordingStudioModel {
     /// The Loom loop: render the current edits, cache the result as the
     /// session's flattened deliverable, upload it, and copy the share
     /// link — without leaving the Studio or touching a save panel.
-    func shareToCloud() {
+    func shareToCloud(options: CloudUploadOptions) {
         guard !shareState.isBusy, !exportState.isExporting, isLoaded,
               canShareToCloud else {
             return
@@ -1821,7 +1821,12 @@ final class RecordingStudioModel {
                 self.shareState = .uploading
                 let itemID = self.historyItemID(for: session) ?? UUID()
                 self.shareItemID = itemID
-                let result = try await CloudUploader.shared.upload(itemID: itemID, fileURL: uploadURL)
+                let result = try await CloudUploader.shared.upload(
+                    itemID: itemID,
+                    fileURL: uploadURL,
+                    title: options.trimmedTitleOrNil,
+                    socialEnabled: options.socialEnabled
+                )
 
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(result.url, forType: .string)

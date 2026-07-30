@@ -56,7 +56,7 @@ struct AnnotationCanvas: View {
                 settings: model.backgroundSettings
             )
             let clipCorners = swiftUICornerRadii(screenshotGeometry.imageCornerRadii)
-            let effectiveCamera = model.isCropping || model.editingTextItemID != nil
+            let effectiveCamera = model.isCropping || model.editingTextID != nil
                 ? AnnotationCameraSettings()
                 : model.backgroundSettings.camera
             let projection = AnnotationCameraGeometry.projection(
@@ -79,7 +79,7 @@ struct AnnotationCanvas: View {
             let usesSceneBlur = model.backgroundSettings.progressiveBlur.isActive
                 && model.backgroundSettings.progressiveBlur.edgeMode == .bleed
                 && !model.isCropping
-                && model.editingTextItemID == nil
+                && model.editingTextID == nil
             let displayedImage = model.backgroundSettings.progressiveBlur.isActive
                 && model.backgroundSettings.progressiveBlur.edgeMode == .clipped
                 && !model.isCropping
@@ -88,14 +88,13 @@ struct AnnotationCanvas: View {
                 : image
             let sceneSettleKey = AnnotationSceneSettleKey(
                 sourceID: ObjectIdentifier(image),
-                items: model.items,
+                shapes: model.shapes,
                 settings: model.backgroundSettings,
                 contentPixelWidth: previewPixelWidth,
                 isEligible: usesSceneBlur
                     && !hasActiveInteraction
-                    && model.draftItem == nil
-                    && model.selectedItemIDs.isEmpty
-                    && model.selectionRect == nil
+                    && !model.isTransformingExistingAnnotation
+                    && model.selectionCount == 0
             )
 
             ZStack(alignment: .topLeading) {
@@ -172,10 +171,10 @@ struct AnnotationCanvas: View {
             .onChange(of: model.selectedTool) { _, _ in
                 refreshCursor(imageFrame: imageFrame, boundaryFrame: boundaryFrame)
             }
-            .onChange(of: model.itemIDs) { _, _ in
+            .onChange(of: model.revision) { _, _ in
                 refreshCursor(imageFrame: imageFrame, boundaryFrame: boundaryFrame)
             }
-            .onChange(of: model.selectedItemIDs) { _, _ in
+            .onChange(of: model.selectionCount) { _, _ in
                 refreshCursor(imageFrame: imageFrame, boundaryFrame: boundaryFrame)
             }
             .onDisappear {
@@ -387,151 +386,27 @@ struct AnnotationCanvas: View {
                 clipCorners: clipCorners
             )
 
-            // Redactions alter the screenshot itself, so keep them beneath the
-            // spotlight mask. Vector annotations remain crisp above the mask.
-            ForEach(model.items.filter { $0.tool.isRedactionTool }) { item in
-                committedAnnotationView(
-                    item,
-                    displayedImage: displayedImage,
-                    imageFrame: imageFrame,
-                    allowedBounds: allowedBounds,
-                    isSelected: false,
-                    rendersContent: true
-                )
-            }
-
-            if let draftItem = model.draftItem, draftItem.tool.isRedactionTool {
-                draftAnnotationView(
-                    draftItem,
-                    displayedImage: displayedImage,
-                    imageFrame: imageFrame,
-                    rendersContent: true
-                )
-            }
-
-            AnnotationHighlightOverlay(
-                items: visibleHighlightItems,
+            // One engine-drawn layer for every annotation: redactions under the spotlight,
+            // then the spotlight, then the vector shapes and the selection chrome. Replaces the
+            // per-item SwiftUI views, which each owned their own geometry and could not agree
+            // with the exporter.
+            AnnoCanvasLayer(
+                editor: model.engine,
+                sourceImage: model.previewCGImage,
                 imageFrame: imageFrame,
-                cornerRadii: clipCorners
+                imageSize: model.imageSize,
+                spotlightClip: nil,
+                revision: model.revision
             )
-
-            ForEach(model.items.filter { !$0.tool.isRedactionTool }) { item in
-                committedAnnotationView(
-                    item,
-                    displayedImage: displayedImage,
-                    imageFrame: imageFrame,
-                    allowedBounds: allowedBounds,
-                    isSelected: model.selectedItemIDs.contains(item.id),
-                    rendersContent: true
-                )
-            }
-
-            if let draftItem = model.draftItem, !draftItem.tool.isRedactionTool {
-                draftAnnotationView(
-                    draftItem,
-                    displayedImage: displayedImage,
-                    imageFrame: imageFrame,
-                    rendersContent: true
-                )
-            }
-
-            // Selection chrome always sits above the spotlight, even though a
-            // redaction's image effect is intentionally below it.
-            ForEach(model.items.filter {
-                $0.tool.isRedactionTool && model.selectedItemIDs.contains($0.id)
-            }) { item in
-                committedAnnotationView(
-                    item,
-                    displayedImage: displayedImage,
-                    imageFrame: imageFrame,
-                    allowedBounds: allowedBounds,
-                    isSelected: true,
-                    rendersContent: false
-                )
-            }
-
-            if let selectionRect = model.selectionRect {
-                AnnotationMarqueeSelectionView()
-                    .frame(
-                        width: max(viewRect(selectionRect, in: imageFrame).width, 1),
-                        height: max(viewRect(selectionRect, in: imageFrame).height, 1)
-                    )
-                    .position(
-                        x: viewRect(selectionRect, in: imageFrame).midX,
-                        y: viewRect(selectionRect, in: imageFrame).midY
-                    )
-            }
+            // Hit testing is declined everywhere except the text caret, so the drag gesture that
+            // drives the engine still receives everything else.
+            .frame(width: viewportSize.width, height: viewportSize.height)
 
             if model.isCropping {
                 AnnotationCropOverlay(model: model, imageFrame: imageFrame)
             }
         }
         .frame(width: viewportSize.width, height: viewportSize.height, alignment: .topLeading)
-    }
-
-    private func committedAnnotationView(
-        _ item: AnnotationItem,
-        displayedImage: NSImage,
-        imageFrame: CGRect,
-        allowedBounds: CGRect,
-        isSelected: Bool,
-        rendersContent: Bool
-    ) -> some View {
-        AnnotationItemView(
-            item: item,
-            image: displayedImage,
-            originalImageSize: model.imageSize,
-            imageFrame: imageFrame,
-            isSelected: isSelected,
-            showsResizeHandles: model.selectionCount == 1,
-            isEditingText: item.id == model.editingTextItemID,
-            allowsRedactionPreviewCaching: rendersContent
-                && !(model.isTransformingExistingAnnotation && model.selectedItemIDs.contains(item.id)),
-            rendersContent: rendersContent,
-            text: Binding(
-                get: { item.text },
-                set: { model.setText($0, for: item.id) }
-            ),
-            onCommitText: model.commitTextEditing,
-            onTextSizeChange: { size in
-                model.setTextViewContentSize(
-                    size,
-                    for: item.id,
-                    imageFrame: imageFrame,
-                    allowedBounds: allowedBounds
-                )
-            }
-        )
-    }
-
-    private func draftAnnotationView(
-        _ item: AnnotationItem,
-        displayedImage: NSImage,
-        imageFrame: CGRect,
-        rendersContent: Bool
-    ) -> some View {
-        AnnotationItemView(
-            item: item,
-            image: displayedImage,
-            originalImageSize: model.imageSize,
-            imageFrame: imageFrame,
-            isSelected: false,
-            showsResizeHandles: false,
-            isEditingText: false,
-            allowsRedactionPreviewCaching: false,
-            rendersContent: rendersContent,
-            text: .constant(item.text),
-            onCommitText: {},
-            onTextSizeChange: { _ in }
-        )
-    }
-
-    private var visibleHighlightItems: [AnnotationItem] {
-        var highlightItems = model.items.filter { $0.tool == .highlight }
-        if let draftItem = model.draftItem, draftItem.tool == .highlight {
-            highlightItems.append(draftItem)
-        }
-        return highlightItems
     }
 
     private func screenshot(
@@ -668,7 +543,7 @@ struct AnnotationCanvas: View {
         let colorSpace = source.colorSpace ?? CGColorSpaceCreateDeviceRGB()
         guard let output = await AnnotationProgressiveBlurPreviewWorker.shared.renderScene(
             source: source,
-            items: key.items,
+            shapes: key.shapes,
             settings: key.settings,
             contentPixelWidth: key.contentPixelWidth,
             colorSpace: colorSpace

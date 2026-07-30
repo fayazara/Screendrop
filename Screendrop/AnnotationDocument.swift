@@ -12,87 +12,48 @@ import Foundation
 import SwiftUI
 
 /// The persisted edit document for a single screenshot.
+///
+/// Version 2 stores engine shapes. Version 1 stored the old normalized-rect annotation items,
+/// which had no rotation and no shared geometry; there is no faithful conversion, so a v1 sidecar
+/// is ignored and its screenshot opens as a flat image.
 struct AnnotationDocument: Codable, Equatable {
+    static let currentVersion = 2
+
     /// Schema version, for forward-compatible migrations.
     var version: Int
     /// File name of the untouched base image stored in the same directory.
     var baseImageFileName: String
-    var items: [StoredAnnotationItem]
+    var shapes: [AnnoShape]
+    var bindings: [ArrowBinding]
     var background: StoredBackground
 
     init(
-        items: [AnnotationItem],
+        shapes: [AnnoShape],
+        bindings: [ArrowBinding] = [],
         background: AnnotationBackgroundSettings,
         baseImageFileName: String = "",
-        version: Int = 1
+        version: Int = AnnotationDocument.currentVersion
     ) {
         self.version = version
         self.baseImageFileName = baseImageFileName
-        self.items = items.map(StoredAnnotationItem.init)
+        self.shapes = shapes
+        self.bindings = bindings
         self.background = StoredBackground(background)
     }
 
-    var annotationItems: [AnnotationItem] {
-        items.map(\.annotationItem)
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        version = try container.decodeIfPresent(Int.self, forKey: .version) ?? 1
+        baseImageFileName = try container.decodeIfPresent(String.self, forKey: .baseImageFileName) ?? ""
+        background = try container.decode(StoredBackground.self, forKey: .background)
+        // A v1 document's annotations can't be expressed in the shape model, so only its
+        // background survives.
+        shapes = version >= 2 ? (try container.decodeIfPresent([AnnoShape].self, forKey: .shapes) ?? []) : []
+        bindings = version >= 2 ? (try container.decodeIfPresent([ArrowBinding].self, forKey: .bindings) ?? []) : []
     }
 
     var backgroundSettings: AnnotationBackgroundSettings {
         background.settings
-    }
-}
-
-// MARK: - Annotation item
-
-struct StoredAnnotationItem: Codable, Equatable {
-    var id: UUID
-    var tool: AnnotationTool
-    var rect: CGRect
-    var points: [CGPoint]
-    var swatch: CodableSwatch
-    var strokeWidth: Double
-    var redactionDensity: Double
-    var text: String
-    var textLineHeight: Double
-    var fontName: String
-    var isBold: Bool
-    var isItalic: Bool
-    var isUnderline: Bool
-    var textAlignment: Int
-
-    init(_ item: AnnotationItem) {
-        id = item.id
-        tool = item.tool
-        rect = item.rect
-        points = item.points
-        swatch = CodableSwatch(swatch: item.swatch)
-        strokeWidth = Double(item.strokeWidth)
-        redactionDensity = Double(item.redactionDensity)
-        text = item.text
-        textLineHeight = Double(item.textLineHeight)
-        fontName = item.fontName
-        isBold = item.isBold
-        isItalic = item.isItalic
-        isUnderline = item.isUnderline
-        textAlignment = item.textAlignment.rawValue
-    }
-
-    var annotationItem: AnnotationItem {
-        AnnotationItem(
-            id: id,
-            tool: tool,
-            rect: rect,
-            points: points,
-            swatch: swatch.annotationSwatch,
-            strokeWidth: CGFloat(strokeWidth),
-            redactionDensity: CGFloat(redactionDensity),
-            text: text,
-            textLineHeight: CGFloat(textLineHeight),
-            fontName: fontName,
-            isBold: isBold,
-            isItalic: isItalic,
-            isUnderline: isUnderline,
-            textAlignment: NSTextAlignment(rawValue: textAlignment) ?? .left
-        )
     }
 }
 
