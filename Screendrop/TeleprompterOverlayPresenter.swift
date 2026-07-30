@@ -4,7 +4,9 @@
 //
 //  The teleprompter overlay. On a notched display it renders a Dynamic
 //  Island-style extension that grows out of the hardware notch; elsewhere
-//  it is a floating pill under the menu bar with the same spring motion.
+//  it is a pill with the same spring motion. Both anchor flush to the
+//  physical top of the screen, so a recording looks the same whether it
+//  was made on a notched laptop or an external display.
 //
 //  Show/hide choreography: the collapsed state is geometrically identical
 //  to the hardware notch (same width, height, and corner radii), so hiding
@@ -77,7 +79,7 @@ final class TeleprompterOverlayModel {
     enum Mode {
         /// Extends the hardware notch; the collapsed state hides behind it.
         case notch(width: CGFloat, height: CGFloat)
-        /// Floating pill for displays without a notch.
+        /// Hangs from the top edge on displays without a notch.
         case pill
     }
 
@@ -251,31 +253,22 @@ final class TeleprompterOverlayPresenter {
         let width = model.expandedWidth + 80
         let height = model.expandedHeight + 40
 
-        switch model.mode {
-        case .notch:
-            // Above the menu bar, flush with the physical top of the screen.
-            panel.level = NSWindow.Level(rawValue: Int(CGShieldingWindowLevel()))
-            panel.setFrame(
-                CGRect(
-                    x: screen.frame.midX - width / 2,
-                    y: screen.frame.maxY - height,
-                    width: width,
-                    height: height
-                ),
-                display: false
-            )
-        case .pill:
-            panel.level = .statusBar
-            panel.setFrame(
-                CGRect(
-                    x: screen.frame.midX - width / 2,
-                    y: screen.visibleFrame.maxY - 6 - height,
-                    width: width,
-                    height: height
-                ),
-                display: false
-            )
-        }
+        // Above the menu bar, flush with the physical top of the screen, in
+        // both modes. Anchoring the pill to `visibleFrame` instead dropped it
+        // by the menu bar's height, so the same recording sat flush on a
+        // notched Mac and floated ~36pt lower on an external display. The
+        // island is far narrower than the screen, so it covers only the
+        // normally empty middle of the menu bar.
+        panel.level = NSWindow.Level(rawValue: Int(CGShieldingWindowLevel()))
+        panel.setFrame(
+            CGRect(
+                x: screen.frame.midX - width / 2,
+                y: screen.frame.maxY - height,
+                width: width,
+                height: height
+            ),
+            display: false
+        )
     }
 }
 
