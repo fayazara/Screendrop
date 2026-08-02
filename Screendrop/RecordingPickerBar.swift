@@ -48,10 +48,18 @@ final class RecordingPickerPresenter {
     }
 
     /// Where the bar currently sits, so satellite windows (the teleprompter
-    /// composer) can anchor to it even after the user drags it around.
+    /// composer) can anchor to it even after the user drags it around. This
+    /// is the visible bar, not the panel: the panel is padded out with
+    /// transparent slack for the tooltips, and anchoring to that would leave
+    /// satellites floating a tooltip's height clear of the bar.
     var barFrame: CGRect? {
         guard let panel, panel.isVisible else { return nil }
-        return panel.frame
+        return CGRect(
+            x: panel.frame.minX + BarTooltip.reservedWidth,
+            y: panel.frame.minY + BarMetrics.shadowSlack,
+            width: panel.frame.width - BarTooltip.reservedWidth * 2,
+            height: BarMetrics.height
+        )
     }
 
     /// The bar's hosting view is created once and just reordered in/out on
@@ -78,9 +86,14 @@ final class RecordingPickerPresenter {
 
         panel.backgroundColor = .clear
         panel.isOpaque = false
-        // AppKit window shadow follows the bar's rounded alpha shape and,
-        // unlike a SwiftUI .shadow, can't be clipped by the panel bounds.
-        panel.hasShadow = true
+        // Shadows are drawn in SwiftUI, not by AppKit. The window shadow is
+        // derived from the window's alpha silhouette and recomputed lazily,
+        // so anything that fades in or out inside the panel — the tooltip —
+        // leaves its shadow outline hanging for a frame or two after the fill
+        // has gone. The panel reserves slack on all four sides (see
+        // BarMetrics) so SwiftUI's shadows aren't clipped by the panel edge,
+        // which was the original reason for using the AppKit one.
+        panel.hasShadow = false
         panel.hidesOnDeactivate = false
         panel.isFloatingPanel = true
         panel.isReleasedWhenClosed = false
@@ -112,7 +125,9 @@ final class RecordingPickerPresenter {
         let size = panel.frame.size
         let origin = CGPoint(
             x: visibleFrame.midX - size.width / 2,
-            y: visibleFrame.minY + 48
+            // Dropped by the bottom slack so the bar — not the panel — lands
+            // 48pt above the visible frame.
+            y: visibleFrame.minY + 48 - BarMetrics.shadowSlack
         )
         panel.setFrameOrigin(origin)
     }
@@ -137,6 +152,205 @@ private final class RecordingPickerHostingView<Content: View>: NSHostingView<Con
     override var isOpaque: Bool {
         false
     }
+
+    /// The panel is padded out with transparent slack on three sides so the
+    /// tooltip — which draws outside the bar — isn't clipped at the window
+    /// edge. AppKit hit-tests by view bounds, not alpha, so without this the
+    /// slack would silently swallow clicks meant for whatever is behind it.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard barRect.contains(convert(point, from: superview)) else { return nil }
+        return super.hitTest(point)
+    }
+
+    /// The bar sits one slack's height up from the bottom edge of the padded
+    /// content. `NSHostingView` is flipped, so "bottom" is `maxY` here —
+    /// reading it off `bounds` keeps this correct either way.
+    private var barRect: NSRect {
+        let bottomInset = BarMetrics.shadowSlack
+        return NSRect(
+            x: BarTooltip.reservedWidth,
+            y: isFlipped
+                ? bounds.maxY - bottomInset - BarMetrics.height
+                : bounds.minY + bottomInset,
+            width: bounds.width - BarTooltip.reservedWidth * 2,
+            height: BarMetrics.height
+        )
+    }
+}
+
+private enum BarMetrics {
+    static let height: CGFloat = 66
+    /// Transparent slack below the bar so its own drop shadow isn't clipped
+    /// by the panel edge. The panel is positioned lower by exactly this much
+    /// so the bar itself doesn't move.
+    static let shadowSlack: CGFloat = 28
+}
+
+// MARK: - Tooltips
+
+/// Geometry and timing for the bar's own tooltips. macOS' native `.help()`
+/// tooltip takes about a second to appear, which is far too slow for a bar
+/// you're meant to scan and dismiss; these show in a fraction of that and,
+/// once one has appeared, follow the pointer across the bar instantly.
+private enum BarTooltip {
+    static let coordinateSpace = "recordingPickerBar"
+    static let pillHeight: CGFloat = 24
+    /// Space between the top of the bar and the bottom of the pill.
+    static let gap: CGFloat = 8
+    /// Transparent slack the panel reserves above the bar for the pill and
+    /// its shadow.
+    static let reservedHeight: CGFloat = gap + pillHeight + 16
+    /// Transparent slack at each end, so a pill centred on an edge control
+    /// isn't cut off by the panel.
+    static let reservedWidth: CGFloat = 72
+
+    static let showDelay = Duration.milliseconds(160)
+    /// How long after leaving a control the bar stays "warm" — hover another
+    /// control inside this window and its tooltip appears with no delay.
+    static let warmWindow = Duration.milliseconds(500)
+}
+
+/// Stable identity per control, so a tooltip can be re-texted in place when
+/// the control it describes changes state under the pointer.
+private enum BarTooltipID: String {
+    case display
+    case window
+    case area
+    case camera
+    case microphone
+    case systemAudio
+    case teleprompter
+    case timer
+    case close
+}
+
+private struct BarTooltipTarget {
+    var id: BarTooltipID
+    var text: String
+    var frame: CGRect
+}
+
+@Observable
+private final class BarTooltipModel {
+    private(set) var visible: BarTooltipTarget?
+
+    private var hovered: BarTooltipID?
+    private var isWarm = false
+    private var showTask: Task<Void, Never>?
+    private var coolTask: Task<Void, Never>?
+
+    func hover(id: BarTooltipID, text: String, frame: CGRect) {
+        hovered = id
+        showTask?.cancel()
+        coolTask?.cancel()
+
+        guard !isWarm else {
+            visible = BarTooltipTarget(id: id, text: text, frame: frame)
+            return
+        }
+        showTask = Task {
+            try? await Task.sleep(for: BarTooltip.showDelay)
+            guard !Task.isCancelled, hovered == id else { return }
+            visible = BarTooltipTarget(id: id, text: text, frame: frame)
+            isWarm = true
+        }
+    }
+
+    /// Guarded on the item that's leaving: SwiftUI can deliver the new
+    /// control's `onHover(true)` before the old one's `onHover(false)`, and
+    /// an unguarded hide would blank the tooltip that just took over.
+    func endHover(id: BarTooltipID) {
+        guard hovered == id else { return }
+        hovered = nil
+        showTask?.cancel()
+        visible = nil
+        coolTask = Task {
+            try? await Task.sleep(for: BarTooltip.warmWindow)
+            guard !Task.isCancelled, hovered == nil else { return }
+            isWarm = false
+        }
+    }
+
+    /// Clicking a control means the user is done reading about it. Cut
+    /// without a fade: the click already happened, and a pill dissolving
+    /// after the fact reads as lag.
+    func dismiss() {
+        hovered = nil
+        showTask?.cancel()
+        withTransaction(Transaction(animation: nil)) {
+            visible = nil
+        }
+    }
+}
+
+private struct BarTooltipPill: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(.white.opacity(0.92))
+            .lineLimit(1)
+            .fixedSize()
+            .padding(.horizontal, 9)
+            .frame(height: BarTooltip.pillHeight)
+            .background(Color(white: 0.16).opacity(0.98))
+            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+            // Fainter than the bar's own 0.14 border: at pill scale that
+            // weight reads as a hard outline rather than an edge highlight.
+            .overlay {
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .strokeBorder(.white.opacity(0.07), lineWidth: 0.5)
+            }
+            .shadow(color: .black.opacity(0.35), radius: 8, y: 2)
+            .transition(.opacity)
+    }
+}
+
+private struct BarTooltipModifier: ViewModifier {
+    let id: BarTooltipID
+    let text: String
+    let accessibility: String
+    let model: BarTooltipModel
+
+    @State private var frame: CGRect = .zero
+
+    func body(content: Content) -> some View {
+        content
+            .onGeometryChange(for: CGRect.self) {
+                $0.frame(in: .named(BarTooltip.coordinateSpace))
+            } action: {
+                frame = $0
+            }
+            .onHover { isInside in
+                if isInside {
+                    model.hover(id: id, text: text, frame: frame)
+                } else {
+                    model.endHover(id: id)
+                }
+            }
+            .accessibilityLabel(accessibility)
+    }
+}
+
+extension View {
+    /// `text` is what the pill shows — keep it short. `accessibility` carries
+    /// the longer description for VoiceOver, where length costs nothing.
+    fileprivate func barTooltip(
+        _ id: BarTooltipID,
+        _ text: String,
+        accessibility: String? = nil,
+        model: BarTooltipModel
+    ) -> some View {
+        modifier(
+            BarTooltipModifier(
+                id: id,
+                text: text,
+                accessibility: accessibility ?? text,
+                model: model
+            )
+        )
+    }
 }
 
 // MARK: - Bar
@@ -149,23 +363,33 @@ private struct RecordingPickerView: View {
     @AppStorage(ScreendropPreferences.recordingStartDelaySecondsKey) private var startDelaySeconds = 0
     @AppStorage(ScreendropPreferences.recordingTeleprompterEnabledKey) private var teleprompterEnabled = false
 
+    @State private var tooltip = BarTooltipModel()
+
     private static let timerOptions = [0, 1, 3, 5]
 
     var body: some View {
         HStack(spacing: 6) {
             displaySource
             windowSource
-            sourceButton(title: "Area", systemImage: "rectangle.dashed") {
+            sourceButton(
+                id: .area,
+                title: "Area",
+                systemImage: "rectangle.dashed",
+                tooltip: "Drag to select a region",
+                accessibility: "Area — drag to select the region to record"
+            ) {
                 startAreaRecording()
             }
 
             barDivider
 
             inputToggle(
+                id: .camera,
                 isOn: !cameraID.isEmpty,
                 onIcon: "video.fill",
                 offIcon: "video.slash",
-                help: cameraID.isEmpty ? "Camera off — click to record camera" : "Camera on"
+                tooltip: cameraID.isEmpty ? "Camera off" : "Camera on",
+                accessibility: cameraAccessibilityLabel
             ) {
                 toggleCamera()
             }
@@ -176,19 +400,25 @@ private struct RecordingPickerView: View {
             microphonePicker
 
             inputToggle(
+                id: .systemAudio,
                 isOn: systemAudio,
                 onIcon: "speaker.wave.2.fill",
                 offIcon: "speaker.slash",
-                help: systemAudio ? "System audio on" : "System audio off"
+                tooltip: systemAudio ? "System audio on" : "System audio off",
+                accessibility: systemAudio
+                    ? "System audio on — click to stop capturing what you hear"
+                    : "System audio off — click to capture what you hear"
             ) {
                 systemAudio.toggle()
             }
 
             inputToggle(
+                id: .teleprompter,
                 isOn: teleprompterEnabled,
                 onIcon: "text.line.first.and.arrowtriangle.forward",
                 offIcon: "text.line.first.and.arrowtriangle.forward",
-                help: teleprompterEnabled
+                tooltip: teleprompterEnabled ? "Teleprompter on" : "Teleprompter off",
+                accessibility: teleprompterEnabled
                     ? "Teleprompter on — click to edit the script"
                     : "Teleprompter off — click to write a script"
             ) {
@@ -197,22 +427,58 @@ private struct RecordingPickerView: View {
 
             timerMenu
 
-            iconButton(systemImage: "xmark", help: "Close") {
+            iconButton(
+                id: .close,
+                systemImage: "xmark",
+                tooltip: "Close",
+                accessibility: "Close the recorder — Esc"
+            ) {
                 dismissPicker()
             }
         }
         .padding(.horizontal, 12)
-        .frame(height: 66)
+        .frame(height: BarMetrics.height)
         .background(Color(white: 0.14).opacity(0.97))
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .strokeBorder(.white.opacity(0.14), lineWidth: 1)
         }
+        .shadow(color: .black.opacity(0.4), radius: 16, y: 5)
+        .coordinateSpace(.named(BarTooltip.coordinateSpace))
+        .overlay(tooltipLayer)
+        // Transparent slack around the bar so the tooltip and the shadows —
+        // both of which draw outside the bar's bounds — aren't clipped by the
+        // panel edge.
+        .padding(.top, BarTooltip.reservedHeight)
+        .padding(.bottom, BarMetrics.shadowSlack)
+        .padding(.horizontal, BarTooltip.reservedWidth)
         .preferredColorScheme(.dark)
         .task {
             await sources.refresh()
         }
+    }
+
+    /// Positioned off the hovered control's measured frame rather than a
+    /// hardcoded index, so it keeps tracking when the bar's contents change —
+    /// e.g. the display picker swapping between button and menu on a second
+    /// monitor.
+    private var tooltipLayer: some View {
+        GeometryReader { _ in
+            if let target = tooltip.visible {
+                BarTooltipPill(text: target.text)
+                    .position(
+                        x: target.frame.midX,
+                        y: -(BarTooltip.gap + BarTooltip.pillHeight / 2)
+                    )
+            }
+        }
+        .allowsHitTesting(false)
+        // Keyed on the id as well as the text so sliding the pointer along
+        // the bar glides the pill from control to control rather than
+        // cross-fading it in place.
+        .animation(.easeOut(duration: 0.12), value: tooltip.visible?.id)
+        .animation(.easeOut(duration: 0.12), value: tooltip.visible?.text)
     }
 
     // MARK: Sources
@@ -234,8 +500,20 @@ private struct RecordingPickerView: View {
             .menuStyle(.button)
             .buttonStyle(.plain)
             .menuIndicator(.hidden)
+            .barTooltip(
+                .display,
+                "Pick a screen to record",
+                accessibility: "Display — choose which screen to record",
+                model: tooltip
+            )
         } else {
-            sourceButton(title: "Display", systemImage: "menubar.rectangle") {
+            sourceButton(
+                id: .display,
+                title: "Display",
+                systemImage: "menubar.rectangle",
+                tooltip: "Record the whole screen",
+                accessibility: "Display — record the whole screen"
+            ) {
                 guard let display = sources.displays.first else { return }
                 startRecording {
                     CaptureCoordinator.shared.recordFullscreen(display)
@@ -270,6 +548,12 @@ private struct RecordingPickerView: View {
         .menuStyle(.button)
         .buttonStyle(.plain)
         .menuIndicator(.hidden)
+        .barTooltip(
+            .window,
+            "Pick an app window",
+            accessibility: "Window — choose an app window to record",
+            model: tooltip
+        )
     }
 
     private func startAreaRecording() {
@@ -307,7 +591,28 @@ private struct RecordingPickerView: View {
         }
     }
 
-    private var microphoneHelp: String {
+    private var cameraAccessibilityLabel: String {
+        guard !cameraID.isEmpty else {
+            return "Camera off — click to record your camera, right-click to pick one"
+        }
+        guard let camera = RecordingDeviceCatalog.cameras().first(where: { $0.uniqueID == cameraID }) else {
+            return "Camera unavailable — right-click to choose another camera"
+        }
+        return "Camera on — \(camera.localizedName), right-click to switch"
+    }
+
+    /// The pill only has room for the state, so an attached-but-missing
+    /// device is worth calling out there — it's the one case where the icon
+    /// alone is misleading.
+    private var microphoneTooltip: String {
+        guard !microphoneID.isEmpty else { return "Microphone off" }
+        guard RecordingDeviceCatalog.microphone(withID: microphoneID) != nil else {
+            return "Microphone unavailable"
+        }
+        return "Microphone on"
+    }
+
+    private var microphoneAccessibilityLabel: String {
         guard !microphoneID.isEmpty else {
             return "Microphone off — click to choose an input"
         }
@@ -366,7 +671,12 @@ private struct RecordingPickerView: View {
         .menuStyle(.button)
         .buttonStyle(.plain)
         .menuIndicator(.hidden)
-        .help(microphoneHelp)
+        .barTooltip(
+            .microphone,
+            microphoneTooltip,
+            accessibility: microphoneAccessibilityLabel,
+            model: tooltip
+        )
     }
 
     /// Replaces the old gear button that opened Settings: a self-contained
@@ -391,14 +701,23 @@ private struct RecordingPickerView: View {
         .menuStyle(.button)
         .buttonStyle(.plain)
         .menuIndicator(.hidden)
-        .help(timerHelp)
+        .barTooltip(
+            .timer,
+            timerTooltip,
+            accessibility: timerAccessibilityLabel,
+            model: tooltip
+        )
     }
 
     private func timerLabel(_ seconds: Int) -> String {
         seconds == 0 ? "None" : "\(seconds) second\(seconds == 1 ? "" : "s")"
     }
 
-    private var timerHelp: String {
+    private var timerTooltip: String {
+        startDelaySeconds == 0 ? "Timer off" : "Timer \(startDelaySeconds)s"
+    }
+
+    private var timerAccessibilityLabel: String {
         startDelaySeconds == 0
             ? "Timer off — click to add a countdown before recording starts"
             : "Timer: \(timerLabel(startDelaySeconds)) before recording starts"
@@ -464,24 +783,36 @@ private struct RecordingPickerView: View {
     }
 
     private func sourceButton(
+        id: BarTooltipID,
         title: String,
         systemImage: String,
+        tooltip text: String,
+        accessibility: String,
         action: @escaping () -> Void
     ) -> some View {
-        Button(action: action) {
+        Button {
+            tooltip.dismiss()
+            action()
+        } label: {
             sourceLabel(title: title, systemImage: systemImage)
         }
         .buttonStyle(.plain)
+        .barTooltip(id, text, accessibility: accessibility, model: tooltip)
     }
 
     private func inputToggle(
+        id: BarTooltipID,
         isOn: Bool,
         onIcon: String,
         offIcon: String,
-        help: String,
+        tooltip text: String,
+        accessibility: String,
         action: @escaping () -> Void
     ) -> some View {
-        Button(action: action) {
+        Button {
+            tooltip.dismiss()
+            action()
+        } label: {
             Image(systemName: isOn ? onIcon : offIcon)
                 .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(isOn ? Color.white : Color.white.opacity(0.35))
@@ -489,15 +820,20 @@ private struct RecordingPickerView: View {
                 .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
         .buttonStyle(.plain)
-        .help(help)
+        .barTooltip(id, text, accessibility: accessibility, model: tooltip)
     }
 
     private func iconButton(
+        id: BarTooltipID,
         systemImage: String,
-        help: String,
+        tooltip text: String,
+        accessibility: String,
         action: @escaping () -> Void
     ) -> some View {
-        Button(action: action) {
+        Button {
+            tooltip.dismiss()
+            action()
+        } label: {
             Image(systemName: systemImage)
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.85))
@@ -505,6 +841,6 @@ private struct RecordingPickerView: View {
                 .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
         .buttonStyle(.plain)
-        .help(help)
+        .barTooltip(id, text, accessibility: accessibility, model: tooltip)
     }
 }
