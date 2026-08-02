@@ -237,16 +237,16 @@ private final class RecordingBarHostingView<Content: View>: NSHostingView<Conten
 
 private struct RecordingBarView: View {
     @State private var presenter = RecordingBarPresenter.shared
-    @State private var tooltip = BarTooltipModel()
 
     private static let panelSpace = "recordingBarPanel"
 
     var body: some View {
         bar
             // The panel is a fixed size both modes sit centred inside, so a
-            // morph only ever changes the bar's own width — never the window's.
-            .padding(.bottom, BarMetrics.shadowSlack)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+            // morph only ever changes the bar's own width — never the
+            // window's. Its height is the bar plus equal shadow slack top and
+            // bottom, so centring lands the bar exactly where it belongs.
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .coordinateSpace(.named(Self.panelSpace))
             .preferredColorScheme(.dark)
     }
@@ -255,9 +255,9 @@ private struct RecordingBarView: View {
         Group {
             switch presenter.mode {
             case .picker:
-                RecordingPickerControls(tooltip: tooltip)
+                RecordingPickerControls()
             case .recording:
-                RecordingSessionControls(tooltip: tooltip)
+                RecordingSessionControls()
             }
         }
         // The outgoing controls leave instantly so the bar starts narrowing
@@ -273,8 +273,6 @@ private struct RecordingBarView: View {
                 .strokeBorder(BarMetrics.stroke, lineWidth: 1)
         }
         .shadow(color: .black.opacity(0.4), radius: 16, y: 5)
-        .coordinateSpace(.named(BarTooltip.coordinateSpace))
-        .overlay(tooltipLayer)
         // What the hosting view hit-tests against and what satellite windows
         // anchor to — the bar, not the panel it floats in.
         .onGeometryChange(for: CGRect.self) {
@@ -282,26 +280,5 @@ private struct RecordingBarView: View {
         } action: {
             presenter.barFrameInPanel = $0
         }
-    }
-
-    /// Positioned off the hovered control's measured frame rather than a
-    /// hardcoded index, so it keeps tracking when the bar's contents change —
-    /// a mode swap, or the display picker becoming a menu on a second monitor.
-    private var tooltipLayer: some View {
-        GeometryReader { _ in
-            if let target = tooltip.visible {
-                BarTooltipPill(text: target.text)
-                    .position(
-                        x: target.frame.midX,
-                        y: -(BarTooltip.gap + BarTooltip.pillHeight / 2)
-                    )
-            }
-        }
-        .allowsHitTesting(false)
-        // Keyed on the id as well as the text so sliding the pointer along
-        // the bar glides the pill from control to control rather than
-        // cross-fading it in place.
-        .animation(.easeOut(duration: 0.12), value: tooltip.visible?.id)
-        .animation(.easeOut(duration: 0.12), value: tooltip.visible?.text)
     }
 }

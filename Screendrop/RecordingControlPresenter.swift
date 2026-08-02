@@ -29,8 +29,6 @@ extension RecordingBarPresenter {
 // MARK: - Controls
 
 struct RecordingSessionControls: View {
-    let tooltip: BarTooltipModel
-
     @State private var manager = ScreenRecordingManager.shared
 
     private var isPaused: Bool {
@@ -50,11 +48,8 @@ struct RecordingSessionControls: View {
             BarDivider()
 
             BarActionButton(
-                id: .pauseResume,
                 title: isPaused ? "Resume" : "Pause",
-                systemImage: isPaused ? "play.fill" : "pause.fill",
-                tooltip: isPaused ? "Resume recording" : "Pause recording",
-                model: tooltip
+                systemImage: isPaused ? "play.fill" : "pause.fill"
             ) {
                 if isPaused {
                     manager.resumeRecording()
@@ -65,36 +60,28 @@ struct RecordingSessionControls: View {
             .disabled(isSettling)
 
             BarActionButton(
-                id: .restart,
                 title: "Restart",
                 systemImage: "arrow.counterclockwise",
-                tooltip: "Start over",
-                accessibility: "Restart — discard what's recorded and start again",
-                model: tooltip
+                accessibility: "Restart — discard what's recorded and start again"
             ) {
                 manager.restartRecording()
             }
             .disabled(isSettling)
 
             BarActionButton(
-                id: .stop,
                 title: "Stop",
                 systemImage: "stop.fill",
                 tint: Color(red: 1, green: 0.35, blue: 0.32),
-                tooltip: "Stop and save",
-                model: tooltip
+                accessibility: "Stop and save the recording"
             ) {
                 manager.stopRecording()
             }
             .disabled(isSettling)
 
             BarActionButton(
-                id: .discard,
                 title: "Discard",
                 systemImage: "trash.fill",
-                tooltip: "Discard recording",
-                accessibility: "Discard — delete this recording without saving",
-                model: tooltip
+                accessibility: "Discard — delete this recording without saving"
             ) {
                 manager.deleteRecording()
             }

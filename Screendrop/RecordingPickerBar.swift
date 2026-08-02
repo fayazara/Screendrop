@@ -38,8 +38,6 @@ extension RecordingBarPresenter {
 // MARK: - Controls
 
 struct RecordingPickerControls: View {
-    let tooltip: BarTooltipModel
-
     @State private var sources = RecordingSourceCatalog.shared
     @AppStorage(ScreendropPreferences.recordingCameraDeviceIDKey) private var cameraID = ""
     @AppStorage(ScreendropPreferences.recordingMicrophoneDeviceIDKey) private var microphoneID = ""
@@ -54,12 +52,9 @@ struct RecordingPickerControls: View {
             displaySource
             windowSource
             BarActionButton(
-                id: .area,
                 title: "Area",
                 systemImage: "rectangle.dashed",
-                tooltip: "Drag to select a region",
-                accessibility: "Area — drag to select the region to record",
-                model: tooltip
+                accessibility: "Area — drag to select the region to record"
             ) {
                 startAreaRecording()
             }
@@ -67,12 +62,10 @@ struct RecordingPickerControls: View {
             BarDivider()
 
             inputToggle(
-                id: .camera,
                 title: "Camera",
                 isOn: !cameraID.isEmpty,
                 onIcon: "video.fill",
                 offIcon: "video.slash",
-                tooltip: cameraID.isEmpty ? "Camera off" : "Camera on",
                 accessibility: cameraAccessibilityLabel
             ) {
                 toggleCamera()
@@ -84,12 +77,10 @@ struct RecordingPickerControls: View {
             microphonePicker
 
             inputToggle(
-                id: .systemAudio,
                 title: "System",
                 isOn: systemAudio,
                 onIcon: "speaker.wave.2.fill",
                 offIcon: "speaker.slash",
-                tooltip: systemAudio ? "System audio on" : "System audio off",
                 accessibility: systemAudio
                     ? "System audio on — click to stop capturing what you hear"
                     : "System audio off — click to capture what you hear"
@@ -98,12 +89,10 @@ struct RecordingPickerControls: View {
             }
 
             inputToggle(
-                id: .teleprompter,
                 title: "Script",
                 isOn: teleprompterEnabled,
                 onIcon: "text.line.first.and.arrowtriangle.forward",
                 offIcon: "text.line.first.and.arrowtriangle.forward",
-                tooltip: teleprompterEnabled ? "Teleprompter on" : "Teleprompter off",
                 accessibility: teleprompterEnabled
                     ? "Teleprompter on — click to edit the script"
                     : "Teleprompter off — click to write a script"
@@ -114,12 +103,9 @@ struct RecordingPickerControls: View {
             timerMenu
 
             BarActionButton(
-                id: .close,
                 title: "Close",
                 systemImage: "xmark",
-                tooltip: "Close",
-                accessibility: "Close the recorder — Esc",
-                model: tooltip
+                accessibility: "Close the recorder — Esc"
             ) {
                 dismissPicker()
             }
@@ -148,20 +134,12 @@ struct RecordingPickerControls: View {
             .menuStyle(.button)
             .buttonStyle(.plain)
             .menuIndicator(.hidden)
-            .barTooltip(
-                .display,
-                "Pick a screen to record",
-                accessibility: "Display — choose which screen to record",
-                model: tooltip
-            )
+            .accessibilityLabel("Display — choose which screen to record")
         } else {
             BarActionButton(
-                id: .display,
                 title: "Display",
                 systemImage: "menubar.rectangle",
-                tooltip: "Record the whole screen",
-                accessibility: "Display — record the whole screen",
-                model: tooltip
+                accessibility: "Display — record the whole screen"
             ) {
                 guard let display = sources.displays.first else { return }
                 startRecording {
@@ -197,12 +175,7 @@ struct RecordingPickerControls: View {
         .menuStyle(.button)
         .buttonStyle(.plain)
         .menuIndicator(.hidden)
-        .barTooltip(
-            .window,
-            "Pick an app window",
-            accessibility: "Window — choose an app window to record",
-            model: tooltip
-        )
+        .accessibilityLabel("Window — choose an app window to record")
     }
 
     private func startAreaRecording() {
@@ -251,17 +224,6 @@ struct RecordingPickerControls: View {
             return "Camera unavailable — right-click to choose another camera"
         }
         return "Camera on — \(camera.localizedName), right-click to switch"
-    }
-
-    /// The pill only has room for the state, so an attached-but-missing
-    /// device is worth calling out there — it's the one case where the icon
-    /// alone is misleading.
-    private var microphoneTooltip: String {
-        guard !microphoneID.isEmpty else { return "Microphone off" }
-        guard RecordingDeviceCatalog.microphone(withID: microphoneID) != nil else {
-            return "Microphone unavailable"
-        }
-        return "Microphone on"
     }
 
     private var microphoneAccessibilityLabel: String {
@@ -323,12 +285,7 @@ struct RecordingPickerControls: View {
         .menuStyle(.button)
         .buttonStyle(.plain)
         .menuIndicator(.hidden)
-        .barTooltip(
-            .microphone,
-            microphoneTooltip,
-            accessibility: microphoneAccessibilityLabel,
-            model: tooltip
-        )
+        .accessibilityLabel(microphoneAccessibilityLabel)
     }
 
     /// Replaces the old gear button that opened Settings: a self-contained
@@ -353,20 +310,11 @@ struct RecordingPickerControls: View {
         .menuStyle(.button)
         .buttonStyle(.plain)
         .menuIndicator(.hidden)
-        .barTooltip(
-            .timer,
-            timerTooltip,
-            accessibility: timerAccessibilityLabel,
-            model: tooltip
-        )
+        .accessibilityLabel(timerAccessibilityLabel)
     }
 
     private func timerLabel(_ seconds: Int) -> String {
         seconds == 0 ? "None" : "\(seconds) second\(seconds == 1 ? "" : "s")"
-    }
-
-    private var timerTooltip: String {
-        startDelaySeconds == 0 ? "Timer off" : "Timer \(startDelaySeconds)s"
     }
 
     private var timerAccessibilityLabel: String {
@@ -417,23 +365,18 @@ struct RecordingPickerControls: View {
     /// An input toggle is the same control as a source button — the "off"
     /// state is carried by dimming the tint, not by shrinking the target.
     private func inputToggle(
-        id: BarTooltipID,
         title: String,
         isOn: Bool,
         onIcon: String,
         offIcon: String,
-        tooltip text: String,
         accessibility: String,
         action: @escaping () -> Void
     ) -> some View {
         BarActionButton(
-            id: id,
             title: title,
             systemImage: isOn ? onIcon : offIcon,
             tint: isOn ? .white : BarMetrics.inactiveTint,
-            tooltip: text,
             accessibility: accessibility,
-            model: tooltip,
             action: action
         )
     }
