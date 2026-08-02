@@ -48,7 +48,8 @@ struct RecordingSessionControls: View {
             BarDivider()
 
             BarActionButton(
-                title: isPaused ? "Resume" : "Pause",
+                id: .pauseResume,
+                title: isPaused ? "Resume recording" : "Pause recording",
                 systemImage: isPaused ? "play.fill" : "pause.fill"
             ) {
                 if isPaused {
@@ -60,7 +61,8 @@ struct RecordingSessionControls: View {
             .disabled(isSettling)
 
             BarActionButton(
-                title: "Restart",
+                id: .restart,
+                title: "Start over",
                 systemImage: "arrow.counterclockwise",
                 accessibility: "Restart — discard what's recorded and start again"
             ) {
@@ -69,7 +71,8 @@ struct RecordingSessionControls: View {
             .disabled(isSettling)
 
             BarActionButton(
-                title: "Stop",
+                id: .stop,
+                title: "Stop and save",
                 systemImage: "stop.fill",
                 tint: BarMetrics.recordTint,
                 accessibility: "Stop and save the recording"
@@ -79,7 +82,8 @@ struct RecordingSessionControls: View {
             .disabled(isSettling)
 
             BarActionButton(
-                title: "Discard",
+                id: .discard,
+                title: "Discard recording",
                 systemImage: "trash.fill",
                 accessibility: "Discard — delete this recording without saving"
             ) {
@@ -104,9 +108,9 @@ struct RecordingSessionControls: View {
                 // doesn't nudge the whole bar sideways.
                 .frame(minWidth: 56, alignment: .leading)
         }
-        .padding(.leading, 10)
-        .padding(.trailing, 4)
-        .frame(height: 46)
+        .padding(.leading, 8)
+        .padding(.trailing, 2)
+        .frame(height: BarMetrics.controlSize)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(
             isPaused

@@ -82,6 +82,9 @@ final class RecordingBarPresenter {
     }
 
     func hide() {
+        // `orderOut` sends no exit events, so a hover that's live when the
+        // bar hides has to be ended by hand — it holds the pointing hand.
+        BarControlHoverView.endActiveHover()
         panel?.orderOut(nil)
         // The composer only makes sense floating above the bar.
         TeleprompterComposerPresenter.shared.hide()
@@ -170,6 +173,16 @@ final class RecordingBarPresenter {
         panel.level = .floating
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isMovableByWindowBackground = true
+        // The controls track hover themselves so they still highlight while
+        // Screendrop is in the background, which is the whole time a recording
+        // is running. Their tracking areas need the moved events.
+        panel.acceptsMouseMovedEvents = true
+        // Nothing in the bar wants a cursor other than the pointing hand its
+        // controls push. Left on, AppKit's own cursor rectangles reset the
+        // pointer to an arrow on every mouse move the moment Screendrop is
+        // the active app — which it is whenever the picker is opened from
+        // inside the app.
+        panel.disableCursorRects()
         panel.titleVisibility = .hidden
         panel.titlebarAppearsTransparent = true
         PreviewWindowCaptureExclusion.shared.register(window: panel)
@@ -237,17 +250,18 @@ private final class RecordingBarHostingView<Content: View>: NSHostingView<Conten
 
 private struct RecordingBarView: View {
     @State private var presenter = RecordingBarPresenter.shared
-
-    private static let panelSpace = "recordingBarPanel"
+    @State private var tooltip = BarTooltipModel()
 
     var body: some View {
         bar
-            // The panel is a fixed size both modes sit centred inside, so a
-            // morph only ever changes the bar's own width — never the
-            // window's. Its height is the bar plus equal shadow slack top and
-            // bottom, so centring lands the bar exactly where it belongs.
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .coordinateSpace(.named(Self.panelSpace))
+            // The panel is a fixed size both modes sit inside, so a morph only
+            // ever changes the bar's own width — never the window's. The bar
+            // sits at the bottom: the slack above it is the tooltip's room,
+            // the slack below is the shadow's.
+            .padding(.bottom, BarMetrics.shadowSlack)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+            .coordinateSpace(.named(BarCoordinateSpace.panel))
+            .environment(tooltip)
     }
 
     private var bar: some View {
@@ -273,13 +287,36 @@ private struct RecordingBarView: View {
         .overlay {
             barShape.strokeBorder(BarMetrics.edge, lineWidth: 0.5)
         }
+        .coordinateSpace(.named(BarCoordinateSpace.bar))
+        .overlay(tooltipLayer)
         // What the hosting view hit-tests against and what satellite windows
         // anchor to — the bar, not the panel it floats in.
         .onGeometryChange(for: CGRect.self) {
-            $0.frame(in: .named(Self.panelSpace))
+            $0.frame(in: .named(BarCoordinateSpace.panel))
         } action: {
             presenter.barFrameInPanel = $0
         }
+    }
+
+    /// Positioned off the hovered control's measured frame rather than a
+    /// hardcoded index, so it keeps tracking when the bar's contents change —
+    /// a mode swap, or the display picker becoming a menu on a second monitor.
+    private var tooltipLayer: some View {
+        GeometryReader { _ in
+            if let target = tooltip.visible {
+                BarTooltipPill(text: target.text)
+                    .position(
+                        x: target.frame.midX,
+                        y: -(BarTooltip.gap + BarTooltip.pillHeight / 2)
+                    )
+            }
+        }
+        .allowsHitTesting(false)
+        // Keyed on the id as well as the text so sliding the pointer along
+        // the bar glides the pill from control to control rather than
+        // cross-fading it in place.
+        .animation(.easeOut(duration: 0.12), value: tooltip.visible?.id)
+        .animation(.easeOut(duration: 0.12), value: tooltip.visible?.text)
     }
 
     private var barShape: RoundedRectangle {

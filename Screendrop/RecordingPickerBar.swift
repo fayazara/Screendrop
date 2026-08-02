@@ -52,7 +52,8 @@ struct RecordingPickerControls: View {
             displaySource
             windowSource
             BarActionButton(
-                title: "Area",
+                id: .area,
+                title: "Drag to select a region",
                 systemImage: "rectangle.dashed",
                 accessibility: "Area — drag to select the region to record"
             ) {
@@ -62,7 +63,8 @@ struct RecordingPickerControls: View {
             BarDivider()
 
             inputToggle(
-                title: "Camera",
+                id: .camera,
+                title: cameraID.isEmpty ? "Camera off" : "Camera on",
                 isOn: !cameraID.isEmpty,
                 onIcon: "video.fill",
                 offIcon: "video.slash",
@@ -77,7 +79,8 @@ struct RecordingPickerControls: View {
             microphonePicker
 
             inputToggle(
-                title: "System",
+                id: .systemAudio,
+                title: systemAudio ? "System audio on" : "System audio off",
                 isOn: systemAudio,
                 onIcon: "speaker.wave.2.fill",
                 offIcon: "speaker.slash",
@@ -89,10 +92,11 @@ struct RecordingPickerControls: View {
             }
 
             inputToggle(
-                title: "Script",
+                id: .teleprompter,
+                title: teleprompterEnabled ? "Teleprompter on" : "Teleprompter off",
                 isOn: teleprompterEnabled,
-                onIcon: "text.line.first.and.arrowtriangle.forward",
-                offIcon: "text.line.first.and.arrowtriangle.forward",
+                onIcon: "text.pad.header",
+                offIcon: "text.pad.header",
                 accessibility: teleprompterEnabled
                     ? "Teleprompter on — click to edit the script"
                     : "Teleprompter off — click to write a script"
@@ -103,6 +107,7 @@ struct RecordingPickerControls: View {
             timerMenu
 
             BarActionButton(
+                id: .close,
                 title: "Close",
                 systemImage: "xmark",
                 accessibility: "Close the recorder — Esc"
@@ -129,7 +134,11 @@ struct RecordingPickerControls: View {
                     }
                 }
             } label: {
-                BarActionLabel(title: "Display", systemImage: "menubar.rectangle")
+                BarActionLabel(
+                    id: .display,
+                    title: "Pick a screen to record",
+                    systemImage: "menubar.rectangle"
+                )
             }
             .menuStyle(.button)
             .buttonStyle(BarButtonStyle())
@@ -137,7 +146,8 @@ struct RecordingPickerControls: View {
             .accessibilityLabel("Display — choose which screen to record")
         } else {
             BarActionButton(
-                title: "Display",
+                id: .display,
+                title: "Record the whole screen",
                 systemImage: "menubar.rectangle",
                 accessibility: "Display — record the whole screen"
             ) {
@@ -170,7 +180,11 @@ struct RecordingPickerControls: View {
                 }
             }
         } label: {
-            BarActionLabel(title: "Window", systemImage: "macwindow")
+            BarActionLabel(
+                id: .window,
+                title: "Pick an app window",
+                systemImage: "macwindow"
+            )
         }
         .menuStyle(.button)
         .buttonStyle(BarButtonStyle())
@@ -226,6 +240,17 @@ struct RecordingPickerControls: View {
         return "Camera on — \(camera.localizedName), right-click to switch"
     }
 
+    /// The pill only has room for the state, so an attached-but-missing
+    /// device is worth calling out there — it's the one case where the icon
+    /// alone is misleading.
+    private var microphoneTooltip: String {
+        guard !microphoneID.isEmpty else { return "Microphone off" }
+        guard RecordingDeviceCatalog.microphone(withID: microphoneID) != nil else {
+            return "Microphone unavailable"
+        }
+        return "Microphone on"
+    }
+
     private var microphoneAccessibilityLabel: String {
         guard !microphoneID.isEmpty else {
             return "Microphone off — click to choose an input"
@@ -277,7 +302,8 @@ struct RecordingPickerControls: View {
             }
         } label: {
             BarActionLabel(
-                title: "Mic",
+                id: .microphone,
+                title: microphoneTooltip,
                 systemImage: microphoneID.isEmpty ? "mic.slash" : "mic.fill",
                 tint: microphoneID.isEmpty ? BarMetrics.inactiveTint : BarMetrics.activeTint
             )
@@ -302,7 +328,8 @@ struct RecordingPickerControls: View {
             }
         } label: {
             BarActionLabel(
-                title: "Timer",
+                id: .timer,
+                title: timerTooltip,
                 systemImage: "timer",
                 tint: startDelaySeconds == 0 ? BarMetrics.inactiveTint : BarMetrics.activeTint
             )
@@ -315,6 +342,10 @@ struct RecordingPickerControls: View {
 
     private func timerLabel(_ seconds: Int) -> String {
         seconds == 0 ? "None" : "\(seconds) second\(seconds == 1 ? "" : "s")"
+    }
+
+    private var timerTooltip: String {
+        startDelaySeconds == 0 ? "Timer off" : "Timer \(startDelaySeconds)s"
     }
 
     private var timerAccessibilityLabel: String {
@@ -365,6 +396,7 @@ struct RecordingPickerControls: View {
     /// An input toggle is the same control as a source button — the "off"
     /// state is carried by dimming the tint, not by shrinking the target.
     private func inputToggle(
+        id: BarTooltipID,
         title: String,
         isOn: Bool,
         onIcon: String,
@@ -373,6 +405,7 @@ struct RecordingPickerControls: View {
         action: @escaping () -> Void
     ) -> some View {
         BarActionButton(
+            id: id,
             title: title,
             systemImage: isOn ? onIcon : offIcon,
             tint: isOn ? BarMetrics.activeTint : BarMetrics.inactiveTint,
