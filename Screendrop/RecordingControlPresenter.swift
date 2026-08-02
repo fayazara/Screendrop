@@ -4,164 +4,127 @@
 //
 //  Created by Codex on 01/05/26.
 //
+//  The in-session mode of the floating bar: elapsed time and the transport
+//  controls for the recording that's running. It shares its panel and chrome
+//  with the pre-record picker (RecordingPickerBar), so starting a recording
+//  morphs one into the other instead of swapping windows.
+//
 
 import AppKit
 import SwiftUI
 
+/// Retained as the entry point callers already use; the bar itself is owned
+/// by RecordingBarPresenter.
 @MainActor
-final class RecordingControlPresenter {
-    static let shared = RecordingControlPresenter()
+enum RecordingControlPresenter {
+    static var shared: RecordingBarPresenter { RecordingBarPresenter.shared }
+}
 
-    private let panelSize = CGSize(width: 252, height: 46)
-    private var panel: NSPanel?
-
-    private init() {}
-
+extension RecordingBarPresenter {
     func show(displayID: CGDirectDisplayID?) {
-        let panel = panel ?? makePanel()
-        PreviewWindowCaptureExclusion.shared.register(window: panel)
-        positionPanel(panel, displayID: displayID)
-        panel.orderFrontRegardless()
-    }
-
-    func hide() {
-        panel?.orderOut(nil)
-    }
-
-    func containsScreenPoint(_ point: CGPoint) -> Bool {
-        guard let panel, panel.isVisible else { return false }
-
-        return panel.frame.contains(point)
-    }
-
-    private func makePanel() -> NSPanel {
-        let panel = RecordingControlPanel(
-            contentRect: CGRect(origin: .zero, size: panelSize),
-            styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
-            backing: .buffered,
-            defer: false
-        )
-
-        panel.backgroundColor = .clear
-        panel.isOpaque = false
-        panel.hasShadow = false
-        panel.hidesOnDeactivate = false
-        panel.isFloatingPanel = true
-        panel.isReleasedWhenClosed = false
-        panel.level = .floating
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        panel.isMovableByWindowBackground = true
-        panel.titleVisibility = .hidden
-        panel.titlebarAppearsTransparent = true
-        PreviewWindowCaptureExclusion.shared.register(window: panel)
-        let hostingView = RecordingControlHostingView(rootView: RecordingControlView())
-        hostingView.frame = CGRect(origin: .zero, size: panelSize)
-        hostingView.autoresizingMask = [.width, .height]
-        hostingView.wantsLayer = true
-        hostingView.layer?.backgroundColor = NSColor.clear.cgColor
-        hostingView.layer?.isOpaque = false
-        panel.contentView = hostingView
-        panel.contentView?.superview?.wantsLayer = true
-        panel.contentView?.superview?.layer?.backgroundColor = NSColor.clear.cgColor
-        panel.contentView?.superview?.layer?.isOpaque = false
-
-        self.panel = panel
-        return panel
-    }
-
-    private func positionPanel(_ panel: NSPanel, displayID: CGDirectDisplayID?) {
-        let screen = ActiveDisplayResolver.screen(for: displayID) ?? NSScreen.main
-        let visibleFrame = screen?.visibleFrame ?? CGRect(x: 0, y: 0, width: 800, height: 600)
-        let origin = CGPoint(x: visibleFrame.midX - panelSize.width / 2, y: visibleFrame.minY + 60)
-        panel.setFrame(CGRect(origin: origin, size: panelSize), display: true)
+        showRecording(displayID: displayID)
     }
 }
 
-private final class RecordingControlPanel: NSPanel {
-    override var canBecomeKey: Bool {
-        true
-    }
+// MARK: - Controls
 
-    override var canBecomeMain: Bool {
-        false
-    }
-}
+struct RecordingSessionControls: View {
+    let tooltip: BarTooltipModel
 
-private final class RecordingControlHostingView<Content: View>: NSHostingView<Content> {
-    override var isOpaque: Bool {
-        false
-    }
-}
-
-private struct RecordingControlView: View {
     @State private var manager = ScreenRecordingManager.shared
 
+    private var isPaused: Bool {
+        manager.state == .paused
+    }
+
+    /// Starting and finishing are both moments where the transport can't
+    /// safely be driven — the capture graph is being wired up or torn down.
+    private var isSettling: Bool {
+        manager.state == .starting || manager.state == .finishing
+    }
+
     var body: some View {
-        HStack(spacing: 4) {
-            Circle()
-                .fill(.red)
-                .frame(width: 6, height: 6)
-                .opacity(manager.state == .paused ? 0.4 : 1)
-                .padding(.leading, 6)
-                .padding(.trailing, 2)
+        HStack(spacing: BarMetrics.itemSpacing) {
+            elapsed
 
-            Text(manager.formattedElapsedTime)
-                .font(.system(.caption, design: .monospaced, weight: .medium))
-                .foregroundStyle(.primary)
-                .frame(minWidth: 40, alignment: .leading)
+            BarDivider()
 
-            Divider()
-                .frame(height: 14)
-                .padding(.horizontal, 2)
-
-            controlButton(
-                systemImage: manager.state == .paused ? "play.fill" : "pause.fill",
-                help: manager.state == .paused ? "Resume recording" : "Pause recording"
+            BarActionButton(
+                id: .pauseResume,
+                title: isPaused ? "Resume" : "Pause",
+                systemImage: isPaused ? "play.fill" : "pause.fill",
+                tooltip: isPaused ? "Resume recording" : "Pause recording",
+                model: tooltip
             ) {
-                if manager.state == .paused {
+                if isPaused {
                     manager.resumeRecording()
                 } else {
                     manager.pauseRecording()
                 }
             }
-            .disabled(manager.state == .starting || manager.state == .finishing)
+            .disabled(isSettling)
 
-            controlButton(systemImage: "arrow.counterclockwise", help: "Restart recording") {
+            BarActionButton(
+                id: .restart,
+                title: "Restart",
+                systemImage: "arrow.counterclockwise",
+                tooltip: "Start over",
+                accessibility: "Restart — discard what's recorded and start again",
+                model: tooltip
+            ) {
                 manager.restartRecording()
             }
-            .disabled(manager.state == .starting || manager.state == .finishing)
+            .disabled(isSettling)
 
-            controlButton(systemImage: "stop.fill", help: "Stop recording") {
+            BarActionButton(
+                id: .stop,
+                title: "Stop",
+                systemImage: "stop.fill",
+                tint: Color(red: 1, green: 0.35, blue: 0.32),
+                tooltip: "Stop and save",
+                model: tooltip
+            ) {
                 manager.stopRecording()
             }
-            .disabled(manager.state == .starting || manager.state == .finishing)
+            .disabled(isSettling)
 
-            controlButton(systemImage: "trash.fill", help: "Delete recording") {
+            BarActionButton(
+                id: .discard,
+                title: "Discard",
+                systemImage: "trash.fill",
+                tooltip: "Discard recording",
+                accessibility: "Discard — delete this recording without saving",
+                model: tooltip
+            ) {
                 manager.deleteRecording()
             }
             .disabled(manager.state == .starting)
         }
-        .padding(.horizontal, 6)
-        .frame(height: 38)
-        .background(Color(white: 0.18))
-        .clipShape(RoundedRectangle(cornerRadius: 19, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 19, style: .continuous)
-                .stroke(Color.white.opacity(0.5), lineWidth: 1)
-        }
-        .padding(4)
-        .preferredColorScheme(.dark)
     }
 
-    private func controlButton(systemImage: String, help: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: systemImage)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(systemImage == "stop.fill" ? .red : .primary)
-                .frame(width: 28, height: 28)
-                .contentShape(Rectangle())
+    private var elapsed: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(Color(red: 1, green: 0.27, blue: 0.23))
+                .frame(width: 8, height: 8)
+                .opacity(isPaused ? 0.35 : 1)
+
+            Text(manager.formattedElapsedTime)
+                .font(.system(size: 16, weight: .medium, design: .monospaced))
+                .monospacedDigit()
+                .foregroundStyle(.white)
+                // Fixed width so the clock ticking over from 9:59 to 10:00
+                // doesn't nudge the whole bar sideways.
+                .frame(minWidth: 56, alignment: .leading)
         }
-        .buttonStyle(.plain)
-        .help(help)
+        .padding(.leading, 10)
+        .padding(.trailing, 4)
+        .frame(height: 46)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(
+            isPaused
+                ? "Recording paused at \(manager.formattedElapsedTime)"
+                : "Recording, \(manager.formattedElapsedTime) elapsed"
+        )
     }
 }
