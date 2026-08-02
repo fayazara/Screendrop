@@ -68,6 +68,7 @@ struct RecordingPickerControls: View {
 
             inputToggle(
                 id: .camera,
+                title: "Camera",
                 isOn: !cameraID.isEmpty,
                 onIcon: "video.fill",
                 offIcon: "video.slash",
@@ -84,6 +85,7 @@ struct RecordingPickerControls: View {
 
             inputToggle(
                 id: .systemAudio,
+                title: "System",
                 isOn: systemAudio,
                 onIcon: "speaker.wave.2.fill",
                 offIcon: "speaker.slash",
@@ -97,6 +99,7 @@ struct RecordingPickerControls: View {
 
             inputToggle(
                 id: .teleprompter,
+                title: "Script",
                 isOn: teleprompterEnabled,
                 onIcon: "text.line.first.and.arrowtriangle.forward",
                 offIcon: "text.line.first.and.arrowtriangle.forward",
@@ -110,11 +113,13 @@ struct RecordingPickerControls: View {
 
             timerMenu
 
-            iconButton(
+            BarActionButton(
                 id: .close,
+                title: "Close",
                 systemImage: "xmark",
                 tooltip: "Close",
-                accessibility: "Close the recorder — Esc"
+                accessibility: "Close the recorder — Esc",
+                model: tooltip
             ) {
                 dismissPicker()
             }
@@ -309,9 +314,10 @@ struct RecordingPickerControls: View {
                 }
             }
         } label: {
-            BarToggleLabel(
+            BarActionLabel(
+                title: "Mic",
                 systemImage: microphoneID.isEmpty ? "mic.slash" : "mic.fill",
-                isOn: !microphoneID.isEmpty
+                tint: microphoneID.isEmpty ? BarMetrics.inactiveTint : .white
             )
         }
         .menuStyle(.button)
@@ -338,7 +344,11 @@ struct RecordingPickerControls: View {
                 }
             }
         } label: {
-            BarToggleLabel(systemImage: "timer", isOn: startDelaySeconds != 0)
+            BarActionLabel(
+                title: "Timer",
+                systemImage: "timer",
+                tint: startDelaySeconds == 0 ? BarMetrics.inactiveTint : .white
+            )
         }
         .menuStyle(.button)
         .buttonStyle(.plain)
@@ -404,8 +414,11 @@ struct RecordingPickerControls: View {
 
     // MARK: Pieces
 
+    /// An input toggle is the same control as a source button — the "off"
+    /// state is carried by dimming the tint, not by shrinking the target.
     private func inputToggle(
         id: BarTooltipID,
+        title: String,
         isOn: Bool,
         onIcon: String,
         offIcon: String,
@@ -413,34 +426,15 @@ struct RecordingPickerControls: View {
         accessibility: String,
         action: @escaping () -> Void
     ) -> some View {
-        Button {
-            tooltip.dismiss()
-            action()
-        } label: {
-            BarToggleLabel(systemImage: isOn ? onIcon : offIcon, isOn: isOn)
-        }
-        .buttonStyle(.plain)
-        .barTooltip(id, text, accessibility: accessibility, model: tooltip)
-    }
-
-    private func iconButton(
-        id: BarTooltipID,
-        systemImage: String,
-        tooltip text: String,
-        accessibility: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button {
-            tooltip.dismiss()
-            action()
-        } label: {
-            Image(systemName: systemImage)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.85))
-                .frame(width: 30, height: 30)
-                .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .barTooltip(id, text, accessibility: accessibility, model: tooltip)
+        BarActionButton(
+            id: id,
+            title: title,
+            systemImage: isOn ? onIcon : offIcon,
+            tint: isOn ? .white : BarMetrics.inactiveTint,
+            tooltip: text,
+            accessibility: accessibility,
+            model: tooltip,
+            action: action
+        )
     }
 }

@@ -26,11 +26,14 @@ enum BarMetrics {
     /// morphing between them never resizes the window — only the bar's own
     /// rounded rect animates. Wide enough for the widest mode plus the room a
     /// tooltip needs beyond the end controls.
-    static let panelWidth: CGFloat = 720
+    static let panelWidth: CGFloat = 820
     static var panelHeight: CGFloat { BarTooltip.reservedHeight + height + shadowSlack }
 
     static let fill = Color(white: 0.14).opacity(0.97)
     static let stroke = Color.white.opacity(0.14)
+    /// A control that's off is dimmed, never shrunk — the target stays the
+    /// same size whichever state it's in.
+    static let inactiveTint = Color.white.opacity(0.35)
 
     /// The morph between modes. Enough travel to read as one bar changing
     /// shape rather than two bars swapping.
@@ -251,21 +254,6 @@ struct BarActionButton: View {
         }
         .buttonStyle(.plain)
         .barTooltip(id, tooltip, accessibility: accessibility, model: model)
-    }
-}
-
-/// The bar's secondary control: an icon-only toggle for state that the
-/// adjacent labelled controls already give context to.
-struct BarToggleLabel: View {
-    let systemImage: String
-    let isOn: Bool
-
-    var body: some View {
-        Image(systemName: systemImage)
-            .font(.system(size: 14, weight: .medium))
-            .foregroundStyle(isOn ? Color.white : Color.white.opacity(0.35))
-            .frame(width: 34, height: 34)
-            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }
 
