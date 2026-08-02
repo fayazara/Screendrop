@@ -132,7 +132,7 @@ struct RecordingPickerControls: View {
                 BarActionLabel(title: "Display", systemImage: "menubar.rectangle")
             }
             .menuStyle(.button)
-            .buttonStyle(.plain)
+            .buttonStyle(BarButtonStyle())
             .menuIndicator(.hidden)
             .accessibilityLabel("Display — choose which screen to record")
         } else {
@@ -173,7 +173,7 @@ struct RecordingPickerControls: View {
             BarActionLabel(title: "Window", systemImage: "macwindow")
         }
         .menuStyle(.button)
-        .buttonStyle(.plain)
+        .buttonStyle(BarButtonStyle())
         .menuIndicator(.hidden)
         .accessibilityLabel("Window — choose an app window to record")
     }
@@ -279,11 +279,11 @@ struct RecordingPickerControls: View {
             BarActionLabel(
                 title: "Mic",
                 systemImage: microphoneID.isEmpty ? "mic.slash" : "mic.fill",
-                tint: microphoneID.isEmpty ? BarMetrics.inactiveTint : .white
+                tint: microphoneID.isEmpty ? BarMetrics.inactiveTint : BarMetrics.activeTint
             )
         }
         .menuStyle(.button)
-        .buttonStyle(.plain)
+        .buttonStyle(BarButtonStyle())
         .menuIndicator(.hidden)
         .accessibilityLabel(microphoneAccessibilityLabel)
     }
@@ -304,11 +304,11 @@ struct RecordingPickerControls: View {
             BarActionLabel(
                 title: "Timer",
                 systemImage: "timer",
-                tint: startDelaySeconds == 0 ? BarMetrics.inactiveTint : .white
+                tint: startDelaySeconds == 0 ? BarMetrics.inactiveTint : BarMetrics.activeTint
             )
         }
         .menuStyle(.button)
-        .buttonStyle(.plain)
+        .buttonStyle(BarButtonStyle())
         .menuIndicator(.hidden)
         .accessibilityLabel(timerAccessibilityLabel)
     }
@@ -375,7 +375,7 @@ struct RecordingPickerControls: View {
         BarActionButton(
             title: title,
             systemImage: isOn ? onIcon : offIcon,
-            tint: isOn ? .white : BarMetrics.inactiveTint,
+            tint: isOn ? BarMetrics.activeTint : BarMetrics.inactiveTint,
             accessibility: accessibility,
             action: action
         )

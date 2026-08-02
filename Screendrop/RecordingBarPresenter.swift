@@ -248,7 +248,6 @@ private struct RecordingBarView: View {
             // bottom, so centring lands the bar exactly where it belongs.
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .coordinateSpace(.named(Self.panelSpace))
-            .preferredColorScheme(.dark)
     }
 
     private var bar: some View {
@@ -266,13 +265,14 @@ private struct RecordingBarView: View {
         .transition(.asymmetric(insertion: .opacity, removal: .identity))
         .padding(.horizontal, BarMetrics.horizontalPadding)
         .frame(height: BarMetrics.height)
-        .background(BarMetrics.fill)
-        .clipShape(RoundedRectangle(cornerRadius: BarMetrics.cornerRadius, style: .continuous))
+        // Clipped to the same shape the glass takes, so a morph reveals and
+        // hides the controls behind the narrowing edge instead of letting
+        // them spill past it.
+        .clipShape(barShape)
+        .glassEffect(.regular, in: barShape)
         .overlay {
-            RoundedRectangle(cornerRadius: BarMetrics.cornerRadius, style: .continuous)
-                .strokeBorder(BarMetrics.stroke, lineWidth: 1)
+            barShape.strokeBorder(BarMetrics.edge, lineWidth: 0.5)
         }
-        .shadow(color: .black.opacity(0.4), radius: 16, y: 5)
         // What the hosting view hit-tests against and what satellite windows
         // anchor to — the bar, not the panel it floats in.
         .onGeometryChange(for: CGRect.self) {
@@ -280,5 +280,9 @@ private struct RecordingBarView: View {
         } action: {
             presenter.barFrameInPanel = $0
         }
+    }
+
+    private var barShape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: BarMetrics.cornerRadius, style: .continuous)
     }
 }

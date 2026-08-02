@@ -14,6 +14,7 @@ struct AnnotationBackgroundSettings: Equatable {
     var padding: CGFloat = 0.08
     var cornerRadius: CGFloat = 0.018
     var shadow: CGFloat = 0.36
+    var shadowStyle: AnnotationShadowStyle = .soft
     var border = AnnotationScreenshotBorderSettings()
     var aspectRatio: AnnotationBackgroundAspectRatio = .auto
     var alignment: AnnotationBackgroundAlignment = .center

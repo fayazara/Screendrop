@@ -571,34 +571,30 @@ struct AnnotationCanvas: View {
         imageCornerRadii: RectangleCornerRadii
     ) -> some View {
         let settings = model.backgroundSettings
-        let shadowOpacity = Double(settings.shadow) * 0.50
-        let shadowRadius = 16 + settings.shadow * 40
-        let shadowOffset = 8 + settings.shadow * 26
         let castsShadow = settings.isEnabled || settings.camera.hasEffect
 
         if settings.border.isVisible, geometry.borderWidth > 0 {
             let cardCornerRadii = swiftUICornerRadii(geometry.cardCornerRadii)
-            UnevenRoundedRectangle(cornerRadii: cardCornerRadii, style: .continuous)
-                .fill(settings.border.color.color.opacity(min(max(settings.border.opacity, 0), 1)))
-                .frame(width: geometry.cardRect.width, height: geometry.cardRect.height)
-                .position(x: geometry.cardRect.midX, y: geometry.cardRect.midY)
-                .shadow(
-                    color: .black.opacity(castsShadow ? shadowOpacity : 0),
-                    radius: shadowRadius,
-                    x: 0,
-                    y: shadowOffset
+            ZStack {
+                AnnotationCardShadowBackdrop(
+                    cornerRadii: cardCornerRadii,
+                    size: geometry.cardRect.size,
+                    strength: castsShadow ? settings.shadow : 0,
+                    style: settings.shadowStyle
                 )
-        } else if (settings.isEnabled || settings.camera.hasEffect) && shadowOpacity > 0 {
-            UnevenRoundedRectangle(cornerRadii: imageCornerRadii, style: .continuous)
-                .fill(Color.black.opacity(0.18))
-                .frame(width: geometry.imageRect.width, height: geometry.imageRect.height)
-                .position(x: geometry.imageRect.midX, y: geometry.imageRect.midY)
-                .shadow(
-                    color: .black.opacity(shadowOpacity),
-                    radius: shadowRadius,
-                    x: 0,
-                    y: shadowOffset
-                )
+                UnevenRoundedRectangle(cornerRadii: cardCornerRadii, style: .continuous)
+                    .fill(settings.border.color.color.opacity(min(max(settings.border.opacity, 0), 1)))
+            }
+            .frame(width: geometry.cardRect.width, height: geometry.cardRect.height)
+            .position(x: geometry.cardRect.midX, y: geometry.cardRect.midY)
+        } else if castsShadow {
+            AnnotationCardShadowBackdrop(
+                cornerRadii: imageCornerRadii,
+                size: geometry.imageRect.size,
+                strength: settings.shadow,
+                style: settings.shadowStyle
+            )
+            .position(x: geometry.imageRect.midX, y: geometry.imageRect.midY)
         }
     }
 

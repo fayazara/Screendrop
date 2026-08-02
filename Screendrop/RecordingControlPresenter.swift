@@ -71,7 +71,7 @@ struct RecordingSessionControls: View {
             BarActionButton(
                 title: "Stop",
                 systemImage: "stop.fill",
-                tint: Color(red: 1, green: 0.35, blue: 0.32),
+                tint: BarMetrics.recordTint,
                 accessibility: "Stop and save the recording"
             ) {
                 manager.stopRecording()
@@ -92,14 +92,14 @@ struct RecordingSessionControls: View {
     private var elapsed: some View {
         HStack(spacing: 8) {
             Circle()
-                .fill(Color(red: 1, green: 0.27, blue: 0.23))
+                .fill(BarMetrics.recordTint)
                 .frame(width: 8, height: 8)
                 .opacity(isPaused ? 0.35 : 1)
 
             Text(manager.formattedElapsedTime)
                 .font(.system(size: 16, weight: .medium, design: .monospaced))
                 .monospacedDigit()
-                .foregroundStyle(.white)
+                .foregroundStyle(BarMetrics.activeTint)
                 // Fixed width so the clock ticking over from 9:59 to 10:00
                 // doesn't nudge the whole bar sideways.
                 .frame(minWidth: 56, alignment: .leading)

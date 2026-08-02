@@ -189,14 +189,15 @@ nonisolated enum AnnotationBackgroundRenderer {
             let opacity = min(max(settings.border.opacity, 0), 1)
                 * min(max(settings.border.color.alpha, 0), 1)
 
-            context.saveGState()
-            if castsShadow, settings.shadow > 0 {
-                configureShadow(
+            if castsShadow {
+                drawShadow(
                     path: geometry.cardPath,
                     strength: settings.shadow,
+                    style: settings.shadowStyle,
                     context: context
                 )
             }
+            context.saveGState()
             context.setFillColor(
                 settings.border.color.nsColor.withAlphaComponent(opacity).cgColor
             )
@@ -207,6 +208,7 @@ nonisolated enum AnnotationBackgroundRenderer {
             drawShadow(
                 path: geometry.imagePath,
                 strength: settings.shadow,
+                style: settings.shadowStyle,
                 context: context
             )
         }
@@ -413,36 +415,41 @@ nonisolated enum AnnotationBackgroundRenderer {
         context.stroke(rect.insetBy(dx: 8, dy: 8))
     }
 
+    /// Paints the shadow without laying any ink inside the card: the fill is
+    /// clipped away so only the spill survives. That keeps translucent borders
+    /// and screenshots with alpha from being backed by black.
     private static func drawShadow(
         path: CGPath,
         strength: CGFloat,
-        context: CGContext
-    ) {
-        guard strength > 0 else { return }
-
-        context.saveGState()
-        configureShadow(path: path, strength: strength, context: context)
-        context.setFillColor(NSColor.black.cgColor)
-        context.addPath(path)
-        context.fillPath()
-        context.restoreGState()
-    }
-
-    private static func configureShadow(
-        path: CGPath,
-        strength: CGFloat,
+        style: AnnotationShadowStyle,
         context: CGContext
     ) {
         let rect = path.boundingBoxOfPath
-        let shortestEdge = min(rect.width, rect.height)
-        let radius = max(2, shortestEdge * (0.035 + strength * 0.035))
-        let offset = CGSize(width: 0, height: -shortestEdge * (0.012 + strength * 0.018))
-        let alpha = min(max(strength, 0), 1) * 0.36
+        guard let layer = style.layer(
+            strength: strength,
+            referenceEdge: min(rect.width, rect.height)
+        ) else {
+            return
+        }
+
+        context.saveGState()
+
+        let exterior = CGMutablePath()
+        exterior.addRect(context.boundingBoxOfClipPath)
+        exterior.addPath(path)
+        context.addPath(exterior)
+        context.clip(using: .evenOdd)
+
         context.setShadow(
-            offset: offset,
-            blur: radius,
-            color: NSColor.black.withAlphaComponent(alpha).cgColor
+            offset: CGSize(width: 0, height: -layer.yOffset),
+            blur: layer.coreGraphicsBlur,
+            color: NSColor.black.withAlphaComponent(layer.alpha).cgColor
         )
+        context.setFillColor(NSColor.black.cgColor)
+        context.addPath(path)
+        context.fillPath()
+
+        context.restoreGState()
     }
 
     private static func flipped(_ rect: CGRect, canvasHeight: CGFloat) -> CGRect {

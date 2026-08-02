@@ -64,6 +64,7 @@ struct StoredBackground: Codable, Equatable {
     var padding: Double
     var cornerRadius: Double
     var shadow: Double
+    var shadowStyle: String?
     var aspectRatio: String
     var alignment: String
     var customWallpaperPath: String?
@@ -87,6 +88,7 @@ struct StoredBackground: Codable, Equatable {
         padding = Double(settings.padding)
         cornerRadius = Double(settings.cornerRadius)
         shadow = Double(settings.shadow)
+        shadowStyle = settings.shadowStyle.rawValue
         aspectRatio = settings.aspectRatio.rawValue
         alignment = settings.alignment.rawValue
         customWallpaperPath = settings.customWallpaper?.url.path
@@ -112,6 +114,7 @@ struct StoredBackground: Codable, Equatable {
         output.padding = CGFloat(padding)
         output.cornerRadius = CGFloat(cornerRadius)
         output.shadow = CGFloat(shadow)
+        output.shadowStyle = shadowStyle.flatMap(AnnotationShadowStyle.init(rawValue:)) ?? .soft
         output.aspectRatio = AnnotationBackgroundAspectRatio(rawValue: aspectRatio) ?? .auto
         output.alignment = AnnotationBackgroundAlignment(rawValue: alignment) ?? .center
         if let customWallpaperPath {

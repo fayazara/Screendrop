@@ -85,6 +85,26 @@ struct AnnotationBackgroundInspector: View {
                 }
             }
 
+            VStack(alignment: .leading, spacing: InspectorMetrics.groupLabelSpacing) {
+                InspectorGroupLabel("Shadow style")
+
+                InspectorSegmented(
+                    options: AnnotationShadowStyle.allCases,
+                    isSelected: { $0 == settings.shadowStyle },
+                    onTap: {
+                        onEditorAction()
+                        settings.shadowStyle = $0
+                    },
+                    label: { style in
+                        Text(style.title)
+                            .font(.system(size: 11, weight: .medium))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                    }
+                )
+            }
+            .opacity(settings.shadow > 0 ? 1 : 0.45)
+
             InspectorRow("Alignment") {
                 AlignmentPositionPicker(
                     alignment: $settings.alignment,
