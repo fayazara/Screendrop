@@ -56,6 +56,11 @@ final class RecordingBarPresenter {
         mode = .picker
         position(panel, displayID: ActiveDisplayResolver.activeDisplayID(preferPointer: false))
         panel.orderFrontRegardless()
+        // Key without activating (the panel is nonactivating): pointer styles
+        // and Esc both resolve against the key window. Key-ness is dormant
+        // while Screendrop isn't the active app, so this never pulls
+        // keystrokes out of the app being recorded.
+        panel.makeKey()
         warmCameraPreviewIfEnabled()
     }
 
@@ -79,6 +84,7 @@ final class RecordingBarPresenter {
             position(panel, displayID: displayID)
         }
         panel.orderFrontRegardless()
+        panel.makeKey()
     }
 
     func hide() {
