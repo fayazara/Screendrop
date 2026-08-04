@@ -21,7 +21,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         switch self {
         case .general: "General"
         case .screenshots: "Screenshots"
-        case .video: "Video"
+        case .video: "Screen Recordings"
         case .overlay: "Overlay"
         case .cloud: "Cloud"
         case .history: "History"
@@ -35,7 +35,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         case .screenshots: "photo.on.rectangle.angled"
         case .video: "video"
         case .overlay: "square.on.square"
-        case .cloud: "arrow.up.circle"
+        case .cloud: "icloud.and.arrow.up"
         case .history: "clock.arrow.trianglehead.counterclockwise.rotate.90"
         case .about: "info.circle"
         }

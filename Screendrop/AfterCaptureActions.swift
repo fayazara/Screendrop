@@ -34,7 +34,7 @@ enum AfterCaptureAction: String, CaseIterable, Identifiable {
         case .upload: "Upload to Cloud & copy link"
         case .annotate: "Open annotation editor"
         case .pin: "Pin to screen"
-        case .openVideoEditor: "Open video editor"
+        case .openVideoEditor: "Open recording editor"
         }
     }
 
@@ -46,7 +46,7 @@ enum AfterCaptureAction: String, CaseIterable, Identifiable {
         case .upload: "Upload to your cloud and copy the share link."
         case .annotate: "Jump straight into the annotation editor."
         case .pin: "Pin the screenshot on top of everything for reference."
-        case .openVideoEditor: "Jump straight into the video editor."
+        case .openVideoEditor: "Edit the clip, background, camera, audio, and zooms in one place."
         }
     }
 
@@ -73,9 +73,10 @@ enum AfterCaptureAction: String, CaseIterable, Identifiable {
         }
     }
 
-    /// Default when the user hasn't chosen yet. Only the overlay defaults on.
+    /// Default when the user hasn't chosen yet. The overlay defaults on, and
+    /// recordings open in the studio so zooms/backgrounds are discoverable.
     var defaultValue: Bool {
-        self == .showOverlay
+        self == .showOverlay || self == .openVideoEditor
     }
 }
 

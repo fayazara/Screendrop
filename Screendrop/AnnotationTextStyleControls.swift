@@ -11,19 +11,13 @@ struct AnnotationTextStyleControls: View {
     @State private var fontSizeText = ""
     @FocusState private var isFontSizeFieldFocused: Bool
 
-    private let fontFamilies: [String] = {
-        NSFontManager.shared.availableFontFamilies.sorted()
-    }()
-
     var body: some View {
         VStack(spacing: InspectorMetrics.rowSpacing) {
-            HStack(spacing: 6) {
-                fontFamilyMenu
-                    .frame(minWidth: 0, maxWidth: .infinity)
+            fontFamilyMenu
+                .frame(minWidth: 0, maxWidth: .infinity)
 
-                AnnotationColorWellMenu(selectedSwatch: model.selectedSwatch) { swatch in
-                    model.setSwatch(swatch)
-                }
+            AnnotationSwatchStrip(selectedSwatch: model.selectedSwatch) { swatch in
+                model.setSwatch(swatch)
             }
 
             HStack(spacing: 6) {
@@ -73,7 +67,7 @@ struct AnnotationTextStyleControls: View {
             guard !isFontSizeFieldFocused else { return }
             syncFontSizeText()
         }
-        .onChange(of: model.selectedItemID) { _, _ in
+        .onChange(of: model.selectionCount) { _, _ in
             guard !isFontSizeFieldFocused else { return }
             syncFontSizeText()
         }
@@ -88,20 +82,20 @@ struct AnnotationTextStyleControls: View {
 
     private var fontFamilyMenu: some View {
         Menu {
-            ForEach(fontFamilies, id: \.self) { family in
+            ForEach(AnnoFontFamily.allCases) { family in
                 Button {
-                    model.selectedTextFontName = family
+                    model.selectedTextFontFamily = family
                 } label: {
-                    if model.selectedTextFontName == family {
-                        Label(family, systemImage: "checkmark")
+                    if model.selectedTextFontFamily == family {
+                        Label(family.title, systemImage: "checkmark")
                     } else {
-                        Text(family)
+                        Text(family.title)
                     }
                 }
             }
         } label: {
             HStack(spacing: 6) {
-                Text(model.selectedTextFontName)
+                Text(model.selectedTextFontFamily.title)
                     .font(.inspectorValue)
                     .foregroundStyle(.primary.opacity(0.85))
                     .lineLimit(1)

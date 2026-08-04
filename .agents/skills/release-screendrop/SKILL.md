@@ -41,7 +41,7 @@ For **full auto (`-build`)** additionally:
 
 ## The Release CLI
 
-Source: `/Users/fayazahmed/Developer/fayazara/mac/OpenShot/cmd/screendrop-release/`
+Source: `/Users/fayazahmed/Developer/fayazara/mac/Screendrop/cmd/screendrop-release/`
 
 ### Flags
 
@@ -70,7 +70,7 @@ Source: `/Users/fayazahmed/Developer/fayazara/mac/OpenShot/cmd/screendrop-releas
    and pushes the appcast, but it does not push your other unrelated commits.)
 3. **Run it** (this is non-interactive and safe to run from a tool call):
    ```bash
-   cd /Users/fayazahmed/Developer/fayazara/mac/OpenShot && \
+   cd /Users/fayazahmed/Developer/fayazara/mac/Screendrop && \
    go run ./cmd/screendrop-release -build -yes \
      -set-version <x.y.z> -set-build <n> \
      -notes "First note
@@ -82,7 +82,7 @@ Source: `/Users/fayazahmed/Developer/fayazara/mac/OpenShot/cmd/screendrop-releas
 ### Package-only (app already exported by the user)
 
 ```bash
-cd /Users/fayazahmed/Developer/fayazara/mac/OpenShot && \
+cd /Users/fayazahmed/Developer/fayazara/mac/Screendrop && \
 go run ./cmd/screendrop-release -yes -notes "Your notes here"
 ```
 
@@ -115,7 +115,7 @@ active developer dir is the Command Line Tools.
 
 ### Environment / constants
 
-- Repo auto-detected at `~/Developer/fayazara/mac/OpenShot` (override with `SCREENDROP_REPO`).
+- Repo auto-detected at `~/Developer/fayazara/mac/Screendrop` (override with `SCREENDROP_REPO`).
 - GitHub repo: `fayazara/screendrop` · branch: `main` · team: `TB2S44TFQS` · bundle: `com.fayazahmed.Screendrop`.
 - DMG volume: `Screendrop` · minimum macOS: `26.4`.
 

@@ -134,7 +134,13 @@ final class ScreenshotPreviewStack {
         guard CloudUploader.shared.isConfigured else { return }
         Task {
             do {
-                let result = try await CloudUploader.shared.upload(itemID: itemID, fileURL: url)
+                // Automatic, unattended upload — no popover, just the
+                // remembered comments/likes default.
+                let result = try await CloudUploader.shared.upload(
+                    itemID: itemID,
+                    fileURL: url,
+                    socialEnabled: CloudUploadPreferences.lastSocialEnabled
+                )
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(result.url, forType: .string)
                 ScreenshotHistoryStore.shared.setCloudURL(for: url, cloudURL: result.url)
@@ -154,7 +160,6 @@ final class ScreenshotPreviewStack {
         if let index = items.firstIndex(where: { $0.url == url && $0.kind == .image }) {
             var item = items.remove(at: index)
             item.previewImage = image
-            item.autoSavedURL = nil
             items.insert(item, at: 0)
             return
         }
@@ -496,6 +501,7 @@ final class ScreenshotPreviewStack {
                     : saveToDefaultLocation(from: items[index].url)
             }
 
+            guard items[index].autoSavedURL != nil else { return }
             dismiss(id: id)
             return
         }
@@ -554,22 +560,21 @@ final class ScreenshotPreviewStack {
     }
 
     /// Re-copies the current image to the clipboard (when auto-copy is on) and
-    /// overwrites the existing auto-saved file in place (when auto-save is on),
-    /// keeping the clipboard and exported file in sync with the latest edit.
+    /// overwrites an existing exported file in place. Auto Save controls whether
+    /// a new export is created, not whether an earlier manual/automatic export
+    /// should stay synchronized with the latest edit.
     private func republishLatestVersion(at index: Int) {
         guard items.indices.contains(index) else { return }
         let item = items[index]
 
-        if ScreendropPreferences.autoSave {
-            if let existingURL = item.autoSavedURL {
-                do {
-                    try ScreenshotFileActions.save(from: item.url, to: existingURL)
-                } catch {
-                    print("Failed to update auto-saved screenshot: \(error)")
-                }
-            } else {
-                items[index].autoSavedURL = saveToDefaultLocation(from: item.url)
+        if let existingURL = item.autoSavedURL {
+            do {
+                try ScreenshotFileActions.replaceExistingExport(from: item.url, at: existingURL)
+            } catch {
+                print("Failed to update saved screenshot: \(error)")
             }
+        } else if ScreendropPreferences.autoSave {
+            items[index].autoSavedURL = saveToDefaultLocation(from: item.url)
         }
 
         if ScreendropPreferences.autoCopy {

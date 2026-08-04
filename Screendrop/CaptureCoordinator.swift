@@ -15,104 +15,144 @@ final class CaptureCoordinator {
     
     static let shared = CaptureCoordinator()
     
-    /// Set by the App to open the preview window.
-    var onShowPreview: ((URL, CGDirectDisplayID?) -> Void)?
+    /// Set by the App to open the preview window. Returns the URL the
+    /// capture was imported to in history, so awaitable capture callers
+    /// (App Intents) can hand the finished file to their result.
+    var onShowPreview: ((URL, CGDirectDisplayID?) -> URL)?
     
     private init() {}
     
     // MARK: - Capture Actions
-    
+
     func captureFullscreen() {
+        Task { await performCaptureFullscreen() }
+    }
+
+    func captureWindow() {
+        Task { await performCaptureWindow() }
+    }
+
+    func captureArea() {
+        Task { await performCaptureArea() }
+    }
+
+    // MARK: - Awaitable Capture Actions
+
+    /// Awaitable variants for callers (App Intents / Shortcuts) that need the
+    /// resulting file back to hand off to a following action. Both routes
+    /// funnel through the same finish-capture path as the hotkey/menu bar
+    /// triggers, so history import, sound, and preview behavior stay
+    /// identical either way.
+    @discardableResult
+    func captureFullscreenAwaiting() async -> URL? {
+        await performCaptureFullscreen()
+    }
+
+    @discardableResult
+    func captureWindowAwaiting() async -> URL? {
+        await performCaptureWindow()
+    }
+
+    @discardableResult
+    func captureAreaAwaiting() async -> URL? {
+        await performCaptureArea()
+    }
+
+    @discardableResult
+    private func performCaptureFullscreen() async -> URL? {
         let displayID = ActiveDisplayResolver.activeDisplayID(preferPointer: false)
         PreviewWindowPlacement.shared.setTargetDisplayID(displayID)
 
-        Task {
-            await CaptureCountdownPresenter.shared.runIfNeeded(displayID: displayID)
-            guard let url = await ScreenshotManager.shared.captureFullscreen(displayID: displayID) else { return }
-            await MainActor.run { self.finishCapture(url: url, displayID: displayID) }
-        }
-    }
-    
-    func captureWindow() {
-        Task {
-            // The self-timer is handled by screencapture's `-T` so the delay
-            // happens *after* the window is picked, not before.
-            guard let url = await ScreenshotManager.shared.captureWindow(
-                includeShadow: ScreendropPreferences.captureWindowShadow,
-                delaySeconds: ScreendropPreferences.captureDelaySeconds
-            ) else { return }
-            let displayID = await MainActor.run {
-                ActiveDisplayResolver.activeDisplayID(preferPointer: true)
-            }
-            await MainActor.run { self.finishCapture(url: url, displayID: displayID) }
-        }
-    }
-    
-    func captureArea() {
-        Task {
-            // The self-timer is handled by screencapture's `-T` so the delay
-            // happens *after* the area is drawn, not before.
-            guard let url = await ScreenshotManager.shared.captureArea(
-                delaySeconds: ScreendropPreferences.captureDelaySeconds
-            ) else { return }
-            let displayID = await MainActor.run {
-                ActiveDisplayResolver.activeDisplayID(preferPointer: true)
-            }
-            await MainActor.run { self.finishCapture(url: url, displayID: displayID) }
-        }
+        await CaptureCountdownPresenter.shared.runIfNeeded(
+            seconds: ScreendropPreferences.captureDelaySeconds,
+            displayID: displayID
+        )
+        guard let url = await ScreenshotManager.shared.captureFullscreen(displayID: displayID) else { return nil }
+        return finishCapture(url: url, displayID: displayID)
     }
 
-    func recordScreen() {
-        let displayID = ActiveDisplayResolver.activeDisplayID(preferPointer: false)
-        Task {
-            do {
-                let content = try await ScreenRecordingCapture.availableContent()
-                guard let display = content.displays.first(where: { $0.displayID == displayID }) ?? content.displays.first else { return }
-                await MainActor.run {
-                    self.recordFullscreen(display)
-                }
-            } catch {
-                print("Failed to load recording display: \(error)")
-            }
-        }
+    @discardableResult
+    private func performCaptureWindow() async -> URL? {
+        // The self-timer is handled by screencapture's `-T` so the delay
+        // happens *after* the window is picked, not before.
+        guard let url = await ScreenshotManager.shared.captureWindow(
+            includeShadow: ScreendropPreferences.captureWindowShadow,
+            delaySeconds: ScreendropPreferences.captureDelaySeconds
+        ) else { return nil }
+        let displayID = ActiveDisplayResolver.activeDisplayID(preferPointer: true)
+        return finishCapture(url: url, displayID: displayID)
+    }
+
+    @discardableResult
+    private func performCaptureArea() async -> URL? {
+        // The self-timer is handled by screencapture's `-T` so the delay
+        // happens *after* the area is drawn, not before.
+        guard let url = await ScreenshotManager.shared.captureArea(
+            delaySeconds: ScreendropPreferences.captureDelaySeconds
+        ) else { return nil }
+        let displayID = ActiveDisplayResolver.activeDisplayID(preferPointer: true)
+        return finishCapture(url: url, displayID: displayID)
     }
 
     func recordFullscreen(_ display: SCDisplay) {
-        ScreenRecordingManager.shared.startRecording(source: ScreenRecordingSource(kind: .fullscreen(display)))
+        Task {
+            await CaptureCountdownPresenter.shared.runIfNeeded(
+                seconds: ScreendropPreferences.recordingStartDelaySeconds,
+                displayID: display.displayID
+            )
+            ScreenRecordingManager.shared.startRecording(source: ScreenRecordingSource(kind: .fullscreen(display)))
+        }
     }
 
     func recordWindow(_ window: SCWindow) {
-        ScreenRecordingManager.shared.startRecording(source: ScreenRecordingSource(kind: .window(window)))
+        Task {
+            let displayID = ActiveDisplayResolver.activeDisplayID(preferPointer: true)
+            await CaptureCountdownPresenter.shared.runIfNeeded(
+                seconds: ScreendropPreferences.recordingStartDelaySeconds,
+                displayID: displayID
+            )
+            ScreenRecordingManager.shared.startRecording(source: ScreenRecordingSource(kind: .window(window)))
+        }
     }
 
     func recordArea(_ display: SCDisplay) {
         RecordingAreaSelectionPresenter.shared.selectArea(on: display) { rect in
             guard let rect else { return }
-            ScreenRecordingManager.shared.startRecording(source: ScreenRecordingSource(kind: .area(display: display, rect: rect)))
+            Task {
+                await CaptureCountdownPresenter.shared.runIfNeeded(
+                    seconds: ScreendropPreferences.recordingStartDelaySeconds,
+                    displayID: display.displayID
+                )
+                ScreenRecordingManager.shared.startRecording(
+                    source: ScreenRecordingSource(kind: .area(display: display, rect: rect))
+                )
+            }
         }
     }
     
     // MARK: - Preview
 
+    @discardableResult
     @MainActor
-    private func finishCapture(url: URL, displayID: CGDirectDisplayID?) {
+    private func finishCapture(url: URL, displayID: CGDirectDisplayID?) -> URL {
         if ScreendropPreferences.playSounds {
             CaptureFeedbackSound.play()
         }
-        showPreview(url: url, displayID: displayID)
+        return showPreview(url: url, displayID: displayID)
     }
-    
-    private func showPreview(url: URL, displayID: CGDirectDisplayID?) {
+
+    @discardableResult
+    private func showPreview(url: URL, displayID: CGDirectDisplayID?) -> URL {
         guard let onShowPreview else {
             let historyURL = ScreenshotHistoryStore.shared.importScreenshot(from: url)
             ScreenshotPreviewStack.shared.add(url: historyURL)
             if AfterCaptureActions.isEnabled(.showOverlay, for: .screenshot) {
                 PreviewPanelPresenter.shared.show(displayID: displayID)
             }
-            return
+            return historyURL
         }
 
-        onShowPreview(url, displayID)
+        return onShowPreview(url, displayID)
     }
 }
 

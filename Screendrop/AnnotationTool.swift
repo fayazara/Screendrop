@@ -12,9 +12,10 @@ enum AnnotationTool: String, CaseIterable, Identifiable, Codable {
     case arrow
     case freehand
     case numberedCircle
+    case text
+    case highlight
     case pixelate
     case blur
-    case text
 
     var id: String { rawValue }
 
@@ -42,6 +43,8 @@ enum AnnotationTool: String, CaseIterable, Identifiable, Codable {
             "Blur"
         case .text:
             "Text"
+        case .highlight:
+            "Highlight"
         }
     }
 
@@ -69,7 +72,16 @@ enum AnnotationTool: String, CaseIterable, Identifiable, Codable {
             "drop.fill"
         case .text:
             "textformat"
+        case .highlight:
+            "square.dashed.inset.filled"
         }
+    }
+
+    var helpText: String {
+        if self == .highlight {
+            return "Draw an area to keep visible; everything outside is dimmed"
+        }
+        return title
     }
 
     var isFilledShape: Bool {
@@ -84,9 +96,31 @@ enum AnnotationTool: String, CaseIterable, Identifiable, Codable {
         self == .pixelate || self == .blur
     }
 
+    var supportsColorStyle: Bool {
+        switch self {
+        case .rectangle, .filledRectangle, .ellipse, .line, .arrow, .freehand, .numberedCircle, .text:
+            true
+        case .select, .pixelate, .blur, .highlight:
+            false
+        }
+    }
+
+    var supportsStrokeStyle: Bool {
+        switch self {
+        case .rectangle, .ellipse, .line, .arrow, .freehand:
+            true
+        case .select, .filledRectangle, .numberedCircle, .pixelate, .blur, .text, .highlight:
+            false
+        }
+    }
+
+    var supportsRedactionDensityStyle: Bool {
+        isRedactionTool
+    }
+
     var supportsAspectLock: Bool {
         switch self {
-        case .rectangle, .filledRectangle, .ellipse:
+        case .rectangle, .filledRectangle, .ellipse, .highlight:
             true
         case .select, .line, .arrow, .freehand, .numberedCircle, .pixelate, .blur, .text:
             false

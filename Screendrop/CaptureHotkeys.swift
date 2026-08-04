@@ -215,7 +215,9 @@ enum CaptureHotkeyAction: String, CaseIterable, Identifiable {
         case .area:
             CaptureCoordinator.shared.captureArea()
         case .screenRecording:
-            CaptureCoordinator.shared.recordScreen()
+            Task { @MainActor in
+                RecordingPickerPresenter.shared.toggle()
+            }
         }
     }
 }

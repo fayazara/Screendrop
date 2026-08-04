@@ -29,13 +29,35 @@ enum InspectorMetrics {
     /// The one true height for every interactive field (menus, steppers,
     /// pickers, segmented controls).
     static let controlHeight: CGFloat = 24
+    /// Taller scrubber rows give the embedded label and editable value enough
+    /// breathing room without making the inspector feel loose.
+    static let sliderHeight: CGFloat = 32
+    static let sliderValueWidth: CGFloat = 60
     /// Corner radius for fields and segmented tracks.
     static let fieldRadius: CGFloat = 5
+    static let sliderRadius: CGFloat = 8
+    /// Shared inner inset for compound controls such as segmented pickers,
+    /// tool grids, and placement surfaces.
+    static let controlInset: CGFloat = 2
     /// Corner radius for square tiles (swatches, tool cells, wallpapers).
     static let tileRadius: CGFloat = 6
 
     /// Fixed width for left-aligned row labels so values line up.
     static let labelColumnWidth: CGFloat = 58
+}
+
+enum InspectorControlPalette {
+    static func trackFill(for colorScheme: ColorScheme) -> Color {
+        colorScheme == .dark ? Color.white.opacity(0.055) : Color.black.opacity(0.04)
+    }
+
+    static func selectionFill(for colorScheme: ColorScheme) -> Color {
+        Color.primary.opacity(colorScheme == .dark ? 0.10 : 0.075)
+    }
+
+    static var hoverFill: Color { Color.primary.opacity(0.04) }
+    static var border: Color { Color.primary.opacity(0.10) }
+    static var selectedForeground: Color { Color.primary.opacity(0.92) }
 }
 
 // MARK: - Typography
@@ -130,6 +152,103 @@ extension InspectorSection where Accessory == EmptyView {
     }
 }
 
+/// A compact accordion section for the inspector's heavier control groups.
+/// The title and chevron toggle expansion while header accessories keep their
+/// own independent hit targets.
+struct InspectorDisclosureSection<Content: View, Accessory: View>: View {
+    let title: String
+    @Binding var isExpanded: Bool
+    @ViewBuilder var accessory: () -> Accessory
+    @ViewBuilder var content: () -> Content
+
+    @State private var isHeaderHovering = false
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 6) {
+                Button(action: toggleExpansion) {
+                    HStack(spacing: 6) {
+                        Text(title)
+                            .font(.inspectorSectionHeader)
+                            .foregroundStyle(.primary.opacity(0.88))
+
+                        Spacer(minLength: 0)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(title)
+                .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
+                .accessibilityHint(isExpanded ? "Collapse section" : "Expand section")
+
+                accessory()
+
+                Button(action: toggleExpansion) {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 18, height: 18)
+                        .rotationEffect(.degrees(isExpanded ? 0 : -90))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .focusable(false)
+                .accessibilityHidden(true)
+            }
+            .padding(.horizontal, InspectorMetrics.horizontalPadding)
+            .frame(height: 38)
+            .background(isHeaderHovering ? Color.primary.opacity(0.025) : .clear)
+            .onHover { isHeaderHovering = $0 }
+
+            VStack(alignment: .leading, spacing: 0) {
+                if isExpanded {
+                    content()
+                        .padding(.horizontal, InspectorMetrics.horizontalPadding)
+                        .padding(.top, 4)
+                        .padding(.bottom, InspectorMetrics.sectionVerticalPadding)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            // SwiftUI can paint a moving transition beyond its interpolated
+            // layout height. Keep the disclosure body inside its own animated
+            // bounds so it never overlaps the header or neighboring sections.
+            .clipped()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(Color(nsColor: .separatorColor).opacity(0.45))
+                .frame(height: 0.5)
+                .padding(.horizontal, InspectorMetrics.horizontalPadding)
+        }
+    }
+
+    private func toggleExpansion() {
+        withAnimation(accessibilityReduceMotion ? nil : .snappy(duration: 0.18)) {
+            isExpanded.toggle()
+        }
+    }
+}
+
+extension InspectorDisclosureSection where Accessory == EmptyView {
+    init(
+        _ title: String,
+        isExpanded: Binding<Bool>,
+        @ViewBuilder content: @escaping () -> Content
+    ) {
+        self.init(
+            title: title,
+            isExpanded: isExpanded,
+            accessory: { EmptyView() },
+            content: content
+        )
+    }
+}
+
 /// A small, restrained "clear" affordance for a section header's accessory
 /// slot — an X that reads as an action without competing with the title.
 struct InspectorClearButton: View {
@@ -204,38 +323,43 @@ struct InspectorSectionDivider: View {
 
 // MARK: - Segmented control
 
-/// One unified segmented control used for every segmented picker in the panel
-/// (text style, alignment, wallpaper source). The track uses liquid glass at
-/// the standard field radius so the "glass" treatment is applied consistently,
-/// and the active segment is filled with the accent color.
+/// One unified segmented control used for every segmented picker in the panel.
+/// It shares the slider's height, radius, neutral track and value fill so choice
+/// controls and numeric controls read as one inspector system.
 struct InspectorSegmented<Option: Hashable, Label: View>: View {
     let options: [Option]
     let isSelected: (Option) -> Bool
     let onTap: (Option) -> Void
     @ViewBuilder let label: (Option) -> Label
 
-    var height: CGFloat = InspectorMetrics.controlHeight
+    var height: CGFloat = InspectorMetrics.sliderHeight
     var equalWidths: Bool = true
 
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var hoveredOption: Option?
+
     var body: some View {
-        GlassEffectContainer(spacing: 0) {
-            HStack(spacing: 0) {
-                ForEach(options, id: \.self) { option in
-                    segment(for: option)
-                }
+        let shape = RoundedRectangle(
+            cornerRadius: InspectorMetrics.sliderRadius,
+            style: .continuous
+        )
+
+        HStack(spacing: 0) {
+            ForEach(options, id: \.self) { option in
+                segment(for: option)
             }
-            .padding(2)
-            .glassEffect(
-                .regular,
-                in: RoundedRectangle(cornerRadius: InspectorMetrics.fieldRadius, style: .continuous)
-            )
         }
+        .padding(InspectorMetrics.controlInset)
         .frame(height: height)
+        .background(shape.fill(trackFill))
+        .overlay(shape.stroke(InspectorControlPalette.border, lineWidth: 0.5))
+        .clipShape(shape)
     }
 
     private func segment(for option: Option) -> some View {
         let selected = isSelected(option)
-        let segmentRadius = InspectorMetrics.fieldRadius - 2
+        let isHovering = hoveredOption == option
+        let segmentRadius = InspectorMetrics.sliderRadius - InspectorMetrics.controlInset
 
         return Button {
             onTap(option)
@@ -247,60 +371,36 @@ struct InspectorSegmented<Option: Hashable, Label: View>: View {
                 .contentShape(RoundedRectangle(cornerRadius: segmentRadius, style: .continuous))
         }
         .buttonStyle(.plain)
-        .foregroundStyle(selected ? Color.white : Color.primary.opacity(0.8))
+        .foregroundStyle(selected ? InspectorControlPalette.selectedForeground : Color.secondary)
         .background {
-            if selected {
-                RoundedRectangle(cornerRadius: segmentRadius, style: .continuous)
-                    .fill(Color.accentColor)
-                    .padding(1)
+            RoundedRectangle(cornerRadius: segmentRadius, style: .continuous)
+                .fill(segmentFill(isSelected: selected, isHovering: isHovering))
+                .overlay {
+                    if selected {
+                        RoundedRectangle(cornerRadius: segmentRadius, style: .continuous)
+                            .stroke(InspectorControlPalette.border, lineWidth: 0.5)
+                    }
+                }
+        }
+        .onHover { isHovering in
+            if isHovering {
+                hoveredOption = option
+            } else if hoveredOption == option {
+                hoveredOption = nil
             }
         }
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
-}
 
-// MARK: - Slider
-
-/// A labeled slider with an optional right-aligned numeric readout, matching
-/// the pro-panel convention of always surfacing the underlying value.
-struct InspectorSlider: View {
-    let title: String
-    @Binding var value: CGFloat
-    let range: ClosedRange<CGFloat>
-    var formatted: ((CGFloat) -> String)?
-
-    init(
-        _ title: String,
-        value: Binding<CGFloat>,
-        range: ClosedRange<CGFloat>,
-        formatted: ((CGFloat) -> String)? = nil
-    ) {
-        self.title = title
-        self._value = value
-        self.range = range
-        self.formatted = formatted
+    private var trackFill: Color {
+        InspectorControlPalette.trackFill(for: colorScheme)
     }
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 6) {
-                Text(title)
-                    .font(.inspectorLabel)
-                    .foregroundStyle(.secondary)
-
-                Spacer(minLength: 0)
-
-                if let formatted {
-                    Text(formatted(value))
-                        .font(.inspectorNumeric)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            Slider(value: $value, in: range)
-                .controlSize(.mini)
-                .tint(.accentColor)
+    private func segmentFill(isSelected: Bool, isHovering: Bool) -> Color {
+        if isSelected {
+            return InspectorControlPalette.selectionFill(for: colorScheme)
         }
+        return isHovering ? InspectorControlPalette.hoverFill : .clear
     }
 }
 

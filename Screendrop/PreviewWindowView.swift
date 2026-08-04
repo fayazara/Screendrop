@@ -106,6 +106,14 @@ struct PreviewWindowView: View {
             }
             .onChange(of: previewStack.itemIDs) { _, _ in
                 previewStack.dismissOverflowItems(visibleCapacity: visibleCapacity)
+
+                // Removals and insertions reflow the remaining cards; a card
+                // sliding under a stationary cursor fires hover mid-flight, so
+                // suppress hover actions until the reflow settles — same
+                // treatment as the collapse/expand transitions.
+                if !previewStack.isCollapsed {
+                    scheduleTransitionReset()
+                }
             }
             .onChange(of: visibleCapacity) { _, capacity in
                 previewStack.setVisibleCapacity(capacity)
@@ -181,13 +189,23 @@ struct PreviewWindowView: View {
                         if let onEditVideo {
                             onEditVideo(item.url)
                         } else {
-                            openWindow(id: "VIDEO_EDITOR", value: item.url)
+                            openWindow(
+                                id: "VIDEO_EDITOR",
+                                value: ScreenshotHistoryStore.shared.editorURL(for: item.url)
+                            )
                         }
                     },
                     onUpload: {
+                        // This overlay card can auto-dismiss, so it isn't a
+                        // good popover anchor — use the remembered default
+                        // instead of prompting per upload.
                         Task {
                             do {
-                                let result = try await CloudUploader.shared.upload(itemID: item.id, fileURL: item.url)
+                                let result = try await CloudUploader.shared.upload(
+                                    itemID: item.id,
+                                    fileURL: item.url,
+                                    socialEnabled: CloudUploadPreferences.lastSocialEnabled
+                                )
                                 NSPasteboard.general.clearContents()
                                 NSPasteboard.general.setString(result.url, forType: .string)
                                 ScreenshotHistoryStore.shared.setCloudURL(for: item.url, cloudURL: result.url)
@@ -368,7 +386,11 @@ struct PreviewWindowView: View {
         transitionResetTask = Task {
             try? await Task.sleep(for: .milliseconds(340))
             guard !Task.isCancelled else { return }
-            isOverlayTransitioning = false
+            // Fade hover actions back in rather than popping them, so a card
+            // that settled under the cursor eases into its hovered state.
+            withAnimation(.easeOut(duration: 0.18)) {
+                isOverlayTransitioning = false
+            }
         }
     }
     

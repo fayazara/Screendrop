@@ -32,13 +32,13 @@ struct HistoryWindow: View {
                                 item: item,
                                 onEdit: {
                                     if item.isVideo {
-                                        openWindow(id: "VIDEO_EDITOR", value: item.url)
+                                        openWindow(id: "VIDEO_EDITOR", value: item.editorURL)
                                     } else {
                                         openWindow(id: "ANNOTATION_EDITOR", value: item.url)
                                     }
                                 },
-                                onUpload: {
-                                    uploadHistoryItem(item)
+                                onUpload: { options in
+                                    uploadHistoryItem(item, options: options)
                                 }
                             )
 
@@ -58,10 +58,15 @@ struct HistoryWindow: View {
         }
     }
 
-    private func uploadHistoryItem(_ item: ScreenshotHistoryItem) {
+    private func uploadHistoryItem(_ item: ScreenshotHistoryItem, options: CloudUploadOptions) {
         Task {
             do {
-                let result = try await CloudUploader.shared.upload(itemID: item.id, fileURL: item.url)
+                let result = try await CloudUploader.shared.upload(
+                    itemID: item.id,
+                    fileURL: item.url,
+                    title: options.trimmedTitleOrNil,
+                    socialEnabled: options.socialEnabled
+                )
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(result.url, forType: .string)
                 ScreenshotHistoryStore.shared.setCloudURL(for: item.url, cloudURL: result.url)
@@ -94,10 +99,12 @@ struct HistoryWindow: View {
 private struct HistoryItemRow: View {
     let item: ScreenshotHistoryItem
     let onEdit: () -> Void
-    let onUpload: () -> Void
+    let onUpload: (CloudUploadOptions) -> Void
 
     @State private var thumbnail: NSImage?
     @State private var cloudUploader = CloudUploader.shared
+    @State private var isDeletingFromCloud = false
+    @State private var showDeleteCloudConfirm = false
 
     var body: some View {
         HStack(spacing: 14) {
@@ -146,13 +153,37 @@ private struct HistoryItemRow: View {
                         Image(systemName: "link")
                     }
                     .help("Copy cloud link")
+
+                    if isDeletingFromCloud {
+                        ProgressView()
+                            .controlSize(.small)
+                            .frame(width: 16, height: 16)
+                    } else {
+                        Button(role: .destructive) {
+                            showDeleteCloudConfirm = true
+                        } label: {
+                            Image(systemName: "icloud.slash")
+                        }
+                        .help("Delete from cloud")
+                        .confirmationDialog(
+                            "Delete from cloud?",
+                            isPresented: $showDeleteCloudConfirm,
+                            titleVisibility: .visible
+                        ) {
+                            Button("Delete", role: .destructive) {
+                                deleteFromCloud()
+                            }
+                        } message: {
+                            Text("This permanently removes the file and breaks its share link for anyone who has it.")
+                        }
+                    }
                 } else if cloudUploader.isConfigured {
                     if cloudUploader.uploadingItems.contains(item.id) {
                         ProgressView()
                             .controlSize(.small)
                             .frame(width: 16, height: 16)
                     } else {
-                        Button(action: onUpload) {
+                        CloudUploadButton(suggestedTitle: item.fileName, onUpload: onUpload) {
                             Image(systemName: "square.and.arrow.up")
                         }
                         .help("Upload to cloud")
@@ -212,6 +243,21 @@ private struct HistoryItemRow: View {
         guard let cloudURL = item.cloudURL else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(cloudURL, forType: .string)
+    }
+
+    private func deleteFromCloud() {
+        guard let cloudURL = item.cloudURL,
+              let uploadID = URL(string: cloudURL)?.lastPathComponent else { return }
+        isDeletingFromCloud = true
+        Task {
+            defer { isDeletingFromCloud = false }
+            do {
+                try await CloudUploader.shared.deleteFromCloud(uploadID: uploadID)
+                ScreenshotHistoryStore.shared.clearCloudURL(for: item.url)
+            } catch {
+                print("Delete from cloud failed: \(error)")
+            }
+        }
     }
 
     private var itemSubtitle: String {

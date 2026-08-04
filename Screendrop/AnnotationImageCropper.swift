@@ -63,7 +63,10 @@ enum AnnotationImageCropper {
         }
 
         CGImageDestinationAddImage(destination, cropped, nil)
-        guard CGImageDestinationFinalize(destination) else { return nil }
+        guard CGImageDestinationFinalize(destination) else {
+            try? FileManager.default.removeItem(at: destinationURL)
+            return nil
+        }
 
         let usedRect = CGRect(
             x: pixelRect.minX / width,

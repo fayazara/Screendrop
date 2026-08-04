@@ -60,9 +60,7 @@ final class PreviewPanelPresenter {
         panel.isReleasedWhenClosed = false
         panel.titleVisibility = .hidden
         panel.titlebarAppearsTransparent = true
-        if !PreviewWindowCaptureExclusion.isDemoMode {
-            panel.sharingType = .none
-        }
+        PreviewWindowCaptureExclusion.shared.register(window: panel)
 
         panel.contentView = PassthroughPreviewHostingView(
             rootView: PreviewWindowView(

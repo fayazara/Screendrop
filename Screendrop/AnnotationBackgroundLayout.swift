@@ -5,27 +5,50 @@
 
 import CoreGraphics
 
-struct AnnotationBackgroundLayout {
+nonisolated struct AnnotationBackgroundLayout {
     let canvasSize: CGSize
+    let cardRect: CGRect
     let imageRect: CGRect
     let padding: CGFloat
 
     static func make(contentSize: CGSize, settings: AnnotationBackgroundSettings) -> AnnotationBackgroundLayout {
         guard contentSize.width > 0, contentSize.height > 0 else {
-            return AnnotationBackgroundLayout(canvasSize: .zero, imageRect: .zero, padding: 0)
-        }
-
-        guard settings.isEnabled else {
             return AnnotationBackgroundLayout(
-                canvasSize: contentSize,
-                imageRect: CGRect(origin: .zero, size: contentSize),
+                canvasSize: .zero,
+                cardRect: .zero,
+                imageRect: .zero,
                 padding: 0
             )
         }
 
-        let alignment = settings.alignment
+        guard settings.requiresCanvasLayout else {
+            let contentRect = CGRect(origin: .zero, size: contentSize)
+            return AnnotationBackgroundLayout(
+                canvasSize: contentSize,
+                cardRect: contentRect,
+                imageRect: contentRect,
+                padding: 0
+            )
+        }
+
+        let alignment = settings.effectiveCanvasAlignment
         let shortestEdge = min(contentSize.width, contentSize.height)
-        let padding = max(0, shortestEdge * settings.padding)
+        let borderThickness = settings.border.pixelThickness(for: contentSize)
+        let cardSize = CGSize(
+            width: contentSize.width + borderThickness * 2,
+            height: contentSize.height + borderThickness * 2
+        )
+        let normalizedPadding: CGFloat
+        if settings.isEnabled {
+            normalizedPadding = settings.padding
+        } else if settings.usesCanvasLayout {
+            normalizedPadding = max(settings.padding, 0.18)
+        } else {
+            // A border-only export should grow by exactly the outer ring, not
+            // inherit the transparent breathing room used by camera effects.
+            normalizedPadding = 0
+        }
+        let padding = max(0, shortestEdge * normalizedPadding)
 
         // Per-edge padding: stuck edges get zero padding
         let paddingTop: CGFloat = alignment.sticksToTop ? 0 : padding
@@ -34,10 +57,13 @@ struct AnnotationBackgroundLayout {
         let paddingTrailing: CGFloat = alignment.sticksToTrailing ? 0 : padding
 
         let minimumSize = CGSize(
-            width: contentSize.width + paddingLeading + paddingTrailing,
-            height: contentSize.height + paddingTop + paddingBottom
+            width: cardSize.width + paddingLeading + paddingTrailing,
+            height: cardSize.height + paddingTop + paddingBottom
         )
-        let canvasSize = expandedSize(minimumSize, aspectRatio: settings.aspectRatio.value)
+        let canvasSize = expandedSize(
+            minimumSize,
+            aspectRatio: settings.usesCanvasLayout ? settings.aspectRatio.value : nil
+        )
 
         // Available rect accounts for per-edge padding
         let availableRect = CGRect(
@@ -47,23 +73,37 @@ struct AnnotationBackgroundLayout {
             height: canvasSize.height - paddingTop - paddingBottom
         )
         let origin = CGPoint(
-            x: availableRect.minX + max(0, availableRect.width - contentSize.width) * alignment.xFactor,
-            y: availableRect.minY + max(0, availableRect.height - contentSize.height) * alignment.yFactor
+            x: availableRect.minX + max(0, availableRect.width - cardSize.width) * alignment.xFactor,
+            y: availableRect.minY + max(0, availableRect.height - cardSize.height) * alignment.yFactor
         )
+        let cardRect = CGRect(origin: origin, size: cardSize)
+        let imageRect = cardRect.insetBy(dx: borderThickness, dy: borderThickness)
 
         return AnnotationBackgroundLayout(
             canvasSize: canvasSize,
-            imageRect: CGRect(origin: origin, size: contentSize),
+            cardRect: cardRect,
+            imageRect: imageRect,
             padding: padding
         )
     }
 
     func scaled(to frame: CGRect) -> AnnotationBackgroundDisplayLayout {
         guard canvasSize.width > 0, canvasSize.height > 0 else {
-            return AnnotationBackgroundDisplayLayout(canvasFrame: frame, imageFrame: .zero, scale: 1)
+            return AnnotationBackgroundDisplayLayout(
+                canvasFrame: frame,
+                cardFrame: .zero,
+                imageFrame: .zero,
+                scale: 1
+            )
         }
 
         let scale = frame.width / canvasSize.width
+        let cardFrame = CGRect(
+            x: frame.minX + cardRect.minX * scale,
+            y: frame.minY + cardRect.minY * scale,
+            width: cardRect.width * scale,
+            height: cardRect.height * scale
+        )
         let imageFrame = CGRect(
             x: frame.minX + imageRect.minX * scale,
             y: frame.minY + imageRect.minY * scale,
@@ -72,6 +112,7 @@ struct AnnotationBackgroundLayout {
         )
         return AnnotationBackgroundDisplayLayout(
             canvasFrame: frame,
+            cardFrame: cardFrame,
             imageFrame: imageFrame,
             scale: scale
         )
@@ -93,6 +134,7 @@ struct AnnotationBackgroundLayout {
 
 struct AnnotationBackgroundDisplayLayout {
     let canvasFrame: CGRect
+    let cardFrame: CGRect
     let imageFrame: CGRect
     let scale: CGFloat
 }

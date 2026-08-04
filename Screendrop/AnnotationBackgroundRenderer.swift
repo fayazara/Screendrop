@@ -8,7 +8,23 @@ import CoreGraphics
 import ImageIO
 import SwiftUI
 
-enum AnnotationBackgroundRenderer {
+nonisolated enum AnnotationBackgroundRenderer {
+    /// Decoded wallpapers are reused across settled previews and exports so
+    /// compose doesn't pay a disk read + full decode per render. NSCache is
+    /// thread-safe and evicts under memory pressure.
+    nonisolated(unsafe) private static let wallpaperCache: NSCache<NSString, WallpaperCacheBox> = {
+        let cache = NSCache<NSString, WallpaperCacheBox>()
+        cache.countLimit = 4
+        cache.totalCostLimit = 192 * 1024 * 1024
+        return cache
+    }()
+
+    typealias ForegroundOverlay = (
+        _ context: CGContext,
+        _ layout: AnnotationBackgroundLayout,
+        _ imageRect: CGRect,
+        _ imageClipPath: CGPath
+    ) -> Void
     typealias CanvasOverlay = (_ context: CGContext, _ layout: AnnotationBackgroundLayout, _ imageRect: CGRect) -> Void
 
     static func compose(
@@ -27,40 +43,9 @@ enum AnnotationBackgroundRenderer {
         contentImage: CGImage,
         settings: AnnotationBackgroundSettings,
         colorSpace: CGColorSpace,
+        foregroundOverlay: ForegroundOverlay? = nil,
         canvasOverlay: CanvasOverlay? = nil
     ) throws -> CGImage {
-        guard settings.isEnabled else {
-            guard let canvasOverlay else { return contentImage }
-
-            let width = contentImage.width
-            let height = contentImage.height
-            guard let context = CGContext(
-                data: nil,
-                width: width,
-                height: height,
-                bitsPerComponent: 8,
-                bytesPerRow: 0,
-                space: colorSpace,
-                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-            ) else {
-                throw CocoaError(.fileWriteUnknown)
-            }
-
-            let fullRect = CGRect(x: 0, y: 0, width: width, height: height)
-            context.interpolationQuality = .none
-            context.draw(contentImage, in: fullRect)
-            canvasOverlay(
-                context,
-                AnnotationBackgroundLayout(canvasSize: fullRect.size, imageRect: fullRect, padding: 0),
-                fullRect
-            )
-
-            guard let renderedImage = context.makeImage() else {
-                throw CocoaError(.fileWriteUnknown)
-            }
-            return renderedImage
-        }
-
         let contentSize = CGSize(width: contentImage.width, height: contentImage.height)
         let layout = AnnotationBackgroundLayout.make(contentSize: contentSize, settings: settings)
         let width = max(1, Int(ceil(layout.canvasSize.width)))
@@ -82,34 +67,151 @@ enum AnnotationBackgroundRenderer {
         context.interpolationQuality = .high
         drawBackground(settings.style, in: canvasRect, context: context)
 
+        let borderWidth = settings.border.pixelThickness(for: contentSize)
         let imageRect = pixelAlignedImageRect(
             flipped(layout.imageRect, canvasHeight: CGFloat(height)),
             contentSize: contentSize,
-            canvasSize: canvasRect.size
+            canvasSize: canvasRect.size,
+            minimumInset: borderWidth
         )
-        let baseCornerRadius = settings.cornerRadius * min(imageRect.width, imageRect.height)
-        let m = settings.alignment.cornerRadiusMultipliers
-        let cornerRadii = PerCornerRadii(
-            topLeft: baseCornerRadius * m.topLeft,
-            topRight: baseCornerRadius * m.topRight,
-            bottomLeft: baseCornerRadius * m.bottomLeft,
-            bottomRight: baseCornerRadius * m.bottomRight
+        let frameGeometry = AnnotationScreenshotFrameGeometry(
+            imageRect: imageRect,
+            cardRect: imageRect.insetBy(dx: -borderWidth, dy: -borderWidth),
+            settings: settings
         )
-        let clipPath = PerCornerRadii.path(in: imageRect, radii: cornerRadii)
-        drawShadow(path: clipPath, strength: settings.shadow, context: context)
+        let clipPath = frameGeometry.imagePath
+        let usesSceneBlur = settings.progressiveBlur.isActive
+            && settings.progressiveBlur.edgeMode == .bleed
+        let displayedImage = if settings.progressiveBlur.edgeMode == .clipped {
+            try AnnotationMockupEffectsRenderer.progressiveBlur(
+                contentImage,
+                settings: settings.progressiveBlur,
+                colorSpace: colorSpace
+            )
+        } else {
+            contentImage
+        }
 
-        context.saveGState()
-        context.interpolationQuality = .none
-        context.addPath(clipPath)
-        context.clip()
-        context.draw(contentImage, in: imageRect)
-        context.restoreGState()
+        if settings.camera.hasEffect {
+            guard let foregroundContext = CGContext(
+                data: nil,
+                width: width,
+                height: height,
+                bitsPerComponent: 8,
+                bytesPerRow: 0,
+                space: colorSpace,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ) else {
+                throw CocoaError(.fileWriteUnknown)
+            }
+
+            drawScreenshotFrameBacking(
+                settings,
+                geometry: frameGeometry,
+                castsShadow: true,
+                context: foregroundContext
+            )
+            drawImage(displayedImage, in: imageRect, clippedTo: clipPath, context: foregroundContext)
+            foregroundOverlay?(foregroundContext, layout, imageRect, clipPath)
+
+            guard let foregroundImage = foregroundContext.makeImage() else {
+                throw CocoaError(.fileWriteUnknown)
+            }
+
+            let topLeftImageRect = flipped(imageRect, canvasHeight: CGFloat(height))
+            let projection = AnnotationCameraGeometry.projection(
+                sourceRect: canvasRect,
+                imageRect: topLeftImageRect,
+                canvasSize: canvasRect.size,
+                settings: settings.camera
+            )
+            try AnnotationMockupEffectsRenderer.drawProjectedForeground(
+                foregroundImage,
+                projection: projection,
+                canvasSize: canvasRect.size,
+                colorSpace: colorSpace,
+                into: context
+            )
+        } else {
+            drawScreenshotFrameBacking(
+                settings,
+                geometry: frameGeometry,
+                castsShadow: settings.isEnabled,
+                context: context
+            )
+            drawImage(displayedImage, in: imageRect, clippedTo: clipPath, context: context)
+            foregroundOverlay?(context, layout, imageRect, clipPath)
+        }
+
+        if usesSceneBlur {
+            guard let sceneImage = context.makeImage() else {
+                throw CocoaError(.fileWriteUnknown)
+            }
+            context.clear(canvasRect)
+            try AnnotationMockupEffectsRenderer.drawProgressivelyBlurredScene(
+                sceneImage,
+                canvasSize: canvasRect.size,
+                colorSpace: colorSpace,
+                progressiveBlurSettings: settings.progressiveBlur,
+                into: context
+            )
+        }
+
         canvasOverlay?(context, layout, imageRect)
 
         guard let renderedImage = context.makeImage() else {
             throw CocoaError(.fileWriteUnknown)
         }
         return renderedImage
+    }
+
+    private static func drawImage(
+        _ image: CGImage,
+        in rect: CGRect,
+        clippedTo path: CGPath,
+        context: CGContext
+    ) {
+        context.saveGState()
+        context.interpolationQuality = .none
+        context.addPath(path)
+        context.clip()
+        context.draw(image, in: rect)
+        context.restoreGState()
+    }
+
+    private static func drawScreenshotFrameBacking(
+        _ settings: AnnotationBackgroundSettings,
+        geometry: AnnotationScreenshotFrameGeometry,
+        castsShadow: Bool,
+        context: CGContext
+    ) {
+        if settings.border.isVisible, geometry.borderWidth > 0 {
+            let opacity = min(max(settings.border.opacity, 0), 1)
+                * min(max(settings.border.color.alpha, 0), 1)
+
+            if castsShadow {
+                drawShadow(
+                    path: geometry.cardPath,
+                    strength: settings.shadow,
+                    style: settings.shadowStyle,
+                    context: context
+                )
+            }
+            context.saveGState()
+            context.setFillColor(
+                settings.border.color.nsColor.withAlphaComponent(opacity).cgColor
+            )
+            context.addPath(geometry.cardPath)
+            context.fillPath()
+            context.restoreGState()
+        } else if castsShadow {
+            drawShadow(
+                path: geometry.imagePath,
+                strength: settings.shadow,
+                style: settings.shadowStyle,
+                context: context
+            )
+        }
     }
 
     static func drawWatermark(
@@ -180,8 +282,7 @@ enum AnnotationBackgroundRenderer {
     ) {
         switch style {
         case .none:
-            NSColor.clear.setFill()
-            context.fill(rect)
+            context.clear(rect)
 
         case .solid(let color):
             context.setFillColor(color.nsColor.cgColor)
@@ -252,14 +353,33 @@ enum AnnotationBackgroundRenderer {
 
         let drawScale = max(fillSize.width / sourceSize.width, fillSize.height / sourceSize.height)
         let requiredMaxPixelSize = max(sourceSize.width, sourceSize.height) * drawScale
+        // Bucket the decode size so settled previews and exports of similar
+        // sizes share one cache entry instead of decoding near-duplicates.
+        let bucketedMaxPixelSize = (requiredMaxPixelSize / 512).rounded(.up) * 512
+        let cacheKey = AnnotationWallpaperPreviewCache.cacheID(
+            for: url,
+            maxPixelSize: bucketedMaxPixelSize
+        ) as NSString
+        if let cached = wallpaperCache.object(forKey: cacheKey) {
+            return cached.image
+        }
 
         let options: [CFString: Any] = [
             kCGImageSourceShouldCache: false,
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: max(1, Int(requiredMaxPixelSize.rounded(.up)))
+            kCGImageSourceThumbnailMaxPixelSize: max(1, Int(bucketedMaxPixelSize))
         ]
-        return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+            return nil
+        }
+
+        wallpaperCache.setObject(
+            WallpaperCacheBox(image),
+            forKey: cacheKey,
+            cost: image.width * image.height * 4
+        )
+        return image
     }
 
     private static func imageSize(from source: CGImageSource) -> CGSize? {
@@ -295,24 +415,40 @@ enum AnnotationBackgroundRenderer {
         context.stroke(rect.insetBy(dx: 8, dy: 8))
     }
 
+    /// Paints the shadow without laying any ink inside the card: the fill is
+    /// clipped away so only the spill survives. That keeps translucent borders
+    /// and screenshots with alpha from being backed by black.
     private static func drawShadow(
         path: CGPath,
         strength: CGFloat,
+        style: AnnotationShadowStyle,
         context: CGContext
     ) {
-        guard strength > 0 else { return }
-
         let rect = path.boundingBoxOfPath
-        let shortestEdge = min(rect.width, rect.height)
-        let radius = max(2, shortestEdge * (0.035 + strength * 0.035))
-        let offset = CGSize(width: 0, height: -shortestEdge * (0.012 + strength * 0.018))
-        let alpha = min(max(strength, 0), 1) * 0.36
+        guard let layer = style.layer(
+            strength: strength,
+            referenceEdge: min(rect.width, rect.height)
+        ) else {
+            return
+        }
 
         context.saveGState()
-        context.setShadow(offset: offset, blur: radius, color: NSColor.black.withAlphaComponent(alpha).cgColor)
+
+        let exterior = CGMutablePath()
+        exterior.addRect(context.boundingBoxOfClipPath)
+        exterior.addPath(path)
+        context.addPath(exterior)
+        context.clip(using: .evenOdd)
+
+        context.setShadow(
+            offset: CGSize(width: 0, height: -layer.yOffset),
+            blur: layer.coreGraphicsBlur,
+            color: NSColor.black.withAlphaComponent(layer.alpha).cgColor
+        )
         context.setFillColor(NSColor.black.cgColor)
         context.addPath(path)
         context.fillPath()
+
         context.restoreGState()
     }
 
@@ -328,14 +464,18 @@ enum AnnotationBackgroundRenderer {
     private static func pixelAlignedImageRect(
         _ rect: CGRect,
         contentSize: CGSize,
-        canvasSize: CGSize
+        canvasSize: CGSize,
+        minimumInset: CGFloat
     ) -> CGRect {
         let width = min(contentSize.width, canvasSize.width)
         let height = min(contentSize.height, canvasSize.height)
-        let maxX = max(0, canvasSize.width - width)
-        let maxY = max(0, canvasSize.height - height)
-        let x = min(max(0, rect.minX.rounded()), maxX)
-        let y = min(max(0, rect.minY.rounded()), maxY)
+        let inset = max(0, minimumInset)
+        let minX = min(inset, max(0, canvasSize.width - width))
+        let minY = min(inset, max(0, canvasSize.height - height))
+        let maxX = max(minX, canvasSize.width - width - inset)
+        let maxY = max(minY, canvasSize.height - height - inset)
+        let x = min(max(minX, rect.minX.rounded()), maxX)
+        let y = min(max(minY, rect.minY.rounded()), maxY)
 
         return CGRect(x: x, y: y, width: width, height: height)
     }
@@ -345,5 +485,13 @@ enum AnnotationBackgroundRenderer {
             x: rect.minX + unitPoint.x * rect.width,
             y: rect.minY + (1 - unitPoint.y) * rect.height
         )
+    }
+}
+
+nonisolated private final class WallpaperCacheBox {
+    let image: CGImage
+
+    init(_ image: CGImage) {
+        self.image = image
     }
 }

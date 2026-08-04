@@ -5,7 +5,7 @@
 
 import Foundation
 
-enum VideoCompressionQuality: String, CaseIterable, Identifiable, Sendable {
+enum VideoCompressionQuality: String, CaseIterable, Identifiable, Codable, Sendable {
     case high = "High"
     case medium = "Medium"
     case low = "Low"
@@ -35,7 +35,7 @@ enum VideoCompressionQuality: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
-enum VideoCompressionSpeed: String, CaseIterable, Identifiable, Sendable {
+enum VideoCompressionSpeed: String, CaseIterable, Identifiable, Codable, Sendable {
     case ultrafast = "Ultrafast"
     case fast = "Fast"
     case medium = "Medium"
@@ -48,7 +48,7 @@ enum VideoCompressionSpeed: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
-enum VideoCompressionCodec: String, CaseIterable, Identifiable, Sendable {
+enum VideoCompressionCodec: String, CaseIterable, Identifiable, Codable, Sendable {
     case h264 = "H.264"
     case hevc = "HEVC"
 
@@ -64,7 +64,7 @@ enum VideoCompressionCodec: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
-enum VideoCompressionResolution: String, CaseIterable, Identifiable, Sendable {
+enum VideoCompressionResolution: String, CaseIterable, Identifiable, Codable, Sendable {
     case original = "Original"
     case p1080 = "1080p"
     case p720 = "720p"
@@ -86,7 +86,7 @@ enum VideoCompressionResolution: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
-struct VideoCompressionSettings: Equatable, Sendable {
+struct VideoCompressionSettings: Codable, Equatable, Sendable {
     var quality: VideoCompressionQuality = .medium
     var speed: VideoCompressionSpeed = .fast
     var codec: VideoCompressionCodec = .h264

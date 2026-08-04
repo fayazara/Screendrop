@@ -14,17 +14,170 @@ struct AnnotationBackgroundSettings: Equatable {
     var padding: CGFloat = 0.08
     var cornerRadius: CGFloat = 0.018
     var shadow: CGFloat = 0.36
+    var shadowStyle: AnnotationShadowStyle = .soft
+    var border = AnnotationScreenshotBorderSettings()
     var aspectRatio: AnnotationBackgroundAspectRatio = .auto
     var alignment: AnnotationBackgroundAlignment = .center
     var customWallpaper: AnnotationCustomWallpaper?
+    var camera = AnnotationCameraSettings()
+    var progressiveBlur = AnnotationProgressiveBlurSettings()
     var watermark = AnnotationWatermarkSettings()
 
     var isEnabled: Bool {
         style != .none
     }
 
+    /// Camera transforms and scene blur need a stage even without an explicit
+    /// background so their pixels have transparent breathing room instead of
+    /// being cropped to the original screenshot bounds.
+    var usesCanvasLayout: Bool {
+        isEnabled
+            || camera.hasEffect
+            || (progressiveBlur.isActive && progressiveBlur.edgeMode == .bleed)
+    }
+
+    /// An outer screenshot border needs a canvas large enough to preserve the
+    /// ring even when no fill, camera transform, or scene blur is active.
+    var requiresCanvasLayout: Bool {
+        usesCanvasLayout || border.isVisible
+    }
+
+    /// Once the card leaves the flat plane, "stuck" edges no longer describe
+    /// the projected geometry. Camera pan replaces alignment for that mode.
+    var effectiveCanvasAlignment: AnnotationBackgroundAlignment {
+        camera.hasEffect || !usesCanvasLayout ? .center : alignment
+    }
+
     var hasRenderableContent: Bool {
-        isEnabled || watermark.isVisible
+        isEnabled
+            || camera.hasEffect
+            || progressiveBlur.isActive
+            || border.isVisible
+            || watermark.isVisible
+    }
+}
+
+struct AnnotationScreenshotBorderSettings: Equatable {
+    var isEnabled = false
+    var color: AnnotationSwatch = .white
+    /// Thickness as a fraction of the screenshot's shortest edge so saved
+    /// presets keep the same visual weight across different capture sizes.
+    var thickness: CGFloat = 0.012
+    var opacity: CGFloat = 1
+
+    var isVisible: Bool {
+        isEnabled && thickness > 0.0001 && opacity > 0.0001
+    }
+
+    func pixelThickness(for imageSize: CGSize) -> CGFloat {
+        guard isVisible, imageSize.width > 0, imageSize.height > 0 else { return 0 }
+        return max(0, thickness) * min(imageSize.width, imageSize.height)
+    }
+}
+
+struct AnnotationCameraSettings: Equatable {
+    /// Translation as a fraction of the final canvas dimensions.
+    var panX: CGFloat = 0
+    var panY: CGFloat = 0
+    /// Horizontal/vertical camera orbit around the card center, in degrees.
+    var tiltXDegrees: CGFloat = 0
+    var tiltYDegrees: CGFloat = 0
+    /// Local card rotation around its horizontal and vertical axes.
+    var rotationXDegrees: CGFloat = 0
+    var rotationYDegrees: CGFloat = 0
+    /// Rotation around the viewing axis.
+    var rollDegrees: CGFloat = 0
+    /// Lens angle controlling the strength of perspective.
+    var fieldOfViewDegrees: CGFloat = 24
+    /// Explicit final scale around the card center. Rotation never changes it.
+    var zoom: CGFloat = 1
+    /// Version 1 used shear-based Tilt and hidden angle-dependent auto-fit.
+    /// Version 2 uses center-origin camera orbit and explicit-only Zoom.
+    var projectionVersion: Int = 2
+
+    var isDefault: Bool {
+        let defaultFieldOfView: CGFloat = projectionVersion < 2 ? 45 : 24
+        return isApproximatelyZero(panX)
+            && isApproximatelyZero(panY)
+            && isApproximatelyZero(tiltXDegrees)
+            && isApproximatelyZero(tiltYDegrees)
+            && isApproximatelyZero(rotationXDegrees)
+            && isApproximatelyZero(rotationYDegrees)
+            && isApproximatelyZero(rollDegrees)
+            && abs(fieldOfViewDegrees - defaultFieldOfView) <= 0.0001
+            && abs(zoom - 1) <= 0.0001
+    }
+
+    var hasEffect: Bool {
+        !isApproximatelyZero(panX)
+            || !isApproximatelyZero(panY)
+            || !isApproximatelyZero(tiltXDegrees)
+            || !isApproximatelyZero(tiltYDegrees)
+            || !isApproximatelyZero(rotationXDegrees)
+            || !isApproximatelyZero(rotationYDegrees)
+            || !isApproximatelyZero(rollDegrees)
+            || abs(zoom - 1) > 0.0001
+    }
+
+    private func isApproximatelyZero(_ value: CGFloat) -> Bool {
+        abs(value) <= 0.0001
+    }
+
+    mutating func upgradeProjectionIfNeeded() {
+        guard projectionVersion < 2 else { return }
+        projectionVersion = 2
+        if abs(fieldOfViewDegrees - 45) <= 0.0001 {
+            fieldOfViewDegrees = 24
+        }
+    }
+}
+
+enum AnnotationProgressiveBlurMode: String, CaseIterable, Identifiable, Sendable {
+    case radial
+    case directional
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .radial: "Radial"
+        case .directional: "Directional"
+        }
+    }
+}
+
+enum AnnotationProgressiveBlurEdgeMode: String, CaseIterable, Identifiable, Sendable {
+    case clipped
+    case bleed
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .clipped: "Screenshot"
+        case .bleed: "Scene"
+        }
+    }
+}
+
+struct AnnotationProgressiveBlurSettings: Equatable, Sendable {
+    var isEnabled = false
+    var edgeMode: AnnotationProgressiveBlurEdgeMode = .bleed
+    var mode: AnnotationProgressiveBlurMode = .radial
+    /// Maximum blur radius, normalized by the preview/export scale at render time.
+    var strength: CGFloat = 18
+    /// Width of the transition from sharp to blurred, normalized to 0...1.
+    var falloff: CGFloat = 0.55
+    /// Size of the sharp focal area, normalized from a small detail to the
+    /// farthest image edge. A larger default keeps the screenshot as the hero.
+    var focusSize: CGFloat = 0.45
+    /// Top-left-origin normalized focal point within the active blur layer.
+    var focusPosition = CGPoint(x: 0.5, y: 0.5)
+    /// Direction of the in-focus band. Zero degrees is horizontal.
+    var directionDegrees: CGFloat = 0
+
+    var isActive: Bool {
+        isEnabled && strength > 0.01
     }
 }
 

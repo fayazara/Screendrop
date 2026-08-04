@@ -6,7 +6,7 @@
 import CoreGraphics
 
 /// Holds per-corner radius values for a rounded rectangle.
-struct PerCornerRadii: Equatable {
+nonisolated struct PerCornerRadii: Equatable {
     let topLeft: CGFloat
     let topRight: CGFloat
     let bottomLeft: CGFloat

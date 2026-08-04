@@ -45,13 +45,13 @@ struct SettingsHistoryPane: View {
                                 onEdit: {
                                     QuickLookPreviewPresenter.dismiss()
                                     if item.isVideo {
-                                        openWindow(id: "VIDEO_EDITOR", value: item.url)
+                                        openWindow(id: "VIDEO_EDITOR", value: item.editorURL)
                                     } else {
                                         openWindow(id: "ANNOTATION_EDITOR", value: item.url)
                                     }
                                 },
-                                onUpload: {
-                                    uploadHistoryItem(item)
+                                onUpload: { options in
+                                    uploadHistoryItem(item, options: options)
                                 },
                                 onReveal: {
                                     historyStore.reveal(item)
@@ -86,10 +86,15 @@ struct SettingsHistoryPane: View {
         }
     }
 
-    private func uploadHistoryItem(_ item: ScreenshotHistoryItem) {
+    private func uploadHistoryItem(_ item: ScreenshotHistoryItem, options: CloudUploadOptions) {
         Task {
             do {
-                let result = try await CloudUploader.shared.upload(itemID: item.id, fileURL: item.url)
+                let result = try await CloudUploader.shared.upload(
+                    itemID: item.id,
+                    fileURL: item.url,
+                    title: options.trimmedTitleOrNil,
+                    socialEnabled: options.socialEnabled
+                )
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(result.url, forType: .string)
                 ScreenshotHistoryStore.shared.setCloudURL(for: item.url, cloudURL: result.url)
@@ -105,13 +110,15 @@ private struct SettingsHistoryItemRow: View {
     let onPreview: () -> Void
     let onCopy: () -> Void
     let onEdit: () -> Void
-    let onUpload: () -> Void
+    let onUpload: (CloudUploadOptions) -> Void
     let onReveal: () -> Void
     let onDelete: () -> Void
 
     @State private var thumbnail: NSImage?
     @State private var cloudUploader = CloudUploader.shared
     @State private var isHovering = false
+    @State private var isDeletingFromCloud = false
+    @State private var showDeleteCloudConfirm = false
 
     var body: some View {
         HStack(spacing: 14) {
@@ -163,13 +170,26 @@ private struct SettingsHistoryItemRow: View {
                         Image(systemName: "link")
                     }
                     .help("Copy cloud link")
+
+                    if isDeletingFromCloud {
+                        ProgressView()
+                            .controlSize(.small)
+                            .frame(width: 20, height: 20)
+                    } else {
+                        Button(role: .destructive) {
+                            showDeleteCloudConfirm = true
+                        } label: {
+                            Image(systemName: "icloud.slash")
+                        }
+                        .help("Delete from cloud")
+                    }
                 } else if cloudUploader.isConfigured {
                     if cloudUploader.uploadingItems.contains(item.id) {
                         ProgressView()
                             .controlSize(.small)
                             .frame(width: 20, height: 20)
                     } else {
-                        Button(action: onUpload) {
+                        CloudUploadButton(suggestedTitle: item.fileName, onUpload: onUpload) {
                             Image(systemName: "icloud.and.arrow.up")
                         }
                         .help("Upload to cloud")
@@ -205,8 +225,20 @@ private struct SettingsHistoryItemRow: View {
 
             if item.cloudURL != nil {
                 Button("Copy Cloud Link", systemImage: "link") { copyCloudURL() }
+                Button("Delete from Cloud", systemImage: "icloud.slash", role: .destructive) {
+                    showDeleteCloudConfirm = true
+                }
             } else if cloudUploader.isConfigured && !cloudUploader.uploadingItems.contains(item.id) {
-                Button("Upload to Cloud", systemImage: "icloud.and.arrow.up") { onUpload() }
+                // Context menu can't anchor a popover, so this quick path
+                // skips it and uses the remembered comments/likes default.
+                Button("Upload to Cloud", systemImage: "icloud.and.arrow.up") {
+                    onUpload(
+                        CloudUploadOptions(
+                            title: item.fileName,
+                            socialEnabled: CloudUploadPreferences.lastSocialEnabled
+                        )
+                    )
+                }
             }
 
             Button("Reveal in Finder", systemImage: "folder") { onReveal() }
@@ -214,6 +246,17 @@ private struct SettingsHistoryItemRow: View {
             Divider()
 
             Button("Delete", systemImage: "trash", role: .destructive) { onDelete() }
+        }
+        .confirmationDialog(
+            "Delete from cloud?",
+            isPresented: $showDeleteCloudConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                deleteFromCloud()
+            }
+        } message: {
+            Text("This permanently removes the file and breaks its share link for anyone who has it.")
         }
         .task(id: item.fileName) {
             let url = item.url
@@ -233,6 +276,21 @@ private struct SettingsHistoryItemRow: View {
         guard let cloudURL = item.cloudURL else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(cloudURL, forType: .string)
+    }
+
+    private func deleteFromCloud() {
+        guard let cloudURL = item.cloudURL,
+              let uploadID = URL(string: cloudURL)?.lastPathComponent else { return }
+        isDeletingFromCloud = true
+        Task {
+            defer { isDeletingFromCloud = false }
+            do {
+                try await CloudUploader.shared.deleteFromCloud(uploadID: uploadID)
+                ScreenshotHistoryStore.shared.clearCloudURL(for: item.url)
+            } catch {
+                print("Delete from cloud failed: \(error)")
+            }
+        }
     }
 
     private var itemSubtitle: String {

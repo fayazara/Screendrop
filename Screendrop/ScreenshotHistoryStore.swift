@@ -22,9 +22,25 @@ struct ScreenshotHistoryItem: Identifiable, Codable, Equatable {
     var cloudURL: String?
     /// Whether this screenshot has an editable annotation sidecar document.
     var hasEdits: Bool
+    /// Absolute path to the non-destructive recording package, when this video
+    /// belongs to the new Studio workflow. Older video items remain bare files.
+    var recordingSessionPath: String?
+
+    var recordingSession: RecordingSession? {
+        guard let recordingSessionPath else { return nil }
+        let session = RecordingSession(directoryURL: URL(fileURLWithPath: recordingSessionPath, isDirectory: true))
+        return RecordingSession.isSessionDirectory(session.directoryURL) ? session : nil
+    }
 
     var url: URL {
-        ScreenshotHistoryStore.historyDirectory.appendingPathComponent(fileName)
+        if let recordingSession {
+            return recordingSession.deliverableURL
+        }
+        return ScreenshotHistoryStore.historyDirectory.appendingPathComponent(fileName)
+    }
+
+    var editorURL: URL {
+        recordingSession?.directoryURL ?? url
     }
 
     var isVideo: Bool { kind == .video }
@@ -43,6 +59,7 @@ struct ScreenshotHistoryItem: Identifiable, Codable, Equatable {
         duration = try container.decodeIfPresent(Double.self, forKey: .duration)
         cloudURL = try container.decodeIfPresent(String.self, forKey: .cloudURL)
         hasEdits = try container.decodeIfPresent(Bool.self, forKey: .hasEdits) ?? false
+        recordingSessionPath = try container.decodeIfPresent(String.self, forKey: .recordingSessionPath)
     }
 
     init(
@@ -55,7 +72,8 @@ struct ScreenshotHistoryItem: Identifiable, Codable, Equatable {
         kind: PreviewMediaKind = .image,
         duration: Double? = nil,
         cloudURL: String? = nil,
-        hasEdits: Bool = false
+        hasEdits: Bool = false,
+        recordingSessionPath: String? = nil
     ) {
         self.id = id
         self.createdAt = createdAt
@@ -67,6 +85,7 @@ struct ScreenshotHistoryItem: Identifiable, Codable, Equatable {
         self.duration = duration
         self.cloudURL = cloudURL
         self.hasEdits = hasEdits
+        self.recordingSessionPath = recordingSessionPath
     }
 }
 
@@ -173,41 +192,17 @@ final class ScreenshotHistoryStore {
                 try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
             }
 
-            // Extract video metadata via AVFoundation
-            let asset = AVURLAsset(url: destinationURL)
-            var width = 0
-            var height = 0
-            var dur: Double?
-
-            if let track = try? await asset.loadTracks(withMediaType: .video).first {
-                let size = try? await track.load(.naturalSize)
-                let transform = try? await track.load(.preferredTransform)
-                if let size, let transform {
-                    let transformed = size.applying(transform)
-                    width = Int(abs(transformed.width))
-                    height = Int(abs(transformed.height))
-                } else if let size {
-                    width = Int(size.width)
-                    height = Int(size.height)
-                }
-            }
-
-            if let loadedDuration = try? await asset.load(.duration) {
-                let seconds = CMTimeGetSeconds(loadedDuration)
-                if seconds.isFinite, seconds > 0 {
-                    dur = seconds
-                }
-            }
+            let metadata = await videoMetadata(at: destinationURL)
 
             let item = ScreenshotHistoryItem(
                 id: UUID(),
                 createdAt: Date(),
                 updatedAt: Date(),
                 fileName: destinationURL.lastPathComponent,
-                pixelWidth: width,
-                pixelHeight: height,
+                pixelWidth: metadata.width,
+                pixelHeight: metadata.height,
                 kind: .video,
-                duration: dur
+                duration: metadata.duration
             )
             items.insert(item, at: 0)
             saveMetadata()
@@ -216,6 +211,56 @@ final class ScreenshotHistoryStore {
             print("Failed to import video into history: \(error)")
             return sourceURL
         }
+    }
+
+    /// Adds a Studio recording to history without copying its potentially huge
+    /// screen master. History owns the package and reopens the complete project
+    /// (camera, event sidecar, and project edits), not a detached movie.
+    @discardableResult
+    func importRecordingSession(_ session: RecordingSession) async -> URL {
+        let standardizedPath = session.directoryURL.standardizedFileURL.path
+        if let existing = items.first(where: { $0.recordingSessionPath == standardizedPath }) {
+            return existing.url
+        }
+        guard RecordingSession.isSessionDirectory(session.directoryURL) else {
+            return session.screenURL
+        }
+
+        // The recorder has already persisted this metadata before invoking
+        // the completion handler. Prefer it so the preview/editor can appear
+        // immediately instead of opening the movie with AVFoundation again.
+        let manifest = session.loadCaptureManifest()
+        let metadata: (width: Int, height: Int, duration: Double?)
+        if let manifest,
+           manifest.pixelWidth > 0,
+           manifest.pixelHeight > 0,
+           manifest.duration > 0 {
+            metadata = (
+                width: manifest.pixelWidth,
+                height: manifest.pixelHeight,
+                duration: manifest.duration
+            )
+        } else {
+            metadata = await videoMetadata(at: session.screenURL)
+        }
+        let displayName = session.directoryURL
+            .deletingPathExtension()
+            .lastPathComponent
+            .appending(".mov")
+        let item = ScreenshotHistoryItem(
+            id: UUID(),
+            createdAt: manifest?.createdAt ?? Date(),
+            updatedAt: Date(),
+            fileName: displayName,
+            pixelWidth: metadata.width,
+            pixelHeight: metadata.height,
+            kind: .video,
+            duration: metadata.duration,
+            recordingSessionPath: standardizedPath
+        )
+        items.insert(item, at: 0)
+        saveMetadata()
+        return session.deliverableURL
     }
 
     /// Non-destructive annotation commit.
@@ -325,11 +370,16 @@ final class ScreenshotHistoryStore {
     }
 
     func delete(_ item: ScreenshotHistoryItem) {
-        let auxiliaryURLs = [
-            item.url,
-            Self.baseImageURL(for: item.url),
-            Self.editDocumentURL(for: item.url)
-        ]
+        let auxiliaryURLs: [URL]
+        if let recordingSession = item.recordingSession {
+            auxiliaryURLs = [recordingSession.directoryURL]
+        } else {
+            auxiliaryURLs = [
+                item.url,
+                Self.baseImageURL(for: item.url),
+                Self.editDocumentURL(for: item.url)
+            ]
+        }
 
         for url in auxiliaryURLs where FileManager.default.fileExists(atPath: url.path) {
             do {
@@ -364,8 +414,30 @@ final class ScreenshotHistoryStore {
         saveMetadata()
     }
 
+    /// Clears a previously-set cloud URL, e.g. after deleting the upload from the cloud.
+    func clearCloudURL(for fileURL: URL) {
+        let standardized = fileURL.standardizedFileURL
+        guard let index = items.firstIndex(where: { $0.url.standardizedFileURL == standardized }) else {
+            return
+        }
+        items[index].cloudURL = nil
+        items[index].updatedAt = Date()
+        saveMetadata()
+    }
+
     func reveal(_ item: ScreenshotHistoryItem) {
-        NSWorkspace.shared.activateFileViewerSelecting([item.url])
+        NSWorkspace.shared.activateFileViewerSelecting([
+            item.recordingSession?.directoryURL ?? item.url
+        ])
+    }
+
+    /// Resolves a flattened recording URL back to its non-destructive project
+    /// package. Every editor entry point uses this so overlay cards, History,
+    /// and after-capture actions cannot accidentally open different editors.
+    func editorURL(for mediaURL: URL) -> URL {
+        let standardizedURL = mediaURL.standardizedFileURL
+        return items.first(where: { $0.url.standardizedFileURL == standardizedURL })?.editorURL
+            ?? mediaURL
     }
 
     func reload() {
@@ -416,6 +488,34 @@ final class ScreenshotHistoryStore {
         return Self.historyDirectory
             .appendingPathComponent("Screendrop_\(UUID().uuidString)")
             .appendingPathExtension(pathExtension)
+    }
+
+    private func videoMetadata(at url: URL) async -> (width: Int, height: Int, duration: Double?) {
+        let asset = AVURLAsset(url: url)
+        var width = 0
+        var height = 0
+        var duration: Double?
+
+        if let track = try? await asset.loadTracks(withMediaType: .video).first {
+            let size = try? await track.load(.naturalSize)
+            let transform = try? await track.load(.preferredTransform)
+            if let size, let transform {
+                let transformed = size.applying(transform)
+                width = Int(abs(transformed.width))
+                height = Int(abs(transformed.height))
+            } else if let size {
+                width = Int(size.width)
+                height = Int(size.height)
+            }
+        }
+
+        if let loadedDuration = try? await asset.load(.duration) {
+            let seconds = CMTimeGetSeconds(loadedDuration)
+            if seconds.isFinite, seconds > 0 {
+                duration = seconds
+            }
+        }
+        return (width, height, duration)
     }
 
     private func isHistoryURL(_ url: URL) -> Bool {

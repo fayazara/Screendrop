@@ -45,7 +45,11 @@ struct PreviewCardView: View {
             .resizable()
             .aspectRatio(contentMode: .fill)
             .frame(width: previewCardSize.width, height: previewCardSize.height)
-            .clipped()
+            // Round the fill image at the source rather than relying solely on
+            // the outer clipShape: during compound animations (stack expanding
+            // while cards move) the outer clip can lag a frame, flashing square
+            // image corners past the rounded card.
+            .clipShape(.rect(cornerRadius: cornerRadius))
             .overlay {
                 if item.kind == .video {
                     videoPlayIndicator

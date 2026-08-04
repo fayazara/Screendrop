@@ -6,6 +6,20 @@
 import AppKit
 import SwiftUI
 
+private enum AnnotationBackgroundFillLibrary: CaseIterable, Hashable {
+    case color
+    case gradient
+    case wallpaper
+
+    var title: String {
+        switch self {
+        case .color: "Color"
+        case .gradient: "Gradient"
+        case .wallpaper: "Wallpaper"
+        }
+    }
+}
+
 struct AnnotationBackgroundInspector: View {
     @Binding var settings: AnnotationBackgroundSettings
     @Bindable var wallpaperStore: AnnotationWallpaperStore
@@ -16,83 +30,88 @@ struct AnnotationBackgroundInspector: View {
     private static let maxVisibleRecentWallpapers = 4
     private let recentWallpaperColumns = Array(repeating: GridItem(.flexible(), spacing: 6), count: 5)
     private let wallpaperColumns = Array(repeating: GridItem(.flexible(), spacing: 7), count: 3)
-    private let alignmentColumns = Array(repeating: GridItem(.fixed(30), spacing: 5), count: 3)
     @State private var selectedWallpaperSourceID = AnnotationWallpaperSource.recentID
+    @State private var selectedFillLibrary = AnnotationBackgroundFillLibrary.color
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            // Fills
-            swatchGroup("Color") {
-                ForEach(AnnotationBackgroundColor.plainPresets) { color in
-                    InspectorTile(isSelected: settings.style == .solid(color)) {
-                        onEditorAction()
-                        settings.style = .solid(color)
-                    } content: {
-                        Rectangle().fill(color.color)
+            VStack(alignment: .leading, spacing: InspectorMetrics.groupLabelSpacing) {
+                InspectorGroupLabel("Fill library")
+
+                InspectorSegmented(
+                    options: AnnotationBackgroundFillLibrary.allCases,
+                    isSelected: { $0 == selectedFillLibrary },
+                    onTap: { library in
+                        withAnimation(.snappy(duration: 0.16)) {
+                            selectedFillLibrary = library
+                        }
+                    },
+                    label: { library in
+                        Text(library.title)
+                            .font(.system(size: 10.5, weight: .medium))
                     }
-                    .help(color.title)
-                }
+                )
             }
 
-            swatchGroup("Gradient") {
-                ForEach(AnnotationBackgroundGradient.presets) { gradient in
-                    InspectorTile(isSelected: settings.style == .gradient(gradient)) {
-                        onEditorAction()
-                        settings.style = .gradient(gradient)
-                    } content: {
-                        Rectangle().fill(LinearGradient(
-                            colors: gradient.colors.map(\.color),
-                            startPoint: gradient.startPoint,
-                            endPoint: gradient.endPoint
-                        ))
-                    }
-                    .help(gradient.title)
-                }
-            }
-
-            wallpaperGroup
+            selectedFillPicker
+                .transition(.opacity)
 
             innerDivider
 
-            // Layout
-            InspectorSlider(
-                "Padding",
-                value: $settings.padding,
-                range: 0.04...0.45,
-                formatted: percentText
-            )
+            VStack(alignment: .leading, spacing: InspectorMetrics.groupLabelSpacing) {
+                InspectorGroupLabel("Layout")
 
-            HStack(alignment: .top, spacing: 14) {
-                InspectorSlider(
-                    "Shadow",
-                    value: $settings.shadow,
-                    range: 0...1,
-                    formatted: percentText
-                )
+                VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
+                    InspectorSlider(
+                        "Padding",
+                        value: $settings.padding,
+                        range: 0.04...0.45,
+                        format: .percent()
+                    )
 
-                InspectorSlider(
-                    "Corners",
-                    value: $settings.cornerRadius,
-                    range: 0...0.12,
-                    formatted: percentText
-                )
+                    InspectorSlider(
+                        "Shadow",
+                        value: $settings.shadow,
+                        range: 0...1,
+                        format: .percent()
+                    )
+
+                    InspectorSlider(
+                        "Corners",
+                        value: $settings.cornerRadius,
+                        range: 0...0.12,
+                        format: .percent()
+                    )
+                }
             }
 
             VStack(alignment: .leading, spacing: InspectorMetrics.groupLabelSpacing) {
-                InspectorGroupLabel("Alignment")
+                InspectorGroupLabel("Shadow style")
 
-                LazyVGrid(columns: alignmentColumns, spacing: 5) {
-                    ForEach(AnnotationBackgroundAlignment.allCases) { alignment in
-                        Button {
-                            onEditorAction()
-                            settings.alignment = alignment
-                        } label: {
-                            AlignmentGlyph(alignment: alignment, isSelected: settings.alignment == alignment)
-                        }
-                        .buttonStyle(.plain)
-                        .help(alignment.title)
+                InspectorSegmented(
+                    options: AnnotationShadowStyle.allCases,
+                    isSelected: { $0 == settings.shadowStyle },
+                    onTap: {
+                        onEditorAction()
+                        settings.shadowStyle = $0
+                    },
+                    label: { style in
+                        Text(style.title)
+                            .font(.system(size: 11, weight: .medium))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
                     }
-                }
+                )
+            }
+            .opacity(settings.shadow > 0 ? 1 : 0.45)
+
+            InspectorRow("Alignment") {
+                AlignmentPositionPicker(
+                    alignment: $settings.alignment,
+                    isEnabled: !settings.camera.hasEffect,
+                    onEditorAction: onEditorAction
+                )
+                .frame(maxWidth: .infinity, alignment: .trailing)
             }
 
             VStack(alignment: .leading, spacing: InspectorMetrics.groupLabelSpacing) {
@@ -114,10 +133,12 @@ struct AnnotationBackgroundInspector: View {
                 )
             }
         }
-    }
-
-    private func percentText(_ value: CGFloat) -> String {
-        "\(Int((value * 100).rounded()))%"
+        .onAppear {
+            syncFillLibrary(with: settings.style)
+        }
+        .onChange(of: settings.style) { _, style in
+            syncFillLibrary(with: style)
+        }
     }
 
     private var innerDivider: some View {
@@ -132,10 +153,59 @@ struct AnnotationBackgroundInspector: View {
     }
 
     @ViewBuilder
+    private var selectedFillPicker: some View {
+        switch selectedFillLibrary {
+        case .color:
+            LazyVGrid(columns: swatchColumns, spacing: 6) {
+                ForEach(AnnotationBackgroundColor.plainPresets) { color in
+                    InspectorTile(isSelected: settings.style == .solid(color)) {
+                        onEditorAction()
+                        settings.style = .solid(color)
+                    } content: {
+                        Rectangle().fill(color.color)
+                    }
+                    .help(color.title)
+                }
+            }
+
+        case .gradient:
+            LazyVGrid(columns: swatchColumns, spacing: 6) {
+                ForEach(AnnotationBackgroundGradient.presets) { gradient in
+                    InspectorTile(isSelected: settings.style == .gradient(gradient)) {
+                        onEditorAction()
+                        settings.style = .gradient(gradient)
+                    } content: {
+                        Rectangle().fill(LinearGradient(
+                            colors: gradient.colors.map(\.color),
+                            startPoint: gradient.startPoint,
+                            endPoint: gradient.endPoint
+                        ))
+                    }
+                    .help(gradient.title)
+                }
+            }
+
+        case .wallpaper:
+            wallpaperGroup
+        }
+    }
+
+    private func syncFillLibrary(with style: AnnotationBackgroundStyle) {
+        switch style {
+        case .none:
+            break
+        case .solid:
+            selectedFillLibrary = .color
+        case .gradient:
+            selectedFillLibrary = .gradient
+        case .customWallpaper:
+            selectedFillLibrary = .wallpaper
+        }
+    }
+
+    @ViewBuilder
     private var wallpaperGroup: some View {
         VStack(alignment: .leading, spacing: InspectorMetrics.groupLabelSpacing) {
-            InspectorGroupLabel("Wallpaper")
-
             InspectorSegmented(
                 options: wallpaperSources.map(\.id),
                 isSelected: { $0 == selectedWallpaperSourceID },
@@ -253,19 +323,6 @@ struct AnnotationBackgroundInspector: View {
         return selectedWallpaper.url.standardizedFileURL == wallpaper.url.standardizedFileURL
     }
 
-    @ViewBuilder
-    private func swatchGroup<Content: View>(
-        _ title: String,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        VStack(alignment: .leading, spacing: InspectorMetrics.groupLabelSpacing) {
-            InspectorGroupLabel(title)
-
-            LazyVGrid(columns: swatchColumns, spacing: 6) {
-                content()
-            }
-        }
-    }
 }
 
 struct AnnotationWatermarkInspector: View {
@@ -293,7 +350,7 @@ struct AnnotationWatermarkInspector: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
             if isTextEditing {
                 watermarkTextField
             } else {
@@ -301,37 +358,33 @@ struct AnnotationWatermarkInspector: View {
             }
 
             if hasWatermarkText {
-                HStack(alignment: .top, spacing: 14) {
-                    InspectorSlider(
-                        "Density",
-                        value: $settings.density,
-                        range: 2...10,
-                        formatted: wholeNumberText
-                    )
+                InspectorSlider(
+                    "Density",
+                    value: $settings.density,
+                    range: 2...10,
+                    format: .integer
+                )
 
-                    InspectorSlider(
-                        "Size",
-                        value: $settings.fontSize,
-                        range: 8...160,
-                        formatted: pixelText
-                    )
-                }
+                InspectorSlider(
+                    "Size",
+                    value: $settings.fontSize,
+                    range: 8...160,
+                    format: .pixels
+                )
 
-                HStack(alignment: .top, spacing: 14) {
-                    InspectorSlider(
-                        "Angle",
-                        value: $settings.rotationDegrees,
-                        range: -90...90,
-                        formatted: degreeText
-                    )
+                InspectorSlider(
+                    "Angle",
+                    value: $settings.rotationDegrees,
+                    range: -90...90,
+                    format: .degrees()
+                )
 
-                    InspectorSlider(
-                        "Opacity",
-                        value: $settings.opacity,
-                        range: 0...0.75,
-                        formatted: percentText
-                    )
-                }
+                InspectorSlider(
+                    "Opacity",
+                    value: $settings.opacity,
+                    range: 0...0.75,
+                    format: .percent()
+                )
 
                 HStack(spacing: 10) {
                     Text("Color")
@@ -407,21 +460,6 @@ struct AnnotationWatermarkInspector: View {
         onFocusCleared()
     }
 
-    private func percentText(_ value: CGFloat) -> String {
-        "\(Int((value * 100).rounded()))%"
-    }
-
-    private func wholeNumberText(_ value: CGFloat) -> String {
-        "\(Int(value.rounded()))"
-    }
-
-    private func pixelText(_ value: CGFloat) -> String {
-        "\(Int(value.rounded())) px"
-    }
-
-    private func degreeText(_ value: CGFloat) -> String {
-        "\(Int(value.rounded())) deg"
-    }
 }
 
 private enum AnnotationWallpaperSource {
@@ -539,45 +577,91 @@ private struct AnnotationWallpaperPackInstallView: View {
     }
 }
 
-private struct AlignmentGlyph: View {
-    let alignment: AnnotationBackgroundAlignment
-    let isSelected: Bool
+private struct AlignmentPositionPicker: View {
+    @Binding var alignment: AnnotationBackgroundAlignment
+    let isEnabled: Bool
+    let onEditorAction: () -> Void
 
-    private let size = CGSize(width: 30, height: 24)
-    private let marker = CGSize(width: 9, height: 7)
-    private let inset: CGFloat = 4
+    private let size: CGFloat = 44
+    private let markerSize: CGFloat = 6
+    private let cellSize: CGFloat = 12
+    private let spacing: CGFloat = 2
+
+    @State private var hoveredAlignment: AnnotationBackgroundAlignment?
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: InspectorMetrics.tileRadius, style: .continuous)
-                .fill(isSelected ? Color.accentColor : Color.primary.opacity(0.06))
-                .overlay(
-                    RoundedRectangle(cornerRadius: InspectorMetrics.tileRadius, style: .continuous)
-                        .strokeBorder(
-                            isSelected ? Color.clear : Color.primary.opacity(0.10),
-                            lineWidth: 0.5
-                        )
-                )
+        let shape = RoundedRectangle(
+            cornerRadius: InspectorMetrics.sliderRadius,
+            style: .continuous
+        )
+        let columns = Array(
+            repeating: GridItem(.fixed(cellSize), spacing: spacing),
+            count: 3
+        )
 
-            RoundedRectangle(cornerRadius: 1.5, style: .continuous)
-                .fill(isSelected ? Color.white : Color.secondary.opacity(0.55))
-                .frame(width: marker.width, height: marker.height)
-                .position(markerPosition)
+        LazyVGrid(columns: columns, spacing: spacing) {
+            ForEach(AnnotationBackgroundAlignment.allCases) { option in
+                Button {
+                    onEditorAction()
+                    withAnimation(accessibilityReduceMotion ? nil : .snappy(duration: 0.18)) {
+                        alignment = option
+                    }
+                } label: {
+                    RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+                        .fill(markerFill(for: option))
+                        .frame(width: markerSize, height: markerSize)
+                        .frame(width: cellSize, height: cellSize)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .focusEffectDisabled()
+                .disabled(!isEnabled)
+                .help(option.title)
+                .onHover { isHovering in
+                    guard isEnabled else {
+                        hoveredAlignment = nil
+                        return
+                    }
+                    if isHovering {
+                        hoveredAlignment = option
+                    } else if hoveredAlignment == option {
+                        hoveredAlignment = nil
+                    }
+                }
+                .accessibilityLabel("\(option.title) alignment")
+                .accessibilityValue(displayedAlignment == option ? "Selected" : "")
+                .accessibilityAddTraits(displayedAlignment == option ? .isSelected : [])
+            }
         }
-        .frame(width: size.width, height: size.height)
-        .contentShape(RoundedRectangle(cornerRadius: InspectorMetrics.tileRadius, style: .continuous))
+        .padding(InspectorMetrics.controlInset)
+        .frame(width: size, height: size)
+        .background(shape.fill(InspectorControlPalette.trackFill(for: colorScheme)))
+        .overlay(shape.stroke(InspectorControlPalette.border, lineWidth: 0.5))
+        .clipShape(shape)
+        .opacity(isEnabled ? 1 : 0.46)
+        .help(isEnabled ? "Image alignment" : "Reset Camera to use alignment")
+        .onChange(of: isEnabled) { _, enabled in
+            if !enabled {
+                hoveredAlignment = nil
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Image alignment")
     }
 
-    /// Anchors the marker at the alignment point with symmetric insets so it
-    /// never crowds an edge, and lands dead-center for `.center`.
-    private var markerPosition: CGPoint {
-        let minX = inset + marker.width / 2
-        let maxX = size.width - inset - marker.width / 2
-        let minY = inset + marker.height / 2
-        let maxY = size.height - inset - marker.height / 2
-        return CGPoint(
-            x: minX + alignment.xFactor * (maxX - minX),
-            y: minY + alignment.yFactor * (maxY - minY)
-        )
+    private var displayedAlignment: AnnotationBackgroundAlignment {
+        isEnabled ? alignment : .center
+    }
+
+    private func markerFill(for option: AnnotationBackgroundAlignment) -> Color {
+        if displayedAlignment == option {
+            return InspectorControlPalette.selectedForeground
+        }
+        if hoveredAlignment == option {
+            return Color.primary.opacity(0.48)
+        }
+        return Color.primary.opacity(0.22)
     }
 }

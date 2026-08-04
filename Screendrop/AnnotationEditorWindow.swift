@@ -14,6 +14,7 @@ struct AnnotationEditorWindow: View {
 
     @State private var model = AnnotationEditorModel()
     @State private var wallpaperStore = AnnotationWallpaperStore.shared
+    @State private var backgroundPresetStore = AnnotationBackgroundPresetStore.shared
     @State private var isInspectorPresented = true
     @State private var isFinishing = false
     @State private var isUploading = false
@@ -49,7 +50,7 @@ struct AnnotationEditorWindow: View {
             .onDeleteCommand {
                 model.deleteSelectedAnnotation()
             }
-            .onChange(of: model.items) { _, _ in
+            .onChange(of: model.revision) { _, _ in
                 if didCopyLink { withAnimation(.snappy(duration: 0.2)) { didCopyLink = false } }
             }
             .onChange(of: model.backgroundSettings) { _, _ in
@@ -74,6 +75,7 @@ struct AnnotationEditorWindow: View {
                 AnnotationEditorInspector(
                     model: model,
                     wallpaperStore: wallpaperStore,
+                    backgroundPresetStore: backgroundPresetStore,
                     focusedField: $focusedField,
                     onEditorAction: clearInspectorFocus,
                     onPickWallpaper: pickCustomWallpaper
@@ -95,7 +97,10 @@ struct AnnotationEditorWindow: View {
         .disabled(model.previewImage == nil || model.imageSize == .zero)
 
         if CloudUploader.shared.isConfigured {
-            Button(action: uploadAnnotation) {
+            CloudUploadButton(
+                suggestedTitle: model.sourceURL?.deletingPathExtension().lastPathComponent ?? "",
+                onUpload: uploadAnnotation
+            ) {
                 if isUploading {
                     HStack(spacing: 6) {
                         ProgressView()
@@ -212,6 +217,11 @@ struct AnnotationEditorWindow: View {
                 )
                     .padding(.horizontal, 34)
                     .padding(.vertical, 28)
+            } else if let errorMessage = model.errorMessage {
+                // A load failure (missing/unreadable source file, e.g. a stale
+                // URL replayed by macOS window restoration) should never sit
+                // behind an unexplained spinner with no way out.
+                AnnotationLoadFailureView(message: errorMessage, onClose: closeAfterLoadFailure)
             } else {
                 ProgressView()
                     .controlSize(.large)
@@ -241,7 +251,10 @@ struct AnnotationEditorWindow: View {
             }
         }
         .overlay(alignment: .bottomLeading) {
-            if let errorMessage = model.errorMessage {
+            // Only inline saves/uploads (which fail with an image already on
+            // screen) land here; a load failure shows the full-canvas state
+            // above instead of stacking a second copy of the same message.
+            if let errorMessage = model.errorMessage, model.previewImage != nil {
                 Text(errorMessage)
                     .font(.footnote)
                     .foregroundStyle(.red)
@@ -251,6 +264,11 @@ struct AnnotationEditorWindow: View {
                     .background(.bar)
             }
         }
+    }
+
+    private func closeAfterLoadFailure() {
+        model.releaseEditorResources()
+        dismissWindow()
     }
 
     private func saveAs() {
@@ -267,16 +285,18 @@ struct AnnotationEditorWindow: View {
         panel.begin { response in
             guard response == .OK, let destinationURL = panel.url else { return }
 
-            do {
-                try AnnotationRenderer.render(
-                    sourceURL: baseURL,
-                    items: model.items,
-                    backgroundSettings: model.backgroundSettings,
-                    destinationURL: destinationURL,
-                    contentType: ScreenshotFileActions.exportContentType
-                )
-            } catch {
-                model.errorMessage = "Failed to save annotation: \(error.localizedDescription)"
+            Task {
+                do {
+                    try await AnnotationRenderer.renderInBackground(
+                        sourceURL: baseURL,
+                        shapes: model.shapes,
+                        backgroundSettings: model.backgroundSettings,
+                        destinationURL: destinationURL,
+                        contentType: ScreenshotFileActions.exportContentType
+                    )
+                } catch {
+                    model.errorMessage = "Failed to save annotation: \(error.localizedDescription)"
+                }
             }
         }
     }
@@ -299,14 +319,15 @@ struct AnnotationEditorWindow: View {
         }
     }
 
-    private func uploadAnnotation() {
+    private func uploadAnnotation(options: CloudUploadOptions) {
         clearInspectorFocus()
         guard let sourceURL = model.sourceURL, !isUploading else { return }
 
         let baseURL = model.baseImageURL ?? sourceURL
-        let items = model.items
+        let shapes = model.shapes
+        let bindings = model.bindings
         let backgroundSettings = model.backgroundSettings
-        let hasContent = !items.isEmpty || backgroundSettings.hasRenderableContent || model.isCropped
+        let hasContent = !shapes.isEmpty || backgroundSettings.hasRenderableContent || model.isCropped
 
         isUploading = true
         Task {
@@ -317,12 +338,12 @@ struct AnnotationEditorWindow: View {
                 // editor stays open.
                 let resultURL: URL
                 if hasContent {
-                    let annotatedURL = try AnnotationRenderer.renderToTemporaryFile(
+                    let annotatedURL = try await AnnotationRenderer.renderToTemporaryFileInBackground(
                         sourceURL: baseURL,
-                        items: items,
+                        shapes: shapes,
                         backgroundSettings: backgroundSettings
                     )
-                    let document = AnnotationDocument(items: items, background: backgroundSettings)
+                    let document = AnnotationDocument(shapes: shapes, bindings: bindings, background: backgroundSettings)
                     resultURL = ScreenshotHistoryStore.shared.commitAnnotations(
                         displayURL: sourceURL,
                         baseURL: baseURL,
@@ -343,7 +364,12 @@ struct AnnotationEditorWindow: View {
                     historyURL: resultURL
                 )
 
-                let result = try await CloudUploader.shared.upload(itemID: UUID(), fileURL: resultURL)
+                let result = try await CloudUploader.shared.upload(
+                    itemID: UUID(),
+                    fileURL: resultURL,
+                    title: options.trimmedTitleOrNil,
+                    socialEnabled: options.socialEnabled
+                )
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(result.url, forType: .string)
                 ScreenshotHistoryStore.shared.setCloudURL(for: resultURL, cloudURL: result.url)
@@ -365,9 +391,10 @@ struct AnnotationEditorWindow: View {
         guard !isFinishing else { return }
 
         let baseURL = model.baseImageURL ?? sourceURL
-        let items = model.items
+        let shapes = model.shapes
+        let bindings = model.bindings
         let backgroundSettings = model.backgroundSettings
-        let hasContent = !items.isEmpty || backgroundSettings.hasRenderableContent || model.isCropped
+        let hasContent = !shapes.isEmpty || backgroundSettings.hasRenderableContent || model.isCropped
         let hadDocument = ScreenshotHistoryStore.shared.hasEditDocument(for: sourceURL)
 
         // Nothing drawn and nothing previously saved -- just close.
@@ -378,43 +405,68 @@ struct AnnotationEditorWindow: View {
         }
 
         isFinishing = true
-        do {
-            let resultURL: URL
-            if hasContent {
-                let annotatedURL = try AnnotationRenderer.renderToTemporaryFile(
-                    sourceURL: baseURL,
-                    items: items,
-                    backgroundSettings: backgroundSettings
-                )
-                let document = AnnotationDocument(items: items, background: backgroundSettings)
-                resultURL = ScreenshotHistoryStore.shared.commitAnnotations(
-                    displayURL: sourceURL,
-                    baseURL: baseURL,
-                    renderedURL: annotatedURL,
-                    document: document
-                )
-            } else {
-                // All annotations were cleared on a previously-edited image:
-                // restore the untouched original.
-                resultURL = ScreenshotHistoryStore.shared.removeAnnotations(displayURL: sourceURL)
-            }
+        Task {
+            do {
+                let resultURL: URL
+                if hasContent {
+                    let annotatedURL = try await AnnotationRenderer.renderToTemporaryFileInBackground(
+                        sourceURL: baseURL,
+                        shapes: shapes,
+                        backgroundSettings: backgroundSettings
+                    )
+                    let document = AnnotationDocument(shapes: shapes, bindings: bindings, background: backgroundSettings)
+                    resultURL = ScreenshotHistoryStore.shared.commitAnnotations(
+                        displayURL: sourceURL,
+                        baseURL: baseURL,
+                        renderedURL: annotatedURL,
+                        document: document
+                    )
+                } else {
+                    // All annotations were cleared on a previously-edited image:
+                    // restore the untouched original.
+                    resultURL = ScreenshotHistoryStore.shared.removeAnnotations(displayURL: sourceURL)
+                }
 
-            let updatedExistingPreview = ScreenshotPreviewStack.shared.applyAnnotation(
-                originalURL: sourceURL,
-                historyURL: resultURL
-            )
-            if !updatedExistingPreview {
-                PreviewPanelPresenter.shared.show(displayID: nil)
+                let updatedExistingPreview = ScreenshotPreviewStack.shared.applyAnnotation(
+                    originalURL: sourceURL,
+                    historyURL: resultURL
+                )
+                if !updatedExistingPreview {
+                    PreviewPanelPresenter.shared.show(displayID: nil)
+                }
+                model.releaseEditorResources()
+                dismissWindow()
+            } catch {
+                isFinishing = false
+                model.errorMessage = "Failed to finish annotation: \(error.localizedDescription)"
             }
-            model.releaseEditorResources()
-            dismissWindow()
-        } catch {
-            isFinishing = false
-            model.errorMessage = "Failed to finish annotation: \(error.localizedDescription)"
         }
     }
 
     private func clearInspectorFocus() {
         focusedField = nil
+    }
+}
+
+private struct AnnotationLoadFailureView: View {
+    let message: String
+    let onClose: () -> Void
+
+    var body: some View {
+        VStack(spacing: 14) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 34, weight: .medium))
+                .foregroundStyle(.secondary)
+
+            Text(message)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 360)
+
+            Button("Close", action: onClose)
+                .keyboardShortcut(.cancelAction)
+        }
+        .padding(32)
     }
 }

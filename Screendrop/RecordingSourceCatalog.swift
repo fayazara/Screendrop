@@ -53,6 +53,7 @@ final class RecordingSourceCatalog {
 
     static func filteredWindows(from content: SCShareableContent) -> [SCWindow] {
         let ownBundleID = Bundle.main.bundleIdentifier
+        let includesAppWindows = PreviewWindowCaptureExclusion.includesAppWindowsInCaptures
         var seenKeys: Set<String> = []
 
         return content.windows
@@ -62,7 +63,7 @@ final class RecordingSourceCatalog {
                       window.frame.width >= 160,
                       window.frame.height >= 100,
                       let app = window.owningApplication,
-                      app.bundleIdentifier != ownBundleID,
+                      (includesAppWindows || app.bundleIdentifier != ownBundleID),
                       !isBlockedApplication(app),
                       !isBlockedTitle(window.title, app: app) else {
                     return false

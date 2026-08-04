@@ -35,6 +35,9 @@ struct AnnotationCanvas: View {
     @State private var hasActiveInteraction = false
     @State private var hoveredLocation: CGPoint?
     @State private var currentCursor: AnnotationCanvasCursor = .arrow
+    @State private var progressivelyBlurredImage: NSImage?
+    @State private var progressivelyBlurredSourceID: ObjectIdentifier?
+    @State private var settledScene: AnnotationSceneSettleResult?
 
     var body: some View {
         GeometryReader { proxy in
@@ -45,67 +48,74 @@ struct AnnotationCanvas: View {
             let canvasFrame = model.displayCanvasFrame(in: proxy.size)
             let displayLayout = backgroundLayout.scaled(to: canvasFrame)
             let imageFrame = displayLayout.imageFrame
-            let boundaryFrame = model.backgroundSettings.isEnabled ? displayLayout.canvasFrame : imageFrame
+            let boundaryFrame = model.backgroundSettings.usesCanvasLayout ? displayLayout.canvasFrame : imageFrame
             let allowedBounds = model.annotationBounds(for: imageFrame, boundaryFrame: boundaryFrame)
-            let cornerRadii = screenshotCornerRadii(for: imageFrame)
-            let clipCorners = RectangleCornerRadii(
-                topLeading: cornerRadii.topLeft,
-                bottomLeading: cornerRadii.bottomLeft,
-                bottomTrailing: cornerRadii.bottomRight,
-                topTrailing: cornerRadii.topRight
+            let screenshotGeometry = AnnotationScreenshotFrameGeometry(
+                imageRect: imageFrame,
+                cardRect: displayLayout.cardFrame,
+                settings: model.backgroundSettings
+            )
+            let clipCorners = swiftUICornerRadii(screenshotGeometry.imageCornerRadii)
+            let effectiveCamera = model.isCropping || model.editingTextID != nil
+                ? AnnotationCameraSettings()
+                : model.backgroundSettings.camera
+            let projection = AnnotationCameraGeometry.projection(
+                sourceRect: CGRect(origin: .zero, size: proxy.size),
+                imageRect: imageFrame,
+                canvasSize: displayLayout.canvasFrame.size,
+                settings: effectiveCamera
+            )
+            let previewPixelWidth = previewContentPixelWidth(
+                imageFrame: imageFrame,
+                canvasFrame: displayLayout.canvasFrame,
+                viewportSize: proxy.size,
+                projection: projection
+            )
+            let blurPreviewKey = AnnotationProgressiveBlurPreviewKey(
+                image: image,
+                settings: model.backgroundSettings.progressiveBlur,
+                contentPixelWidth: previewPixelWidth
+            )
+            let usesSceneBlur = model.backgroundSettings.progressiveBlur.isActive
+                && model.backgroundSettings.progressiveBlur.edgeMode == .bleed
+                && !model.isCropping
+                && model.editingTextID == nil
+            let displayedImage = model.backgroundSettings.progressiveBlur.isActive
+                && model.backgroundSettings.progressiveBlur.edgeMode == .clipped
+                && !model.isCropping
+                && progressivelyBlurredSourceID == ObjectIdentifier(image)
+                ? progressivelyBlurredImage ?? image
+                : image
+            let sceneSettleKey = AnnotationSceneSettleKey(
+                sourceID: ObjectIdentifier(image),
+                shapes: model.shapes,
+                settings: model.backgroundSettings,
+                contentPixelWidth: previewPixelWidth,
+                isEligible: usesSceneBlur
+                    && !hasActiveInteraction
+                    && !model.isTransformingExistingAnnotation
+                    && model.selectionCount == 0
             )
 
             ZStack(alignment: .topLeading) {
-                if model.backgroundSettings.isEnabled {
-                    AnnotationBackgroundStageFill(style: model.backgroundSettings.style)
-                        .frame(width: displayLayout.canvasFrame.width, height: displayLayout.canvasFrame.height)
-                        .position(x: displayLayout.canvasFrame.midX, y: displayLayout.canvasFrame.midY)
-                }
-
-                screenshotShadow(imageFrame: imageFrame, cornerRadii: clipCorners)
-
-                Image(nsImage: image)
-                    .resizable()
-                    .frame(width: imageFrame.width, height: imageFrame.height)
-                    .clipShape(UnevenRoundedRectangle(cornerRadii: clipCorners, style: .continuous))
-                    .position(x: imageFrame.midX, y: imageFrame.midY)
-
-                ForEach(model.items) { item in
-                    AnnotationItemView(
-                        item: item,
-                        image: image,
-                        originalImageSize: model.imageSize,
-                        imageFrame: imageFrame,
-                        isSelected: model.selectedItemIDs.contains(item.id),
-                        showsResizeHandles: model.selectionCount == 1,
-                        isEditingText: item.id == model.editingTextItemID,
-                        allowsRedactionPreviewCaching: !(model.isTransformingExistingAnnotation && model.selectedItemIDs.contains(item.id)),
-                        text: Binding(
-                            get: { item.text },
-                            set: { model.setText($0, for: item.id) }
-                        ),
-                        onCommitText: model.commitTextEditing,
-                        onTextSizeChange: { size in
-                            model.setTextViewContentSize(size, for: item.id, imageFrame: imageFrame, allowedBounds: allowedBounds)
-                        }
-                    )
-                }
-
-                if let draftItem = model.draftItem {
-                    AnnotationItemView(
-                        item: draftItem,
-                        image: image,
-                        originalImageSize: model.imageSize,
-                        imageFrame: imageFrame,
-                        isSelected: false,
-                        showsResizeHandles: false,
-                        isEditingText: false,
-                        allowsRedactionPreviewCaching: false,
-                        text: .constant(draftItem.text),
-                        onCommitText: {},
-                        onTextSizeChange: { _ in }
-                    )
-                }
+                sceneStage(
+                    viewportSize: proxy.size,
+                    canvasFrame: displayLayout.canvasFrame,
+                    backgroundStyle: model.backgroundSettings.style,
+                    showsBackground: model.backgroundSettings.isEnabled,
+                    screenshotGeometry: screenshotGeometry,
+                    allowedBounds: allowedBounds,
+                    clipCorners: clipCorners,
+                    displayedImage: displayedImage,
+                    projection: projection,
+                    clipsForegroundToCanvas: effectiveCamera.hasEffect || usesSceneBlur,
+                    sceneBlurSettings: usesSceneBlur
+                        ? model.backgroundSettings.progressiveBlur
+                        : nil,
+                    settledSceneImage: settledScene.flatMap {
+                        $0.key == sceneSettleKey ? $0.image : nil
+                    }
+                )
 
                 if model.backgroundSettings.watermark.isVisible {
                     AnnotationWatermarkOverlay(
@@ -115,22 +125,6 @@ struct AnnotationCanvas: View {
                     .frame(width: boundaryFrame.width, height: boundaryFrame.height)
                     .position(x: boundaryFrame.midX, y: boundaryFrame.midY)
                     .allowsHitTesting(false)
-                }
-
-                if let selectionRect = model.selectionRect {
-                    AnnotationMarqueeSelectionView()
-                        .frame(
-                            width: max(viewRect(selectionRect, in: imageFrame).width, 1),
-                            height: max(viewRect(selectionRect, in: imageFrame).height, 1)
-                        )
-                        .position(
-                            x: viewRect(selectionRect, in: imageFrame).midX,
-                            y: viewRect(selectionRect, in: imageFrame).midY
-                        )
-                }
-
-                if model.isCropping {
-                    AnnotationCropOverlay(model: model, imageFrame: imageFrame)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -142,7 +136,12 @@ struct AnnotationCanvas: View {
                     onZoom: { factor in model.zoomBy(factor) }
                 )
             )
-            .gesture(interactionGesture(imageFrame: imageFrame, boundaryFrame: boundaryFrame))
+            .gesture(interactionGesture(
+                imageFrame: imageFrame,
+                boundaryFrame: boundaryFrame,
+                projection: projection,
+                visibleCanvasFrame: effectiveCamera.hasEffect ? displayLayout.canvasFrame : nil
+            ))
             .onAppear {
                 model.viewportSize = proxy.size
                 model.displayScale = displayScale
@@ -156,8 +155,14 @@ struct AnnotationCanvas: View {
             .onContinuousHover { phase in
                 switch phase {
                 case .active(let location):
-                    hoveredLocation = location
-                    updateCursor(at: location, imageFrame: imageFrame, boundaryFrame: boundaryFrame)
+                    if effectiveCamera.hasEffect && !displayLayout.canvasFrame.contains(location) {
+                        hoveredLocation = nil
+                        setCursor(.arrow)
+                        return
+                    }
+                    let mappedLocation = projection.unproject(location)
+                    hoveredLocation = mappedLocation
+                    updateCursor(at: mappedLocation, imageFrame: imageFrame, boundaryFrame: boundaryFrame)
                 case .ended:
                     hoveredLocation = nil
                     setCursor(.arrow)
@@ -166,59 +171,470 @@ struct AnnotationCanvas: View {
             .onChange(of: model.selectedTool) { _, _ in
                 refreshCursor(imageFrame: imageFrame, boundaryFrame: boundaryFrame)
             }
-            .onChange(of: model.itemIDs) { _, _ in
+            .onChange(of: model.revision) { _, _ in
                 refreshCursor(imageFrame: imageFrame, boundaryFrame: boundaryFrame)
             }
-            .onChange(of: model.selectedItemIDs) { _, _ in
+            .onChange(of: model.selectionCount) { _, _ in
                 refreshCursor(imageFrame: imageFrame, boundaryFrame: boundaryFrame)
             }
             .onDisappear {
                 setCursor(.arrow)
             }
+            .task(id: blurPreviewKey) {
+                await updateProgressiveBlurPreview(
+                    for: image,
+                    settings: model.backgroundSettings.progressiveBlur,
+                    contentPixelWidth: blurPreviewKey.contentPixelWidth
+                )
+            }
+            .task(id: sceneSettleKey) {
+                await updateSceneSettlePreview(for: image, key: sceneSettleKey)
+            }
         }
     }
 
     @ViewBuilder
-    private func screenshotShadow(imageFrame: CGRect, cornerRadii: RectangleCornerRadii) -> some View {
-        let settings = model.backgroundSettings
-        let opacity = settings.isEnabled ? Double(settings.shadow) * 0.50 : 0.26
-        if opacity > 0 {
-            UnevenRoundedRectangle(cornerRadii: cornerRadii, style: .continuous)
-                .fill(Color.black.opacity(0.18))
-                .frame(width: imageFrame.width, height: imageFrame.height)
-                .position(x: imageFrame.midX, y: imageFrame.midY)
-                .shadow(
-                    color: .black.opacity(opacity),
-                    radius: settings.isEnabled ? 16 + settings.shadow * 40 : 18,
-                    x: 0,
-                    y: settings.isEnabled ? 8 + settings.shadow * 26 : 8
+    private func sceneStage(
+        viewportSize: CGSize,
+        canvasFrame: CGRect,
+        backgroundStyle: AnnotationBackgroundStyle,
+        showsBackground: Bool,
+        screenshotGeometry: AnnotationScreenshotFrameGeometry,
+        allowedBounds: CGRect,
+        clipCorners: RectangleCornerRadii,
+        displayedImage: NSImage,
+        projection: AnnotationCameraProjection,
+        clipsForegroundToCanvas: Bool,
+        sceneBlurSettings: AnnotationProgressiveBlurSettings?,
+        settledSceneImage: NSImage? = nil
+    ) -> some View {
+        if let sceneBlurSettings {
+            let blurRadius = max(
+                0.5,
+                sceneBlurSettings.strength * min(canvasFrame.width, canvasFrame.height) / 1000
+            )
+
+            ZStack(alignment: .topLeading) {
+                sceneContent(
+                    viewportSize: viewportSize,
+                    canvasFrame: canvasFrame,
+                    backgroundStyle: backgroundStyle,
+                    showsBackground: showsBackground,
+                    screenshotGeometry: screenshotGeometry,
+                    allowedBounds: allowedBounds,
+                    clipCorners: clipCorners,
+                    displayedImage: displayedImage,
+                    projection: projection,
+                    clipsForegroundToCanvas: true
                 )
+
+                ForEach(0..<3, id: \.self) { level in
+                    sceneContent(
+                        viewportSize: viewportSize,
+                        canvasFrame: canvasFrame,
+                        backgroundStyle: backgroundStyle,
+                        showsBackground: showsBackground,
+                        screenshotGeometry: screenshotGeometry,
+                        allowedBounds: allowedBounds,
+                        clipCorners: clipCorners,
+                        displayedImage: displayedImage,
+                        projection: projection,
+                        clipsForegroundToCanvas: true
+                    )
+                    .compositingGroup()
+                    .blur(radius: blurRadius * CGFloat(level + 1) / 3)
+                    .mask {
+                        progressiveBlurBlendMask(
+                            settings: sceneBlurSettings,
+                            canvasFrame: canvasFrame,
+                            level: level,
+                            levelCount: 3
+                        )
+                    }
+                    .allowsHitTesting(false)
+                }
+
+                // Export-exact frame rendered off-main once editing settles.
+                // The gradient-band approximation above stays live underneath
+                // so interaction never waits on a Core Image render.
+                if let settledSceneImage {
+                    Image(nsImage: settledSceneImage)
+                        .resizable()
+                        .interpolation(.high)
+                        .frame(width: canvasFrame.width, height: canvasFrame.height)
+                        .position(x: canvasFrame.midX, y: canvasFrame.midY)
+                        .allowsHitTesting(false)
+                        .transition(.opacity)
+                }
+            }
+            .mask {
+                Rectangle()
+                    .frame(width: canvasFrame.width, height: canvasFrame.height)
+                    .position(x: canvasFrame.midX, y: canvasFrame.midY)
+            }
+        } else {
+            sceneContent(
+                viewportSize: viewportSize,
+                canvasFrame: canvasFrame,
+                backgroundStyle: backgroundStyle,
+                showsBackground: showsBackground,
+                screenshotGeometry: screenshotGeometry,
+                allowedBounds: allowedBounds,
+                clipCorners: clipCorners,
+                displayedImage: displayedImage,
+                projection: projection,
+                clipsForegroundToCanvas: clipsForegroundToCanvas
+            )
         }
     }
 
-    private func screenshotCornerRadii(for imageFrame: CGRect) -> (topLeft: CGFloat, topRight: CGFloat, bottomLeft: CGFloat, bottomRight: CGFloat) {
-        guard model.backgroundSettings.isEnabled else { return (0, 0, 0, 0) }
-        let base = model.backgroundSettings.cornerRadius * min(imageFrame.width, imageFrame.height)
-        let m = model.backgroundSettings.alignment.cornerRadiusMultipliers
-        return (base * m.topLeft, base * m.topRight, base * m.bottomLeft, base * m.bottomRight)
+    private func sceneContent(
+        viewportSize: CGSize,
+        canvasFrame: CGRect,
+        backgroundStyle: AnnotationBackgroundStyle,
+        showsBackground: Bool,
+        screenshotGeometry: AnnotationScreenshotFrameGeometry,
+        allowedBounds: CGRect,
+        clipCorners: RectangleCornerRadii,
+        displayedImage: NSImage,
+        projection: AnnotationCameraProjection,
+        clipsForegroundToCanvas: Bool
+    ) -> some View {
+        ZStack(alignment: .topLeading) {
+            if showsBackground {
+                AnnotationBackgroundStageFill(style: backgroundStyle)
+                    .frame(width: canvasFrame.width, height: canvasFrame.height)
+                    .position(x: canvasFrame.midX, y: canvasFrame.midY)
+            }
+
+            transformedCameraForeground(
+                viewportSize: viewportSize,
+                screenshotGeometry: screenshotGeometry,
+                allowedBounds: allowedBounds,
+                clipCorners: clipCorners,
+                displayedImage: displayedImage,
+                projection: projection,
+                canvasFrame: canvasFrame,
+                clipsToCanvas: clipsForegroundToCanvas
+            )
+        }
+        .frame(width: viewportSize.width, height: viewportSize.height, alignment: .topLeading)
     }
 
-    private func interactionGesture(imageFrame: CGRect, boundaryFrame: CGRect) -> some Gesture {
+    private func transformedCameraForeground(
+        viewportSize: CGSize,
+        screenshotGeometry: AnnotationScreenshotFrameGeometry,
+        allowedBounds: CGRect,
+        clipCorners: RectangleCornerRadii,
+        displayedImage: NSImage,
+        projection: AnnotationCameraProjection,
+        canvasFrame: CGRect,
+        clipsToCanvas: Bool
+    ) -> some View {
+        cameraForeground(
+            viewportSize: viewportSize,
+            screenshotGeometry: screenshotGeometry,
+            allowedBounds: allowedBounds,
+            clipCorners: clipCorners,
+            displayedImage: displayedImage
+        )
+        .projectionEffect(projection.swiftUITransform)
+        .mask {
+            if clipsToCanvas {
+                Rectangle()
+                    .frame(width: canvasFrame.width, height: canvasFrame.height)
+                    .position(x: canvasFrame.midX, y: canvasFrame.midY)
+            } else {
+                Rectangle()
+            }
+        }
+    }
+
+    private func progressiveBlurBlendMask(
+        settings: AnnotationProgressiveBlurSettings,
+        canvasFrame: CGRect,
+        level: Int,
+        levelCount: Int
+    ) -> some View {
+        AnnotationProgressiveBlurBlendMask(
+            settings: settings,
+            level: level,
+            levelCount: levelCount
+        )
+        .frame(width: canvasFrame.width, height: canvasFrame.height)
+        .position(x: canvasFrame.midX, y: canvasFrame.midY)
+    }
+
+    private func cameraForeground(
+        viewportSize: CGSize,
+        screenshotGeometry: AnnotationScreenshotFrameGeometry,
+        allowedBounds: CGRect,
+        clipCorners: RectangleCornerRadii,
+        displayedImage: NSImage
+    ) -> some View {
+        let imageFrame = screenshotGeometry.imageRect
+
+        return ZStack(alignment: .topLeading) {
+            screenshotFrameBacking(
+                geometry: screenshotGeometry,
+                imageCornerRadii: clipCorners
+            )
+
+            screenshot(
+                displayedImage,
+                imageFrame: imageFrame,
+                clipCorners: clipCorners
+            )
+
+            // One engine-drawn layer for every annotation: redactions under the spotlight,
+            // then the spotlight, then the vector shapes and the selection chrome. Replaces the
+            // per-item SwiftUI views, which each owned their own geometry and could not agree
+            // with the exporter.
+            AnnoCanvasLayer(
+                editor: model.engine,
+                sourceImage: model.previewCGImage,
+                imageFrame: imageFrame,
+                imageSize: model.imageSize,
+                spotlightClip: nil,
+                revision: model.revision
+            )
+            // Hit testing is declined everywhere except the text caret, so the drag gesture that
+            // drives the engine still receives everything else.
+            .frame(width: viewportSize.width, height: viewportSize.height)
+
+            if model.isCropping {
+                AnnotationCropOverlay(model: model, imageFrame: imageFrame)
+            }
+        }
+        .frame(width: viewportSize.width, height: viewportSize.height, alignment: .topLeading)
+    }
+
+    private func screenshot(
+        _ displayedImage: NSImage,
+        imageFrame: CGRect,
+        clipCorners: RectangleCornerRadii
+    ) -> some View {
+        Image(nsImage: displayedImage)
+            .resizable()
+            .frame(width: imageFrame.width, height: imageFrame.height)
+            .clipShape(UnevenRoundedRectangle(cornerRadii: clipCorners, style: .continuous))
+            .position(x: imageFrame.midX, y: imageFrame.midY)
+    }
+
+    @MainActor
+    private func updateProgressiveBlurPreview(
+        for sourceImage: NSImage,
+        settings: AnnotationProgressiveBlurSettings,
+        contentPixelWidth: CGFloat
+    ) async {
+        guard settings.isActive, settings.edgeMode == .clipped else {
+            progressivelyBlurredImage = nil
+            progressivelyBlurredSourceID = nil
+            return
+        }
+
+        // Coalesce high-frequency focus-pad and slider updates before entering
+        // the serialized Core Image worker.
+        do {
+            try await Task.sleep(for: .milliseconds(12))
+        } catch {
+            return
+        }
+        guard !Task.isCancelled,
+              let source = sourceImage.cgImage(
+                forProposedRect: nil,
+                context: nil,
+                hints: nil
+              ) else {
+            return
+        }
+
+        let colorSpace = source.colorSpace ?? CGColorSpaceCreateDeviceRGB()
+        guard let output = await AnnotationProgressiveBlurPreviewWorker.shared.render(
+            source: source,
+            settings: settings,
+            contentPixelWidth: contentPixelWidth,
+            colorSpace: colorSpace
+        ) else {
+            if !Task.isCancelled {
+                progressivelyBlurredImage = nil
+                progressivelyBlurredSourceID = nil
+            }
+            return
+        }
+        guard !Task.isCancelled else {
+            return
+        }
+
+        progressivelyBlurredImage = NSImage(cgImage: output, size: sourceImage.size)
+        progressivelyBlurredSourceID = ObjectIdentifier(sourceImage)
+    }
+
+    /// Pixel width for preview renders (settled scene and clipped blur):
+    /// exactly the pixels the image occupies on screen, including any
+    /// enlargement from the camera projection, so rendered previews are
+    /// indistinguishable from the live view. A generous budget only guards
+    /// pathological canvas sizes; renders are debounced, never per frame.
+    private func previewContentPixelWidth(
+        imageFrame: CGRect,
+        canvasFrame: CGRect,
+        viewportSize: CGSize,
+        projection: AnnotationCameraProjection
+    ) -> CGFloat {
+        // The projection maps the viewport rect onto a quad; the ratio of the
+        // quad's edges to the viewport approximates how much the camera
+        // magnifies the content on screen.
+        let quad = projection.quad
+        let topWidth = hypot(
+            quad.topRight.x - quad.topLeft.x,
+            quad.topRight.y - quad.topLeft.y
+        )
+        let bottomWidth = hypot(
+            quad.bottomRight.x - quad.bottomLeft.x,
+            quad.bottomRight.y - quad.bottomLeft.y
+        )
+        let leftHeight = hypot(
+            quad.bottomLeft.x - quad.topLeft.x,
+            quad.bottomLeft.y - quad.topLeft.y
+        )
+        let rightHeight = hypot(
+            quad.bottomRight.x - quad.topRight.x,
+            quad.bottomRight.y - quad.topRight.y
+        )
+        let magnification = min(3, max(
+            1,
+            max(topWidth, bottomWidth) / max(viewportSize.width, 1),
+            max(leftHeight, rightHeight) / max(viewportSize.height, 1)
+        ))
+
+        let renderScale = displayScale * magnification
+        let canvasPixelArea = canvasFrame.width * canvasFrame.height * renderScale * renderScale
+        let budget: CGFloat = 12_000_000
+        let budgetScale = min(1, (budget / max(canvasPixelArea, 1)).squareRoot())
+        return max(1, (imageFrame.width * renderScale * budgetScale).rounded())
+    }
+
+    @MainActor
+    private func updateSceneSettlePreview(
+        for sourceImage: NSImage,
+        key: AnnotationSceneSettleKey
+    ) async {
+        guard key.isEligible else {
+            settledScene = nil
+            return
+        }
+
+        // Let slider and focus-pad streams go quiet before paying for an
+        // export-exact render; every keystroke restarts this task.
+        do {
+            try await Task.sleep(for: .milliseconds(200))
+        } catch {
+            return
+        }
+        guard !Task.isCancelled,
+              let source = sourceImage.cgImage(
+                forProposedRect: nil,
+                context: nil,
+                hints: nil
+              ) else {
+            return
+        }
+
+        let colorSpace = source.colorSpace ?? CGColorSpaceCreateDeviceRGB()
+        guard let output = await AnnotationProgressiveBlurPreviewWorker.shared.renderScene(
+            source: source,
+            shapes: key.shapes,
+            settings: key.settings,
+            contentPixelWidth: key.contentPixelWidth,
+            colorSpace: colorSpace
+        ), !Task.isCancelled else {
+            return
+        }
+
+        withAnimation(.easeOut(duration: 0.18)) {
+            settledScene = AnnotationSceneSettleResult(
+                key: key,
+                image: NSImage(
+                    cgImage: output,
+                    size: NSSize(
+                        width: CGFloat(output.width) / displayScale,
+                        height: CGFloat(output.height) / displayScale
+                    )
+                )
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func screenshotFrameBacking(
+        geometry: AnnotationScreenshotFrameGeometry,
+        imageCornerRadii: RectangleCornerRadii
+    ) -> some View {
+        let settings = model.backgroundSettings
+        let castsShadow = settings.isEnabled || settings.camera.hasEffect
+
+        if settings.border.isVisible, geometry.borderWidth > 0 {
+            let cardCornerRadii = swiftUICornerRadii(geometry.cardCornerRadii)
+            ZStack {
+                AnnotationCardShadowBackdrop(
+                    cornerRadii: cardCornerRadii,
+                    size: geometry.cardRect.size,
+                    strength: castsShadow ? settings.shadow : 0,
+                    style: settings.shadowStyle
+                )
+                UnevenRoundedRectangle(cornerRadii: cardCornerRadii, style: .continuous)
+                    .fill(settings.border.color.color.opacity(min(max(settings.border.opacity, 0), 1)))
+            }
+            .frame(width: geometry.cardRect.width, height: geometry.cardRect.height)
+            .position(x: geometry.cardRect.midX, y: geometry.cardRect.midY)
+        } else if castsShadow {
+            AnnotationCardShadowBackdrop(
+                cornerRadii: imageCornerRadii,
+                size: geometry.imageRect.size,
+                strength: settings.shadow,
+                style: settings.shadowStyle
+            )
+            .position(x: geometry.imageRect.midX, y: geometry.imageRect.midY)
+        }
+    }
+
+    private func swiftUICornerRadii(_ radii: PerCornerRadii) -> RectangleCornerRadii {
+        RectangleCornerRadii(
+            topLeading: radii.topLeft,
+            bottomLeading: radii.bottomLeft,
+            bottomTrailing: radii.bottomRight,
+            topTrailing: radii.topRight
+        )
+    }
+
+    private func interactionGesture(
+        imageFrame: CGRect,
+        boundaryFrame: CGRect,
+        projection: AnnotationCameraProjection,
+        visibleCanvasFrame: CGRect?
+    ) -> some Gesture {
         DragGesture(minimumDistance: 0, coordinateSpace: .local)
             .onChanged { value in
+                guard hasActiveInteraction || visibleCanvasFrame?.contains(value.startLocation) != false else {
+                    return
+                }
+                let startLocation = projection.unproject(value.startLocation)
+                let location = projection.unproject(value.location)
                 if !hasActiveInteraction {
                     hasActiveInteraction = true
                     onEditorInteraction()
-                    model.beginInteraction(at: value.startLocation, imageFrame: imageFrame, boundaryFrame: boundaryFrame)
+                    model.beginInteraction(at: startLocation, imageFrame: imageFrame, boundaryFrame: boundaryFrame)
                 }
 
-                model.updateInteraction(to: value.location, imageFrame: imageFrame, boundaryFrame: boundaryFrame)
-                updateCursor(at: value.location, imageFrame: imageFrame, boundaryFrame: boundaryFrame)
+                model.updateInteraction(to: location, imageFrame: imageFrame, boundaryFrame: boundaryFrame)
+                updateCursor(at: location, imageFrame: imageFrame, boundaryFrame: boundaryFrame)
             }
             .onEnded { value in
-                model.endInteraction(at: value.location, imageFrame: imageFrame, boundaryFrame: boundaryFrame)
+                guard hasActiveInteraction else { return }
+                let location = projection.unproject(value.location)
+                model.endInteraction(at: location, imageFrame: imageFrame, boundaryFrame: boundaryFrame)
                 hasActiveInteraction = false
-                updateCursor(at: value.location, imageFrame: imageFrame, boundaryFrame: boundaryFrame)
+                updateCursor(at: location, imageFrame: imageFrame, boundaryFrame: boundaryFrame)
             }
     }
 
@@ -349,126 +765,5 @@ private struct AnnotationMarqueeSelectionView: View {
                         style: StrokeStyle(lineWidth: 1.5, dash: [5, 4])
                     )
             }
-    }
-}
-
-private struct AnnotationBackgroundStageFill: View {
-    let style: AnnotationBackgroundStyle
-
-    var body: some View {
-        switch style {
-        case .none:
-            Color.clear
-
-        case .solid(let color):
-            color.color
-
-        case .gradient(let gradient):
-            LinearGradient(
-                colors: gradient.colors.map(\.color),
-                startPoint: gradient.startPoint,
-                endPoint: gradient.endPoint
-            )
-
-        case .customWallpaper(let wallpaper):
-            AnnotationCustomWallpaperPreview(wallpaper: wallpaper, maxPixelSize: 2048)
-        }
-    }
-}
-
-private struct AnnotationWatermarkOverlay: View {
-    let settings: AnnotationWatermarkSettings
-    let fontScale: CGFloat
-
-    var body: some View {
-        Canvas { context, size in
-            let rows = max(2, Int(round(settings.density)))
-            let spacingY = size.height / CGFloat(rows)
-            let spacingX = max(1, spacingY * 2.2)
-            let diagonal = hypot(size.width, size.height)
-            let columnCount = max(2, Int(ceil(diagonal / spacingX)))
-            let rowCount = max(2, Int(ceil(diagonal / spacingY)))
-            let originX = size.width / 2 - CGFloat(columnCount) * spacingX / 2
-            let originY = size.height / 2 - CGFloat(rowCount) * spacingY / 2
-            let label = Text(settings.text)
-                .font(AnnotationWatermarkTypography.font(size: settings.fontSize * fontScale))
-                .foregroundStyle(settings.color.color.opacity(min(0.75, max(0, settings.opacity))))
-
-            context.translateBy(x: size.width / 2, y: size.height / 2)
-            context.rotate(by: .degrees(Double(settings.rotationDegrees)))
-            context.translateBy(x: -size.width / 2, y: -size.height / 2)
-
-            for row in 0...rowCount {
-                for column in 0...columnCount {
-                    context.draw(
-                        label,
-                        at: CGPoint(
-                            x: originX + CGFloat(column) * spacingX,
-                            y: originY + CGFloat(row) * spacingY
-                        ),
-                        anchor: .center
-                    )
-                }
-            }
-        }
-    }
-}
-
-struct AnnotationCustomWallpaperPreview: View {
-    let wallpaper: AnnotationCustomWallpaper
-    var maxPixelSize: CGFloat = 900
-
-    @State private var image: CGImage?
-    @State private var isLoading = true
-    @State private var didFail = false
-
-    var body: some View {
-        GeometryReader { proxy in
-            if let image {
-                Image(decorative: image, scale: 1, orientation: .up)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: proxy.size.width, height: proxy.size.height)
-                    .clipped()
-            } else if didFail {
-                Color.black
-                    .overlay {
-                        Image(systemName: "exclamationmark.triangle")
-                            .foregroundStyle(.secondary)
-                    }
-            } else {
-                Color(nsColor: .controlBackgroundColor)
-                    .overlay {
-                        if isLoading {
-                            ProgressView()
-                                .controlSize(.small)
-                        }
-                    }
-            }
-        }
-        .task(id: cacheID) {
-            await loadImage()
-        }
-    }
-
-    private var cacheID: String {
-        AnnotationWallpaperPreviewCache.cacheID(for: wallpaper.url, maxPixelSize: maxPixelSize)
-    }
-
-    @MainActor
-    private func loadImage() async {
-        image = nil
-        isLoading = true
-        didFail = false
-
-        let loadedImage = await AnnotationWallpaperPreviewCache.shared.image(
-            for: wallpaper.url,
-            maxPixelSize: maxPixelSize
-        )
-
-        guard !Task.isCancelled else { return }
-        image = loadedImage
-        didFail = loadedImage == nil
-        isLoading = false
     }
 }

@@ -17,16 +17,13 @@ enum ScreendropPreferences {
     static let exportFormatKey = "exportFormat"
     static let compressionQualityKey = "compressionQuality"
     static let exportDirectoryPathKey = "exportDirectoryPath"
-    static let showRecordingMouseIndicatorsKey = "showRecordingMouseIndicators"
-    static let showRecordingKeyPressCaptionsKey = "showRecordingKeyPressCaptions"
-    static let recordingMouseIndicatorColorKey = "recordingMouseIndicatorColor"
-    static let recordingMouseIndicatorSizeKey = "recordingMouseIndicatorSize"
     static let fullscreenHotkeyKey = "captureHotkey.fullscreen"
     static let windowHotkeyKey = "captureHotkey.window"
     static let areaHotkeyKey = "captureHotkey.area"
     static let screenRecordingHotkeyKey = "captureHotkey.screenRecording"
     static let playSoundsKey = "playSounds"
     static let showMenuBarIconKey = "showMenuBarIcon"
+    static let includeAppWindowsInCapturesKey = "includeAppWindowsInCaptures"
     static let captureWindowShadowKey = "captureWindowShadow"
     static let captureDelaySecondsKey = "captureDelaySeconds"
     static let previewPositionKey = "previewPosition"
@@ -35,11 +32,16 @@ enum ScreendropPreferences {
     static let overlayCardLayoutKey = "overlayCardLayout"
     static let lowResolutionEditorPreviewKey = "lowResolutionEditorPreview"
     static let trimFullscreenMenuBarKey = "trimFullscreenMenuBar"
+    static let recordingCameraDeviceIDKey = "recordingCameraDeviceID"
+    static let recordingMicrophoneDeviceIDKey = "recordingMicrophoneDeviceID"
+    static let recordingSystemAudioKey = "recordingSystemAudio"
+    static let recordingStartDelaySecondsKey = "recordingStartDelaySeconds"
+    static let recordingTeleprompterEnabledKey = "recordingTeleprompterEnabled"
+    static let recordingTeleprompterScriptKey = "recordingTeleprompterScript"
+    static let recordingTeleprompterLineCountKey = "recordingTeleprompterLineCount"
 
     private static let defaultCompressionQuality = 0.8
-    static let defaultRecordingMouseIndicatorColor = "#007AFF"
-    static let defaultRecordingMouseIndicatorSize = 44.0
-    
+
     static var autoSave: Bool {
         UserDefaults.standard.bool(forKey: autoSaveKey)
     }
@@ -88,27 +90,51 @@ enum ScreendropPreferences {
             .appendingPathComponent("Screendrop", isDirectory: true)
     }
 
-    static var showRecordingMouseIndicators: Bool {
-        if UserDefaults.standard.object(forKey: showRecordingMouseIndicatorsKey) == nil {
-            return true
+    /// Unique ID of the camera recorded alongside the screen. Empty = camera off.
+    static var recordingCameraDeviceID: String {
+        get { UserDefaults.standard.string(forKey: recordingCameraDeviceIDKey) ?? "" }
+        set { UserDefaults.standard.set(newValue, forKey: recordingCameraDeviceIDKey) }
+    }
+
+    /// Unique ID of the microphone captured during recordings. Empty = mic off.
+    static var recordingMicrophoneDeviceID: String {
+        get { UserDefaults.standard.string(forKey: recordingMicrophoneDeviceIDKey) ?? "" }
+        set { UserDefaults.standard.set(newValue, forKey: recordingMicrophoneDeviceIDKey) }
+    }
+
+    /// Whether recordings include system audio. Defaults to off.
+    static var recordingSystemAudio: Bool {
+        get { UserDefaults.standard.bool(forKey: recordingSystemAudioKey) }
+        set { UserDefaults.standard.set(newValue, forKey: recordingSystemAudioKey) }
+    }
+
+    /// Countdown delay (in seconds) before a recording starts. 0 means off.
+    static var recordingStartDelaySeconds: Int {
+        max(0, UserDefaults.standard.integer(forKey: recordingStartDelaySecondsKey))
+    }
+
+    /// Whether the notch teleprompter appears during recordings. Defaults to off.
+    static var recordingTeleprompterEnabled: Bool {
+        get { UserDefaults.standard.bool(forKey: recordingTeleprompterEnabledKey) }
+        set { UserDefaults.standard.set(newValue, forKey: recordingTeleprompterEnabledKey) }
+    }
+
+    /// The script read from the teleprompter. Empty means nothing to show.
+    static var recordingTeleprompterScript: String {
+        get { UserDefaults.standard.string(forKey: recordingTeleprompterScriptKey) ?? "" }
+        set { UserDefaults.standard.set(newValue, forKey: recordingTeleprompterScriptKey) }
+    }
+
+    static let teleprompterLineCountRange = 2...5
+
+    /// How many script lines the teleprompter shows at once.
+    static var recordingTeleprompterLineCount: Int {
+        get {
+            let stored = UserDefaults.standard.integer(forKey: recordingTeleprompterLineCountKey)
+            guard stored != 0 else { return 3 }
+            return min(max(stored, teleprompterLineCountRange.lowerBound), teleprompterLineCountRange.upperBound)
         }
-
-        return UserDefaults.standard.bool(forKey: showRecordingMouseIndicatorsKey)
-    }
-
-    static var showRecordingKeyPressCaptions: Bool {
-        UserDefaults.standard.bool(forKey: showRecordingKeyPressCaptionsKey)
-    }
-
-    static var recordingMouseIndicatorColor: String {
-        let color = UserDefaults.standard.string(forKey: recordingMouseIndicatorColorKey) ?? defaultRecordingMouseIndicatorColor
-        return color.isEmpty ? defaultRecordingMouseIndicatorColor : color
-    }
-
-    static var recordingMouseIndicatorSize: Double {
-        let value = UserDefaults.standard.object(forKey: recordingMouseIndicatorSizeKey) as? Double
-            ?? defaultRecordingMouseIndicatorSize
-        return min(max(value, 24), 96)
+        set { UserDefaults.standard.set(newValue, forKey: recordingTeleprompterLineCountKey) }
     }
 
     /// Whether to play the shutter sound after a screenshot. Defaults to on.
@@ -125,6 +151,12 @@ enum ScreendropPreferences {
             return true
         }
         return UserDefaults.standard.bool(forKey: showMenuBarIconKey)
+    }
+
+    /// Whether Screendrop's own windows and floating controls are visible in
+    /// screenshots and screen recordings. Defaults to off for capture privacy.
+    static var includeAppWindowsInCaptures: Bool {
+        UserDefaults.standard.bool(forKey: includeAppWindowsInCapturesKey)
     }
 
     /// Whether captured windows include their drop shadow. Defaults to off
@@ -325,6 +357,33 @@ enum ScreenshotFileActions {
             try exportImage(from: sourceURL, to: destinationURL, contentType: ScreendropPreferences.exportFormat.contentType)
         }
     }
+
+    /// Updates an already-associated export without changing its file format.
+    /// The replacement is staged beside the destination and atomically swapped
+    /// in only after encoding succeeds, so the last good export is never deleted
+    /// first. Pixel dimensions are preserved; PNG-to-PNG updates copy bytes.
+    static func replaceExistingExport(from sourceURL: URL, at destinationURL: URL) throws {
+        guard let destinationType = exportContentType(for: destinationURL) else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+
+        let stagingURL = destinationURL
+            .deletingLastPathComponent()
+            .appendingPathComponent(".Screendrop-\(UUID().uuidString)-\(destinationURL.lastPathComponent)")
+        defer { try? FileManager.default.removeItem(at: stagingURL) }
+
+        if destinationType == .png, actualImageContentType(at: sourceURL) == .png {
+            try FileManager.default.copyItem(at: sourceURL, to: stagingURL)
+        } else {
+            try exportImage(from: sourceURL, to: stagingURL, contentType: destinationType)
+        }
+
+        if FileManager.default.fileExists(atPath: destinationURL.path) {
+            _ = try FileManager.default.replaceItemAt(destinationURL, withItemAt: stagingURL)
+        } else {
+            try FileManager.default.moveItem(at: stagingURL, to: destinationURL)
+        }
+    }
     
     static func exportFileName(for sourceURL: URL) -> String {
         return sourceURL
@@ -367,6 +426,29 @@ enum ScreenshotFileActions {
         guard CGImageDestinationFinalize(destination) else {
             throw CocoaError(.fileWriteUnknown)
         }
+    }
+
+    private static func exportContentType(for url: URL) -> UTType? {
+        guard let type = UTType(filenameExtension: url.pathExtension) else { return nil }
+        if type.conforms(to: .png) { return .png }
+        if type.conforms(to: .jpeg) { return .jpeg }
+        if type.conforms(to: .heic) { return .heic }
+        return nil
+    }
+
+    private static func actualImageContentType(at url: URL) -> UTType? {
+        guard let source = CGImageSourceCreateWithURL(
+            url as CFURL,
+            [kCGImageSourceShouldCache: false] as CFDictionary
+        ), let identifier = CGImageSourceGetType(source) else {
+            return nil
+        }
+
+        guard let type = UTType(identifier as String) else { return nil }
+        if type.conforms(to: .png) { return .png }
+        if type.conforms(to: .jpeg) { return .jpeg }
+        if type.conforms(to: .heic) { return .heic }
+        return type
     }
     
     private static func uniqueDestinationURL(for fileName: String, in directory: URL) -> URL {

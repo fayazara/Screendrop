@@ -12,6 +12,8 @@ struct GeneralSettingsPane: View {
     @AppStorage(ScreendropPreferences.saveButtonUsesFolderKey) private var saveButtonUsesFolder = false
     @AppStorage(ScreendropPreferences.playSoundsKey) private var playSounds = true
     @AppStorage(ScreendropPreferences.showMenuBarIconKey) private var showMenuBarIcon = true
+    @AppStorage(ScreendropPreferences.includeAppWindowsInCapturesKey)
+    private var includeAppWindowsInCaptures = false
     @State private var launchAtLoginStatus = LaunchAtLoginController.status
     @State private var launchAtLoginError: String?
 
@@ -111,12 +113,27 @@ struct GeneralSettingsPane: View {
                 }
                 .toggleStyle(.switch)
             }
+
+            Section("Capture Visibility") {
+                Toggle(isOn: $includeAppWindowsInCaptures) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Include Screendrop windows in captures")
+                        Text("Show preview cards, recording controls, Settings, and other Screendrop windows in screenshots and screen recordings.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .toggleStyle(.switch)
+            }
         }
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
         .contentMargins(.top, 8, for: .scrollContent)
         .onAppear {
             refreshLaunchAtLoginStatus()
+        }
+        .onChange(of: includeAppWindowsInCaptures) { _, _ in
+            PreviewWindowCaptureExclusion.shared.refreshRegisteredWindows()
         }
     }
 
