@@ -27,6 +27,39 @@
     -->
 
     <item>
+      <title>Version 0.30.0</title>
+      <sparkle:version>22</sparkle:version>
+      <sparkle:shortVersionString>0.30.0</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.4</sparkle:minimumSystemVersion>
+      <pubDate>Tue, 04 Aug 2026 17:58:41 +0000</pubDate>
+      <description><![CDATA[
+        <h2>What's New in 0.30.0</h2>
+        <ul>
+          <li>Screendrop is now a complete, non-destructive screen-recording studio: every recording keeps its screen, camera, audio, pointer, keystroke, and edit data together so you can reopen the project and keep refining it.</li>
+          <li>Edit recordings on a real timeline with thumbnail scrubbing, split, trim, delete, per-clip speed controls, undo and redo, plus a zoomable, scrollable workspace built for long recordings.</li>
+          <li>Turn raw interaction into polished motion with automatic click-driven zooms, editable zoom blocks, pointer-follow reframing, fixed focus points, reconstructed cursor movement, click highlights, and positionable keystroke captions.</li>
+          <li>Record a display, window, or selected area alongside an optional camera, microphone, and system audio; the new pre-record bar adds camera preview, input selection, area highlighting, and 1, 3, or 5 second timers.</li>
+          <li>Present naturally with a notch-native teleprompter that follows your narration using Apple's on-device speech recognition, with a floating fallback for Macs and displays without a notch.</li>
+          <li>Transcribe narration on-device, fix caption text, burn in karaoke-style word highlighting, or edit the video itself by selecting transcript passages, removing filler words, and trimming narration silences.</li>
+          <li>Compose for every destination with Original, 16:9, 9:16, 1:1, and 4:5 output, Fill or Fit reframing, editable camera placement, backgrounds, padding, corners, shadows, and reusable Studio style presets.</li>
+          <li>Export and Share now render the complete composition—including camera, zooms, cursor, clicks, keystrokes, captions, clip edits, speed changes, and selected audio—with progress, cancellation, completion feedback, and render reuse when nothing changed.</li>
+          <li>Annotation Studio has a new unified shape engine, a Highlight tool, reusable background presets, a refined inspector, and full-resolution wide-gamut exports that better match the on-screen preview.</li>
+          <li>Create richer screenshot mockups with perspective camera controls, zoom and pan, progressive radial or directional blur, configurable edge behavior, solid borders, wallpapers, gradients, watermarks, alignment, padding, corner radius, and shadow.</li>
+          <li>Open one or many images from Finder directly in Screendrop; each image is imported as an editable copy in History, leaving the original untouched.</li>
+          <li>Automate screenshots and recordings through Apple Shortcuts, Siri, and Spotlight, and choose whether Screendrop's own windows appear in captures from Settings.</li>
+          <li>Cloud sharing gains upload titles, comments and likes controls, richer video sidecars for posters, transcripts, and scrub previews, plus the ability to delete an uploaded capture from History and invalidate its public link.</li>
+          <li>Polish and reliability are everywhere: smoother preview-card animations, faster off-main screenshot rendering, cached wallpaper previews, more reliable click capture without Input Monitoring, better teleprompter placement on external displays, and extensive recording-toolbar, timeline, cursor, zoom, and export fixes.</li>
+        </ul>
+      ]]></description>
+      <enclosure
+        url="https://github.com/fayazara/screendrop/releases/download/v0.30.0/Screendrop.dmg"
+        type="application/octet-stream"
+        sparkle:edSignature="vGUmrVZXanvXdwULoxie+N7OlsWayGrkX6daeL5V7L5+n47yDv7G9ISll3UAcL3Y8w8kOovyp3yvuIz5UlFzAQ=="
+        length="6359431"
+      />
+    </item>
+
+    <item>
       <title>Version 0.22.1</title>
       <sparkle:version>21</sparkle:version>
       <sparkle:shortVersionString>0.22.1</sparkle:shortVersionString>
