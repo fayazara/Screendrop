@@ -40,6 +40,7 @@
           <li>Turn raw interaction into polished motion with automatic click-driven zooms, editable zoom blocks, pointer-follow reframing, fixed focus points, reconstructed cursor movement, click highlights, and positionable keystroke captions.</li>
           <li>Record a display, window, or selected area alongside an optional camera, microphone, and system audio; the new pre-record bar adds camera preview, input selection, area highlighting, and 1, 3, or 5 second timers.</li>
           <li>Present naturally with a notch-native teleprompter that follows your narration using Apple's on-device speech recognition, with a floating fallback for Macs and displays without a notch.</li>
+          <li>Special thanks to Jilles Soeters (@jillesme) for the original idea behind Screendrop's teleprompter.</li>
           <li>Transcribe narration on-device, fix caption text, burn in karaoke-style word highlighting, or edit the video itself by selecting transcript passages, removing filler words, and trimming narration silences.</li>
           <li>Compose for every destination with Original, 16:9, 9:16, 1:1, and 4:5 output, Fill or Fit reframing, editable camera placement, backgrounds, padding, corners, shadows, and reusable Studio style presets.</li>
           <li>Export and Share now render the complete composition—including camera, zooms, cursor, clicks, keystrokes, captions, clip edits, speed changes, and selected audio—with progress, cancellation, completion feedback, and render reuse when nothing changed.</li>
