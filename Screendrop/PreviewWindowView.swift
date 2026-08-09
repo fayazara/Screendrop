@@ -23,6 +23,7 @@ struct PreviewWindowView: View {
     private let onEditVideo: ((URL) -> Void)?
 
     @State private var previewStack = ScreenshotPreviewStack.shared
+    @State private var basket = ScreenshotBasket.shared
     @State private var keyMonitor: Any?
     @State private var globalKeyMonitor: Any?
     @State private var scrollMonitor: Any?
@@ -90,6 +91,18 @@ struct PreviewWindowView: View {
                     .padding(.leading, previewPosition == .left ? peekHorizontalPadding : 0)
                     .padding(.trailing, previewPosition == .right ? peekHorizontalPadding : 0)
                     .offset(y: peekIsVisible ? 0 : peekHiddenOffset)
+
+                if !basket.isEmpty {
+                    ScreenshotBasketShelf()
+                        // Capture the shelf's tight bounds before the outer
+                        // positioning frame expands to the full-screen panel.
+                        .reportsInteractiveRect(active: !previewStack.isExiting)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: stackAlignment)
+                        .padding(.leading, previewPosition == .left ? basketHorizontalPadding : 0)
+                        .padding(.trailing, previewPosition == .right ? basketHorizontalPadding : 0)
+                        .padding(.bottom, previewStackEdgePadding)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
             }
             // Only animate card add/remove while the stack is expanded. When
             // collapsed the stack is slid off-screen and its hidden offset is
@@ -136,13 +149,12 @@ struct PreviewWindowView: View {
         }
         .onDisappear(perform: tearDown)
         .onChange(of: previewStack.items.count) { _, count in
-            if count == 0 {
-                if let onRequestClose {
-                    onRequestClose()
-                } else {
-                    dismissWindow()
-                }
-            }
+            guard count == 0 else { return }
+            closeIfEmpty()
+        }
+        .onChange(of: basket.count) { _, count in
+            guard count == 0 else { return }
+            closeIfEmpty()
         }
     }
 
@@ -230,6 +242,9 @@ struct PreviewWindowView: View {
                     onCopyText: {
                         previewStack.copyText(id: item.id)
                     },
+                    onToggleBasket: {
+                        basket.toggle(item.url)
+                    },
                     onDragBegan: {
                         previewStack.beginDrag(id: item.id)
                     },
@@ -279,6 +294,12 @@ struct PreviewWindowView: View {
     /// the cards to line up on the same x-position.
     private var peekHorizontalPadding: CGFloat {
         previewTrailingPadding
+    }
+
+    /// The basket sits immediately inward from the card column, so it remains
+    /// available whether the preview stack is expanded or tucked into peek.
+    private var basketHorizontalPadding: CGFloat {
+        previewTrailingPadding + previewCardSize.width + 12
     }
 
     /// Distance to slide the stack straight down so it clears the bottom edge
@@ -391,6 +412,16 @@ struct PreviewWindowView: View {
             withAnimation(.easeOut(duration: 0.18)) {
                 isOverlayTransitioning = false
             }
+        }
+    }
+
+    private func closeIfEmpty() {
+        guard previewStack.items.isEmpty, basket.isEmpty else { return }
+
+        if let onRequestClose {
+            onRequestClose()
+        } else {
+            dismissWindow()
         }
     }
     

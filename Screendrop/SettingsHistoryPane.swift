@@ -8,11 +8,17 @@ import SwiftUI
 
 struct SettingsHistoryPane: View {
     @State private var historyStore = ScreenshotHistoryStore.shared
+    @State private var basket = ScreenshotBasket.shared
+    @State private var selectedScreenshotIDs: Set<ScreenshotHistoryItem.ID> = []
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
+                if !historyStore.items.isEmpty || !basket.isEmpty {
+                    historySelectionControls
+                }
+
                 if historyStore.items.isEmpty {
                     ContentUnavailableView(
                         "No Captures",
@@ -21,17 +27,18 @@ struct SettingsHistoryPane: View {
                     )
                     .frame(maxWidth: .infinity, minHeight: 360)
                 } else {
-                    Text("\(historyStore.items.count) capture\(historyStore.items.count == 1 ? "" : "s")")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 18)
-                        .padding(.top, 16)
-                        .padding(.bottom, 8)
-
                     LazyVStack(spacing: 0) {
                         ForEach(historyStore.items) { item in
                             SettingsHistoryItemRow(
                                 item: item,
+                                isSelected: selectedScreenshotIDs.contains(item.id),
+                                isInBasket: basket.contains(item.url),
+                                onToggleSelection: {
+                                    toggleSelection(for: item)
+                                },
+                                onToggleBasket: {
+                                    toggleBasket(for: item)
+                                },
                                 onPreview: {
                                     QuickLookPreviewPresenter.show(url: item.url)
                                 },
@@ -57,13 +64,14 @@ struct SettingsHistoryPane: View {
                                     historyStore.reveal(item)
                                 },
                                 onDelete: {
+                                    selectedScreenshotIDs.remove(item.id)
                                     historyStore.delete(item)
                                 }
                             )
 
                             if item.id != historyStore.items.last?.id {
                                 Divider()
-                                    .padding(.leading, 92)
+                                    .padding(.leading, 124)
                             }
                         }
                     }
@@ -83,6 +91,87 @@ struct SettingsHistoryPane: View {
         }
         .onAppear {
             historyStore.reload()
+            selectedScreenshotIDs.formIntersection(historyStore.items.map(\.id))
+        }
+    }
+
+    private var historySelectionControls: some View {
+        VStack(spacing: 10) {
+            HStack(spacing: 10) {
+                Text("\(historyStore.items.count) capture\(historyStore.items.count == 1 ? "" : "s")")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+
+                Spacer()
+
+                if !screenshotItems.isEmpty {
+                    Button(allScreenshotsAreSelected ? "Deselect All" : "Select All") {
+                        if allScreenshotsAreSelected {
+                            selectedScreenshotIDs.removeAll()
+                        } else {
+                            selectedScreenshotIDs = Set(screenshotItems.map(\.id))
+                        }
+                    }
+
+                    Button("Add \(selectedScreenshotIDs.count) to Basket", systemImage: "basket") {
+                        addSelectionToBasket()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(selectedScreenshotIDs.isEmpty)
+                }
+            }
+
+            if !basket.isEmpty {
+                HStack {
+                    Text("Drag the basket to attach all screenshots at once.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Spacer()
+
+                    ScreenshotBasketShelf()
+                }
+            }
+        }
+        .padding(.horizontal, 18)
+        .padding(.top, 16)
+        .padding(.bottom, 8)
+    }
+
+    private var screenshotItems: [ScreenshotHistoryItem] {
+        historyStore.items.filter { !$0.isVideo }
+    }
+
+    private var allScreenshotsAreSelected: Bool {
+        !screenshotItems.isEmpty && screenshotItems.allSatisfy { selectedScreenshotIDs.contains($0.id) }
+    }
+
+    private func toggleSelection(for item: ScreenshotHistoryItem) {
+        guard !item.isVideo else { return }
+        if selectedScreenshotIDs.contains(item.id) {
+            selectedScreenshotIDs.remove(item.id)
+        } else {
+            selectedScreenshotIDs.insert(item.id)
+        }
+    }
+
+    private func addSelectionToBasket() {
+        let selectedURLs = screenshotItems
+            .filter { selectedScreenshotIDs.contains($0.id) }
+            .map(\.url)
+        basket.add(contentsOf: selectedURLs)
+        selectedScreenshotIDs.removeAll()
+
+        if !basket.isEmpty {
+            PreviewPanelPresenter.shared.show(displayID: nil)
+        }
+    }
+
+    private func toggleBasket(for item: ScreenshotHistoryItem) {
+        guard !item.isVideo else { return }
+        basket.toggle(item.url)
+        if basket.contains(item.url) {
+            PreviewPanelPresenter.shared.show(displayID: nil)
         }
     }
 
@@ -107,6 +196,10 @@ struct SettingsHistoryPane: View {
 
 private struct SettingsHistoryItemRow: View {
     let item: ScreenshotHistoryItem
+    let isSelected: Bool
+    let isInBasket: Bool
+    let onToggleSelection: () -> Void
+    let onToggleBasket: () -> Void
     let onPreview: () -> Void
     let onCopy: () -> Void
     let onEdit: () -> Void
@@ -122,6 +215,19 @@ private struct SettingsHistoryItemRow: View {
 
     var body: some View {
         HStack(spacing: 14) {
+            if item.isVideo {
+                Color.clear
+                    .frame(width: 18, height: 18)
+            } else {
+                Button(action: onToggleSelection) {
+                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 16))
+                        .foregroundStyle(isSelected ? Color.accentColor : .secondary)
+                }
+                .buttonStyle(.plain)
+                .help(isSelected ? "Deselect screenshot" : "Select screenshot")
+            }
+
             // Thumbnail
             Group {
                 if let thumbnail {
@@ -145,6 +251,16 @@ private struct SettingsHistoryItemRow: View {
                         .font(.system(size: 18))
                         .foregroundStyle(.white.opacity(0.9), .black.opacity(0.35))
                         .shadow(color: .black.opacity(0.2), radius: 3, x: 0, y: 1)
+                }
+            }
+            .overlay(alignment: .bottomTrailing) {
+                if isInBasket {
+                    Image(systemName: "basket.fill")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(4)
+                        .background(.blue, in: Circle())
+                        .offset(x: 4, y: 4)
                 }
             }
 
@@ -217,6 +333,13 @@ private struct SettingsHistoryItemRow: View {
             isHovering = hovering
         }
         .contextMenu {
+            if !item.isVideo {
+                Button(isInBasket ? "Remove from Basket" : "Add to Basket", systemImage: "basket") {
+                    onToggleBasket()
+                }
+                Divider()
+            }
+
             Button("Quick Look", systemImage: "eye") { onPreview() }
             Button("Copy", systemImage: "doc.on.doc") { onCopy() }
             Button(item.isVideo ? "Edit Recording" : "Annotate", systemImage: item.isVideo ? "scissors" : "pencil.tip.crop.circle") { onEdit() }

@@ -123,6 +123,7 @@ New captures appear as floating cards on the active display. From a card you can
 - Upload to your cloud and copy the link.
 - Delete the file or dismiss only the preview.
 - Copy recognized text from a screenshot using on-device OCR.
+- Add screenshots to a basket and drag the complete basket into another app as separate files.
 
 The overlay can appear on the left or right, close automatically after a chosen delay, and dismiss after a drag. Its actions are completely rearrangeable: drag actions between four corner slots, the center buttons, and a hidden-actions tray in **Settings → Overlay**.
 
@@ -130,7 +131,7 @@ When the stack is collapsed, it becomes a small peek tab instead of disappearing
 
 ### History
 
-History keeps screenshots and complete recording projects together. It shows thumbnails, dimensions, capture times, video durations, editable-project state, and saved cloud links.
+History keeps screenshots and complete recording projects together. It shows thumbnails, dimensions, capture times, video durations, editable-project state, and saved cloud links. Select any number of screenshots in History to add them to the same draggable basket used by the floating preview.
 
 From History you can Quick Look, copy, annotate, edit, upload, reveal in Finder, or delete a capture. The menu bar also exposes a compact list of recent items.
 

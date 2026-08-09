@@ -29,6 +29,7 @@ struct PreviewCardView: View {
     let onView: () -> Void
     let onCompress: () -> Void
     let onCopyText: () -> Void
+    let onToggleBasket: () -> Void
     let onDragBegan: () -> Void
     let onDragEnded: () -> Void
 
@@ -36,6 +37,7 @@ struct PreviewCardView: View {
     @State private var isPresented = false
     @State private var cloudUploader = CloudUploader.shared
     @State private var layoutStore = OverlayCardLayoutStore.shared
+    @State private var basket = ScreenshotBasket.shared
     @State private var shakeOffset: CGFloat = 0
     @State private var showUploadFailed = false
     @State private var showCheckmark = false
@@ -139,6 +141,10 @@ struct PreviewCardView: View {
             .animation(previewStackAnimation, value: isDismissing)
             .contextMenu {
                 if item.kind == .image {
+                    Button(basket.contains(item.url) ? "Remove from Basket" : "Add to Basket") {
+                        onToggleBasket()
+                    }
+                    Divider()
                     Button("Copy Text from Image") { onCopyText() }
                 }
             }
@@ -197,8 +203,12 @@ struct PreviewCardView: View {
             cloudCornerButton
         } else {
             cornerButton(
-                systemImage: action.symbol(for: item.kind),
-                help: action.help(for: item.kind),
+                systemImage: action == .basket && basket.contains(item.url)
+                    ? "basket.fill"
+                    : action.symbol(for: item.kind),
+                help: action == .basket && basket.contains(item.url)
+                    ? "Remove from screenshot basket"
+                    : action.help(for: item.kind),
                 action: handler(for: action)
             )
         }
@@ -227,6 +237,8 @@ struct PreviewCardView: View {
     private func centerPill(for action: OverlayCardAction) -> some View {
         if action == .upload, cloudUploader.uploadedURLs[item.id] != nil {
             actionPill("Copy Link", action: copyUploadedURL)
+        } else if action == .basket {
+            actionPill(basket.contains(item.url) ? "In Basket" : "Add to Basket", action: onToggleBasket)
         } else {
             actionPill(action.label(for: item.kind), action: handler(for: action))
         }
@@ -235,7 +247,7 @@ struct PreviewCardView: View {
     /// Whether an action should be shown for the current item.
     private func isAvailable(_ action: OverlayCardAction) -> Bool {
         switch action {
-        case .pin, .compress: item.kind == .image
+        case .pin, .compress, .basket: item.kind == .image
         case .upload: cloudUploader.isConfigured
         default: true
         }
@@ -244,6 +256,7 @@ struct PreviewCardView: View {
     private func handler(for action: OverlayCardAction) -> () -> Void {
         switch action {
         case .copy: onCopy
+        case .basket: onToggleBasket
         case .compress: onCompress
         case .save: onSave
         case .pin: onPin
