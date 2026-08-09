@@ -118,7 +118,7 @@ struct SettingsHistoryPane: View {
                     .foregroundStyle(.secondary)
 
                 if !screenshotItems.isEmpty {
-                    Text("Shift-click for a range. ⌘A selects all screenshots.")
+                    Text("Shift-click for a range. ⌘A selects or deselects all screenshots.")
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                 }
@@ -176,9 +176,16 @@ struct SettingsHistoryPane: View {
     }
 
     private func selectAllScreenshots() {
-        guard !screenshotItems.isEmpty else { return }
-        selectedScreenshotIDs = Set(screenshotItems.map(\.id))
-        selectionAnchorID = screenshotItems.first?.id
+        let screenshotIDs = Set(screenshotItems.map(\.id))
+        guard !screenshotIDs.isEmpty else { return }
+
+        if screenshotIDs.isSubset(of: selectedScreenshotIDs) {
+            selectedScreenshotIDs.removeAll()
+            selectionAnchorID = nil
+        } else {
+            selectedScreenshotIDs = screenshotIDs
+            selectionAnchorID = screenshotItems.first?.id
+        }
     }
 
     private func addSelectionToBasket() {

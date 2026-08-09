@@ -65,7 +65,22 @@ struct PreviewCardView: View {
             .clipShape(.rect(cornerRadius: cornerRadius))
             .overlay {
                 RoundedRectangle(cornerRadius: cornerRadius)
-                    .strokeBorder(.white.opacity(0.25), lineWidth: 1)
+                    .strokeBorder(
+                        isInBasket ? Color.accentColor : .white.opacity(0.25),
+                        lineWidth: isInBasket ? 3 : 1
+                    )
+            }
+            .overlay(alignment: .topTrailing) {
+                if isInBasket && !showOverlay {
+                    Image(systemName: "basket.fill")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(6)
+                        .background(Color.accentColor, in: Circle())
+                        .padding(8)
+                        .transition(.scale.combined(with: .opacity))
+                        .accessibilityLabel("In screenshot basket")
+                }
             }
             // Flatten the rounded-clipped image + border into a single layer so
             // the collapse/expand offset animation transforms the already-rounded
@@ -121,6 +136,16 @@ struct PreviewCardView: View {
                 }
             }
             .simultaneousGesture(
+                TapGesture().onEnded {
+                    let modifiers = NSEvent.modifierFlags.intersection(.deviceIndependentFlagsMask)
+                    guard item.kind == .image, modifiers.contains(.shift) else { return }
+
+                    withAnimation(previewStackAnimation) {
+                        onToggleBasket()
+                    }
+                }
+            )
+            .simultaneousGesture(
                 TapGesture(count: 2).onEnded {
                     if item.kind == .video {
                         onEditVideo()
@@ -148,6 +173,11 @@ struct PreviewCardView: View {
                     Button("Copy Text from Image") { onCopyText() }
                 }
             }
+            .help(item.kind == .image ? "Shift-click to add or remove from Basket" : "Double-click to edit recording")
+    }
+
+    private var isInBasket: Bool {
+        item.kind == .image && basket.contains(item.url)
     }
 
     private var layout: OverlayCardLayout {
