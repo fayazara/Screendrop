@@ -10,6 +10,7 @@ struct SettingsHistoryPane: View {
     @State private var historyStore = ScreenshotHistoryStore.shared
     @State private var basket = ScreenshotBasket.shared
     @State private var selectedScreenshotIDs: Set<ScreenshotHistoryItem.ID> = []
+    @State private var selectionAnchorID: ScreenshotHistoryItem.ID?
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
@@ -33,8 +34,8 @@ struct SettingsHistoryPane: View {
                                 item: item,
                                 isSelected: selectedScreenshotIDs.contains(item.id),
                                 isInBasket: basket.contains(item.url),
-                                onToggleSelection: {
-                                    toggleSelection(for: item)
+                                onSelect: { extendsRange in
+                                    select(item, extendsRange: extendsRange)
                                 },
                                 onToggleBasket: {
                                     toggleBasket(for: item)
@@ -65,6 +66,10 @@ struct SettingsHistoryPane: View {
                                 },
                                 onDelete: {
                                     selectedScreenshotIDs.remove(item.id)
+                                    if selectionAnchorID == item.id {
+                                        selectionAnchorID = nil
+                                    }
+                                    basket.remove(item.url)
                                     historyStore.delete(item)
                                 }
                             )
@@ -79,6 +84,11 @@ struct SettingsHistoryPane: View {
             }
         }
         .scrollEdgeEffectSoftIfAvailable()
+        .background {
+            HistoryKeyboardShortcutMonitor {
+                selectAllScreenshots()
+            }
+        }
         .toolbar {
             ToolbarItem(placement: .automatic) {
                 Button {
@@ -92,6 +102,11 @@ struct SettingsHistoryPane: View {
         .onAppear {
             historyStore.reload()
             selectedScreenshotIDs.formIntersection(historyStore.items.map(\.id))
+            if let selectionAnchorID,
+               !selectedScreenshotIDs.contains(selectionAnchorID) {
+                self.selectionAnchorID = nil
+            }
+            basket.pruneMissingFiles()
         }
     }
 
@@ -102,17 +117,15 @@ struct SettingsHistoryPane: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
 
+                if !screenshotItems.isEmpty {
+                    Text("Shift-click for a range. ⌘A selects all screenshots.")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+
                 Spacer()
 
                 if !screenshotItems.isEmpty {
-                    Button(allScreenshotsAreSelected ? "Deselect All" : "Select All") {
-                        if allScreenshotsAreSelected {
-                            selectedScreenshotIDs.removeAll()
-                        } else {
-                            selectedScreenshotIDs = Set(screenshotItems.map(\.id))
-                        }
-                    }
-
                     Button("Add \(selectedScreenshotIDs.count) to Basket", systemImage: "basket") {
                         addSelectionToBasket()
                     }
@@ -142,17 +155,30 @@ struct SettingsHistoryPane: View {
         historyStore.items.filter { !$0.isVideo }
     }
 
-    private var allScreenshotsAreSelected: Bool {
-        !screenshotItems.isEmpty && screenshotItems.allSatisfy { selectedScreenshotIDs.contains($0.id) }
-    }
-
-    private func toggleSelection(for item: ScreenshotHistoryItem) {
+    private func select(_ item: ScreenshotHistoryItem, extendsRange: Bool) {
         guard !item.isVideo else { return }
+
+        if extendsRange,
+           let selectionAnchorID,
+           let anchorIndex = screenshotItems.firstIndex(where: { $0.id == selectionAnchorID }),
+           let itemIndex = screenshotItems.firstIndex(where: { $0.id == item.id }) {
+            let range = min(anchorIndex, itemIndex)...max(anchorIndex, itemIndex)
+            selectedScreenshotIDs.formUnion(screenshotItems[range].map(\.id))
+            return
+        }
+
         if selectedScreenshotIDs.contains(item.id) {
             selectedScreenshotIDs.remove(item.id)
         } else {
             selectedScreenshotIDs.insert(item.id)
         }
+        selectionAnchorID = item.id
+    }
+
+    private func selectAllScreenshots() {
+        guard !screenshotItems.isEmpty else { return }
+        selectedScreenshotIDs = Set(screenshotItems.map(\.id))
+        selectionAnchorID = screenshotItems.first?.id
     }
 
     private func addSelectionToBasket() {
@@ -161,6 +187,7 @@ struct SettingsHistoryPane: View {
             .map(\.url)
         basket.add(contentsOf: selectedURLs)
         selectedScreenshotIDs.removeAll()
+        selectionAnchorID = nil
 
         if !basket.isEmpty {
             PreviewPanelPresenter.shared.show(displayID: nil)
@@ -194,11 +221,76 @@ struct SettingsHistoryPane: View {
     }
 }
 
+private struct HistoryKeyboardShortcutMonitor: NSViewRepresentable {
+    let onSelectAll: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        context.coordinator.view = view
+        context.coordinator.startMonitoring()
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        context.coordinator.parent = self
+    }
+
+    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        coordinator.stopMonitoring()
+    }
+
+    @MainActor
+    final class Coordinator: NSObject {
+        var parent: HistoryKeyboardShortcutMonitor
+        weak var view: NSView?
+        private var eventMonitor: Any?
+
+        init(parent: HistoryKeyboardShortcutMonitor) {
+            self.parent = parent
+        }
+
+        func startMonitoring() {
+            guard eventMonitor == nil else { return }
+            eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+                guard let self,
+                      event.window === view?.window,
+                      modifiers.contains(.command),
+                      modifiers.intersection([.control, .option, .shift]).isEmpty,
+                      event.charactersIgnoringModifiers?.lowercased() == "a",
+                      !(event.window?.firstResponder is NSTextView) else {
+                    return event
+                }
+
+                parent.onSelectAll()
+                return nil
+            }
+        }
+
+        func stopMonitoring() {
+            if let eventMonitor {
+                NSEvent.removeMonitor(eventMonitor)
+                self.eventMonitor = nil
+            }
+        }
+
+        deinit {
+            if let eventMonitor {
+                NSEvent.removeMonitor(eventMonitor)
+            }
+        }
+    }
+}
+
 private struct SettingsHistoryItemRow: View {
     let item: ScreenshotHistoryItem
     let isSelected: Bool
     let isInBasket: Bool
-    let onToggleSelection: () -> Void
+    let onSelect: (_ extendsRange: Bool) -> Void
     let onToggleBasket: () -> Void
     let onPreview: () -> Void
     let onCopy: () -> Void
@@ -219,7 +311,9 @@ private struct SettingsHistoryItemRow: View {
                 Color.clear
                     .frame(width: 18, height: 18)
             } else {
-                Button(action: onToggleSelection) {
+                Button {
+                    onSelect(NSEvent.modifierFlags.contains(.shift))
+                } label: {
                     Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                         .font(.system(size: 16))
                         .foregroundStyle(isSelected ? Color.accentColor : .secondary)
@@ -329,6 +423,10 @@ private struct SettingsHistoryItemRow: View {
         .padding(.horizontal, 18)
         .padding(.vertical, 10)
         .contentShape(Rectangle())
+        .onTapGesture {
+            guard !item.isVideo, NSEvent.modifierFlags.contains(.shift) else { return }
+            onSelect(true)
+        }
         .onHover { hovering in
             isHovering = hovering
         }
