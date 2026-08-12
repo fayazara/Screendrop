@@ -17,11 +17,14 @@ import Foundation
 nonisolated enum ZoomAnchorMode: String, Codable, CaseIterable, Sendable {
     /// Track the latest recorded pointer sample directly.
     case pointerAnchor
+    /// Hold on stable regions of pointer activity instead of chasing every
+    /// recorded sample. Newly synthesized zooms use this mode.
+    case smartAnchor
     /// Frame an explicit normalized point selected by the user.
     case pinnedAnchor
 
-    /// Projects saved before the activity ("cluster") focus was removed
-    /// decode onto pointer tracking, its closest surviving behavior.
+    /// Unknown and legacy experimental modes preserve the current project's
+    /// pointer-follow behavior instead of silently changing saved edits.
     init(from decoder: any Decoder) throws {
         let raw = try decoder.singleValueContainer().decode(String.self)
         self = ZoomAnchorMode(rawValue: raw) ?? .pointerAnchor
@@ -147,9 +150,9 @@ nonisolated enum ZoomCueSynthesizer {
     private static let earliestStart: TimeInterval = 0.001
     private static let defaultMagnification = 1.5
 
-    /// Builds editable pointer-anchor cues around press events. A sorted
-    /// one-pass merge is transitive, so cues connected by the allowed gap
-    /// naturally become one continuous zoom.
+    /// Builds editable Smart cues around press events. A sorted one-pass merge
+    /// is transitive, so cues connected by the allowed gap naturally become
+    /// one continuous zoom.
     static func cues(from capture: PointerCaptureFile, duration: TimeInterval) -> [ZoomCue] {
         guard duration.isFinite, duration > 0 else { return [] }
 
@@ -171,7 +174,7 @@ nonisolated enum ZoomCueSynthesizer {
                     start: start,
                     end: end,
                     zoom: defaultMagnification,
-                    anchorMode: .pointerAnchor,
+                    anchorMode: .smartAnchor,
                     pinnedPoint: CGPoint(x: press.x, y: press.y),
                     boundsBias: 0.25
                 )
@@ -260,7 +263,18 @@ nonisolated struct ViewportTimeline: Sendable {
         guard duration.isFinite, duration > 0 else { return .identity }
 
         let pointerSamples = mergedPointerSamples(from: capture)
-        let pressEvents = pointerSamples.filter { $0.kind == .press }
+        let activitySamples = pointerSamples.filter {
+            isRetainedSourceEvent($0.time, in: clipTimeline)
+        }
+        var activityTargetsByCueID: [UUID: [ActivityTarget]] = [:]
+        for cue in cues where cue.anchorMode == .smartAnchor
+            && activityTargetsByCueID[cue.id] == nil {
+            activityTargetsByCueID[cue.id] = activityTargets(
+                for: cue,
+                samples: activitySamples
+            )
+        }
+        let pressEvents = activitySamples.filter { $0.kind == .press }
         let frameCount = max(2, Int((duration * stepRate).rounded(.up)) + 1)
         let dt = 1.0 / stepRate
 
@@ -286,7 +300,12 @@ nonisolated struct ViewportTimeline: Sendable {
             let active = activeCue(at: time, cues: cues)
             let targetMagnification = max(1, active?.zoom ?? 1)
             let rawTarget = active.map { cue in
-                anchorPoint(for: cue, at: time, samples: pointerSamples)
+                anchorPoint(
+                    for: cue,
+                    at: time,
+                    samples: pointerSamples,
+                    activityTargets: activityTargetsByCueID[cue.id] ?? []
+                )
             } ?? CGPoint(x: 0.5, y: 0.5)
             let targetAnchor = boundedAnchor(
                 rawTarget,
@@ -389,7 +408,8 @@ nonisolated struct ViewportTimeline: Sendable {
         if cue.isImplicit { return 0 }
         switch cue.anchorMode {
         case .pointerAnchor: return 1
-        case .pinnedAnchor: return 2
+        case .smartAnchor: return 2
+        case .pinnedAnchor: return 3
         }
     }
 
@@ -398,14 +418,98 @@ nonisolated struct ViewportTimeline: Sendable {
     private static func anchorPoint(
         for cue: ZoomCue,
         at time: TimeInterval,
-        samples: [PointerSample]
+        samples: [PointerSample],
+        activityTargets: [ActivityTarget]
     ) -> CGPoint {
         switch cue.anchorMode {
         case .pinnedAnchor:
             return normalized(cue.pinnedPoint)
         case .pointerAnchor:
             return trackedPointerPosition(at: time, samples: samples) ?? normalized(cue.pinnedPoint)
+        case .smartAnchor:
+            return activityTarget(at: time, targets: activityTargets) ?? normalized(cue.pinnedPoint)
         }
+    }
+
+    /// Groups a cue's surviving input into viewport-sized activity regions.
+    /// Each region has one immutable bounding-box center, so tiny pointer
+    /// movement cannot make the camera continually revise its destination.
+    private static func activityTargets(
+        for cue: ZoomCue,
+        samples: [PointerSample]
+    ) -> [ActivityTarget] {
+        var cueSamples = samples.filter { $0.time >= cue.start && $0.time <= cue.end }
+        if cueSamples.isEmpty {
+            if let preceding = samples.last(where: { $0.time < cue.start }) {
+                cueSamples = [preceding]
+            } else if let following = samples.first(where: { $0.time > cue.start }) {
+                cueSamples = [following]
+            }
+        }
+        guard let first = cueSamples.first else { return [] }
+
+        let magnification = max(cue.zoom, 1)
+        let horizontalLimit = 0.5 / magnification
+        let verticalLimit = 0.7 / magnification
+        var group = ActivityGroup(sample: first)
+        var groups: [ActivityGroup] = []
+
+        for sample in cueSamples.dropFirst() {
+            if group.canInclude(
+                sample,
+                horizontalLimit: horizontalLimit,
+                verticalLimit: verticalLimit
+            ) {
+                group.include(sample)
+            } else {
+                groups.append(group)
+                group = ActivityGroup(sample: sample)
+            }
+        }
+        groups.append(group)
+
+        // When this cue contains clicks, movement-only groups are just transit
+        // between interaction targets. Ignoring them prevents the camera from
+        // following the travel path it was introduced to smooth out. A Smart
+        // cue without clicks still uses its movement regions.
+        let focusedGroups = groups.contains { $0.firstPressTime != nil }
+            ? groups.filter { $0.firstPressTime != nil }
+            : groups
+        return focusedGroups.map { group in
+            // When a region contains a click, begin the handoff during the
+            // same 300 ms lead-in used by automatic zoom generation. This is
+            // precomputed, so seeking and export remain deterministic.
+            let activationTime = group.firstPressTime.map {
+                max(cue.start, $0 - 0.3)
+            } ?? group.firstTime
+            return ActivityTarget(
+                activationTime: activationTime,
+                point: group.center
+            )
+        }
+    }
+
+    private static func activityTarget(
+        at time: TimeInterval,
+        targets: [ActivityTarget]
+    ) -> CGPoint? {
+        guard let first = targets.first else { return nil }
+        // A manually extended Smart cue can begin long before its first click.
+        // Hold its captured fallback point until the planned handoff instead
+        // of revealing a future target early.
+        guard time >= first.activationTime else { return nil }
+
+        var low = 0
+        var high = targets.count
+        while low < high {
+            let middle = (low + high) / 2
+            if targets[middle].activationTime <= time {
+                low = middle + 1
+            } else {
+                high = middle
+            }
+        }
+        return targets[max(0, low - 1)].point
     }
 
     private static func trackedPointerPosition(
@@ -426,6 +530,17 @@ nonisolated struct ViewportTimeline: Sendable {
             }
         }
         return samples[max(0, low - 1)].point
+    }
+
+    /// Match the pointer timeline's half-open event-boundary contract so an
+    /// outgoing clip-end click cannot become a Smart target in the next clip.
+    private static func isRetainedSourceEvent(
+        _ time: TimeInterval,
+        in clipTimeline: RecordingClipTimeline
+    ) -> Bool {
+        clipTimeline.segments.contains {
+            time >= $0.sourceStart && time < $0.sourceEnd
+        }
     }
 
     private static func mergedPointerSamples(from capture: PointerCaptureFile) -> [PointerSample] {
@@ -571,3 +686,56 @@ nonisolated private enum PointerSampleKind: Sendable {
     case release
 }
 
+nonisolated private struct ActivityTarget: Sendable {
+    var activationTime: TimeInterval
+    var point: CGPoint
+}
+
+nonisolated private struct ActivityGroup: Sendable {
+    var minX: Double
+    var maxX: Double
+    var minY: Double
+    var maxY: Double
+    var firstTime: TimeInterval
+    var firstPressTime: TimeInterval?
+
+    init(sample: PointerSample) {
+        minX = sample.point.x
+        maxX = sample.point.x
+        minY = sample.point.y
+        maxY = sample.point.y
+        firstTime = sample.time
+        if case .press = sample.kind {
+            firstPressTime = sample.time
+        } else {
+            firstPressTime = nil
+        }
+    }
+
+    var center: CGPoint {
+        CGPoint(x: (minX + maxX) / 2, y: (minY + maxY) / 2)
+    }
+
+    func canInclude(
+        _ sample: PointerSample,
+        horizontalLimit: Double,
+        verticalLimit: Double
+    ) -> Bool {
+        let candidateMinX = min(minX, sample.point.x)
+        let candidateMaxX = max(maxX, sample.point.x)
+        let candidateMinY = min(minY, sample.point.y)
+        let candidateMaxY = max(maxY, sample.point.y)
+        return candidateMaxX - candidateMinX <= horizontalLimit
+            && candidateMaxY - candidateMinY <= verticalLimit
+    }
+
+    mutating func include(_ sample: PointerSample) {
+        minX = min(minX, sample.point.x)
+        maxX = max(maxX, sample.point.x)
+        minY = min(minY, sample.point.y)
+        maxY = max(maxY, sample.point.y)
+        if firstPressTime == nil, case .press = sample.kind {
+            firstPressTime = sample.time
+        }
+    }
+}

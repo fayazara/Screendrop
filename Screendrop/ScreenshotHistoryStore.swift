@@ -246,7 +246,7 @@ final class ScreenshotHistoryStore {
         let displayName = session.directoryURL
             .deletingPathExtension()
             .lastPathComponent
-            .appending(".mov")
+            .appending(".\(VideoExportContainer.default.fileExtension)")
         let item = ScreenshotHistoryItem(
             id: UUID(),
             createdAt: manifest?.createdAt ?? Date(),

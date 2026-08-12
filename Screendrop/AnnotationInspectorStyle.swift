@@ -47,6 +47,15 @@ enum InspectorMetrics {
 }
 
 enum InspectorControlPalette {
+    /// The opaque surface every fill below is tuned against. Track and
+    /// selection fills sit at 4–10% opacity, so they only read as a control
+    /// when something solid is behind them — over a popover's vibrancy they
+    /// wash out to nothing. Any presentation hosting these controls has to
+    /// paint this itself.
+    static func panelBackground(for colorScheme: ColorScheme) -> Color {
+        colorScheme == .dark ? Color(nsColor: .windowBackgroundColor) : .white
+    }
+
     static func trackFill(for colorScheme: ColorScheme) -> Color {
         colorScheme == .dark ? Color.white.opacity(0.055) : Color.black.opacity(0.04)
     }

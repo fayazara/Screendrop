@@ -72,7 +72,7 @@ enum VideoCompressionService {
 
         return directory
             .appendingPathComponent(compressedBaseName(for: sourceURL, settings: settings) + "-\(UUID().uuidString.prefix(6))")
-            .appendingPathExtension("mov")
+            .appendingPathExtension(settings.effectiveContainer.fileExtension)
     }
 
     static func suggestedFileName(
@@ -82,7 +82,7 @@ enum VideoCompressionService {
         settings: VideoCompressionSettings
     ) -> String {
         let rangeSuffix = selectionRangeSuffix(selection: selection.clamped(to: duration), duration: duration)
-        return "\(compressedBaseName(for: sourceURL, settings: settings))\(rangeSuffix).mov"
+        return "\(compressedBaseName(for: sourceURL, settings: settings))\(rangeSuffix).\(settings.effectiveContainer.fileExtension)"
     }
 
     private static func compressedBaseName(for sourceURL: URL, settings: VideoCompressionSettings) -> String {

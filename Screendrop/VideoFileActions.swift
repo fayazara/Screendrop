@@ -57,8 +57,33 @@ enum VideoPreviewImageLoader {
     }
 }
 
+extension VideoExportContainer {
+    var contentType: UTType {
+        switch self {
+        case .mov: .quickTimeMovie
+        case .mp4: .mpeg4Movie
+        }
+    }
+
+    var fileType: AVFileType {
+        switch self {
+        case .mov: .mov
+        case .mp4: .mp4
+        }
+    }
+
+    /// Faststart is an MP4/streaming convention. Asking for it costs the
+    /// writer an extra reorganisation pass, so it is not requested for
+    /// containers that gain nothing from it.
+    var supportsFastStart: Bool { self == .mp4 }
+}
+
 enum VideoFileActions {
-    static let exportContentType: UTType = .quickTimeMovie
+    /// Recordings are delivered in the container capture already produces,
+    /// so the default save stays a copy rather than a rewrite. Studio's
+    /// export inspector overrides this per project.
+    static var exportFileExtension: String { VideoExportContainer.default.fileExtension }
+    static var exportContentType: UTType { VideoExportContainer.default.contentType }
 
     static func copyToClipboard(from url: URL) throws {
         let pasteboard = NSPasteboard.general
@@ -69,7 +94,7 @@ enum VideoFileActions {
     }
 
     @discardableResult
-    static func saveToDefaultLocation(from url: URL, suggestedFileName: String? = nil) throws -> URL {
+    static func saveToDefaultLocation(from url: URL, suggestedFileName: String? = nil) async throws -> URL {
         let destinationDirectory = ScreendropPreferences.exportDirectory
         try FileManager.default.createDirectory(
             at: destinationDirectory,
@@ -80,26 +105,51 @@ enum VideoFileActions {
             for: suggestedFileName ?? exportFileName(for: url),
             in: destinationDirectory
         )
-        try save(from: url, to: destinationURL)
+        try await save(from: url, to: destinationURL)
         return destinationURL
     }
 
-    static func save(from sourceURL: URL, to destinationURL: URL) throws {
+    /// Copies when the source already matches the destination container, and
+    /// otherwise rewrites it. A file extension is a claim about the bytes, so
+    /// renaming a QuickTime master to `.mp4` would produce a file some players
+    /// reject — the remux is what makes the rename honest. Matching containers
+    /// take the copy path, which on APFS is a clone rather than a byte copy.
+    static func save(from sourceURL: URL, to destinationURL: URL) async throws {
         if FileManager.default.fileExists(atPath: destinationURL.path) {
             try FileManager.default.removeItem(at: destinationURL)
         }
 
-        try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
+        guard let target = remuxTarget(from: sourceURL, to: destinationURL) else {
+            try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
+            return
+        }
+
+        try await VideoContainerRemuxer.remux(from: sourceURL, to: destinationURL, as: target)
     }
 
-    static func exportFileName(for sourceURL: URL) -> String {
+    /// The container to rewrite into, or nil when a plain copy is correct.
+    /// Only recognised video containers are converted; audio-only exports and
+    /// anything unfamiliar are copied untouched.
+    private static func remuxTarget(from sourceURL: URL, to destinationURL: URL) -> VideoExportContainer? {
+        guard let destination = VideoExportContainer(fileExtension: destinationURL.pathExtension),
+              let source = VideoExportContainer(fileExtension: sourceURL.pathExtension),
+              source != destination else {
+            return nil
+        }
+        return destination
+    }
+
+    static func exportFileName(
+        for sourceURL: URL,
+        container: VideoExportContainer = .default
+    ) -> String {
         sourceURL
             .deletingPathExtension()
-            .appendingPathExtension("mov")
+            .appendingPathExtension(container.fileExtension)
             .lastPathComponent
     }
 
-    private static func uniqueDestinationURL(for fileName: String, in directory: URL) -> URL {
+    static func uniqueDestinationURL(for fileName: String, in directory: URL) -> URL {
         let originalURL = directory.appendingPathComponent(fileName)
 
         guard FileManager.default.fileExists(atPath: originalURL.path) else {
@@ -123,5 +173,39 @@ enum VideoFileActions {
         return directory
             .appendingPathComponent("\(baseName) \(UUID().uuidString)")
             .appendingPathExtension(pathExtension)
+    }
+}
+
+/// Rewrites a movie into a different container without re-encoding. The
+/// passthrough preset copies the existing H.264/HEVC and AAC samples, so this
+/// is an I/O-bound copy rather than a second transcode and the result is
+/// bit-for-bit the same picture.
+nonisolated enum VideoContainerRemuxer {
+    enum RemuxError: LocalizedError {
+        case unsupported(VideoExportContainer)
+
+        var errorDescription: String? {
+            switch self {
+            case let .unsupported(container):
+                "This recording could not be converted to \(container.rawValue)."
+            }
+        }
+    }
+
+    static func remux(
+        from sourceURL: URL,
+        to destinationURL: URL,
+        as container: VideoExportContainer
+    ) async throws {
+        let asset = AVURLAsset(url: sourceURL)
+        // Passthrough only. Re-encoding to satisfy a container change would
+        // cost a generation of quality that the user never asked for, so an
+        // unconvertible source fails loudly instead of degrading in silence.
+        guard let session = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetPassthrough),
+              session.supportedFileTypes.contains(container.fileType) else {
+            throw RemuxError.unsupported(container)
+        }
+        session.shouldOptimizeForNetworkUse = container.supportsFastStart
+        try await session.export(to: destinationURL, as: container.fileType)
     }
 }

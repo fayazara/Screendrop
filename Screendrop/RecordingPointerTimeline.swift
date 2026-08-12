@@ -5,11 +5,19 @@
 //  Deterministic reconstruction of the pointer that was deliberately omitted
 //  from the screen master. Raw pointer samples select an intentional target;
 //  fixed-step, interaction-specific springs produce the displayed motion.
-//  Preview and export interpolate this same immutable source-time timeline.
+//  Source events are remapped through the clip edit before integration, so
+//  preview and export interpolate the same immutable edited-time timeline.
 //
 
 import CoreGraphics
 import Foundation
+
+nonisolated struct PointerPressFrame: Sendable, Equatable {
+    /// Exact recorded press coordinate. The smoothed cursor may still be
+    /// settling when the click lands, but feedback must mark the real target.
+    var location: CGPoint
+    var progress: Double
+}
 
 nonisolated struct PointerFrame: Sendable, Equatable {
     /// Normalized recording coordinate, with a top-left origin.
@@ -20,8 +28,7 @@ nonisolated struct PointerFrame: Sendable, Equatable {
     var tiltDegrees: Double
     var opacity: Double
     var blurRadius: Double
-    /// Zero at press and one at the end of the optional 150 ms effect.
-    var pressPulse: Double?
+    var press: PointerPressFrame?
 }
 
 nonisolated struct PointerTimeline: Sendable {
@@ -31,7 +38,7 @@ nonisolated struct PointerTimeline: Sendable {
     private static let interceptWindow: TimeInterval = 0.175
     private static let pressAnticipation: TimeInterval = 0.13
     private static let orphanPressHold: TimeInterval = 0.15
-    private static let pulseDuration: TimeInterval = 0.4
+    private static let pulseDuration = PointerPressEffectStyle.duration
     private static let tiltSampleWindow: TimeInterval = 0.4
     private static let tiltGain = 0.03
     private static let tiltWeight = 0.5
@@ -83,7 +90,7 @@ nonisolated struct PointerTimeline: Sendable {
                 + (b.tiltDegrees - a.tiltDegrees) * fraction,
             opacity: a.opacity + (b.opacity - a.opacity) * fraction,
             blurRadius: a.blurRadius + (b.blurRadius - a.blurRadius) * fraction,
-            pressPulse: fraction < 0.5 ? a.pressPulse : b.pressPulse
+            press: fraction < 0.5 ? a.press : b.press
         )
     }
 
@@ -102,9 +109,12 @@ nonisolated struct PointerTimeline: Sendable {
         duration: TimeInterval,
         recordingSizeInPoints: CGSize = CGSize(width: 1_000, height: 1_000),
         fallbackArtwork: PointerArtwork? = nil,
-        hideAfterInactivity: TimeInterval? = nil
+        hideAfterInactivity: TimeInterval? = nil,
+        clipTimeline: RecordingClipTimeline? = nil
     ) -> PointerTimeline {
         guard duration.isFinite, duration > 0 else { return .empty }
+        let timelineDuration = clipTimeline?.duration ?? duration
+        guard timelineDuration.isFinite, timelineDuration > 0 else { return .empty }
 
         let safeSize = CGSize(
             width: recordingSizeInPoints.width > 0 ? recordingSizeInPoints.width : 1_000,
@@ -116,9 +126,13 @@ nonisolated struct PointerTimeline: Sendable {
                 recordingSizeInPoints: safeSize
             )
         )
-        let samples = stream.samples.filter {
+        let sourceSamples = stream.samples.filter {
             $0.time.isFinite && $0.x.isFinite && $0.y.isFinite
         }
+        let samples = timelineSamples(
+            from: sourceSamples,
+            clipTimeline: clipTimeline
+        )
         guard let firstSample = samples.first else { return .empty }
 
         let pressSamples = samples.filter { $0.kind == .press }
@@ -127,7 +141,7 @@ nonisolated struct PointerTimeline: Sendable {
         }
         let intervals = pressIntervals(
             from: samples,
-            duration: duration
+            duration: timelineDuration
         )
 
         var artworkByID: [String: PointerArtwork] = [:]
@@ -135,7 +149,7 @@ nonisolated struct PointerTimeline: Sendable {
             artworkByID[artwork.artworkID] = artwork
         }
 
-        let frameCount = max(2, Int((duration * stepRate).rounded(.up)) + 1)
+        let frameCount = max(2, Int((timelineDuration * stepRate).rounded(.up)) + 1)
         let dt = 1 / stepRate
         var xSpring = DampedSpring(position: firstSample.x)
         var ySpring = DampedSpring(position: firstSample.y)
@@ -152,7 +166,7 @@ nonisolated struct PointerTimeline: Sendable {
         frames.reserveCapacity(frameCount)
 
         for frameIndex in 0..<frameCount {
-            let time = min(Double(frameIndex) * dt, duration)
+            let time = min(Double(frameIndex) * dt, timelineDuration)
 
             while sampleIndex + 1 < samples.count,
                   samples[sampleIndex + 1].time <= time {
@@ -218,14 +232,18 @@ nonisolated struct PointerTimeline: Sendable {
             opacitySpring.step(toward: isHidden ? 0 : 1, using: PointerSpring.settle, dt: dt)
             blurSpring.step(toward: isHidden ? 5 : 0, using: PointerSpring.settle, dt: dt)
 
-            let pressPulse: Double?
+            let press: PointerPressFrame?
             if latestPressIndex >= 0 {
-                let elapsed = time - pressSamples[latestPressIndex].time
-                pressPulse = elapsed <= pulseDuration
-                    ? min(max(elapsed / pulseDuration, 0), 1)
+                let event = pressSamples[latestPressIndex]
+                let elapsed = time - event.time
+                press = elapsed <= pulseDuration
+                    ? PointerPressFrame(
+                        location: event.location,
+                        progress: min(max(elapsed / pulseDuration, 0), 1)
+                    )
                     : nil
             } else {
-                pressPulse = nil
+                press = nil
             }
 
             frames.append(PointerFrame(
@@ -235,7 +253,7 @@ nonisolated struct PointerTimeline: Sendable {
                 tiltDegrees: 0,
                 opacity: min(max(opacitySpring.position, 0), 1),
                 blurRadius: max(0, blurSpring.position),
-                pressPulse: pressPulse
+                press: press
             ))
         }
 
@@ -253,10 +271,99 @@ nonisolated struct PointerTimeline: Sendable {
 
         return PointerTimeline(
             frames: frames,
-            duration: duration,
+            duration: timelineDuration,
             artworkByID: artworkByID,
             fallbackArtwork: fallbackArtwork
         )
+    }
+
+    /// Maps retained source events onto edited time before spring integration.
+    /// Removed clicks can no longer attract the cursor through look-ahead, and
+    /// a seed at every clip boundary lets the spring bridge cuts smoothly.
+    private static func timelineSamples(
+        from sourceSamples: [PointerStreamEvent],
+        clipTimeline: RecordingClipTimeline?
+    ) -> [PointerStreamEvent] {
+        guard let clipTimeline else { return sourceSamples }
+        guard !sourceSamples.isEmpty, !clipTimeline.segments.isEmpty else { return [] }
+
+        var ranked: [EditedPointerEvent] = []
+        ranked.reserveCapacity(sourceSamples.count + clipTimeline.segments.count)
+        for (index, sample) in sourceSamples.enumerated() {
+            guard let editorTime = editorTime(
+                forSourceEventTime: sample.time,
+                in: clipTimeline
+            ) else {
+                continue
+            }
+            var mapped = sample
+            mapped.time = editorTime
+            ranked.append(EditedPointerEvent(
+                event: mapped,
+                boundarySeed: false,
+                order: index
+            ))
+        }
+
+        var editorStart: TimeInterval = 0
+        for (index, segment) in clipTimeline.segments.enumerated() {
+            if var seed = sourceSample(at: segment.sourceStart, samples: sourceSamples) {
+                seed.time = editorStart
+                seed.kind = .travel
+                seed.button = nil
+                ranked.append(EditedPointerEvent(
+                    event: seed,
+                    boundarySeed: true,
+                    order: index
+                ))
+            }
+            editorStart += segment.editorDuration
+        }
+
+        ranked.sort { lhs, rhs in
+            if lhs.event.time != rhs.event.time { return lhs.event.time < rhs.event.time }
+            if lhs.boundarySeed != rhs.boundarySeed { return lhs.boundarySeed }
+            return lhs.order < rhs.order
+        }
+        return ranked.map(\.event)
+    }
+
+    /// Events use half-open source ranges so an event at an outgoing clip's
+    /// exact end cannot leak onto the first frame of the next clip. The public
+    /// clip lookup is inclusive because it also serves playhead placement,
+    /// which is a different boundary contract.
+    private static func editorTime(
+        forSourceEventTime sourceTime: TimeInterval,
+        in clipTimeline: RecordingClipTimeline
+    ) -> TimeInterval? {
+        var editorStart: TimeInterval = 0
+        for segment in clipTimeline.segments {
+            if sourceTime >= segment.sourceStart,
+               sourceTime < segment.sourceEnd {
+                return editorStart
+                    + (sourceTime - segment.sourceStart) / max(segment.speed, 1)
+            }
+            editorStart += segment.editorDuration
+        }
+        return nil
+    }
+
+    private static func sourceSample(
+        at time: TimeInterval,
+        samples: [PointerStreamEvent]
+    ) -> PointerStreamEvent? {
+        guard let first = samples.first else { return nil }
+        var low = 0
+        var high = samples.count
+        while low < high {
+            let middle = (low + high) / 2
+            if samples[middle].time <= time {
+                low = middle + 1
+            } else {
+                high = middle
+            }
+        }
+        return low > 0 ? samples[low - 1] : first
     }
 
     private static func pressIntervals(
@@ -347,6 +454,12 @@ nonisolated private struct PressInterval {
     func contains(_ time: TimeInterval) -> Bool {
         time >= start && time <= end
     }
+}
+
+nonisolated private struct EditedPointerEvent {
+    var event: PointerStreamEvent
+    var boundarySeed: Bool
+    var order: Int
 }
 
 nonisolated private enum PointerSpring {

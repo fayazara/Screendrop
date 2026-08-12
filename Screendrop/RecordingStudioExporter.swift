@@ -230,8 +230,14 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
         )
 
         // Writer
-        let outputURL = Self.temporaryOutputURL()
-        let writer = try AVAssetWriter(outputURL: outputURL, fileType: .mov)
+        let container = configuration.exportSettings.effectiveContainer
+        let outputURL = Self.temporaryOutputURL(container: container)
+        let writer = try AVAssetWriter(outputURL: outputURL, fileType: container.fileType)
+        // Faststart puts the index ahead of the media so a shared link plays
+        // before it finishes downloading. The writer pays for that with an
+        // extra pass at the end, so only MP4 — the container people actually
+        // stream — opts in.
+        writer.shouldOptimizeForNetworkUse = container.supportsFastStart
 
         let codec: AVVideoCodecType = configuration.exportSettings.codec == .hevc ? .hevc : .h264
         let videoSettings: [String: Any] = [
@@ -459,12 +465,12 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
         input.markAsFinished()
     }
 
-    private static func temporaryOutputURL() -> URL {
+    private static func temporaryOutputURL(container: VideoExportContainer) -> URL {
         let directory = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("Screendrop", isDirectory: true)
             .appendingPathComponent("StudioExports", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        return directory.appendingPathComponent("\(UUID().uuidString).mov")
+        return directory.appendingPathComponent("\(UUID().uuidString).\(container.fileExtension)")
     }
 
     private static func outputSize(
@@ -703,7 +709,7 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
         // recorded artwork anchor point, while the final point still passes
         // through the same viewport transform and rounded-card clip as the
         // source pixels.
-        drawPointer(editorTime: editorTime, sourceTime: sourceTime, in: context)
+        drawPointer(editorTime: editorTime, in: context)
 
         // The keystroke caption stays in card space — pinned to its edge and
         // unaffected by the zoom transform, like a broadcast lower third.
@@ -771,9 +777,9 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
         return min(24, max(2, Int((displacement / 2).rounded(.up))))
     }
 
-    private func drawPointer(editorTime: TimeInterval, sourceTime: TimeInterval, in context: CGContext) {
+    private func drawPointer(editorTime: TimeInterval, in context: CGContext) {
         guard let pointerTimeline,
-              let pointer = pointerTimeline.frame(at: sourceTime) else {
+              let pointer = pointerTimeline.frame(at: editorTime) else {
             return
         }
 
@@ -786,10 +792,14 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
         context.saveGState()
         context.addPath(roundedPath(for: layout.cardRect, radius: layout.cardCornerRadius))
         context.clip()
-        if showsPressEffects, let progress = pointer.pressPulse {
-            let radius = PointerPressEffectStyle.radius(
-                progress: progress,
-                referenceHeight: drawRect.height,
+        if showsPressEffects, let press = pointer.press {
+            let pressTip = CGPoint(
+                x: drawRect.minX + press.location.x * drawRect.width,
+                y: canvasSize.height - (drawRect.minY + press.location.y * drawRect.height)
+            )
+            let effect = PointerPressEffectStyle.geometry(
+                progress: press.progress,
+                referenceHeight: layout.contentFillSize.height,
                 cursorScale: pointerScale
             )
             let accent = PointerPressEffectStyle.color
@@ -798,19 +808,32 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
                 red: accent.red,
                 green: accent.green,
                 blue: accent.blue,
-                alpha: PointerPressEffectStyle.opacity(progress: progress)
+                alpha: effect.impactOpacity
             ))
             context.fillEllipse(in: CGRect(
-                x: tip.x - radius,
-                y: tip.y - radius,
-                width: radius * 2,
-                height: radius * 2
+                x: pressTip.x - effect.impactRadius,
+                y: pressTip.y - effect.impactRadius,
+                width: effect.impactRadius * 2,
+                height: effect.impactRadius * 2
+            ))
+            context.setStrokeColor(CGColor(
+                red: accent.red,
+                green: accent.green,
+                blue: accent.blue,
+                alpha: effect.rippleOpacity
+            ))
+            context.setLineWidth(effect.rippleLineWidth)
+            context.strokeEllipse(in: CGRect(
+                x: pressTip.x - effect.rippleRadius,
+                y: pressTip.y - effect.rippleRadius,
+                width: effect.rippleRadius * 2,
+                height: effect.rippleRadius * 2
             ))
             context.restoreGState()
         }
 
         if let resolved = artwork(for: pointer, in: pointerTimeline) {
-            let height = drawRect.height
+            let height = layout.contentFillSize.height
                 * PointerArtworkMetrics.heightRatio
                 * pointerScale
                 * resolved.intrinsicScale

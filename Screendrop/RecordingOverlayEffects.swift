@@ -11,27 +11,49 @@
 import CoreGraphics
 import Foundation
 
-// MARK: - Click pulse
+// MARK: - Click feedback
 
-/// Shared math for the press feedback drawn at the pointer tip. A single
-/// soft filled circle that grows and fades — deliberately quieter than the
-/// old baked-in ring.
+nonisolated struct PointerPressEffectGeometry: Sendable {
+    var impactRadius: CGFloat
+    var impactOpacity: Double
+    var rippleRadius: CGFloat
+    var rippleOpacity: Double
+    var rippleLineWidth: CGFloat
+}
+
+/// Shared preview/export math for a crisp impact followed by a quieter ripple.
+/// The effect stays anchored to the recorded press coordinate rather than the
+/// cursor spring, so the marked target is exact even during a fast movement.
 nonisolated enum PointerPressEffectStyle {
     /// macOS system blue.
     static let color: (red: Double, green: Double, blue: Double) = (0, 122.0 / 255.0, 1)
+    static let duration: TimeInterval = 0.4
+    private static let impactDuration: TimeInterval = 0.12
+    private static let rippleDelay: TimeInterval = 0.06
 
-    /// Pulse radius for a press at `progress` (0 at press, 1 at pulse end).
-    /// `referenceHeight` is the height of the zoom-transformed video draw
-    /// rect so the pulse tracks the viewport exactly like the cursor artwork.
-    static func radius(progress: Double, referenceHeight: CGFloat, cursorScale: CGFloat) -> CGFloat {
-        let eased = easeOutCubic(progress)
+    /// `referenceHeight` is the unzoomed content height. Camera transforms move
+    /// the effect but never inflate its on-screen size.
+    static func geometry(
+        progress: Double,
+        referenceHeight: CGFloat,
+        cursorScale: CGFloat
+    ) -> PointerPressEffectGeometry {
+        let age = min(max(progress, 0), 1) * duration
         let base = referenceHeight * CGFloat(21.0 / 1_080.0) * cursorScale
-        return base * CGFloat(0.35 + 0.8 * eased)
-    }
-
-    /// Fill opacity for a press at `progress`.
-    static func opacity(progress: Double) -> Double {
-        0.32 * (1 - easeOutCubic(progress))
+        let impactProgress = min(max(age / impactDuration, 0), 1)
+        let impactEase = easeOutCubic(impactProgress)
+        let rippleProgress = min(max(
+            (age - rippleDelay) / (duration - rippleDelay),
+            0
+        ), 1)
+        let rippleEase = easeOutCubic(rippleProgress)
+        return PointerPressEffectGeometry(
+            impactRadius: base * CGFloat(0.38 + 0.34 * impactEase),
+            impactOpacity: age <= impactDuration ? 0.38 * (1 - impactEase) : 0,
+            rippleRadius: base * CGFloat(0.62 + 0.93 * rippleEase),
+            rippleOpacity: age >= rippleDelay ? 0.44 * (1 - rippleEase) : 0,
+            rippleLineWidth: max(1, base * CGFloat(0.14 - 0.07 * rippleEase))
+        )
     }
 
     private static func easeOutCubic(_ progress: Double) -> Double {

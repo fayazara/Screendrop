@@ -33,7 +33,7 @@ enum RecordingSessionRenderer {
         guard session.hasCamera || pointerSynthesized || hasProject else {
             return session.screenURL
         }
-        if session.hasFinalVideo { return session.finalURL }
+        if let existing = session.existingFinalURL { return existing }
 
         let asset = AVURLAsset(url: session.screenURL)
         let duration = try await asset.load(.duration).seconds
@@ -94,7 +94,8 @@ enum RecordingSessionRenderer {
                 capture: capture,
                 duration: duration,
                 recordingSizeInPoints: recordingPointSize,
-                fallbackArtwork: PointerArtworkCapture.defaultArtwork()
+                fallbackArtwork: PointerArtworkCapture.defaultArtwork(),
+                clipTimeline: clipTimeline
             )
             : nil
 
@@ -111,7 +112,7 @@ enum RecordingSessionRenderer {
                 viewportTimeline: viewportTimeline,
                 duration: clipTimeline.duration
             ) { editorTime in
-                pointerTimeline?.location(at: clipTimeline.sourceTime(at: editorTime))
+                pointerTimeline?.location(at: editorTime)
             }
             : nil
         let fitContentAspect: CGFloat? =
@@ -149,16 +150,11 @@ enum RecordingSessionRenderer {
 
         let temporaryURL = try await RecordingStudioExporter().export(configuration) { _ in }
         do {
-            if FileManager.default.fileExists(atPath: session.finalURL.path) {
-                _ = try FileManager.default.replaceItemAt(session.finalURL, withItemAt: temporaryURL)
-            } else {
-                try FileManager.default.moveItem(at: temporaryURL, to: session.finalURL)
-            }
+            return try session.installFinalVideo(movingFrom: temporaryURL)
         } catch {
             try? FileManager.default.removeItem(at: temporaryURL)
             throw error
         }
-        return session.finalURL
     }
 
     static func presentFailure(_ error: Error) {

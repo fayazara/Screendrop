@@ -51,7 +51,7 @@ enum VideoTrimExportService {
         )
         exportSession.shouldOptimizeForNetworkUse = true
 
-        try await exportSession.export(to: outputURL, as: .mov)
+        try await exportSession.export(to: outputURL, as: VideoExportContainer.default.fileType)
         return outputURL
     }
 
@@ -62,14 +62,14 @@ enum VideoTrimExportService {
 
         return directory
             .appendingPathComponent(sourceURL.deletingPathExtension().lastPathComponent + "-trim-\(UUID().uuidString.prefix(6))")
-            .appendingPathExtension("mov")
+            .appendingPathExtension(VideoExportContainer.default.fileExtension)
     }
 
     static func suggestedFileName(for sourceURL: URL, selection: VideoTrimSelection) -> String {
         let baseName = sourceURL.deletingPathExtension().lastPathComponent
         let start = Int(selection.start.rounded(.down))
         let end = Int(selection.end.rounded(.up))
-        return "\(baseName)-trim-\(start)-\(end)s.mov"
+        return "\(baseName)-trim-\(start)-\(end)s.\(VideoExportContainer.default.fileExtension)"
     }
 
     private static func makeExportSession(asset: AVAsset) throws -> AVAssetExportSession {
@@ -81,7 +81,7 @@ enum VideoTrimExportService {
 
         for preset in presets {
             guard let exportSession = AVAssetExportSession(asset: asset, presetName: preset),
-                  exportSession.supportedFileTypes.contains(.mov) else {
+                  exportSession.supportedFileTypes.contains(VideoExportContainer.default.fileType) else {
                 continue
             }
 

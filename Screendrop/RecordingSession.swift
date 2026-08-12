@@ -31,10 +31,14 @@ nonisolated struct RecordingSession: Sendable, Equatable {
     /// The default flattened deliverable. The source screen/camera movies stay
     /// untouched so Studio can always re-render the project non-destructively.
     var finalURL: URL {
+        finalURL(for: .default)
+    }
+
+    func finalURL(for container: VideoExportContainer) -> URL {
         let fileName = directoryURL
             .deletingPathExtension()
             .lastPathComponent
-            .appending(".mov")
+            .appending(".\(container.fileExtension)")
         return directoryURL.appendingPathComponent(fileName)
     }
     var pointerCaptureURL: URL { directoryURL.appendingPathComponent(Self.pointerCaptureFileName) }
@@ -45,15 +49,70 @@ nonisolated struct RecordingSession: Sendable, Equatable {
         FileManager.default.fileExists(atPath: cameraURL.path)
     }
 
+    /// The flattened cache on disk, whichever container it was rendered into.
+    /// Nil when the project has never been rendered. Probing every container
+    /// keeps an existing render valid after the export format is changed —
+    /// switching the picker converts on save rather than forcing a re-render.
+    var existingFinalURL: URL? {
+        for container in VideoExportContainer.allCases {
+            let candidate = finalURL(for: container)
+            if FileManager.default.fileExists(atPath: candidate.path) {
+                return candidate
+            }
+        }
+        return nil
+    }
+
     var hasFinalVideo: Bool {
-        FileManager.default.fileExists(atPath: finalURL.path)
+        existingFinalURL != nil
     }
 
     /// Uses an existing flattened cache when one is available; otherwise
     /// history previews the screen master so the project can appear without
     /// turning Stop into an implicit export.
     var deliverableURL: URL {
-        hasFinalVideo ? finalURL : screenURL
+        existingFinalURL ?? screenURL
+    }
+
+    /// Drops every cached deliverable, whichever container it was rendered
+    /// into. Targeting a single container would leave a render in the other
+    /// one behind, and `existingFinalURL` would then hand out stale footage.
+    func removeFinalVideos() {
+        for container in VideoExportContainer.allCases {
+            try? FileManager.default.removeItem(at: finalURL(for: container))
+        }
+    }
+
+    /// Adopts a freshly rendered file as this session's deliverable, taking the
+    /// container from the render itself. Deliverables in other containers are
+    /// cleared so a stale render can never win the `existingFinalURL` lookup.
+    @discardableResult
+    func installFinalVideo(movingFrom temporaryURL: URL) throws -> URL {
+        let container = VideoExportContainer(fileExtension: temporaryURL.pathExtension) ?? .default
+        let destinationURL = finalURL(for: container)
+
+        if FileManager.default.fileExists(atPath: destinationURL.path) {
+            _ = try FileManager.default.replaceItemAt(destinationURL, withItemAt: temporaryURL)
+        } else {
+            try FileManager.default.moveItem(at: temporaryURL, to: destinationURL)
+        }
+
+        for stale in VideoExportContainer.allCases where stale != container {
+            try? FileManager.default.removeItem(at: finalURL(for: stale))
+        }
+        return destinationURL
+    }
+
+    /// True when two documents would render identical media and differ only in
+    /// the container they get wrapped in.
+    static func differsOnlyByExportContainer(
+        _ document: RecordingEditDocument,
+        _ other: RecordingEditDocument?
+    ) -> Bool {
+        guard let other else { return false }
+        var normalized = document
+        normalized.exportSettings?.container = other.exportSettings?.container
+        return normalized == other
     }
 
     static func isSessionDirectory(_ url: URL) -> Bool {

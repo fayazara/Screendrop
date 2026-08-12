@@ -200,21 +200,28 @@ final class ScreenshotPreviewStack {
 
         guard AfterCaptureActions.isEnabled(.showOverlay, for: .recording) else {
             if AfterCaptureActions.isEnabled(.save, for: .recording) {
-                _ = saveVideoToDefaultLocation(from: url)
+                Task { _ = await saveVideoToDefaultLocation(from: url) }
             }
             runAfterCaptureActions(type: .recording, url: url, itemID: UUID())
             return
         }
 
-        var item = ScreenshotPreviewItem(
+        let item = ScreenshotPreviewItem(
             url: url,
             previewImage: VideoPreviewImageLoader.placeholderImage(),
             kind: .video
         )
         let itemID = item.id
 
+        // Saving an MP4 can involve a container rewrite, so the overlay is
+        // shown first and the saved URL is attached when it lands rather than
+        // holding the preview back behind file I/O.
         if AfterCaptureActions.isEnabled(.save, for: .recording) {
-            item.autoSavedURL = saveVideoToDefaultLocation(from: url)
+            Task {
+                let savedURL = await saveVideoToDefaultLocation(from: url)
+                guard let index = items.firstIndex(where: { $0.id == itemID }) else { return }
+                items[index].autoSavedURL = savedURL
+            }
         }
 
         prepareForInsertedPreview()
@@ -495,12 +502,24 @@ final class ScreenshotPreviewStack {
         let kind = items[index].kind
 
         if ScreendropPreferences.saveButtonUsesConfiguredFolder {
-            if items[index].autoSavedURL == nil {
-                items[index].autoSavedURL = kind == .video
-                    ? saveVideoToDefaultLocation(from: items[index].url)
-                    : saveToDefaultLocation(from: items[index].url)
+            guard items[index].autoSavedURL == nil else {
+                dismiss(id: id)
+                return
             }
 
+            if kind == .video {
+                let url = items[index].url
+                Task {
+                    guard let savedURL = await saveVideoToDefaultLocation(from: url) else { return }
+                    if let index = items.firstIndex(where: { $0.id == id }) {
+                        items[index].autoSavedURL = savedURL
+                    }
+                    dismiss(id: id)
+                }
+                return
+            }
+
+            items[index].autoSavedURL = saveToDefaultLocation(from: items[index].url)
             guard items[index].autoSavedURL != nil else { return }
             dismiss(id: id)
             return
@@ -508,27 +527,33 @@ final class ScreenshotPreviewStack {
 
         let url = items[index].url
         let panel = NSSavePanel()
-        panel.allowedContentTypes = [kind == .video ? VideoFileActions.exportContentType : ScreenshotFileActions.exportContentType]
+        // Video offers every container so the panel's format popup can switch
+        // it; `VideoFileActions.save` converts to whatever the user picks.
+        panel.allowedContentTypes = kind == .video
+            ? VideoExportContainer.allCases.map(\.contentType)
+            : [ScreenshotFileActions.exportContentType]
         panel.nameFieldStringValue = kind == .video ? VideoFileActions.exportFileName(for: url) : ScreenshotFileActions.exportFileName(for: url)
         panel.canCreateDirectories = true
         panel.title = kind == .video ? "Save Recording" : "Save Screenshot"
 
         panel.begin { [weak self] response in
             guard response == .OK, let destURL = panel.url else { return }
-            do {
-                if kind == .video {
-                    try VideoFileActions.save(from: url, to: destURL)
-                } else {
-                    try ScreenshotFileActions.save(from: url, to: destURL)
+            Task { @MainActor in
+                do {
+                    if kind == .video {
+                        try await VideoFileActions.save(from: url, to: destURL)
+                    } else {
+                        try ScreenshotFileActions.save(from: url, to: destURL)
+                    }
+                    // Record that this capture now lives on disk so the unsaved
+                    // warning doesn't flag a screenshot the user just saved.
+                    if let index = self?.items.firstIndex(where: { $0.id == id }) {
+                        self?.items[index].autoSavedURL = destURL
+                    }
+                    self?.dismiss(id: id)
+                } catch {
+                    print("Failed to save preview: \(error)")
                 }
-                // Record that this capture now lives on disk so the unsaved
-                // warning doesn't flag a screenshot the user just saved.
-                if let index = self?.items.firstIndex(where: { $0.id == id }) {
-                    self?.items[index].autoSavedURL = destURL
-                }
-                self?.dismiss(id: id)
-            } catch {
-                print("Failed to save preview: \(error)")
             }
         }
     }
@@ -763,9 +788,9 @@ final class ScreenshotPreviewStack {
         }
     }
 
-    private func saveVideoToDefaultLocation(from url: URL) -> URL? {
+    private func saveVideoToDefaultLocation(from url: URL) async -> URL? {
         do {
-            return try VideoFileActions.saveToDefaultLocation(from: url)
+            return try await VideoFileActions.saveToDefaultLocation(from: url)
         } catch {
             print("Failed to auto save recording: \(error)")
             return nil

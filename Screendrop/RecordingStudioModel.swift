@@ -279,11 +279,16 @@ final class RecordingStudioModel {
         // Sessions recorded before the toggle moved into Studio stored the
         // choice in the manifest; honor it as the default.
         showsClickEffects = manifest?.pressEffectsEnabled ?? true
+        // A brand new recording has no project yet, so it also starts from
+        // the remembered export choice.
+        exportSettings = RecordingExportPreferences.lastSettings
         if let document {
             style = document.style.value
             zoomEnabled = document.zoomEnabled
             zoomCues = document.zoomCues
-            exportSettings = document.exportSettings ?? VideoCompressionSettings()
+            // A project that never chose its own settings inherits whatever
+            // was picked last, so "export as MP4" sticks across recordings.
+            exportSettings = document.exportSettings ?? RecordingExportPreferences.lastSettings
             showsClickEffects = document.showsClickEffects ?? showsClickEffects
             showsKeystrokes = document.showsKeystrokes ?? true
             keystrokePlacement = document.keystrokePlacement ?? .bottomCenter
@@ -346,14 +351,7 @@ final class RecordingStudioModel {
             loadError = "Could not prepare the recording timeline: \(error.localizedDescription)"
             return
         }
-        if pointerIsSynthesized {
-            pointerTimeline = PointerTimeline.build(
-                capture: pointerCapture,
-                duration: sourceDuration,
-                recordingSizeInPoints: recordingPointSize,
-                fallbackArtwork: PointerArtworkCapture.defaultArtwork()
-            )
-        }
+        rebuildPointerTimeline()
         rebuildViewportTimeline()
         installObservers()
         isLoaded = true
@@ -658,8 +656,10 @@ final class RecordingStudioModel {
         selectedClipID = selectedID.flatMap { id in
             next.segments.contains(where: { $0.id == id }) ? id : nil
         } ?? next.segments.first?.id
-        // The viewport timeline is built along editor (clip) time, so any
-        // cut, trim, or speed change invalidates it, not just zoom edits.
+        // Both motion timelines integrate along editor time, so a cut, trim,
+        // or speed change invalidates them even when their source data did not
+        // change.
+        rebuildPointerTimeline()
         rebuildViewportTimeline()
 
         do {
@@ -868,12 +868,13 @@ final class RecordingStudioModel {
     private func insertZoomCue(start: TimeInterval, end: TimeInterval) {
         guard let span = freeSpan(from: start, preferredEnd: end) else { return }
         let hasPointerTrack = !pointerCapture.travel.isEmpty || !pointerCapture.presses.isEmpty
-        let target = pointerTimeline.location(at: span.lowerBound) ?? CGPoint(x: 0.5, y: 0.5)
+        let editorTime = clipTimeline.editorTime(forSourceTime: span.lowerBound) ?? currentTime
+        let target = pointerTimeline.location(at: editorTime) ?? CGPoint(x: 0.5, y: 0.5)
         let cue = ZoomCue(
             start: span.lowerBound,
             end: span.upperBound,
             zoom: 1.5,
-            anchorMode: hasPointerTrack ? .pointerAnchor : .pinnedAnchor,
+            anchorMode: hasPointerTrack ? .smartAnchor : .pinnedAnchor,
             pinnedPoint: target,
             boundsBias: hasPointerTrack ? 0.25 : 0
         )
@@ -974,6 +975,22 @@ final class RecordingStudioModel {
         clipTimeline.editorTime(forSourceTime: time)
     }
 
+    private func rebuildPointerTimeline() {
+        reframeFocusTimeline = nil
+        reframeFocusResolved = false
+        guard pointerIsSynthesized, sourceDuration > 0 else {
+            pointerTimeline = .empty
+            return
+        }
+        pointerTimeline = PointerTimeline.build(
+            capture: pointerCapture,
+            duration: sourceDuration,
+            recordingSizeInPoints: recordingPointSize,
+            fallbackArtwork: PointerArtworkCapture.defaultArtwork(),
+            clipTimeline: clipTimeline
+        )
+    }
+
     private func rebuildViewportTimeline() {
         guard sourceDuration > 0 else {
             viewportTimeline = .identity
@@ -1025,12 +1042,19 @@ final class RecordingStudioModel {
             hasUnsavedChanges = false
             return
         }
+        // Swapping the export container leaves every encoded sample intact, so
+        // the existing render survives and export converts it on the way out
+        // rather than paying for a second full encode.
+        let containerOnlyChange = RecordingSession.differsOnlyByExportContainer(
+            document,
+            lastSavedDocument
+        )
         do {
             try session.writeEditDocument(document)
             lastSavedDocument = document
             hasUnsavedChanges = false
-            if session.hasFinalVideo {
-                try? FileManager.default.removeItem(at: session.finalURL)
+            if !containerOnlyChange {
+                session.removeFinalVideos()
             }
         } catch {
             print("Failed to save recording project: \(error)")
@@ -1053,12 +1077,12 @@ final class RecordingStudioModel {
     /// the recording carries its cursor in the pixels.
     func pointerLocation(at time: TimeInterval) -> CGPoint? {
         guard pointerIsSynthesized else { return nil }
-        return pointerTimeline.location(at: clipTimeline.sourceTime(at: time))
+        return pointerTimeline.location(at: time)
     }
 
     func pointerFrame(at time: TimeInterval) -> PointerFrame? {
         guard pointerIsSynthesized else { return nil }
-        return pointerTimeline.frame(at: clipTimeline.sourceTime(at: time))
+        return pointerTimeline.frame(at: time)
     }
 
     func artwork(id: String?) -> PointerArtwork? {
@@ -1420,7 +1444,6 @@ final class RecordingStudioModel {
     private func makeReframeTrack() -> ReframeTrack? {
         guard exportAspect != .original, exportAspectMode == .fill else { return nil }
         let focusTimeline = reframeFocusPointer()
-        let clips = clipTimeline
         let effectiveViewport = zoomEnabled ? viewportTimeline : .identity
         return ReframeTrack.build(
             preset: exportAspect,
@@ -1428,7 +1451,7 @@ final class RecordingStudioModel {
             viewportTimeline: effectiveViewport,
             duration: duration
         ) { editorTime in
-            focusTimeline?.location(at: clips.sourceTime(at: editorTime))
+            focusTimeline?.location(at: editorTime)
         }
     }
 
@@ -1443,7 +1466,8 @@ final class RecordingStudioModel {
                 capture: pointerCapture,
                 duration: sourceDuration,
                 recordingSizeInPoints: recordingPointSize,
-                fallbackArtwork: PointerArtworkCapture.defaultArtwork()
+                fallbackArtwork: PointerArtworkCapture.defaultArtwork(),
+                clipTimeline: clipTimeline
             )
         }
         return reframeFocusTimeline
@@ -1486,14 +1510,28 @@ final class RecordingStudioModel {
     /// the save that would have invalidated it. Both Export and Share can
     /// then skip the render entirely.
     private var freshDeliverableURL: URL? {
-        guard let session, session.hasFinalVideo, !hasUnsavedChanges else { return nil }
-        return session.finalURL
+        guard let session, !hasUnsavedChanges else { return nil }
+        return session.existingFinalURL
     }
 
     private var exportSuggestedFileName: String {
-        session.map {
-            $0.directoryURL.deletingPathExtension().lastPathComponent.appending(".mov")
-        } ?? VideoFileActions.exportFileName(for: screenURL)
+        let container = exportSettings.effectiveContainer
+        return session.map {
+            $0.directoryURL
+                .deletingPathExtension()
+                .lastPathComponent
+                .appending(".\(container.fileExtension)")
+        } ?? VideoFileActions.exportFileName(for: screenURL, container: container)
+    }
+
+    /// Entry point for the export options popover. Assigning settings marks
+    /// the project dirty and drops the cached render, so an unchanged
+    /// confirmation must not touch them.
+    func export(settings: VideoCompressionSettings) {
+        if settings != exportSettings {
+            exportSettings = settings
+        }
+        export()
     }
 
     func export() {
@@ -1506,15 +1544,18 @@ final class RecordingStudioModel {
         // to what this render would produce — same configuration builds
         // both — so exporting becomes a plain copy into the save folder.
         if let cached = freshDeliverableURL {
-            do {
-                let savedURL = try VideoFileActions.saveToDefaultLocation(
-                    from: cached,
-                    suggestedFileName: exportSuggestedFileName
-                )
-                RecordingExportNotifier.notifySuccess(fileURL: savedURL)
-                exportState = .finished(savedURL)
-            } catch {
-                exportState = .failed(error.localizedDescription)
+            let suggestedFileName = exportSuggestedFileName
+            exportTask = Task { [weak self] in
+                do {
+                    let savedURL = try await VideoFileActions.saveToDefaultLocation(
+                        from: cached,
+                        suggestedFileName: suggestedFileName
+                    )
+                    RecordingExportNotifier.notifySuccess(fileURL: savedURL)
+                    self?.exportState = .finished(savedURL)
+                } catch {
+                    self?.exportState = .failed(error.localizedDescription)
+                }
             }
             return
         }
@@ -1537,7 +1578,7 @@ final class RecordingStudioModel {
                         }
                     }
                 }
-                let savedURL = try VideoFileActions.saveToDefaultLocation(
+                let savedURL = try await VideoFileActions.saveToDefaultLocation(
                     from: temporaryURL,
                     suggestedFileName: suggestedFileName
                 )
@@ -1617,7 +1658,7 @@ final class RecordingStudioModel {
                         }
                     }
                 }
-                let savedURL = try VideoFileActions.saveToDefaultLocation(
+                let savedURL = try await VideoFileActions.saveToDefaultLocation(
                     from: temporaryURL,
                     suggestedFileName: suggestedFileName
                 )
@@ -1804,12 +1845,7 @@ final class RecordingStudioModel {
                     // deliverable, so history, preview, and sidecar mapping
                     // all agree on what was shared.
                     if let session {
-                        if FileManager.default.fileExists(atPath: session.finalURL.path) {
-                            _ = try FileManager.default.replaceItemAt(session.finalURL, withItemAt: temporaryURL)
-                        } else {
-                            try FileManager.default.moveItem(at: temporaryURL, to: session.finalURL)
-                        }
-                        uploadURL = session.finalURL
+                        uploadURL = try session.installFinalVideo(movingFrom: temporaryURL)
                     } else {
                         uploadURL = temporaryURL
                     }

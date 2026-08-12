@@ -54,6 +54,10 @@ nonisolated final class PointerActivityRecorder: NSObject, @unchecked Sendable {
     /// Mirrors RecordingKeystrokeRecorder.duplicateEventWindow: the same
     /// physical input can arrive from the event tap and the AppKit monitors.
     private static let duplicatePressWindow: TimeInterval = 0.05
+    /// Cursor identities can change briefly over links, resize handles, and
+    /// text. Sample near display cadence; artwork encoding still runs only when
+    /// the NSCursor identity actually changes.
+    private static let appearanceSampleInterval: TimeInterval = 1.0 / 30.0
 
     private let lock = NSLock()
     private var mapping: RecordingInputMapping?
@@ -120,7 +124,7 @@ nonisolated final class PointerActivityRecorder: NSObject, @unchecked Sendable {
         }
 
         let appearanceTimer = Timer(
-            timeInterval: 0.1,
+            timeInterval: Self.appearanceSampleInterval,
             target: self,
             selector: #selector(pointerAppearanceTimer(_:)),
             userInfo: nil,

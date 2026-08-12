@@ -162,9 +162,10 @@ private struct RecordingStudioContent: View {
     private var exportStatus: some View {
         switch model.exportState {
         case .idle:
-            Button {
-                model.export()
-            } label: {
+            RecordingExportButton(
+                currentSettings: model.exportSettings,
+                onExport: model.export(settings:)
+            ) {
                 Label("Export", systemImage: "arrow.down.circle")
                     .labelStyle(.titleAndIcon)
             }
@@ -184,9 +185,10 @@ private struct RecordingStudioContent: View {
                 }
                 .help("Reveal exported recording in Finder")
 
-                Button {
-                    model.export()
-                } label: {
+                RecordingExportButton(
+                    currentSettings: model.exportSettings,
+                    onExport: model.export(settings:)
+                ) {
                     Image(systemName: "arrow.down.circle")
                 }
                 .help("Export Again")
@@ -198,9 +200,10 @@ private struct RecordingStudioContent: View {
                     .foregroundStyle(.orange)
                     .help(message)
 
-                Button {
-                    model.export()
-                } label: {
+                RecordingExportButton(
+                    currentSettings: model.exportSettings,
+                    onExport: model.export(settings:)
+                ) {
                     Text("Retry")
                 }
             }
@@ -420,20 +423,34 @@ private struct StudioCursorOverlay: View {
         )
 
         ZStack(alignment: .topLeading) {
-            if showsClickEffect, let progress = pointer.pressPulse {
-                let radius = PointerPressEffectStyle.radius(
-                    progress: progress,
-                    referenceHeight: content.height * state.magnification,
+            if showsClickEffect, let press = pointer.press {
+                let pressTip = CGPoint(
+                    x: cardSize.width / 2
+                        + content.width * state.magnification * (press.location.x - state.anchor.x),
+                    y: cardSize.height / 2
+                        + content.height * state.magnification * (press.location.y - state.anchor.y)
+                )
+                let effect = PointerPressEffectStyle.geometry(
+                    progress: press.progress,
+                    referenceHeight: content.height,
                     cursorScale: cursorScale
                 )
                 let accent = PointerPressEffectStyle.color
                 Circle()
                     .fill(
                         Color(red: accent.red, green: accent.green, blue: accent.blue)
-                            .opacity(PointerPressEffectStyle.opacity(progress: progress))
+                            .opacity(effect.impactOpacity)
                     )
-                    .frame(width: radius * 2, height: radius * 2)
-                    .position(x: tip.x, y: tip.y)
+                    .frame(width: effect.impactRadius * 2, height: effect.impactRadius * 2)
+                    .position(x: pressTip.x, y: pressTip.y)
+                Circle()
+                    .stroke(
+                        Color(red: accent.red, green: accent.green, blue: accent.blue)
+                            .opacity(effect.rippleOpacity),
+                        lineWidth: effect.rippleLineWidth
+                    )
+                    .frame(width: effect.rippleRadius * 2, height: effect.rippleRadius * 2)
+                    .position(x: pressTip.x, y: pressTip.y)
             }
 
             if let artwork,
@@ -441,7 +458,6 @@ private struct StudioCursorOverlay: View {
                 let anchor = artwork.normalizedAnchor
                 let height = content.height
                     * PointerArtworkMetrics.heightRatio
-                    * state.magnification
                     * cursorScale
                     * artwork.intrinsicScale
                 let size = CGSize(
@@ -2045,6 +2061,7 @@ private extension ZoomAnchorMode {
     var inspectorTitle: String {
         switch self {
         case .pointerAnchor: "Pointer"
+        case .smartAnchor: "Smart"
         case .pinnedAnchor: "Fixed"
         }
     }
@@ -2059,7 +2076,6 @@ private enum StudioInspectorSection: Hashable {
     case transcription
     case camera
     case audio
-    case export
 }
 
 private enum StudioTranscriptTab: CaseIterable, Identifiable {
@@ -2266,13 +2282,6 @@ private struct StudioInspector: View {
                     }
                 ) {
                     audioControls
-                }
-
-                InspectorDisclosureSection(
-                    "Export",
-                    isExpanded: expansionBinding(for: .export)
-                ) {
-                    exportControls
                 }
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -3070,60 +3079,6 @@ private struct StudioInspector: View {
         return value < 60 ? String(format: "%.1fs", value) : clockText(value)
     }
 
-    // MARK: Export
-
-    private var exportControls: some View {
-        VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
-            InspectorGroupLabel("Quality")
-            InspectorSegmented(
-                options: VideoCompressionQuality.allCases,
-                isSelected: { $0 == model.exportSettings.quality },
-                onTap: { model.exportSettings.quality = $0 },
-                label: { Text($0.rawValue).font(.inspectorLabel) }
-            )
-
-            InspectorGroupLabel("Codec")
-            InspectorSegmented(
-                options: VideoCompressionCodec.allCases,
-                isSelected: { $0 == model.exportSettings.codec },
-                onTap: { model.exportSettings.codec = $0 },
-                label: { Text($0.rawValue).font(.inspectorLabel) }
-            )
-
-            InspectorGroupLabel("Resolution")
-            InspectorSegmented(
-                options: VideoCompressionResolution.allCases,
-                isSelected: { $0 == model.exportSettings.resolution },
-                onTap: { model.exportSettings.resolution = $0 },
-                label: { Text($0.rawValue).font(.inspectorLabel) }
-            )
-
-            HStack(spacing: 8) {
-                Text("Include audio")
-                    .font(.inspectorLabel)
-                    .foregroundStyle(.primary.opacity(0.82))
-
-                Spacer(minLength: 8)
-
-                Toggle(
-                    "Include audio",
-                    isOn: Binding(
-                        get: { !model.exportSettings.removeAudio },
-                        set: { model.exportSettings.removeAudio = !$0 }
-                    )
-                )
-                .labelsHidden()
-                .toggleStyle(.switch)
-                .controlSize(.small)
-            }
-
-            Text("Screen, camera, zooms, and selected audio are rendered together in one pass.")
-                .font(.inspectorLabel)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
     private var usesDefaultLayout: Bool {
         abs(model.style.padding - 0.06) < 0.0001
             && abs(model.style.cornerRadius - 0.02) < 0.0001
@@ -3131,7 +3086,7 @@ private struct StudioInspector: View {
     }
 
     private var sidebarBackground: Color {
-        colorScheme == .dark ? Color(nsColor: .windowBackgroundColor) : .white
+        InspectorControlPalette.panelBackground(for: colorScheme)
     }
 
     private func expansionBinding(for section: StudioInspectorSection) -> Binding<Bool> {
