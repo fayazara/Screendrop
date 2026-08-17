@@ -1,19 +1,19 @@
 # Screendrop
 
 > **Beta** — Screendrop is under active development. Expect rough edges and occasional breaking changes. Feedback and bug reports are welcome via [GitHub Issues](https://github.com/fayazara/Screendrop/issues).
-
-<p align="center">
+<br />
+<p>
   <a href="https://github.com/fayazara/Screendrop/releases/latest/download/Screendrop.dmg">
     <img src="download-button.png" alt="Download the latest version of Screendrop" width="220">
   </a>
 </p>
 
-<p align="center">
+<p>
   <a href="https://github.com/fayazara/Screendrop/releases/latest">Latest release</a>
   ·
   <a href="https://github.com/fayazara/Screendrop/releases">All releases</a>
 </p>
-
+<br />
 Screendrop is a native macOS screenshot and screen-recording studio that lives in the menu bar. Capture something, act on it from the floating preview, annotate it, turn a recording into a polished video, or share it through infrastructure you own.
 
 The default workflow is local-first. Captures, editable projects, transcripts, and history stay on your Mac. Cloud sharing is optional and uses your own Cloudflare Worker, R2 bucket, and D1 database.
