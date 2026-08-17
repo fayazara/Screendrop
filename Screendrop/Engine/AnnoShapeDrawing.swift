@@ -128,11 +128,13 @@ enum AnnoShapeDrawing {
         textProps.isBold = true
         textProps.align = .start
 
-        let size = TextMeasure.measure(textProps)
         let path = TextMeasure.glyphPath(textProps)
+        let glyphBounds = path.boundingBoxOfPath
         var transform = CGAffineTransform(
-            translationX: (props.diameter - size.width) / 2,
-            y: (props.diameter - size.height) / 2
+            // Centre the visible outlines rather than their TextKit line box. The line box carries
+            // asymmetric ascent/descent padding, which makes digits appear slightly low.
+            translationX: props.diameter / 2 - glyphBounds.midX,
+            y: props.diameter / 2 - glyphBounds.midY
         )
         guard let positioned = path.copy(using: &transform) else { return }
         context.addPath(positioned)
