@@ -13,6 +13,7 @@ import SwiftUI
 struct MenuBarView: View {
     @ObservedObject private var updaterManager = UpdaterManager.shared
     @State private var historyStore = ScreenshotHistoryStore.shared
+    @State private var projectStore = RecordingProjectStore.shared
 
     var body: some View {
         Group {
@@ -41,6 +42,12 @@ struct MenuBarView: View {
             }
 
             Divider()
+
+            Menu {
+                projectsMenuContent
+            } label: {
+                Label("Recordings", systemImage: "film.stack")
+            }
 
             Menu {
                 historyMenuContent
@@ -77,7 +84,36 @@ struct MenuBarView: View {
         }
         .task {
             historyStore.reload()
+            projectStore.reload()
         }
+    }
+
+    /// Reopening a recording is the common case after the first edit, so the
+    /// recents land here rather than behind Settings.
+    @ViewBuilder
+    private var projectsMenuContent: some View {
+        if projectStore.projects.isEmpty {
+            Text("No recordings")
+        } else {
+            ForEach(projectStore.recentProjects) { project in
+                Button(projectMenuTitle(for: project)) {
+                    RecordingProjectOpener.shared.open(project.session)
+                }
+            }
+
+            Divider()
+        }
+
+        Button {
+            RecordingProjectsWindowController.show()
+        } label: {
+            Label("Show All Projects…", systemImage: "square.grid.2x2")
+        }
+    }
+
+    private func projectMenuTitle(for project: RecordingProjectSummary) -> String {
+        let name = truncatedMenuTitle(project.displayName)
+        return project.hasUnsavedDraft ? "\(name) — Unsaved" : name
     }
 
     @ViewBuilder
@@ -157,5 +193,13 @@ struct MenuBarView: View {
         let allowedBaseLength = max(8, limit - suffix.count - 3)
 
         return "\(baseName.prefix(allowedBaseLength))...\(suffix)"
+    }
+
+    /// Menus get unusably wide with full session names, which carry a
+    /// timestamp and a uniquing suffix.
+    private func truncatedMenuTitle(_ name: String) -> String {
+        let limit = 34
+        guard name.count > limit else { return name }
+        return "\(name.prefix(limit - 1))…"
     }
 }

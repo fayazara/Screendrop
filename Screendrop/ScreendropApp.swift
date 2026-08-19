@@ -46,6 +46,11 @@ struct ScreendropApp: App {
                 value: ScreenshotHistoryStore.shared.editorURL(for: url)
             )
         }
+        // The menu bar extra and the Projects window are AppKit-hosted and
+        // have no scene of their own, so they reach the editor through here.
+        RecordingProjectOpener.shared.openHandler = { [openWindow] directoryURL in
+            openWindow(id: "VIDEO_EDITOR", value: directoryURL)
+        }
 
         CaptureCoordinator.shared.onShowPreview = { [openWindow] url, displayID in
             // Set the editor openers first so auto-annotate can fire during add.
@@ -84,6 +89,7 @@ struct ScreendropApp: App {
                 // Stop behave like Export and blocked short recordings behind
                 // a full-resolution transcode.
                 let historyURL = await ScreenshotHistoryStore.shared.importRecordingSession(session)
+                RecordingProjectStore.shared.reload()
                 ScreenshotPreviewStack.shared.addVideo(url: historyURL)
                 if AfterCaptureActions.isEnabled(.showOverlay, for: .recording) {
                     PreviewPanelPresenter.shared.show(displayID: displayID)
@@ -149,6 +155,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// temporary directory, so quitting — including a Sparkle update relaunch,
     /// which terminates the app — discards them. Warn before that happens.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        // Studio's autosave is debounced. Flushing here means quitting never
+        // costs the last edit — the project reopens on its draft.
+        StudioProjectRegistry.shared.flushDrafts()
+        let unsavedProjectCount = StudioProjectRegistry.shared.unsavedProjectCount
         let unsavedCount = ScreenshotPreviewStack.shared.unsavedItems.count
         if ScreenRecordingManager.shared.isActive {
             NSApp.activate(ignoringOtherApps: true)
@@ -186,10 +196,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         alert.messageText = unsavedCount == 1
             ? "You have 1 unsaved capture"
             : "You have \(unsavedCount) unsaved captures"
-        alert.informativeText = """
+        var informativeText = """
         These captures haven't been saved to your Mac and will be lost if you quit. \
         Turn on Auto Save in Settings to keep every capture automatically.
         """
+        if unsavedProjectCount > 0 {
+            // Unlike captures, these are safe — say so, so the warning above
+            // doesn't read as covering them too.
+            informativeText += """
+            \n\n\(unsavedProjectCount) recording project\(unsavedProjectCount == 1 ? " has" : "s have") \
+            unsaved edits. Those are kept and restored the next time you open them.
+            """
+        }
+        alert.informativeText = informativeText
 
         // Cancel is the default (and leftmost-safe) action so an accidental
         // Return never discards work.

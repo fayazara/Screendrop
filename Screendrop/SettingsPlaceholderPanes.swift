@@ -2,11 +2,39 @@ import AppKit
 import SwiftUI
 
 struct VideoSettingsPane: View {
+    @AppStorage(ScreendropPreferences.revealExportInFinderKey) private var revealExportInFinder = true
+
     var body: some View {
         Form {
             CaptureHotkeySettingsSection(actions: [.screenRecording])
 
             AfterCaptureActionsSection(type: .recording, title: "After Recording")
+
+            Section("After Export") {
+                Toggle(isOn: $revealExportInFinder) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Reveal in Finder")
+                        Text("Select the exported file in Finder once the render finishes.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
+            Section("Projects") {
+                LabeledContent {
+                    Button("Show All Projects…") {
+                        RecordingProjectsWindowController.show()
+                    }
+                } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Recording projects")
+                        Text("Reopen a past recording with every edit intact.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
         }
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)

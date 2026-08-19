@@ -95,6 +95,15 @@ enum RecordingExportNotifier {
         userInfo[fileURLKey] as? String
     }
 
+    /// Lands the user on the file they just exported. On by default: an
+    /// export is a deliberate "give me the file" action, and a notification
+    /// alone leaves them hunting for the export folder.
+    @MainActor
+    static func revealIfPreferred(fileURL: URL) {
+        guard ScreendropPreferences.revealExportInFinder else { return }
+        reveal(path: fileURL.path)
+    }
+
     @MainActor
     static func reveal(path: String) {
         let url = URL(fileURLWithPath: path)

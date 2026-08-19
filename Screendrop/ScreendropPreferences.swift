@@ -39,6 +39,7 @@ enum ScreendropPreferences {
     static let recordingTeleprompterEnabledKey = "recordingTeleprompterEnabled"
     static let recordingTeleprompterScriptKey = "recordingTeleprompterScript"
     static let recordingTeleprompterLineCountKey = "recordingTeleprompterLineCount"
+    static let revealExportInFinderKey = "revealExportInFinder"
 
     private static let defaultCompressionQuality = 0.8
 
@@ -203,6 +204,15 @@ enum ScreendropPreferences {
         return UserDefaults.standard.bool(forKey: lowResolutionEditorPreviewKey)
     }
     
+    /// Whether a finished Studio export selects the file in Finder. An export
+    /// is a deliberate "hand me the file" action, so this defaults to on.
+    static var revealExportInFinder: Bool {
+        if UserDefaults.standard.object(forKey: revealExportInFinderKey) == nil {
+            return true
+        }
+        return UserDefaults.standard.bool(forKey: revealExportInFinderKey)
+    }
+
     /// Whether fullscreen captures on notched displays trim the empty black
     /// menu-bar strip at the top. The strip is only removed when it's solid
     /// black (menu bar hidden); a revealed menu bar is preserved. Defaults to on.

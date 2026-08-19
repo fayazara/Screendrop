@@ -43,6 +43,7 @@ struct RecordingStudioWindow: View {
 private struct RecordingStudioContent: View {
     @Bindable var model: RecordingStudioModel
     @State private var isInspectorPresented = true
+    @State private var closeGuard = StudioCloseGuard()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -68,6 +69,10 @@ private struct RecordingStudioContent: View {
         }
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
+                if model.isProject {
+                    saveStatus
+                }
+
                 if model.canShareToCloud {
                     shareStatus
                 }
@@ -82,7 +87,16 @@ private struct RecordingStudioContent: View {
                 .help(isInspectorPresented ? "Hide Inspector" : "Show Inspector")
             }
         }
-        .navigationTitle(model.sessionURL.deletingPathExtension().lastPathComponent)
+        .navigationTitle(windowTitle)
+        .onWindowChange { window in
+            configureCloseGuard()
+            closeGuard.attach(to: window)
+            closeGuard.refreshDocumentEdited()
+        }
+        .onChange(of: model.hasUnsavedChanges) {
+            configureCloseGuard()
+            closeGuard.refreshDocumentEdited()
+        }
         .onDeleteCommand {
             if let selectedCueID = model.selectedCueID {
                 model.removeZoomCue(id: selectedCueID)
@@ -94,12 +108,66 @@ private struct RecordingStudioContent: View {
             AppActivationPolicy.enter(hidePreview: true)
         }
         .onDisappear {
+            closeGuard.detach()
             AppActivationPolicy.leave(restorePreview: true)
         }
     }
 
     private var shareSuggestedTitle: String {
-        model.sessionURL.deletingPathExtension().lastPathComponent
+        model.projectDisplayName
+    }
+
+    /// AppKit already paints the unsaved dot in the close button; the title
+    /// says it in words for anyone who reads the title bar first.
+    private var windowTitle: String {
+        model.hasUnsavedChanges
+            ? "\(model.projectDisplayName) — Edited"
+            : model.projectDisplayName
+    }
+
+    private func configureCloseGuard() {
+        closeGuard.hasUnsavedChanges = { model.hasUnsavedChanges }
+        closeGuard.offersDelete = { model.hasNeverBeenSaved }
+        closeGuard.projectName = { model.projectDisplayName }
+        closeGuard.onDecision = { decision, done in
+            switch decision {
+            case .save:
+                model.saveProject()
+                done()
+            case .discard:
+                Task {
+                    await model.discardChanges()
+                    done()
+                }
+            case .delete:
+                model.deleteProject()
+                done()
+            case .cancel:
+                break
+            }
+        }
+    }
+
+    /// Save is a plain toolbar button rather than a menu command: Studio is
+    /// reached from a menu-bar app, where the main menu isn't a reliable
+    /// place to look for ⌘S.
+    @ViewBuilder
+    private var saveStatus: some View {
+        Button {
+            model.saveProject()
+        } label: {
+            if model.saveFlash {
+                Label("Saved", systemImage: "checkmark.circle.fill")
+                    .labelStyle(.titleAndIcon)
+                    .foregroundStyle(.green)
+            } else {
+                Label("Save", systemImage: "square.and.arrow.down")
+                    .labelStyle(.titleAndIcon)
+            }
+        }
+        .keyboardShortcut("s", modifiers: .command)
+        .disabled(!model.hasUnsavedChanges)
+        .help("Save this project (⌘S)")
     }
 
     /// Share pipeline in one toolbar slot: render → upload → link copied.

@@ -19,6 +19,15 @@ nonisolated struct RecordingSession: Sendable, Equatable {
     static let pointerCaptureFileName = "input.json"
     static let captureManifestFileName = "capture.json"
     static let editDocumentFileName = "edit.json"
+    /// The working copy the editor autosaves while you type. `edit.json` is
+    /// only rewritten by an explicit save, so a crash mid-edit costs nothing
+    /// and closing a window still has something meaningful to prompt about.
+    static let draftDocumentFileName = "edit.draft.json"
+    static let projectMetadataFileName = "project.json"
+    /// The document that produced the current flattened deliverable, so a
+    /// cached render can be proven fresh instead of assumed fresh.
+    static let renderStampFileName = "render.json"
+    static let posterFileName = "poster.jpg"
     /// Base name for an imported soundtrack. The picked file is copied in
     /// beside the footage (keeping its own extension) so the project keeps
     /// playing after the original is moved or deleted.
@@ -44,6 +53,25 @@ nonisolated struct RecordingSession: Sendable, Equatable {
     var pointerCaptureURL: URL { directoryURL.appendingPathComponent(Self.pointerCaptureFileName) }
     var captureManifestURL: URL { directoryURL.appendingPathComponent(Self.captureManifestFileName) }
     var editDocumentURL: URL { directoryURL.appendingPathComponent(Self.editDocumentFileName) }
+    var draftDocumentURL: URL { directoryURL.appendingPathComponent(Self.draftDocumentFileName) }
+    var projectMetadataURL: URL { directoryURL.appendingPathComponent(Self.projectMetadataFileName) }
+    var renderStampURL: URL { directoryURL.appendingPathComponent(Self.renderStampFileName) }
+    var posterURL: URL { directoryURL.appendingPathComponent(Self.posterFileName) }
+
+    /// True once the project has been committed with an explicit save. Every
+    /// package written by older builds has an `edit.json` from the previous
+    /// silent autosave, so those open as already-saved — no migration.
+    var hasSavedProject: Bool {
+        FileManager.default.fileExists(atPath: editDocumentURL.path)
+    }
+
+    /// The name shown wherever the project is listed.
+    var displayName: String {
+        let stored = loadProjectMetadata()?.displayName?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let stored, !stored.isEmpty { return stored }
+        return directoryURL.deletingPathExtension().lastPathComponent
+    }
 
     var hasCamera: Bool {
         FileManager.default.fileExists(atPath: cameraURL.path)
@@ -81,13 +109,17 @@ nonisolated struct RecordingSession: Sendable, Equatable {
         for container in VideoExportContainer.allCases {
             try? FileManager.default.removeItem(at: finalURL(for: container))
         }
+        try? FileManager.default.removeItem(at: renderStampURL)
     }
 
     /// Adopts a freshly rendered file as this session's deliverable, taking the
     /// container from the render itself. Deliverables in other containers are
     /// cleared so a stale render can never win the `existingFinalURL` lookup.
     @discardableResult
-    func installFinalVideo(movingFrom temporaryURL: URL) throws -> URL {
+    func installFinalVideo(
+        movingFrom temporaryURL: URL,
+        renderedFrom document: RecordingEditDocument? = nil
+    ) throws -> URL {
         let container = VideoExportContainer(fileExtension: temporaryURL.pathExtension) ?? .default
         let destinationURL = finalURL(for: container)
 
@@ -100,6 +132,7 @@ nonisolated struct RecordingSession: Sendable, Equatable {
         for stale in VideoExportContainer.allCases where stale != container {
             try? FileManager.default.removeItem(at: finalURL(for: stale))
         }
+        writeRenderStamp(document)
         return destinationURL
     }
 
@@ -155,6 +188,86 @@ nonisolated struct RecordingSession: Sendable, Equatable {
     func writeEditDocument(_ document: RecordingEditDocument) throws {
         let data = try CaptureManifest.encoder.encode(document)
         try data.write(to: editDocumentURL, options: .atomic)
+    }
+
+    // MARK: - Working draft
+
+    func loadDraftDocument() -> RecordingEditDocument? {
+        guard let data = try? Data(contentsOf: draftDocumentURL) else { return nil }
+        return try? CaptureManifest.decoder.decode(RecordingEditDocument.self, from: data)
+    }
+
+    func writeDraftDocument(_ document: RecordingEditDocument) throws {
+        let data = try CaptureManifest.encoder.encode(document)
+        try data.write(to: draftDocumentURL, options: .atomic)
+    }
+
+    func removeDraftDocument() {
+        try? FileManager.default.removeItem(at: draftDocumentURL)
+    }
+
+    /// What the editor should actually open: the autosaved draft when one
+    /// survived, otherwise the last explicit save. Every consumer outside the
+    /// editor (flattening, uploads) uses this too, so a deliverable always
+    /// reflects the edits the user can see.
+    func effectiveEditDocument() -> RecordingEditDocument? {
+        loadDraftDocument() ?? loadEditDocument()
+    }
+
+    /// True when unsaved edits are sitting in the draft. A draft identical to
+    /// the saved document is just a leftover and doesn't count.
+    var hasUnsavedDraft: Bool {
+        guard let draft = loadDraftDocument() else { return false }
+        return draft != loadEditDocument()
+    }
+
+    // MARK: - Project metadata
+
+    func loadProjectMetadata() -> RecordingProjectMetadata? {
+        guard let data = try? Data(contentsOf: projectMetadataURL) else { return nil }
+        return try? CaptureManifest.decoder.decode(RecordingProjectMetadata.self, from: data)
+    }
+
+    func writeProjectMetadata(_ metadata: RecordingProjectMetadata) {
+        guard let data = try? CaptureManifest.encoder.encode(metadata) else { return }
+        try? data.write(to: projectMetadataURL, options: .atomic)
+    }
+
+    /// Read-modify-write so touching one field never drops the others.
+    func updateProjectMetadata(_ mutate: (inout RecordingProjectMetadata) -> Void) {
+        var metadata = loadProjectMetadata() ?? RecordingProjectMetadata()
+        metadata.version = RecordingProjectMetadata.currentVersion
+        mutate(&metadata)
+        writeProjectMetadata(metadata)
+    }
+
+    // MARK: - Render stamp
+
+    func loadRenderStamp() -> RecordingEditDocument? {
+        guard let data = try? Data(contentsOf: renderStampURL) else { return nil }
+        return try? CaptureManifest.decoder.decode(RecordingEditDocument.self, from: data)
+    }
+
+    func writeRenderStamp(_ document: RecordingEditDocument?) {
+        guard let document else {
+            try? FileManager.default.removeItem(at: renderStampURL)
+            return
+        }
+        guard let data = try? CaptureManifest.encoder.encode(document) else { return }
+        try? data.write(to: renderStampURL, options: .atomic)
+    }
+
+    /// The flattened deliverable only when it provably matches `document`.
+    /// Export and Share can then skip the render instead of trusting that
+    /// nothing has changed since it was made.
+    func freshFinalURL(matching document: RecordingEditDocument?) -> URL? {
+        guard let existing = existingFinalURL else { return nil }
+        let stamp = loadRenderStamp()
+        if stamp == document { return existing }
+        // Swapping only the container leaves every encoded sample intact, so
+        // the render survives and export converts it on the way out.
+        if let document, Self.differsOnlyByExportContainer(document, stamp) { return existing }
+        return nil
     }
 }
 

@@ -201,8 +201,19 @@ final class RecordingStudioModel {
     private let editUndoManager = UndoManager()
     private(set) var undoRevision = 0
     private var zoomEditSnapshot: [ZoomCue]?
+    /// The document as of the last explicit save. Everything the user does
+    /// after that lives in memory and in the autosaved draft until they save
+    /// again, which is what makes the close prompt meaningful.
     private var lastSavedDocument: RecordingEditDocument?
-    private var hasUnsavedChanges = false
+    /// Set while a stored document is being applied to the model, so the
+    /// resulting property writes don't register as user edits.
+    private var isApplyingDocument = false
+    /// Whether the editor holds edits that have not been committed with an
+    /// explicit save. Stored rather than derived: the title bar and the Save
+    /// button read it on every body evaluation, and rebuilding the whole
+    /// document to compare it there would cost real time while dragging.
+    private(set) var hasUnsavedChanges = false
+    private(set) var saveFlash = false
 
     /// Accepts either a recording session folder or a bare video file (so
     /// history items and old recordings still open, just without events).
@@ -217,6 +228,16 @@ final class RecordingStudioModel {
 
     var screenURL: URL {
         session?.screenURL ?? sessionURL
+    }
+
+    /// False for a bare movie opened from disk: there is no project package
+    /// behind it, so there is nothing to save into.
+    var isProject: Bool { session != nil }
+
+    /// What the window title, share sheet, and Projects browser call this
+    /// project. A bare movie falls back to its file name.
+    var projectDisplayName: String {
+        session?.displayName ?? sessionURL.deletingPathExtension().lastPathComponent
     }
 
     func load() async {
@@ -274,8 +295,12 @@ final class RecordingStudioModel {
             style.camera.isVisible = false
         }
 
-        let document = session?.loadEditDocument()
-        lastSavedDocument = document
+        lastSavedDocument = session?.loadEditDocument()
+        // A draft that outlived its editor means the last session ended
+        // without a save — a crash, a force quit, or a Studio window that is
+        // still open elsewhere. Reopen on the draft so nothing is lost; the
+        // project simply opens dirty.
+        let document = session?.effectiveEditDocument()
         // Sessions recorded before the toggle moved into Studio stored the
         // choice in the manifest; honor it as the default.
         showsClickEffects = manifest?.pressEffectsEnabled ?? true
@@ -283,24 +308,7 @@ final class RecordingStudioModel {
         // the remembered export choice.
         exportSettings = RecordingExportPreferences.lastSettings
         if let document {
-            style = document.style.value
-            zoomEnabled = document.zoomEnabled
-            zoomCues = document.zoomCues
-            // A project that never chose its own settings inherits whatever
-            // was picked last, so "export as MP4" sticks across recordings.
-            exportSettings = document.exportSettings ?? RecordingExportPreferences.lastSettings
-            showsClickEffects = document.showsClickEffects ?? showsClickEffects
-            showsKeystrokes = document.showsKeystrokes ?? true
-            keystrokePlacement = document.keystrokePlacement ?? .bottomCenter
-            showsSubtitles = document.showsSubtitles ?? true
-            subtitleCues = document.subtitleCues ?? []
-            subtitleTimeline = SubtitleTimeline(cues: subtitleCues)
-            transcriptWords = document.subtitleWords ?? []
-            karaokeTimeline = KaraokeTimeline(cues: subtitleCues, words: transcriptWords)
-            subtitleStyle = document.subtitleStyle
-            exportAspect = document.exportAspectPreset
-            exportAspectMode = document.exportAspectContentMode
-            audioExportFormat = document.audioExportFormatValue
+            applyDocumentSettings(document)
         } else if session == nil {
             // Legacy bare movies use the same editor, but open visually
             // unchanged until the user explicitly adds styling.
@@ -357,9 +365,57 @@ final class RecordingStudioModel {
         isLoaded = true
         rebuildPreviewReframe()
         loadTimelineThumbnails()
+
+        if let session {
+            if session.hasUnsavedDraft {
+                // Reopened on a draft that outlived its editor.
+                hasUnsavedChanges = true
+            } else if lastSavedDocument == nil {
+                // A recording that has never been saved is unsaved work by
+                // definition, which is what makes the close prompt offer to
+                // throw the whole thing away.
+                hasUnsavedChanges = true
+            } else {
+                hasUnsavedChanges = false
+                // Adopt the loaded document in its normalized in-memory form
+                // as the baseline. Defaults filled in during load (an export
+                // preset an older project never stored, clips normalized to
+                // the real duration) would otherwise read as edits.
+                lastSavedDocument = currentDocument()
+            }
+            session.updateProjectMetadata { $0.lastOpenedAt = Date() }
+        }
+        StudioProjectRegistry.shared.register(self)
+    }
+
+    /// Copies a stored project onto the model. Shared by the initial load and
+    /// by discarding changes, so both routes can never drift apart.
+    private func applyDocumentSettings(_ document: RecordingEditDocument) {
+        isApplyingDocument = true
+        defer { isApplyingDocument = false }
+
+        style = document.style.value
+        zoomEnabled = document.zoomEnabled
+        zoomCues = document.zoomCues
+        // A project that never chose its own settings inherits whatever
+        // was picked last, so "export as MP4" sticks across recordings.
+        exportSettings = document.exportSettings ?? RecordingExportPreferences.lastSettings
+        showsClickEffects = document.showsClickEffects ?? showsClickEffects
+        showsKeystrokes = document.showsKeystrokes ?? true
+        keystrokePlacement = document.keystrokePlacement ?? .bottomCenter
+        showsSubtitles = document.showsSubtitles ?? true
+        subtitleCues = document.subtitleCues ?? []
+        subtitleTimeline = SubtitleTimeline(cues: subtitleCues)
+        transcriptWords = document.subtitleWords ?? []
+        karaokeTimeline = KaraokeTimeline(cues: subtitleCues, words: transcriptWords)
+        subtitleStyle = document.subtitleStyle
+        exportAspect = document.exportAspectPreset
+        exportAspectMode = document.exportAspectContentMode
+        audioExportFormat = document.audioExportFormatValue
     }
 
     func teardown() {
+        StudioProjectRegistry.shared.unregister(self)
         exportTask?.cancel()
         audioExportTask?.cancel()
         replacementAudioTask?.cancel()
@@ -367,7 +423,7 @@ final class RecordingStudioModel {
         transcriptionTask?.cancel()
         projectSaveTask?.cancel()
         timelineThumbnails.cancel()
-        saveProjectNow()
+        writeDraftNow()
         pause()
         if let timeObserver {
             screenPlayer.removeTimeObserver(timeObserver)
@@ -1007,19 +1063,19 @@ final class RecordingStudioModel {
     }
 
     private func scheduleProjectSave() {
-        guard isLoaded, session != nil else { return }
+        guard isLoaded, !isApplyingDocument, session != nil else { return }
         hasUnsavedChanges = true
         projectSaveTask?.cancel()
         projectSaveTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(250))
             guard !Task.isCancelled else { return }
-            self?.saveProjectNow()
+            self?.writeDraftNow()
         }
     }
 
-    private func saveProjectNow() {
-        guard isLoaded, hasUnsavedChanges, let session else { return }
-        let document = RecordingEditDocument(
+    /// Every edit in the editor, as a storable document.
+    private func currentDocument() -> RecordingEditDocument {
+        RecordingEditDocument(
             style: style,
             zoomEnabled: zoomEnabled,
             zoomCues: zoomCues.filter { !$0.isImplicit },
@@ -1038,27 +1094,137 @@ final class RecordingStudioModel {
             replacementAudioDisplayName: replacementAudio?.displayName,
             audioExportFormat: audioExportFormat
         )
-        guard document != lastSavedDocument else {
+    }
+
+    /// True until the project has been saved at least once. Only these get
+    /// offered "Delete and close" — throwing away a project the user already
+    /// committed to would be unrecoverable.
+    var hasNeverBeenSaved: Bool {
+        guard let session else { return false }
+        return !session.hasSavedProject
+    }
+
+    /// Persists the working copy. Cheap, debounced, and never touches the
+    /// committed `edit.json`, so a crash costs nothing and Save still means
+    /// something.
+    private func writeDraftNow() {
+        guard isLoaded, let session else { return }
+        let document = currentDocument()
+        if document == lastSavedDocument {
+            // Edited back to the saved state (undo, or a discard landing):
+            // the draft is now noise and would reopen the project dirty.
+            session.removeDraftDocument()
             hasUnsavedChanges = false
-            return
+        } else {
+            try? session.writeDraftDocument(document)
+            hasUnsavedChanges = true
         }
-        // Swapping the export container leaves every encoded sample intact, so
-        // the existing render survives and export converts it on the way out
-        // rather than paying for a second full encode.
-        let containerOnlyChange = RecordingSession.differsOnlyByExportContainer(
-            document,
-            lastSavedDocument
-        )
+        dropStaleRender(for: document, in: session)
+    }
+
+    /// A cached flatten that no longer matches the edits is worse than no
+    /// cache: History previews it and Share would upload it.
+    private func dropStaleRender(for document: RecordingEditDocument, in session: RecordingSession) {
+        guard session.existingFinalURL != nil else { return }
+        guard session.freshFinalURL(matching: document) == nil else { return }
+        session.removeFinalVideos()
+    }
+
+    /// Writes the working copy immediately, bypassing the debounce. Used on
+    /// teardown and on quit so no edit is left only in memory.
+    func flushDraft() {
+        projectSaveTask?.cancel()
+        writeDraftNow()
+    }
+
+    /// ⌘S. Commits the working copy to `edit.json` and clears the draft.
+    func saveProject() {
+        guard isLoaded, let session else { return }
+        projectSaveTask?.cancel()
+        let document = currentDocument()
         do {
             try session.writeEditDocument(document)
+            session.removeDraftDocument()
             lastSavedDocument = document
             hasUnsavedChanges = false
-            if !containerOnlyChange {
-                session.removeFinalVideos()
-            }
+            session.updateProjectMetadata { $0.savedAt = Date() }
+            dropStaleRender(for: document, in: session)
+            RecordingProjectStore.shared.reload()
+            flashSaveConfirmation()
         } catch {
             print("Failed to save recording project: \(error)")
         }
+    }
+
+    /// Throws away everything since the last save and returns the editor to
+    /// that state. Only offered for projects that have actually been saved.
+    func discardChanges() async {
+        guard isLoaded, let session else { return }
+        projectSaveTask?.cancel()
+        session.removeDraftDocument()
+        guard let document = lastSavedDocument else { return }
+        applyDocumentSettings(document)
+        await applyDocumentTimeline(document)
+        // Rebuilding the timeline touches published state; let the normal
+        // draft path settle the dirty flag rather than assuming it landed.
+        flushDraft()
+    }
+
+    /// Deletes the whole recording package — footage included — and its
+    /// History entry. Reserved for a project that was never saved.
+    func deleteProject() {
+        guard let session else { return }
+        teardown()
+        RecordingProjectStore.shared.delete(session)
+    }
+
+    private func flashSaveConfirmation() {
+        saveFlash = true
+        Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(1400))
+            self?.saveFlash = false
+        }
+    }
+
+    /// The parts of a stored project that need the timeline rebuilt around
+    /// them: cuts, the imported soundtrack, and everything derived from both.
+    private func applyDocumentTimeline(_ document: RecordingEditDocument) async {
+        guard let session else { return }
+        isApplyingDocument = true
+
+        if let storedClips = document.clips, !storedClips.isEmpty {
+            clipTimeline = RecordingClipTimeline(segments: storedClips)
+                .normalized(to: sourceDuration)
+        } else {
+            clipTimeline = .legacyTrim(
+                start: document.trimStart,
+                end: document.trimEnd,
+                sourceDuration: sourceDuration
+            )
+        }
+        duration = clipTimeline.duration
+        selectedClipID = clipTimeline.segments.first?.id
+
+        if let fileName = document.replacementAudioFileName {
+            let url = session.directoryURL.appendingPathComponent(fileName)
+            if url != replacementAudio?.url, FileManager.default.fileExists(atPath: url.path) {
+                replacementAudio = await RecordingReplacementAudio.load(
+                    url: url,
+                    displayName: document.replacementAudioDisplayName ?? fileName
+                )
+            }
+        } else {
+            replacementAudio = nil
+        }
+
+        isApplyingDocument = false
+
+        try? rebuildScreenPlayerItem(preserving: currentTime)
+        rebuildPointerTimeline()
+        rebuildViewportTimeline()
+        rebuildPreviewReframe()
+        editUndoManager.removeAllActions()
+        undoRevision += 1
     }
 
     /// Viewport frame to render at a given time, honoring the zoom toggle.
@@ -1505,13 +1671,12 @@ final class RecordingStudioModel {
         previewReframe?.frame(at: time) ?? viewportFrame(at: time)
     }
 
-    /// The flattened deliverable when it's guaranteed to match the current
-    /// in-memory edits: the file exists and no change has happened since
-    /// the save that would have invalidated it. Both Export and Share can
-    /// then skip the render entirely.
+    /// The flattened deliverable when it provably matches the current
+    /// in-memory edits — the render is stamped with the document that
+    /// produced it. Both Export and Share can then skip the render entirely.
     private var freshDeliverableURL: URL? {
-        guard let session, !hasUnsavedChanges else { return nil }
-        return session.existingFinalURL
+        guard let session else { return nil }
+        return session.freshFinalURL(matching: currentDocument())
     }
 
     private var exportSuggestedFileName: String {
@@ -1552,6 +1717,7 @@ final class RecordingStudioModel {
                         suggestedFileName: suggestedFileName
                     )
                     RecordingExportNotifier.notifySuccess(fileURL: savedURL)
+                    RecordingExportNotifier.revealIfPreferred(fileURL: savedURL)
                     self?.exportState = .finished(savedURL)
                 } catch {
                     self?.exportState = .failed(error.localizedDescription)
@@ -1585,6 +1751,7 @@ final class RecordingStudioModel {
                 try? FileManager.default.removeItem(at: temporaryURL)
                 DockExportProgressCoordinator.shared.finish(dockProgressID)
                 RecordingExportNotifier.notifySuccess(fileURL: savedURL)
+                RecordingExportNotifier.revealIfPreferred(fileURL: savedURL)
                 self?.exportState = .finished(savedURL)
             } catch is CancellationError {
                 DockExportProgressCoordinator.shared.finish(dockProgressID)
@@ -1665,6 +1832,7 @@ final class RecordingStudioModel {
                 try? FileManager.default.removeItem(at: temporaryURL)
                 DockExportProgressCoordinator.shared.finish(dockProgressID)
                 RecordingExportNotifier.notifySuccess(fileURL: savedURL)
+                RecordingExportNotifier.revealIfPreferred(fileURL: savedURL)
                 self?.audioExportState = .finished(savedURL)
             } catch is CancellationError {
                 DockExportProgressCoordinator.shared.finish(dockProgressID)
@@ -1792,15 +1960,17 @@ final class RecordingStudioModel {
             return
         }
         pause()
-        // Persist the project first so the deliverable-invalidation in
-        // the debounced save can't race the file this render produces.
-        saveProjectNow()
+        // Flush the draft first so the deliverable-invalidation in the
+        // debounced autosave can't race the file this render produces.
+        projectSaveTask?.cancel()
+        writeDraftNow()
 
         // A fresh deliverable (e.g. sharing again without edits) skips
         // the render and goes straight to upload.
         let cachedDeliverable = freshDeliverableURL
         let configuration = cachedDeliverable == nil ? makeExportConfiguration() : nil
         let session = session
+        let renderedDocument = session == nil ? nil : currentDocument()
         shareState = cachedDeliverable == nil ? .rendering(progress: 0) : .uploading
 
         shareTask = Task { [weak self] in
@@ -1845,7 +2015,10 @@ final class RecordingStudioModel {
                     // deliverable, so history, preview, and sidecar mapping
                     // all agree on what was shared.
                     if let session {
-                        uploadURL = try session.installFinalVideo(movingFrom: temporaryURL)
+                        uploadURL = try session.installFinalVideo(
+                            movingFrom: temporaryURL,
+                            renderedFrom: renderedDocument
+                        )
                     } else {
                         uploadURL = temporaryURL
                     }

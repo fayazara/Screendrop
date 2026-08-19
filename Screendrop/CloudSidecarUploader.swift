@@ -241,7 +241,10 @@ nonisolated enum CloudSidecarUploader {
         uploadedFileURL: URL
     ) -> CloudTranscriptPayload? {
         let session = RecordingSession(directoryURL: sessionDirectory)
-        guard let document = session.loadEditDocument(),
+        // The upload was rendered from what the editor currently shows, so
+        // the transcript has to come from the same document — the draft when
+        // there is one, not the last saved state.
+        guard let document = session.effectiveEditDocument(),
               let cues = document.subtitleCues, !cues.isEmpty else {
             return nil
         }

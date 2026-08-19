@@ -29,11 +29,13 @@ enum RecordingSessionRenderer {
     static func ensureDeliverable(for session: RecordingSession) async throws -> URL {
         let manifest = session.loadCaptureManifest()
         let pointerSynthesized = manifest?.pointerSynthesized == true
-        let hasProject = FileManager.default.fileExists(atPath: session.editDocumentURL.path)
-        guard session.hasCamera || pointerSynthesized || hasProject else {
+        // Draft edits count: a flatten made for an upload must show what the
+        // user last saw in Studio, not the last state they pressed Save on.
+        let editDocument = session.effectiveEditDocument()
+        guard session.hasCamera || pointerSynthesized || editDocument != nil else {
             return session.screenURL
         }
-        if let existing = session.existingFinalURL { return existing }
+        if let existing = session.freshFinalURL(matching: editDocument) { return existing }
 
         let asset = AVURLAsset(url: session.screenURL)
         let duration = try await asset.load(.duration).seconds
@@ -60,7 +62,7 @@ enum RecordingSessionRenderer {
                 recordingSizeInPoints: recordingPointSize
             )
         ).sanitizedCapture
-        let document = session.loadEditDocument()
+        let document = editDocument
         var style = document?.style.value ?? RecordingStudioStyle()
         // Selecting a camera means the default delivered recording includes
         // it; a saved Studio project that explicitly hid the bubble wins.
@@ -150,7 +152,10 @@ enum RecordingSessionRenderer {
 
         let temporaryURL = try await RecordingStudioExporter().export(configuration) { _ in }
         do {
-            return try session.installFinalVideo(movingFrom: temporaryURL)
+            return try session.installFinalVideo(
+                movingFrom: temporaryURL,
+                renderedFrom: editDocument
+            )
         } catch {
             try? FileManager.default.removeItem(at: temporaryURL)
             throw error
