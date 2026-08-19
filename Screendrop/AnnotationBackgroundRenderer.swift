@@ -192,6 +192,7 @@ nonisolated enum AnnotationBackgroundRenderer {
             if castsShadow {
                 drawShadow(
                     path: geometry.cardPath,
+                    knockoutPath: geometry.cardShadowKnockoutPath,
                     strength: settings.shadow,
                     style: settings.shadowStyle,
                     context: context
@@ -207,6 +208,7 @@ nonisolated enum AnnotationBackgroundRenderer {
         } else if castsShadow {
             drawShadow(
                 path: geometry.imagePath,
+                knockoutPath: geometry.imageShadowKnockoutPath,
                 strength: settings.shadow,
                 style: settings.shadowStyle,
                 context: context
@@ -420,6 +422,7 @@ nonisolated enum AnnotationBackgroundRenderer {
     /// and screenshots with alpha from being backed by black.
     private static func drawShadow(
         path: CGPath,
+        knockoutPath: CGPath,
         strength: CGFloat,
         style: AnnotationShadowStyle,
         context: CGContext
@@ -436,7 +439,7 @@ nonisolated enum AnnotationBackgroundRenderer {
 
         let exterior = CGMutablePath()
         exterior.addRect(context.boundingBoxOfClipPath)
-        exterior.addPath(path)
+        exterior.addPath(knockoutPath)
         context.addPath(exterior)
         context.clip(using: .evenOdd)
 

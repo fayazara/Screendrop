@@ -49,12 +49,21 @@ nonisolated struct AnnotationBackgroundLayout {
             normalizedPadding = 0
         }
         let padding = max(0, shortestEdge * normalizedPadding)
+        let castsShadow = settings.isEnabled || settings.camera.hasEffect
+        let shadowOutsets = castsShadow
+            ? settings.shadowStyle.layer(
+                strength: settings.shadow,
+                referenceEdge: min(cardSize.width, cardSize.height)
+            )?.renderOutsets ?? .zero
+            : .zero
 
-        // Per-edge padding: stuck edges get zero padding
-        let paddingTop: CGFloat = alignment.sticksToTop ? 0 : padding
-        let paddingBottom: CGFloat = alignment.sticksToBottom ? 0 : padding
-        let paddingLeading: CGFloat = alignment.sticksToLeading ? 0 : padding
-        let paddingTrailing: CGFloat = alignment.sticksToTrailing ? 0 : padding
+        // Preserve the requested breathing room, but grow it when the full
+        // shadow kernel needs more space. Stuck edges intentionally remain
+        // flush with (and clipped by) their selected canvas edge.
+        let paddingTop: CGFloat = alignment.sticksToTop ? 0 : max(padding, shadowOutsets.top)
+        let paddingBottom: CGFloat = alignment.sticksToBottom ? 0 : max(padding, shadowOutsets.bottom)
+        let paddingLeading: CGFloat = alignment.sticksToLeading ? 0 : max(padding, shadowOutsets.leading)
+        let paddingTrailing: CGFloat = alignment.sticksToTrailing ? 0 : max(padding, shadowOutsets.trailing)
 
         let minimumSize = CGSize(
             width: cardSize.width + paddingLeading + paddingTrailing,

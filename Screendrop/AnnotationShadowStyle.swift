@@ -81,54 +81,83 @@ struct AnnotationShadowLayer {
     var alpha: CGFloat
 
     var coreGraphicsBlur: CGFloat { radius * 2 }
+
+    /// Space that must remain around the card for the complete blur kernel.
+    /// Core Graphics uses roughly twice SwiftUI's radius, so this shared
+    /// extent keeps both renderers inside the final canvas without making the
+    /// preview and export use different layout math.
+    var renderOutsets: AnnotationShadowOutsets {
+        let blurExtent = coreGraphicsBlur
+        return AnnotationShadowOutsets(
+            top: max(0, blurExtent - yOffset),
+            leading: blurExtent,
+            bottom: blurExtent + yOffset,
+            trailing: blurExtent
+        )
+    }
 }
 
-/// Casts the shadow and nothing else: an opaque caster feeds the blur, then the
-/// card interior is punched back out. SwiftUI scales a shadow by the caster's
-/// own alpha, so the caster has to be solid for the alpha to mean what it says,
-/// and the knockout keeps that solid black from showing through translucent
-/// borders or screenshots with alpha — same result as the exporter's clipped
-/// fill.
+struct AnnotationShadowOutsets {
+    var top: CGFloat
+    var leading: CGFloat
+    var bottom: CGFloat
+    var trailing: CGFloat
+
+    static let zero = AnnotationShadowOutsets(
+        top: 0,
+        leading: 0,
+        bottom: 0,
+        trailing: 0
+    )
+}
+
+/// Casts the shadow and nothing else. `shadowOnly` avoids the former solid
+/// black caster plus `destinationOut` knockout, whose two antialiased edges
+/// left a dark one-pixel fringe around rounded borders.
 struct AnnotationCardShadowBackdrop: View {
     var cornerRadii: RectangleCornerRadii
     var size: CGSize
     var strength: CGFloat
     var style: AnnotationShadowStyle
 
+    @ViewBuilder
     var body: some View {
-        let shape = UnevenRoundedRectangle(cornerRadii: cornerRadii, style: .continuous)
-        ZStack {
-            shape
-                .fill(Color.black)
-                .modifier(
-                    AnnotationCardShadow(strength: strength, style: style, size: size)
-                )
-            shape
-                .fill(Color.black)
-                .blendMode(.destinationOut)
-        }
-        .compositingGroup()
-        .frame(width: size.width, height: size.height)
-    }
-}
-
-/// Live-canvas counterpart to the exporter's shadow. Sized from the card itself
-/// so the preview keeps matching the render at any zoom level.
-struct AnnotationCardShadow: ViewModifier {
-    var strength: CGFloat
-    var style: AnnotationShadowStyle
-    var size: CGSize
-
-    func body(content: Content) -> some View {
-        let layer = style.layer(
+        if let layer = style.layer(
             strength: strength,
             referenceEdge: min(size.width, size.height)
-        )
-        return content.shadow(
-            color: .black.opacity(Double(layer?.alpha ?? 0)),
-            radius: layer?.radius ?? 0,
-            x: 0,
-            y: layer?.yOffset ?? 0
-        )
+        ) {
+            let outsets = layer.renderOutsets
+            let canvasSize = CGSize(
+                width: size.width + outsets.leading + outsets.trailing,
+                height: size.height + outsets.top + outsets.bottom
+            )
+            Canvas { context, _ in
+                let cardRect = CGRect(
+                    x: outsets.leading,
+                    y: outsets.top,
+                    width: size.width,
+                    height: size.height
+                )
+                let path = UnevenRoundedRectangle(
+                    cornerRadii: cornerRadii,
+                    style: .continuous
+                ).path(in: cardRect)
+                context.addFilter(.shadow(
+                    color: .black.opacity(Double(layer.alpha)),
+                    radius: layer.radius,
+                    x: 0,
+                    y: layer.yOffset,
+                    options: .shadowOnly
+                ))
+                context.fill(path, with: .color(.black))
+            }
+            .frame(width: canvasSize.width, height: canvasSize.height)
+            // Keep the original card centered at the position supplied by the
+            // caller even though a downward shadow has asymmetric outsets.
+            .offset(
+                x: (outsets.trailing - outsets.leading) / 2,
+                y: (outsets.bottom - outsets.top) / 2
+            )
+        }
     }
 }

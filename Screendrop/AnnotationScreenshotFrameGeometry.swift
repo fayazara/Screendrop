@@ -59,4 +59,23 @@ nonisolated struct AnnotationScreenshotFrameGeometry {
     var cardPath: CGPath {
         PerCornerRadii.path(in: cardRect, radii: cardCornerRadii)
     }
+
+    /// The exporter's shadow caster is clipped outside this slightly expanded
+    /// path. The one-pixel outset removes antialiased caster residue without
+    /// visibly separating the soft shadow from the card.
+    var imageShadowKnockoutPath: CGPath {
+        shadowKnockoutPath(rect: imageRect, radii: imageCornerRadii)
+    }
+
+    var cardShadowKnockoutPath: CGPath {
+        shadowKnockoutPath(rect: cardRect, radii: cardCornerRadii)
+    }
+
+    private func shadowKnockoutPath(rect: CGRect, radii: PerCornerRadii) -> CGPath {
+        let outset: CGFloat = 1
+        return PerCornerRadii.path(
+            in: rect.insetBy(dx: -outset, dy: -outset),
+            radii: radii.outset(by: outset)
+        )
+    }
 }

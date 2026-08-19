@@ -16,6 +16,15 @@ nonisolated struct PerCornerRadii: Equatable {
         topLeft == topRight && topRight == bottomLeft && bottomLeft == bottomRight
     }
 
+    func outset(by amount: CGFloat) -> PerCornerRadii {
+        PerCornerRadii(
+            topLeft: topLeft > 0 ? topLeft + amount : 0,
+            topRight: topRight > 0 ? topRight + amount : 0,
+            bottomLeft: bottomLeft > 0 ? bottomLeft + amount : 0,
+            bottomRight: bottomRight > 0 ? bottomRight + amount : 0
+        )
+    }
+
     /// Creates a `CGPath` rounded rectangle with individual corner radii.
     static func path(in rect: CGRect, radii: PerCornerRadii) -> CGPath {
         let tl = min(radii.topLeft, min(rect.width, rect.height) / 2)
