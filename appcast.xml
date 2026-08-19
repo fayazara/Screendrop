@@ -27,6 +27,29 @@
     -->
 
     <item>
+      <title>Version 0.30.1</title>
+      <sparkle:version>23</sparkle:version>
+      <sparkle:shortVersionString>0.30.1</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.4</sparkle:minimumSystemVersion>
+      <pubDate>Wed, 19 Aug 2026 16:28:17 +0000</pubDate>
+      <description><![CDATA[
+        <h2>What's New in 0.30.1</h2>
+        <ul>
+          <li>Fixed corner radius rendering and related visual polish</li>
+          <li>Added MP4 export support and a dedicated export dialogue</li>
+          <li>Improved numbered circle label centering</li>
+          <li>Refined README documentation and screenshots</li>
+        </ul>
+      ]]></description>
+      <enclosure
+        url="https://github.com/fayazara/screendrop/releases/download/v0.30.1/Screendrop.dmg"
+        type="application/octet-stream"
+        sparkle:edSignature="Gx78ERD0B0uo1m/El+nJs+NxcwWBWusDo2Uk0j7Ms0bSswZyo32RE33GiuU6WH9YxiTObjUk3tBX6GEMelgEBg=="
+        length="6409872"
+      />
+    </item>
+
+    <item>
       <title>Version 0.30.0</title>
       <sparkle:version>22</sparkle:version>
       <sparkle:shortVersionString>0.30.0</sparkle:shortVersionString>
