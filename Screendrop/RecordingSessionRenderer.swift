@@ -26,7 +26,10 @@ enum RecordingSessionRenderer {
     /// source, a cursor-hidden capture, or any saved Studio project. Only a
     /// never-edited, cursor-visible, camera-less capture is already its own
     /// complete result and skips the expensive second encode.
-    static func ensureDeliverable(for session: RecordingSession) async throws -> URL {
+    static func ensureDeliverable(
+        for session: RecordingSession,
+        onProgress: (@Sendable (Double) -> Void)? = nil
+    ) async throws -> URL {
         let manifest = session.loadCaptureManifest()
         let pointerSynthesized = manifest?.pointerSynthesized == true
         // Draft edits count: a flatten made for an upload must show what the
@@ -150,7 +153,9 @@ enum RecordingSessionRenderer {
             fitContentAspect: fitContentAspect
         )
 
-        let temporaryURL = try await RecordingStudioExporter().export(configuration) { _ in }
+        let temporaryURL = try await RecordingStudioExporter().export(configuration) { progress in
+            onProgress?(progress)
+        }
         do {
             return try session.installFinalVideo(
                 movingFrom: temporaryURL,

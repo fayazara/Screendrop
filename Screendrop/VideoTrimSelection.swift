@@ -5,6 +5,21 @@
 
 import Foundation
 
+/// Raised when a requested cut is shorter than anything that can be encoded.
+/// Lives with the selection it describes; the ffmpeg-era trim service that
+/// originally declared it is gone, but Studio's video and audio exporters
+/// still guard their ranges with it.
+enum VideoTrimExportError: LocalizedError {
+    case invalidRange
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidRange:
+            "Choose a longer trim range."
+        }
+    }
+}
+
 struct VideoTrimSelection: Equatable, Sendable {
     static let minimumDuration: Double = 0.25
 

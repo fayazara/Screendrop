@@ -202,6 +202,8 @@ final class AnnotationEditorModel {
         if previewImage == nil || imageSize == .zero {
             errorMessage = "Unable to load screenshot."
         }
+
+        markSaved()
     }
 
     private func makePreviewImage(from url: URL) -> NSImage? {
@@ -217,6 +219,45 @@ final class AnnotationEditorModel {
     func releaseEditorResources() {
         removeOwnedCropFiles()
         RedactionImageProcessor.removeAllCachedPreviewImages()
+    }
+
+    // MARK: - Unsaved changes
+
+    /// Everything a commit would persist. The crop rides along as the base
+    /// image URL, since cropping replaces the image the annotations render on
+    /// rather than adding anything to the document.
+    private struct EditSnapshot: Equatable {
+        var baseImageURL: URL?
+        var shapes: [AnnoShape]
+        var bindings: [ArrowBinding]
+        var background: StoredBackground
+    }
+
+    private var savedSnapshot: EditSnapshot?
+
+    private func currentSnapshot() -> EditSnapshot {
+        EditSnapshot(
+            baseImageURL: baseImageURL,
+            shapes: shapes,
+            bindings: bindings,
+            background: StoredBackground(backgroundSettings)
+        )
+    }
+
+    /// Whether closing now would throw work away. The baseline is taken at the
+    /// end of `load` rather than from an empty document, so a background
+    /// preset applied automatically on open is not mistaken for a user edit.
+    var hasUnsavedChanges: Bool {
+        // The engine isn't observable; touching `revision` is what makes this
+        // recompute when a shape is drawn, moved, or deleted.
+        _ = revision
+        guard sourceURL != nil, let savedSnapshot else { return false }
+        return currentSnapshot() != savedSnapshot
+    }
+
+    /// Re-baselines after a successful commit, and at the end of a load.
+    func markSaved() {
+        savedSnapshot = currentSnapshot()
     }
 
     // MARK: - Pointer

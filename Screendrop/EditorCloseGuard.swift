@@ -1,8 +1,9 @@
 //
-//  StudioCloseGuard.swift
+//  EditorCloseGuard.swift
 //  Screendrop
 //
-//  Closing a Studio window with uncommitted edits asks first. SwiftUI has no
+//  Closing an editor window with uncommitted edits asks first — Studio and
+//  the annotation editor both use this. SwiftUI has no
 //  `windowShouldClose` hook, so this installs itself as the window delegate
 //  and forwards every other message to the delegate SwiftUI already set —
 //  taking over the window outright would break scene teardown.
@@ -11,7 +12,7 @@
 import AppKit
 
 @MainActor
-final class StudioCloseGuard: NSObject, NSWindowDelegate {
+final class EditorCloseGuard: NSObject, NSWindowDelegate {
     enum Decision {
         case save
         case discard

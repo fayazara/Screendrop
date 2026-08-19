@@ -8,6 +8,7 @@ import SwiftUI
 
 struct AnnotationKeyCommandHandler: NSViewRepresentable {
     let onDelete: () -> Void
+    let onSave: () -> Void
     let onUndo: () -> Void
     let onRedo: () -> Void
     let onSelectAll: () -> Void
@@ -33,6 +34,7 @@ struct AnnotationKeyCommandHandler: NSViewRepresentable {
 
     private func apply(to view: AnnotationKeyCommandHandlerView) {
         view.onDelete = onDelete
+        view.onSave = onSave
         view.onUndo = onUndo
         view.onRedo = onRedo
         view.onSelectAll = onSelectAll
@@ -50,6 +52,7 @@ struct AnnotationKeyCommandHandler: NSViewRepresentable {
 
 final class AnnotationKeyCommandHandlerView: NSView {
     var onDelete: (() -> Void)?
+    var onSave: (() -> Void)?
     var onUndo: (() -> Void)?
     var onRedo: (() -> Void)?
     var onSelectAll: (() -> Void)?
@@ -82,6 +85,11 @@ final class AnnotationKeyCommandHandlerView: NSView {
         localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, self.window?.isKeyWindow == true else {
                 return event
+            }
+
+            if Self.isSave(event) {
+                self.onSave?()
+                return nil
             }
 
             if Self.isEditingText(in: self.window) {
@@ -180,6 +188,16 @@ final class AnnotationKeyCommandHandlerView: NSView {
 
     private static func isEditingText(in window: NSWindow?) -> Bool {
         window?.firstResponder is NSTextView
+    }
+
+    /// Save stays live even while a text field has focus: losing annotations
+    /// because the caret happened to be in the inspector is exactly what this
+    /// shortcut exists to prevent.
+    private static func isSave(_ event: NSEvent) -> Bool {
+        event.modifierFlags.contains(.command)
+            && !event.modifierFlags.contains(.shift)
+            && !event.modifierFlags.contains(.option)
+            && event.charactersIgnoringModifiers?.lowercased() == "s"
     }
 
     private static func isUndo(_ event: NSEvent) -> Bool {

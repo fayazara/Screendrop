@@ -389,8 +389,15 @@ final class ScreenshotHistoryStore {
             }
         }
 
+        // Checked via the stored path, not `recordingSession`: the package
+        // has already been removed by this point, so the lookup would fail.
+        let wasRecordingProject = item.recordingSessionPath != nil
         items.removeAll { $0.id == item.id }
         saveMetadata()
+        if wasRecordingProject {
+            // The package is gone, so the Projects browser must stop listing it.
+            RecordingProjectStore.shared.reload()
+        }
     }
 
     /// Drops the History row for a recording project. The package itself is

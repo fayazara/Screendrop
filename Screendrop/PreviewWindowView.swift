@@ -154,6 +154,7 @@ struct PreviewWindowView: View {
                     isHidden: previewStack.draggingItemID == item.id,
                     isDismissing: previewStack.dismissingItemIDs.contains(item.id),
                     isCompressing: previewStack.compressingItemIDs.contains(item.id),
+                    isPreparing: previewStack.preparingItemIDs.contains(item.id),
                     compressionResult: previewStack.compressionResultBadges[item.id],
                     slideDirection: slideDirection,
                     suppressHoverActions: isOverlayTransitioning,

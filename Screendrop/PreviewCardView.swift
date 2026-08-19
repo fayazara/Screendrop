@@ -11,6 +11,8 @@ struct PreviewCardView: View {
     let isHidden: Bool
     let isDismissing: Bool
     let isCompressing: Bool
+    /// A recording being flattened into a shareable file before Save/Copy.
+    let isPreparing: Bool
     let compressionResult: ScreenshotCompressionResult?
     var slideDirection: CGFloat = 1
     /// Suppresses the hover action overlay while the whole stack is animating
@@ -158,6 +160,8 @@ struct PreviewCardView: View {
                 compressionProgressOverlay
             } else if let compressionResult {
                 compressionResultOverlay(compressionResult)
+            } else if isPreparing {
+                preparingProgressOverlay
             } else {
                 normalHoverContent
             }
@@ -279,6 +283,20 @@ struct PreviewCardView: View {
         }
     }
 
+    /// Recordings capture without the OS cursor, so Save and Copy render the
+    /// real deliverable first. That can take a few seconds — say so.
+    private var preparingProgressOverlay: some View {
+        VStack(spacing: 8) {
+            ProgressView()
+                .controlSize(.small)
+                .tint(.white)
+
+            Text("Preparing")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(.white)
+        }
+    }
+
     private var compressionProgressOverlay: some View {
         VStack(spacing: 8) {
             ProgressView()
@@ -339,6 +357,7 @@ struct PreviewCardView: View {
         || showCheckmark
         || showUploadFailed
         || isCompressing
+        || isPreparing
         || compressionResult != nil
     }
 

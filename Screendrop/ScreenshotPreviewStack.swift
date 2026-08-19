@@ -17,6 +17,8 @@ final class ScreenshotPreviewStack {
     var draggingItemID: ScreenshotPreviewItem.ID?
     var dismissingItemIDs: Set<ScreenshotPreviewItem.ID> = []
     private(set) var compressingItemIDs: Set<ScreenshotPreviewItem.ID> = []
+    /// Recordings currently being flattened into a shareable deliverable.
+    private(set) var preparingItemIDs: Set<ScreenshotPreviewItem.ID> = []
     private(set) var compressionResultBadges: [ScreenshotPreviewItem.ID: ScreenshotCompressionResult] = [:]
     var isExiting = false
 
@@ -104,8 +106,10 @@ final class ScreenshotPreviewStack {
     private func runAfterCaptureActions(type: AfterCaptureType, url: URL, itemID: UUID) {
         if AfterCaptureActions.isEnabled(.copy, for: type) {
             switch type {
-            case .screenshot: _ = copyURLToClipboard(url)
-            case .recording: _ = copyVideoURLToClipboard(url)
+            case .screenshot:
+                _ = copyURLToClipboard(url)
+            case .recording:
+                Task { _ = await copyVideoURLToClipboard(url, itemID: itemID) }
             }
         }
 
@@ -200,7 +204,7 @@ final class ScreenshotPreviewStack {
 
         guard AfterCaptureActions.isEnabled(.showOverlay, for: .recording) else {
             if AfterCaptureActions.isEnabled(.save, for: .recording) {
-                Task { _ = await saveVideoToDefaultLocation(from: url) }
+                Task { _ = await saveVideoToDefaultLocation(from: url, itemID: nil) }
             }
             runAfterCaptureActions(type: .recording, url: url, itemID: UUID())
             return
@@ -218,7 +222,7 @@ final class ScreenshotPreviewStack {
         // holding the preview back behind file I/O.
         if AfterCaptureActions.isEnabled(.save, for: .recording) {
             Task {
-                let savedURL = await saveVideoToDefaultLocation(from: url)
+                let savedURL = await saveVideoToDefaultLocation(from: url, itemID: itemID)
                 guard let index = items.firstIndex(where: { $0.id == itemID }) else { return }
                 items[index].autoSavedURL = savedURL
             }
@@ -390,15 +394,18 @@ final class ScreenshotPreviewStack {
     func copyToClipboard(id: ScreenshotPreviewItem.ID) {
         guard let item = items.first(where: { $0.id == id }) else { return }
 
-        let didCopy: Bool
         switch item.kind {
         case .image:
-            didCopy = copyURLToClipboard(item.url)
+            guard copyURLToClipboard(item.url) else { return }
+            dismiss(id: id)
         case .video:
-            didCopy = copyVideoURLToClipboard(item.url)
+            // Flattening can take a moment, so the card stays up showing
+            // progress and only dismisses once the copy actually happened.
+            Task {
+                guard await copyVideoURLToClipboard(item.url, itemID: id) else { return }
+                dismiss(id: id)
+            }
         }
-        guard didCopy else { return }
-        dismiss(id: id)
     }
 
     func compress(id: ScreenshotPreviewItem.ID) {
@@ -510,7 +517,7 @@ final class ScreenshotPreviewStack {
             if kind == .video {
                 let url = items[index].url
                 Task {
-                    guard let savedURL = await saveVideoToDefaultLocation(from: url) else { return }
+                    guard let savedURL = await saveVideoToDefaultLocation(from: url, itemID: id) else { return }
                     if let index = items.firstIndex(where: { $0.id == id }) {
                         items[index].autoSavedURL = savedURL
                     }
@@ -541,7 +548,8 @@ final class ScreenshotPreviewStack {
             Task { @MainActor in
                 do {
                     if kind == .video {
-                        try await VideoFileActions.save(from: url, to: destURL)
+                        let deliverableURL = try await self?.prepareDeliverable(from: url, itemID: id) ?? url
+                        try await VideoFileActions.save(from: deliverableURL, to: destURL)
                     } else {
                         try ScreenshotFileActions.save(from: url, to: destURL)
                     }
@@ -552,7 +560,7 @@ final class ScreenshotPreviewStack {
                     }
                     self?.dismiss(id: id)
                 } catch {
-                    print("Failed to save preview: \(error)")
+                    FailureAlert.present(message: "The capture could not be saved", error: error)
                 }
             }
         }
@@ -778,22 +786,53 @@ final class ScreenshotPreviewStack {
         }
     }
 
-    private func copyVideoURLToClipboard(_ url: URL) -> Bool {
+    /// Copying and saving both hand the file to the user, so both resolve the
+    /// session's deliverable first — the raw screen master has no cursor.
+    private func copyVideoURLToClipboard(_ url: URL, itemID: ScreenshotPreviewItem.ID?) async -> Bool {
         do {
-            try VideoFileActions.copyToClipboard(from: url)
+            let deliverableURL = try await prepareDeliverable(from: url, itemID: itemID)
+            try VideoFileActions.copyToClipboard(from: deliverableURL)
             return true
         } catch {
-            print("Failed to copy recording: \(error)")
+            presentRecordingFailure("The recording could not be copied", error: error)
             return false
         }
     }
 
-    private func saveVideoToDefaultLocation(from url: URL) async -> URL? {
+    private func saveVideoToDefaultLocation(from url: URL, itemID: ScreenshotPreviewItem.ID?) async -> URL? {
         do {
-            return try await VideoFileActions.saveToDefaultLocation(from: url)
+            let deliverableURL = try await prepareDeliverable(from: url, itemID: itemID)
+            return try await VideoFileActions.saveToDefaultLocation(from: deliverableURL)
         } catch {
-            print("Failed to auto save recording: \(error)")
+            presentRecordingFailure("The recording could not be saved", error: error)
             return nil
         }
+    }
+
+    /// Flattens the session behind `url`, showing the card's progress state
+    /// while a render is actually needed.
+    private func prepareDeliverable(
+        from url: URL,
+        itemID: ScreenshotPreviewItem.ID?
+    ) async throws -> URL {
+        guard RecordingDeliverable.needsRender(for: url) else {
+            return try await RecordingDeliverable.resolve(for: url)
+        }
+        if let itemID {
+            // A long render must not race the overlay's auto-close timer out
+            // from under the progress it is showing.
+            markEngaged(id: itemID)
+            preparingItemIDs.insert(itemID)
+        }
+        defer { if let itemID { preparingItemIDs.remove(itemID) } }
+        return try await RecordingDeliverable.resolve(for: url)
+    }
+
+    private func presentRecordingFailure(_ message: String, error: Error) {
+        FailureAlert.present(
+            message: message,
+            error: error,
+            detail: "Your recording is safe in its project."
+        )
     }
 }

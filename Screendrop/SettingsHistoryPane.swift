@@ -37,7 +37,7 @@ struct SettingsHistoryPane: View {
                                 },
                                 onCopy: {
                                     if item.isVideo {
-                                        try? VideoFileActions.copyToClipboard(from: item.url)
+                                        copyRecording(item)
                                     } else {
                                         try? ScreenshotFileActions.copyPNGToClipboard(from: item.url)
                                     }
@@ -86,6 +86,23 @@ struct SettingsHistoryPane: View {
         }
     }
 
+    /// The raw screen master has no cursor in it, so copying a recording has
+    /// to flatten the project first.
+    private func copyRecording(_ item: ScreenshotHistoryItem) {
+        Task {
+            do {
+                let deliverableURL = try await RecordingDeliverable.resolve(for: item.url)
+                try VideoFileActions.copyToClipboard(from: deliverableURL)
+            } catch {
+                FailureAlert.present(
+                    message: "The recording could not be copied",
+                    error: error,
+                    detail: "Your recording is safe in its project."
+                )
+            }
+        }
+    }
+
     private func uploadHistoryItem(_ item: ScreenshotHistoryItem, options: CloudUploadOptions) {
         Task {
             do {
@@ -99,7 +116,10 @@ struct SettingsHistoryPane: View {
                 NSPasteboard.general.setString(result.url, forType: .string)
                 ScreenshotHistoryStore.shared.setCloudURL(for: item.url, cloudURL: result.url)
             } catch {
-                print("Cloud upload from history failed: \(error)")
+                // Nothing in this list can carry a failure badge, so an
+                // upload that dies here would otherwise just never produce
+                // a link and never say why.
+                FailureAlert.present(message: "The upload failed", error: error)
             }
         }
     }

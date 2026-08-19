@@ -43,7 +43,7 @@ struct RecordingStudioWindow: View {
 private struct RecordingStudioContent: View {
     @Bindable var model: RecordingStudioModel
     @State private var isInspectorPresented = true
-    @State private var closeGuard = StudioCloseGuard()
+    @State private var closeGuard = EditorCloseGuard()
 
     var body: some View {
         VStack(spacing: 0) {
