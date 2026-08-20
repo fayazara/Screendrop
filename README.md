@@ -1,6 +1,9 @@
 # Screendrop
 
-> **Beta** - Screendrop is under active development. Expect rough edges and occasional breaking changes. Feedback and bug reports are welcome via [GitHub Issues](https://github.com/fayazara/Screendrop/issues).
+
+> [!IMPORTANT]
+> Screendrop is under active development. Expect rough edges and occasional breaking changes
+
 <br />
 <p>
   <a href="https://github.com/fayazara/Screendrop/releases/latest/download/Screendrop.dmg">
