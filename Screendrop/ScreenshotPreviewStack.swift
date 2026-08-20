@@ -504,6 +504,25 @@ final class ScreenshotPreviewStack {
         dismiss(id: id)
     }
 
+    /// Dismisses any card backed by a recording package that is going away.
+    /// The overlay is a third view of the same recording alongside History and
+    /// the Projects browser, and unlike those two it is never rebuilt from
+    /// disk — so without this it keeps showing a card whose footage is gone.
+    func dismissRecordingSession(_ directoryURL: URL) {
+        let packagePath = directoryURL.standardizedFileURL.path
+        // The trailing separator keeps a sibling package with a longer name
+        // from matching, and the card may point at either the screen master or
+        // a flattened deliverable, so match the package rather than one file.
+        let prefix = packagePath.hasSuffix("/") ? packagePath : packagePath + "/"
+        let staleIDs = items
+            .filter { $0.kind == .video && $0.url.standardizedFileURL.path.hasPrefix(prefix) }
+            .map(\.id)
+
+        for id in staleIDs {
+            dismiss(id: id)
+        }
+    }
+
     func save(id: ScreenshotPreviewItem.ID) {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
         let kind = items[index].kind

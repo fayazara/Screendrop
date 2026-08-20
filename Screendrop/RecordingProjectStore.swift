@@ -70,9 +70,11 @@ final class RecordingProjectStore {
         reload()
     }
 
-    /// Removes the package and the History row together, so the two stores
-    /// can never disagree about whether a recording exists.
+    /// Removes the package, the History row, and any preview card together, so
+    /// no surface can disagree about whether a recording exists. The card goes
+    /// first, while its files are still on disk.
     func delete(_ session: RecordingSession) {
+        ScreenshotPreviewStack.shared.dismissRecordingSession(session.directoryURL)
         ScreenshotHistoryStore.shared.deleteRecordingSession(session)
         RecordingSessionStore.deleteSession(session)
         reload()
