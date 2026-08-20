@@ -27,6 +27,28 @@
     -->
 
     <item>
+      <title>Version 0.31.1</title>
+      <sparkle:version>25</sparkle:version>
+      <sparkle:shortVersionString>0.31.1</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.4</sparkle:minimumSystemVersion>
+      <pubDate>Thu, 20 Aug 2026 06:28:19 +0000</pubDate>
+      <description><![CDATA[
+        <h2>What's New in 0.31.1</h2>
+        <ul>
+          <li>Fixed clicks being recorded at the wrong position in window recordings, including windows that were moved or resized mid-recording</li>
+          <li>Window recordings now track the window's position and size on every frame instead of assuming it stays where it started</li>
+          <li>New zoom cues default to Pointer tracking instead of Smart</li>
+        </ul>
+      ]]></description>
+      <enclosure
+        url="https://github.com/fayazara/screendrop/releases/download/v0.31.1/Screendrop.dmg"
+        type="application/octet-stream"
+        sparkle:edSignature="bdXHCfHO/1uaKz1qYtN3PwK+HgC5R9Ol3/UYaCLX+jqLqqEQRja9WYHRqDI29eB/Si8MwSRewO3jrujn9kAEAQ=="
+        length="6576011"
+      />
+    </item>
+
+    <item>
       <title>Version 0.31.0</title>
       <sparkle:version>24</sparkle:version>
       <sparkle:shortVersionString>0.31.0</sparkle:shortVersionString>
