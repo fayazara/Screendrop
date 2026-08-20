@@ -420,6 +420,16 @@ private struct StudioCanvas: View {
                                 )
                             }
                         }
+                        .overlay {
+                            if model.isEditingRedactions {
+                                StudioRedactionOverlay(
+                                    model: model,
+                                    state: state,
+                                    cardSize: layout.cardRect.size,
+                                    contentSize: layout.contentFillSize
+                                )
+                            }
+                        }
                         .clipShape(RoundedRectangle(cornerRadius: layout.cardCornerRadius, style: .continuous))
                         .overlay {
                             // Keystroke caption in card space: pinned to its
@@ -553,6 +563,238 @@ private struct StudioCursorOverlay: View {
         }
         .frame(width: cardSize.width, height: cardSize.height)
         .allowsHitTesting(false)
+    }
+}
+
+/// Handles for the redaction regions, drawn in card space through the same
+/// viewport transform as the pixels underneath. The regions themselves are
+/// already hidden by the player item's filter chain — this only draws where
+/// they are and lets them be moved, so what the canvas shows and what the
+/// exporter bakes can never drift apart.
+private struct StudioRedactionOverlay: View {
+    private enum Handle: Hashable {
+        case move
+        case topLeading
+        case topTrailing
+        case bottomLeading
+        case bottomTrailing
+    }
+
+    private struct ActiveDrag {
+        let id: UUID
+        let handle: Handle
+        let origin: CGRect
+    }
+
+    @Bindable var model: RecordingStudioModel
+    let state: ViewportFrame
+    let cardSize: CGSize
+    var contentSize: CGSize?
+
+    @State private var activeDrag: ActiveDrag?
+    @State private var draft: (start: CGPoint, current: CGPoint)?
+
+    private static let handleSize: CGFloat = 9
+    private static let minimumDraftSide: CGFloat = 6
+
+    var body: some View {
+        let content = contentSize ?? cardSize
+        let scale = CGSize(
+            width: max(content.width * state.magnification, 0.001),
+            height: max(content.height * state.magnification, 0.001)
+        )
+        let sourceTime = model.currentSourceTime
+
+        ZStack(alignment: .topLeading) {
+            // Empty space both clears the selection and draws new regions, so
+            // the first one needs no trip to the inspector.
+            Color.clear
+                .contentShape(Rectangle())
+                .gesture(draftGesture(scale: scale))
+
+            ForEach(model.redactions) { region in
+                let rect = cardRect(for: region.interpolatedRect(atSourceTime: sourceTime), scale: scale)
+                let isSelected = model.selectedRedactionID == region.id
+                let isActive = region.rect(atSourceTime: sourceTime) != nil
+
+                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                    .strokeBorder(
+                        isSelected ? Color.accentColor : Color.white.opacity(isActive ? 0.75 : 0.35),
+                        style: StrokeStyle(
+                            lineWidth: isSelected ? 2 : 1.5,
+                            dash: isActive ? [] : [4, 3]
+                        )
+                    )
+                    .background(
+                        RoundedRectangle(cornerRadius: 3, style: .continuous)
+                            .fill(Color.accentColor.opacity(isSelected ? 0.12 : 0.001))
+                    )
+                    .frame(width: rect.width, height: rect.height)
+                    .position(x: rect.midX, y: rect.midY)
+                    .gesture(moveGesture(region: region, scale: scale))
+
+                if isSelected {
+                    ForEach([Handle.topLeading, .topTrailing, .bottomLeading, .bottomTrailing], id: \.self) { handle in
+                        let point = handlePoint(handle, in: rect)
+                        RoundedRectangle(cornerRadius: 2, style: .continuous)
+                            .fill(Color.white)
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 2, style: .continuous)
+                                    .strokeBorder(Color.accentColor, lineWidth: 1.5)
+                            }
+                            .frame(width: Self.handleSize, height: Self.handleSize)
+                            .position(x: point.x, y: point.y)
+                            .gesture(resizeGesture(region: region, handle: handle, scale: scale))
+                    }
+                }
+            }
+
+            if let draft {
+                let rect = CGRect(
+                    x: min(draft.start.x, draft.current.x),
+                    y: min(draft.start.y, draft.current.y),
+                    width: abs(draft.current.x - draft.start.x),
+                    height: abs(draft.current.y - draft.start.y)
+                )
+                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                    .strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 2, dash: [5, 3]))
+                    .frame(width: rect.width, height: rect.height)
+                    .position(x: rect.midX, y: rect.midY)
+                    .allowsHitTesting(false)
+            }
+        }
+        .frame(width: cardSize.width, height: cardSize.height)
+    }
+
+    // MARK: Geometry
+
+    /// The same mapping the cursor overlay uses, so handles sit exactly over
+    /// the pixels they hide at any zoom.
+    private func cardRect(for normalized: CGRect, scale: CGSize) -> CGRect {
+        CGRect(
+            x: cardSize.width / 2 + scale.width * (normalized.minX - state.anchor.x),
+            y: cardSize.height / 2 + scale.height * (normalized.minY - state.anchor.y),
+            width: scale.width * normalized.width,
+            height: scale.height * normalized.height
+        )
+    }
+
+    private func normalizedPoint(_ point: CGPoint, scale: CGSize) -> CGPoint {
+        CGPoint(
+            x: state.anchor.x + (point.x - cardSize.width / 2) / scale.width,
+            y: state.anchor.y + (point.y - cardSize.height / 2) / scale.height
+        )
+    }
+
+    private func handlePoint(_ handle: Handle, in rect: CGRect) -> CGPoint {
+        switch handle {
+        case .move: CGPoint(x: rect.midX, y: rect.midY)
+        case .topLeading: CGPoint(x: rect.minX, y: rect.minY)
+        case .topTrailing: CGPoint(x: rect.maxX, y: rect.minY)
+        case .bottomLeading: CGPoint(x: rect.minX, y: rect.maxY)
+        case .bottomTrailing: CGPoint(x: rect.maxX, y: rect.maxY)
+        }
+    }
+
+    // MARK: Gestures
+
+    private func moveGesture(region: RedactionRegion, scale: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { value in
+                let origin = beginDrag(region: region, handle: .move)
+                let moved = origin.offsetBy(
+                    dx: value.translation.width / scale.width,
+                    dy: value.translation.height / scale.height
+                )
+                model.setRedactionRect(moved, id: region.id)
+            }
+            .onEnded { _ in endDrag(actionName: "Move Redaction") }
+    }
+
+    private func resizeGesture(
+        region: RedactionRegion,
+        handle: Handle,
+        scale: CGSize
+    ) -> some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { value in
+                let origin = beginDrag(region: region, handle: handle)
+                let dx = value.translation.width / scale.width
+                let dy = value.translation.height / scale.height
+                model.setRedactionRect(resized(origin, handle: handle, dx: dx, dy: dy), id: region.id)
+            }
+            .onEnded { _ in endDrag(actionName: "Resize Redaction") }
+    }
+
+    private func draftGesture(scale: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { value in
+                if draft == nil {
+                    model.selectedRedactionID = nil
+                }
+                draft = (start: value.startLocation, current: value.location)
+            }
+            .onEnded { value in
+                draft = nil
+                let start = normalizedPoint(value.startLocation, scale: scale)
+                let end = normalizedPoint(value.location, scale: scale)
+                let rect = CGRect(
+                    x: min(start.x, end.x),
+                    y: min(start.y, end.y),
+                    width: abs(end.x - start.x),
+                    height: abs(end.y - start.y)
+                )
+                // A click rather than a drag: the user was deselecting, not
+                // asking for a sliver of a region nothing can be seen through.
+                guard rect.width * scale.width >= Self.minimumDraftSide,
+                      rect.height * scale.height >= Self.minimumDraftSide else {
+                    return
+                }
+                model.addRedaction(rect: rect)
+            }
+    }
+
+    private func beginDrag(region: RedactionRegion, handle: Handle) -> CGRect {
+        if let activeDrag, activeDrag.id == region.id, activeDrag.handle == handle {
+            return activeDrag.origin
+        }
+        model.selectedRedactionID = region.id
+        model.beginRedactionEdit()
+        let origin = region.interpolatedRect(atSourceTime: model.currentSourceTime)
+        activeDrag = ActiveDrag(id: region.id, handle: handle, origin: origin)
+        return origin
+    }
+
+    private func endDrag(actionName: String) {
+        activeDrag = nil
+        model.endRedactionEdit(actionName: actionName)
+    }
+
+    /// Corner drags move two edges and leave the opposite corner pinned. The
+    /// result is standardized, so dragging a corner past its opposite flips
+    /// the region instead of collapsing it.
+    private func resized(_ rect: CGRect, handle: Handle, dx: CGFloat, dy: CGFloat) -> CGRect {
+        var minX = rect.minX
+        var minY = rect.minY
+        var maxX = rect.maxX
+        var maxY = rect.maxY
+        switch handle {
+        case .move:
+            return rect
+        case .topLeading:
+            minX += dx
+            minY += dy
+        case .topTrailing:
+            maxX += dx
+            minY += dy
+        case .bottomLeading:
+            minX += dx
+            maxY += dy
+        case .bottomTrailing:
+            maxX += dx
+            maxY += dy
+        }
+        return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY).standardized
     }
 }
 
@@ -2140,6 +2382,7 @@ private enum StudioInspectorSection: Hashable {
     case layout
     case motion
     case cursor
+    case redaction
     case keystrokes
     case transcription
     case camera
@@ -2265,6 +2508,20 @@ private struct StudioInspector: View {
                     ) {
                         cursorControls
                     }
+                }
+
+                InspectorDisclosureSection(
+                    title: "Redaction",
+                    isExpanded: expansionBinding(for: .redaction),
+                    accessory: {
+                        if model.hasRedactions {
+                            InspectorClearButton(help: "Remove all regions") {
+                                model.removeAllRedactions()
+                            }
+                        }
+                    }
+                ) {
+                    redactionControls
                 }
 
                 if model.hasKeystrokes {
@@ -2541,6 +2798,189 @@ private struct StudioInspector: View {
                 range: 0...1,
                 format: .percent()
             )
+        }
+    }
+
+    // MARK: Redaction
+
+    private var redactionControls: some View {
+        VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
+            Text("Regions are hidden in the recording itself, before any zoom. What you see here is what exports.")
+                .font(.inspectorLabel)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 7) {
+                inspectorAction("Add Region", systemImage: "rectangle.dashed") {
+                    model.addRedaction()
+                }
+
+                inspectorAction(
+                    model.isEditingRedactions ? "Done" : "Edit on Canvas",
+                    systemImage: model.isEditingRedactions ? "checkmark" : "hand.draw"
+                ) {
+                    model.isEditingRedactions.toggle()
+                }
+            }
+
+            if model.isEditingRedactions {
+                Text("Drag on the video to add a region, or drag a region to move it.")
+                    .font(.inspectorLabel)
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if !model.redactions.isEmpty {
+                VStack(spacing: 4) {
+                    ForEach(model.redactions) { region in
+                        redactionRow(region)
+                    }
+                }
+            }
+
+            if let selected = model.selectedRedaction {
+                InspectorSectionDivider()
+                selectedRedactionControls(for: selected)
+            }
+        }
+    }
+
+    private func redactionRow(_ region: RedactionRegion) -> some View {
+        let isSelected = model.selectedRedactionID == region.id
+        return HStack(spacing: 7) {
+            Image(systemName: region.style.inspectorSymbol)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(region.isEnabled ? Color.primary : Color.secondary)
+                .frame(width: 14)
+
+            Text(model.redactionTitle(for: region))
+                .font(.inspectorValue)
+                .lineLimit(1)
+                .foregroundStyle(region.isEnabled ? Color.primary : Color.secondary)
+
+            Spacer(minLength: 0)
+
+            StudioInspectorIconButton(
+                systemName: region.isEnabled ? "eye.slash" : "eye",
+                help: region.isEnabled ? "Turn this region off" : "Turn this region on"
+            ) {
+                var updated = region
+                updated.isEnabled.toggle()
+                model.updateRedaction(updated)
+            }
+
+            InspectorClearButton(help: "Remove this region") {
+                model.removeRedaction(id: region.id)
+            }
+        }
+        .padding(.horizontal, 7)
+        .padding(.vertical, 5)
+        .background {
+            // Outer radius clears the 2pt inset of the icon buttons inside it.
+            RoundedRectangle(cornerRadius: InspectorMetrics.fieldRadius + 2, style: .continuous)
+                .fill(Color.primary.opacity(isSelected ? 0.09 : 0.045))
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: InspectorMetrics.fieldRadius + 2, style: .continuous)
+                .strokeBorder(Color.accentColor.opacity(isSelected ? 0.75 : 0), lineWidth: 1)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            model.selectedRedactionID = region.id
+            model.isEditingRedactions = true
+        }
+    }
+
+    private func selectedRedactionControls(for selected: RedactionRegion) -> some View {
+        VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
+            VStack(alignment: .leading, spacing: InspectorMetrics.groupLabelSpacing) {
+                InspectorGroupLabel("Style")
+
+                InspectorSegmented(
+                    options: RedactionStyle.allCases,
+                    isSelected: { $0 == selected.style },
+                    onTap: { style in
+                        var updated = selected
+                        updated.style = style
+                        model.updateRedaction(updated)
+                    },
+                    label: { Text($0.inspectorTitle).font(.inspectorLabel) }
+                )
+            }
+
+            if selected.style != .solid {
+                InspectorSlider(
+                    "Strength",
+                    value: Binding(
+                        get: { CGFloat(selected.intensity) },
+                        set: { newValue in
+                            var updated = selected
+                            updated.intensity = Double(newValue)
+                            model.updateRedaction(updated)
+                        }
+                    ),
+                    range: 0...1,
+                    format: .percent()
+                )
+            }
+
+            VStack(alignment: .leading, spacing: InspectorMetrics.groupLabelSpacing) {
+                HStack(spacing: 8) {
+                    InspectorGroupLabel("Follows")
+                    Spacer(minLength: 0)
+                    Text(model.redactionTrackingSummary(for: selected))
+                        .font(.inspectorNumeric)
+                        .foregroundStyle(.tertiary)
+                }
+
+                Text("Move the playhead to where the region has drifted, then pin it there.")
+                    .font(.inspectorLabel)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                inspectorAction("Pin at Playhead", systemImage: "pin") {
+                    model.addRedactionKeyframe(id: selected.id)
+                }
+
+                if selected.isTracking {
+                    inspectorAction("Stop Following", systemImage: "pin.slash") {
+                        model.clearRedactionTracking(id: selected.id)
+                    }
+                }
+            }
+
+            VStack(alignment: .leading, spacing: InspectorMetrics.groupLabelSpacing) {
+                HStack(spacing: 8) {
+                    InspectorGroupLabel("Applies")
+                    Spacer(minLength: 0)
+                    Text(model.redactionRangeSummary(for: selected))
+                        .font(.inspectorNumeric)
+                        .foregroundStyle(.tertiary)
+                }
+
+                HStack(spacing: 7) {
+                    inspectorAction("Start Here", systemImage: "arrow.right.to.line") {
+                        var updated = selected
+                        updated.start = model.currentSourceTime
+                        model.updateRedaction(updated)
+                    }
+
+                    inspectorAction("End Here", systemImage: "arrow.left.to.line") {
+                        var updated = selected
+                        updated.end = model.currentSourceTime
+                        model.updateRedaction(updated)
+                    }
+                }
+
+                if selected.start != nil || selected.end != nil {
+                    inspectorAction("Whole Recording", systemImage: "arrow.left.and.right") {
+                        var updated = selected
+                        updated.start = nil
+                        updated.end = nil
+                        model.updateRedaction(updated)
+                    }
+                }
+            }
         }
     }
 

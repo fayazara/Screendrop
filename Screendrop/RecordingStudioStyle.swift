@@ -22,6 +22,10 @@ struct RecordingCameraBubbleSettings: Equatable {
 }
 
 struct RecordingEditDocument: Codable, Equatable {
+    // Unbumped on purpose: `redactions` is an additive optional field that
+    // decodes safely in both directions, while a bump would make every saved
+    // project compare unequal to its stored copy — opening dirty and throwing
+    // away a still-valid cached render.
     var formatVersion = 5
     var style: StoredRecordingStudioStyle
     var zoomEnabled: Bool
@@ -59,6 +63,9 @@ struct RecordingEditDocument: Codable, Equatable {
     var replacementAudioDisplayName: String?
     /// Raw RecordingAudioFormat value for the audio-only export.
     var audioExportFormat: String?
+    /// Regions obscured before anything else sees the frame. Optional so
+    /// projects saved before redaction decode with none.
+    var redactions: [RedactionRegion]?
 
     private enum CodingKeys: String, CodingKey {
         case formatVersion
@@ -83,6 +90,7 @@ struct RecordingEditDocument: Codable, Equatable {
         case replacementAudioFileName
         case replacementAudioDisplayName
         case audioExportFormat
+        case redactions
     }
 
     init(
@@ -103,7 +111,8 @@ struct RecordingEditDocument: Codable, Equatable {
         exportAspectMode: ExportAspectContentMode? = nil,
         replacementAudioFileName: String? = nil,
         replacementAudioDisplayName: String? = nil,
-        audioExportFormat: RecordingAudioFormat? = nil
+        audioExportFormat: RecordingAudioFormat? = nil,
+        redactions: [RedactionRegion]? = nil
     ) {
         self.style = StoredRecordingStudioStyle(style)
         self.zoomEnabled = zoomEnabled
@@ -132,6 +141,7 @@ struct RecordingEditDocument: Codable, Equatable {
         self.replacementAudioFileName = replacementAudioFileName
         self.replacementAudioDisplayName = replacementAudioDisplayName
         self.audioExportFormat = audioExportFormat.map(\.rawValue)
+        self.redactions = redactions
     }
 
     var audioExportFormatValue: RecordingAudioFormat {
@@ -205,6 +215,7 @@ struct RecordingEditDocument: Codable, Equatable {
             forKey: .replacementAudioDisplayName
         )
         audioExportFormat = try container.decodeIfPresent(String.self, forKey: .audioExportFormat)
+        redactions = try container.decodeIfPresent([RedactionRegion].self, forKey: .redactions)
     }
 
     func encode(to encoder: any Encoder) throws {
@@ -234,6 +245,7 @@ struct RecordingEditDocument: Codable, Equatable {
             forKey: .replacementAudioDisplayName
         )
         try container.encodeIfPresent(audioExportFormat, forKey: .audioExportFormat)
+        try container.encodeIfPresent(redactions, forKey: .redactions)
     }
 }
 

@@ -149,6 +149,13 @@ final class RecordingStudioModel {
     private(set) var pointerTimeline = PointerTimeline.empty
     private(set) var keystrokeTimeline = KeystrokeCaptionTimeline.empty
     var selectedCueID: UUID?
+    /// Regions obscured before the virtual camera reads the frame.
+    var redactions: [RedactionRegion] = []
+    var selectedRedactionID: UUID?
+    /// Canvas region handles only appear in this mode. The overlay swallows
+    /// clicks to drag and resize, so it must never sit over ordinary playback.
+    var isEditingRedactions = false
+    private var redactionEditSnapshot: [RedactionRegion]?
     private(set) var clipTimeline = RecordingClipTimeline(segments: [])
     var selectedClipID: UUID?
     var timelineHoverTime: TimeInterval?
@@ -397,6 +404,8 @@ final class RecordingStudioModel {
         style = document.style.value
         zoomEnabled = document.zoomEnabled
         zoomCues = document.zoomCues
+        redactions = document.redactions ?? []
+        selectedRedactionID = nil
         // A project that never chose its own settings inherits whatever
         // was picked last, so "export as MP4" sticks across recordings.
         exportSettings = document.exportSettings ?? RecordingExportPreferences.lastSettings
@@ -748,7 +757,9 @@ final class RecordingStudioModel {
             )
         }
 
-        screenPlayer.replaceCurrentItem(with: AVPlayerItem(asset: playbackAsset))
+        let item = AVPlayerItem(asset: playbackAsset)
+        item.videoComposition = makeRedactionComposition(for: playbackAsset)
+        screenPlayer.replaceCurrentItem(with: item)
         screenPlayer.actionAtItemEnd = .pause
         currentTime = min(max(editorTime, 0), duration)
         movePlayers(to: currentTime)
@@ -1023,6 +1034,197 @@ final class RecordingStudioModel {
             }
     }
 
+    // MARK: - Redaction
+
+    var redactionTrack: RedactionTrack {
+        RedactionTrack(regions: redactions)
+    }
+
+    var selectedRedaction: RedactionRegion? {
+        guard let selectedRedactionID else { return nil }
+        return redactions.first { $0.id == selectedRedactionID }
+    }
+
+    var hasRedactions: Bool { !redactions.isEmpty }
+
+    /// Where the playhead sits on the source clock, which is the space
+    /// regions are stored in.
+    var currentSourceTime: TimeInterval {
+        clipTimeline.sourceTime(at: displayTime)
+    }
+
+    /// Adds a region covering the middle of the frame, ready to be dragged
+    /// onto whatever it needs to hide.
+    func addRedaction() {
+        let region = RedactionRegion(
+            rect: CGRect(x: 0.34, y: 0.38, width: 0.32, height: 0.18),
+            style: .blur
+        )
+        applyRedactions(redactions + [region], actionName: "Add Redaction")
+        selectedRedactionID = region.id
+        isEditingRedactions = true
+    }
+
+    func addRedaction(rect: CGRect) {
+        let region = RedactionRegion(rect: rect, style: .blur)
+        applyRedactions(redactions + [region], actionName: "Add Redaction")
+        selectedRedactionID = region.id
+    }
+
+    func updateRedaction(_ region: RedactionRegion) {
+        guard let index = redactions.firstIndex(where: { $0.id == region.id }) else { return }
+        var updated = redactions
+        updated[index] = region
+        replaceRedactions(updated)
+    }
+
+    func removeRedaction(id: UUID) {
+        applyRedactions(redactions.filter { $0.id != id }, actionName: "Remove Redaction")
+        if selectedRedactionID == id {
+            selectedRedactionID = nil
+        }
+    }
+
+    /// Moves or resizes the selected region at the playhead. Live drags call
+    /// this many times, so undo is grouped by the begin/end pair rather than
+    /// registered per step.
+    func setRedactionRect(_ rect: CGRect, id: UUID) {
+        guard var region = redactions.first(where: { $0.id == id }) else { return }
+        region.setRect(rect, atSourceTime: currentSourceTime)
+        updateRedaction(region)
+    }
+
+    func beginRedactionEdit() {
+        if redactionEditSnapshot == nil {
+            redactionEditSnapshot = redactions
+        }
+    }
+
+    func endRedactionEdit(actionName: String = "Move Redaction") {
+        guard let previous = redactionEditSnapshot else { return }
+        redactionEditSnapshot = nil
+        refreshRedactionComposition()
+        guard previous != redactions else { return }
+        registerUndo(actionName) { target in
+            target.applyRedactions(previous, actionName: actionName)
+        }
+    }
+
+    /// Pins the region where it currently sits, so from here on it can be
+    /// moved to follow a window that was dragged or a panel that slid.
+    func addRedactionKeyframe(id: UUID) {
+        guard var region = redactions.first(where: { $0.id == id }) else { return }
+        var updated = region
+        updated.addKeyframe(atSourceTime: currentSourceTime)
+        region = updated
+        applyRedactions(
+            redactions.map { $0.id == id ? region : $0 },
+            actionName: "Track Redaction"
+        )
+    }
+
+    func clearRedactionTracking(id: UUID) {
+        guard var region = redactions.first(where: { $0.id == id }) else { return }
+        region.clearTracking(atSourceTime: currentSourceTime)
+        applyRedactions(
+            redactions.map { $0.id == id ? region : $0 },
+            actionName: "Clear Redaction Tracking"
+        )
+    }
+
+    func removeAllRedactions() {
+        applyRedactions([], actionName: "Remove Redactions")
+        selectedRedactionID = nil
+        isEditingRedactions = false
+    }
+
+    func redactionTitle(for region: RedactionRegion) -> String {
+        if let label = region.label, !label.isEmpty { return label }
+        guard let index = redactions.firstIndex(where: { $0.id == region.id }) else {
+            return "Region"
+        }
+        return "Region \(index + 1)"
+    }
+
+    func redactionTrackingSummary(for region: RedactionRegion) -> String {
+        region.isTracking ? "\(region.keyframes.count) points" : "Fixed"
+    }
+
+    func redactionRangeSummary(for region: RedactionRegion) -> String {
+        switch (region.start, region.end) {
+        case (nil, nil):
+            "Whole recording"
+        case let (start?, nil):
+            "From \(Self.timecode(start))"
+        case let (nil, end?):
+            "Until \(Self.timecode(end))"
+        case let (start?, end?):
+            "\(Self.timecode(start)) - \(Self.timecode(end))"
+        }
+    }
+
+    private static func timecode(_ seconds: TimeInterval) -> String {
+        let total = Int(max(0, seconds).rounded())
+        return String(format: "%d:%02d", total / 60, total % 60)
+    }
+
+    private func applyRedactions(_ regions: [RedactionRegion], actionName: String) {
+        guard regions != redactions else { return }
+        let previous = redactions
+        registerUndo(actionName) { target in
+            target.applyRedactions(previous, actionName: actionName)
+        }
+        replaceRedactions(regions)
+    }
+
+    private func replaceRedactions(_ regions: [RedactionRegion]) {
+        redactions = regions
+        // A live drag skips the rebuild: the handles already track the cursor,
+        // and re-composing every frame of a 4K preview at drag rate would cost
+        // far more than it shows. `endRedactionEdit` refreshes once on release.
+        if redactionEditSnapshot == nil {
+            refreshRedactionComposition()
+        }
+        scheduleProjectSave()
+    }
+
+    /// The filter chain captures the regions it was built with, so any change
+    /// to them needs a new composition object rather than a nudge to the old
+    /// one.
+    private func refreshRedactionComposition() {
+        guard let item = screenPlayer.currentItem else { return }
+        item.videoComposition = makeRedactionComposition(for: item.asset)
+        guard !isPlaying else { return }
+        // A paused player holds its last composed frame. Seeking to where it
+        // already sits makes it compose that frame again, now through the new
+        // chain, so scrubbed edits show up immediately.
+        let time = screenPlayer.currentTime()
+        screenPlayer.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero)
+    }
+
+    /// The preview's WYSIWYG guarantee: the same regions the exporter bakes
+    /// in, applied to the player item in source space, so Studio's own zoom
+    /// and card transforms keep working on top of already-hidden pixels.
+    private func makeRedactionComposition(for asset: AVAsset) -> AVVideoComposition? {
+        let track = redactionTrack
+        guard !track.isEmpty else { return nil }
+        let renderer = RedactionRenderer()
+        let timeline = clipTimeline
+        let composition = AVMutableVideoComposition(asset: asset) { request in
+            let sourceTime = timeline.sourceTime(at: request.compositionTime.seconds)
+            let resolved = track.resolved(atSourceTime: sourceTime)
+            guard !resolved.isEmpty else {
+                request.finish(with: request.sourceImage, context: nil)
+                return
+            }
+            request.finish(with: renderer.apply(resolved, to: request.sourceImage), context: nil)
+        }
+        // Left at its default the filtered preview would run slower than the
+        // capture it is previewing; capture and export are both 60.
+        composition.frameDuration = CMTime(value: 1, timescale: 60)
+        return composition
+    }
+
     func sourceTime(atEditorTime time: TimeInterval) -> TimeInterval {
         clipTimeline.sourceTime(at: time)
     }
@@ -1092,7 +1294,8 @@ final class RecordingStudioModel {
             exportAspectMode: exportAspectMode,
             replacementAudioFileName: replacementAudio?.url.lastPathComponent,
             replacementAudioDisplayName: replacementAudio?.displayName,
-            audioExportFormat: audioExportFormat
+            audioExportFormat: audioExportFormat,
+            redactions: redactions.isEmpty ? nil : redactions
         )
     }
 
@@ -1600,7 +1803,8 @@ final class RecordingStudioModel {
             exportSettings: exportSettings,
             audioReplacementURL: replacementAudio?.url,
             reframe: reframe,
-            fitContentAspect: fitContentAspect
+            fitContentAspect: fitContentAspect,
+            redactions: redactionTrack
         )
     }
 

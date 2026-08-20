@@ -61,6 +61,9 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
         /// the background fills the rest. Mutually exclusive with
         /// `reframe`.
         let fitContentAspect: CGFloat?
+        /// Regions obscured in the source frame before the virtual camera or
+        /// anything else touches it.
+        let redactions: RedactionTrack
 
         init(
             screenURL: URL,
@@ -80,7 +83,8 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
             exportSettings: VideoCompressionSettings,
             audioReplacementURL: URL? = nil,
             reframe: ReframeTrack? = nil,
-            fitContentAspect: CGFloat? = nil
+            fitContentAspect: CGFloat? = nil,
+            redactions: RedactionTrack = RedactionTrack(regions: [])
         ) {
             self.screenURL = screenURL
             self.cameraURL = cameraURL
@@ -98,6 +102,7 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
             self.clipTimeline = clipTimeline
             self.exportSettings = exportSettings
             self.audioReplacementURL = audioReplacementURL
+            self.redactions = redactions
             self.reframe = reframe
             self.fitContentAspect = fitContentAspect
         }
@@ -305,7 +310,8 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
             includeBubble: cameraFeed != nil,
             outputFrameInterval: 1 / Self.outputFrameRate,
             reframe: configuration.reframe,
-            fitContentAspect: configuration.fitContentAspect
+            fitContentAspect: configuration.fitContentAspect,
+            redactions: configuration.redactions
         )
 
         let screenAudioOutput = audioOutput
@@ -587,6 +593,10 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
     private let subtitleStyle: SubtitleBarStyle
     private let karaokeTimeline: KaraokeTimeline?
     private let reframe: ReframeTrack?
+    private let redactions: RedactionTrack
+    /// Built only for a project that actually redacts something, so an
+    /// ordinary export never pays for a Core Image pipeline it will not use.
+    private let redactionRenderer: RedactionRenderer?
     private var artworkImageCache: [String: CGImage] = [:]
     private let pointerScale: CGFloat
     private let colorSpace: CGColorSpace
@@ -611,7 +621,8 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
         includeBubble: Bool,
         outputFrameInterval: TimeInterval = 1.0 / 60.0,
         reframe: ReframeTrack? = nil,
-        fitContentAspect: CGFloat? = nil
+        fitContentAspect: CGFloat? = nil,
+        redactions: RedactionTrack = RedactionTrack(regions: [])
     ) {
         self.canvasSize = canvasSize
         self.layout = RecordingStudioLayout.make(
@@ -630,6 +641,8 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
         self.subtitleStyle = subtitleStyle
         self.karaokeTimeline = karaokeTimeline
         self.reframe = reframe
+        self.redactions = redactions
+        self.redactionRenderer = redactions.isEmpty ? nil : RedactionRenderer()
         self.outputFrameInterval = outputFrameInterval
         self.pointerScale = style.cursorScale
         self.colorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
@@ -678,7 +691,13 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
             context.fill(CGRect(origin: .zero, size: canvasSize))
         }
 
-        if let screenImage = Self.makeImage(from: screenFrame, colorSpace: colorSpace) {
+        // Redaction is baked into the source frame before the virtual camera
+        // reads it, so the zoom transform, the rounded-card clip, and the
+        // motion-blur supersampling below all carry it without knowing it
+        // exists. Regions are resolved on the source clock, so a later cut or
+        // speed change can never slide a region off what it was hiding.
+        if let screenImage = redactedImage(from: screenFrame, sourceTime: sourceTime)
+            ?? Self.makeImage(from: screenFrame, colorSpace: colorSpace) {
             // Motion blur by temporal supersampling: while the virtual camera
             // is moving, average several sub-frame camera states across the
             // frame's shutter interval. Pans smear linearly, zooms radially,
@@ -766,6 +785,22 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
     /// How many shutter sub-samples this frame needs: one when the camera is
     /// still, up to twenty-four when it sweeps, spaced so consecutive samples
     /// land roughly two output pixels apart.
+    /// The frame with its regions obscured, or nil when this project has no
+    /// redaction at this moment and the caller should use the plain frame.
+    private func redactedImage(
+        from pixelBuffer: CVPixelBuffer,
+        sourceTime: TimeInterval
+    ) -> CGImage? {
+        guard let redactionRenderer else { return nil }
+        let resolved = redactions.resolved(atSourceTime: sourceTime)
+        guard !resolved.isEmpty else { return nil }
+        return redactionRenderer.redactedImage(
+            from: pixelBuffer,
+            redactions: resolved,
+            colorSpace: colorSpace
+        )
+    }
+
     private func blurSampleCount(at editorTime: TimeInterval, shutter: TimeInterval) -> Int {
         let a = layout.frameRect(for: viewportFrame(at: editorTime - shutter / 2))
         let b = layout.frameRect(for: viewportFrame(at: editorTime + shutter / 2))
