@@ -1,32 +1,31 @@
 # Screendrop
 
+A beautiful screenshot + screen recording + Loom alternative - all native, self hostable and free.
 
-> [!IMPORTANT]
-> Screendrop is under active development. Expect rough edges and occasional breaking changes
-
-<br />
 <p>
   <a href="https://github.com/fayazara/Screendrop/releases/latest/download/Screendrop.dmg">
     <img src="download-button.png" alt="Download the latest version of Screendrop" width="220">
   </a>
 </p>
 
+<img width="3494" height="2206" alt="Screendrop_2026-08-17-09-17-20-compressed-550B05" src="https://github.com/user-attachments/assets/e4c2ef6c-97af-4ad4-8885-442c7fbb07b7" />
+
+
+
+<br />
+<br />
+
+
+
+> [!IMPORTANT]
+> Screendrop is under active development. Expect rough edges and occasional breaking changes
+
+
 <p>
   <a href="https://github.com/fayazara/Screendrop/releases/latest">Latest release</a>
   ·
   <a href="https://github.com/fayazara/Screendrop/releases">All releases</a>
 </p>
-<br />
-
-Screendrop is a Screenshot + Screen recording + Loom alternative.
-
-- Its Open Source
-- Host your own cloud
-- No tracking
-- Fully native.
-
-
-<img width="3494" height="2206" alt="Screendrop_2026-08-17-09-17-20-compressed-550B05" src="https://github.com/user-attachments/assets/e4c2ef6c-97af-4ad4-8885-442c7fbb07b7" />
 
 
 ## Features
