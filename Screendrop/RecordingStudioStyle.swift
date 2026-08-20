@@ -52,6 +52,9 @@ struct RecordingEditDocument: Codable, Equatable {
     var exportAspect: String?
     /// Raw ExportAspectContentMode value; defaults to fill (crop).
     var exportAspectMode: String?
+    /// Normalized top-left crop of the screen-video source. Optional so
+    /// projects saved before video cropping show their entire recording.
+    var videoCropRect: CGRect?
     /// File name, inside the session folder, of a soundtrack imported to
     /// stand in for the recording's own audio; nil when none was imported.
     var replacementAudioFileName: String?
@@ -80,6 +83,10 @@ struct RecordingEditDocument: Codable, Equatable {
         case subtitleWordHighlight
         case exportAspect
         case exportAspectMode
+        case videoCropRect
+        /// Read compatibility for the initial local implementation, which
+        /// incorrectly described this as a crop of the composed canvas.
+        case canvasCropRect
         case replacementAudioFileName
         case replacementAudioDisplayName
         case audioExportFormat
@@ -101,6 +108,7 @@ struct RecordingEditDocument: Codable, Equatable {
         subtitleStyle: SubtitleBarStyle? = nil,
         exportAspect: ExportAspectPreset? = nil,
         exportAspectMode: ExportAspectContentMode? = nil,
+        videoCropRect: CGRect? = nil,
         replacementAudioFileName: String? = nil,
         replacementAudioDisplayName: String? = nil,
         audioExportFormat: RecordingAudioFormat? = nil
@@ -129,6 +137,7 @@ struct RecordingEditDocument: Codable, Equatable {
         subtitleWordHighlight = subtitleStyle?.highlightsSpokenWord
         self.exportAspect = exportAspect.map(\.rawValue)
         self.exportAspectMode = exportAspectMode.map(\.rawValue)
+        self.videoCropRect = videoCropRect
         self.replacementAudioFileName = replacementAudioFileName
         self.replacementAudioDisplayName = replacementAudioDisplayName
         self.audioExportFormat = audioExportFormat.map(\.rawValue)
@@ -158,6 +167,15 @@ struct RecordingEditDocument: Codable, Equatable {
 
     var exportAspectContentMode: ExportAspectContentMode {
         exportAspectMode.flatMap(ExportAspectContentMode.init(rawValue:)) ?? .fill
+    }
+
+    var normalizedVideoCropRect: CGRect {
+        guard let videoCropRect else { return CropRectEditor.unit }
+        let crop = videoCropRect.standardized.intersection(CropRectEditor.unit)
+        guard crop.width > 0.0001, crop.height > 0.0001 else {
+            return CropRectEditor.unit
+        }
+        return crop
     }
 
     init(from decoder: any Decoder) throws {
@@ -196,6 +214,8 @@ struct RecordingEditDocument: Codable, Equatable {
         subtitleWordHighlight = try container.decodeIfPresent(Bool.self, forKey: .subtitleWordHighlight)
         exportAspect = try container.decodeIfPresent(String.self, forKey: .exportAspect)
         exportAspectMode = try container.decodeIfPresent(String.self, forKey: .exportAspectMode)
+        videoCropRect = try container.decodeIfPresent(CGRect.self, forKey: .videoCropRect)
+            ?? container.decodeIfPresent(CGRect.self, forKey: .canvasCropRect)
         replacementAudioFileName = try container.decodeIfPresent(
             String.self,
             forKey: .replacementAudioFileName
@@ -228,6 +248,7 @@ struct RecordingEditDocument: Codable, Equatable {
         try container.encodeIfPresent(subtitleWordHighlight, forKey: .subtitleWordHighlight)
         try container.encodeIfPresent(exportAspect, forKey: .exportAspect)
         try container.encodeIfPresent(exportAspectMode, forKey: .exportAspectMode)
+        try container.encodeIfPresent(videoCropRect, forKey: .videoCropRect)
         try container.encodeIfPresent(replacementAudioFileName, forKey: .replacementAudioFileName)
         try container.encodeIfPresent(
             replacementAudioDisplayName,
@@ -408,7 +429,8 @@ nonisolated struct RecordingStudioLayout: Sendable {
         style: RecordingStudioStyle,
         includeBubble: Bool,
         contentAspect: CGFloat? = nil,
-        contentMode: ContentMode = .fill
+        contentMode: ContentMode = .fill,
+        contentCropRect: CGRect = CGRect(x: 0, y: 0, width: 1, height: 1)
     ) -> RecordingStudioLayout {
         let minDimension = min(canvasSize.width, canvasSize.height)
         let inset = (style.padding * minDimension).rounded()
@@ -419,12 +441,29 @@ nonisolated struct RecordingStudioLayout: Sendable {
             width: (canvasSize.width * cardScale).rounded(),
             height: (canvasSize.height * cardScale).rounded()
         )
-        if case .fit = contentMode, let contentAspect, contentAspect > 0 {
-            // The card adopts the content's aspect inside the padded area,
-            // so the whole recording shows and the background frames it.
-            let fitHeight = min(cardSize.height, cardSize.width / contentAspect)
+        let unit = CGRect(x: 0, y: 0, width: 1, height: 1)
+        let normalizedCrop = contentCropRect.standardized.intersection(unit)
+        let crop = normalizedCrop.width > 0.0001 && normalizedCrop.height > 0.0001
+            ? normalizedCrop
+            : unit
+        let hasContentCrop = crop.minX > 0.0005
+            || crop.minY > 0.0005
+            || crop.width < 0.999
+            || crop.height < 0.999
+        let sourceAspect = contentAspect ?? (canvasSize.height > 0 ? canvasSize.width / canvasSize.height : 1)
+        let cardAspect: CGFloat? = if hasContentCrop {
+            sourceAspect * crop.width / crop.height
+        } else if case .fit = contentMode {
+            contentAspect
+        } else {
+            nil
+        }
+        if let cardAspect, cardAspect > 0 {
+            // A manually cropped recording reshapes only the video card;
+            // the surrounding canvas and its background keep their size.
+            let fitHeight = min(cardSize.height, cardSize.width / cardAspect)
             cardSize = CGSize(
-                width: (contentAspect * fitHeight).rounded(),
+                width: (cardAspect * fitHeight).rounded(),
                 height: fitHeight.rounded()
             )
         }
@@ -456,7 +495,15 @@ nonisolated struct RecordingStudioLayout: Sendable {
         }
 
         var contentFillSize = cardRect.size
-        if let contentAspect, contentAspect > 0, cardRect.height > 0 {
+        if hasContentCrop {
+            // Draw the full source behind the card at the scale where the
+            // selected source rectangle fills it exactly. The viewport anchor
+            // then positions that rectangle without touching other layers.
+            contentFillSize = CGSize(
+                width: cardRect.width / crop.width,
+                height: cardRect.height / crop.height
+            )
+        } else if let contentAspect, contentAspect > 0, cardRect.height > 0 {
             let fillHeight = max(cardRect.height, cardRect.width / contentAspect)
             contentFillSize = CGSize(
                 width: contentAspect * fillHeight,
@@ -486,6 +533,51 @@ nonisolated struct RecordingStudioLayout: Sendable {
             y: cardRect.midY - viewport.anchor.y * drawHeight,
             width: drawWidth,
             height: drawHeight
+        )
+    }
+}
+
+/// Maps the existing zoom camera into a manually selected source crop. The
+/// card's base draw size already makes the crop fill at magnification 1; this
+/// only supplies the crop center and keeps later zoom anchors inside it.
+nonisolated enum RecordingVideoCropGeometry {
+    static let unit = CGRect(x: 0, y: 0, width: 1, height: 1)
+
+    static func normalized(_ requested: CGRect) -> CGRect {
+        let crop = requested.standardized.intersection(unit)
+        guard crop.width > 0.0001, crop.height > 0.0001 else { return unit }
+        return crop
+    }
+
+    static func isCropped(_ requested: CGRect) -> Bool {
+        let crop = normalized(requested)
+        return crop.minX > 0.0005
+            || crop.minY > 0.0005
+            || crop.width < 0.999
+            || crop.height < 0.999
+    }
+
+    static func viewport(_ base: ViewportFrame, crop requested: CGRect) -> ViewportFrame {
+        let crop = normalized(requested)
+        guard isCropped(crop) else { return base }
+
+        let magnification = max(base.magnification, 1)
+        let center = CGPoint(x: crop.midX, y: crop.midY)
+        let halfWidth = crop.width / CGFloat(2 * magnification)
+        let halfHeight = crop.height / CGFloat(2 * magnification)
+        let target = CGPoint(
+            x: min(max(base.anchor.x, crop.minX + halfWidth), crop.maxX - halfWidth),
+            y: min(max(base.anchor.y, crop.minY + halfHeight), crop.maxY - halfHeight)
+        )
+        // At 1x the manual crop owns the camera center. Blend quickly into
+        // the existing smoothed zoom anchor as the zoom begins.
+        let progress = CGFloat(min(max((magnification - 1) / 0.12, 0), 1))
+        return ViewportFrame(
+            magnification: magnification,
+            anchor: CGPoint(
+                x: center.x + (target.x - center.x) * progress,
+                y: center.y + (target.y - center.y) * progress
+            )
         )
     }
 }

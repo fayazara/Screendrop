@@ -147,6 +147,8 @@ enum RecordingSessionRenderer {
             canvasSize: aspect == .original
                 ? canvasSize
                 : aspect.canvasSize(for: canvasSize),
+            videoCropRect: document?.normalizedVideoCropRect
+                ?? CGRect(x: 0, y: 0, width: 1, height: 1),
             clipTimeline: clipTimeline,
             exportSettings: document?.exportSettings ?? VideoCompressionSettings(),
             reframe: reframe,

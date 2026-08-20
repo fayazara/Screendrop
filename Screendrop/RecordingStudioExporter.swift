@@ -47,6 +47,8 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
         /// Word timings behind the subtitles, for karaoke highlighting.
         let karaokeTimeline: KaraokeTimeline?
         let canvasSize: CGSize
+        /// Normalized top-left crop of the screen-video source.
+        let videoCropRect: CGRect
         let clipTimeline: RecordingClipTimeline
         let exportSettings: VideoCompressionSettings
         /// Non-nil when an imported soundtrack stands in for the recorded
@@ -76,6 +78,7 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
             subtitleStyle: SubtitleBarStyle,
             karaokeTimeline: KaraokeTimeline? = nil,
             canvasSize: CGSize,
+            videoCropRect: CGRect = CGRect(x: 0, y: 0, width: 1, height: 1),
             clipTimeline: RecordingClipTimeline,
             exportSettings: VideoCompressionSettings,
             audioReplacementURL: URL? = nil,
@@ -95,6 +98,7 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
             self.subtitleStyle = subtitleStyle
             self.karaokeTimeline = karaokeTimeline
             self.canvasSize = canvasSize
+            self.videoCropRect = videoCropRect
             self.clipTimeline = clipTimeline
             self.exportSettings = exportSettings
             self.audioReplacementURL = audioReplacementURL
@@ -293,6 +297,7 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
 
         let compositor = StudioFrameCompositor(
             canvasSize: canvasSize,
+            videoCropRect: configuration.videoCropRect,
             style: configuration.style,
             viewportTimeline: configuration.viewportTimeline,
             pointerTimeline: configuration.pointerTimeline,
@@ -577,6 +582,7 @@ nonisolated private final class CameraFrameFeed: @unchecked Sendable {
 /// frame clipped to the rounded card, then the camera bubble.
 nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
     private let canvasSize: CGSize
+    private let videoCropRect: CGRect
     private let layout: RecordingStudioLayout
     private let viewportTimeline: ViewportTimeline
     private let pointerTimeline: PointerTimeline?
@@ -599,6 +605,7 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
 
     init(
         canvasSize: CGSize,
+        videoCropRect: CGRect,
         style: RecordingStudioStyle,
         viewportTimeline: ViewportTimeline,
         pointerTimeline: PointerTimeline?,
@@ -614,12 +621,14 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
         fitContentAspect: CGFloat? = nil
     ) {
         self.canvasSize = canvasSize
+        self.videoCropRect = RecordingVideoCropGeometry.normalized(videoCropRect)
         self.layout = RecordingStudioLayout.make(
             canvasSize: canvasSize,
             style: style,
             includeBubble: includeBubble,
             contentAspect: reframe?.sourceAspect ?? fitContentAspect,
-            contentMode: fitContentAspect != nil && reframe == nil ? .fit : .fill
+            contentMode: fitContentAspect != nil && reframe == nil ? .fit : .fill,
+            contentCropRect: videoCropRect
         )
         self.viewportTimeline = viewportTimeline
         self.pointerTimeline = pointerTimeline
@@ -644,7 +653,8 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
     /// The virtual camera for a frame: the reframe crop-and-follow track
     /// when exporting into a different aspect, the zoom viewport otherwise.
     private func viewportFrame(at editorTime: TimeInterval) -> ViewportFrame {
-        reframe?.frame(at: editorTime) ?? viewportTimeline.frame(at: editorTime)
+        let base = reframe?.frame(at: editorTime) ?? viewportTimeline.frame(at: editorTime)
+        return RecordingVideoCropGeometry.viewport(base, crop: videoCropRect)
     }
 
     func render(

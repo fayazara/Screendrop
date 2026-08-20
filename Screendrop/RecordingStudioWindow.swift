@@ -69,22 +69,37 @@ private struct RecordingStudioContent: View {
         }
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
-                if model.isProject {
-                    saveStatus
-                }
+                if model.isCroppingVideo {
+                    videoCropActions
+                } else {
+                    Button {
+                        withAnimation(.snappy(duration: 0.22)) {
+                            model.beginVideoCrop()
+                        }
+                    } label: {
+                        Label("Crop", systemImage: "crop")
+                            .labelStyle(.titleAndIcon)
+                    }
+                    .disabled(!model.isLoaded || model.exportState.isExporting)
+                    .help("Crop the finished video canvas")
 
-                if model.canShareToCloud {
-                    shareStatus
-                }
+                    if model.isProject {
+                        saveStatus
+                    }
 
-                exportStatus
+                    if model.canShareToCloud {
+                        shareStatus
+                    }
 
-                Button {
-                    isInspectorPresented.toggle()
-                } label: {
-                    Image(systemName: "sidebar.right")
+                    exportStatus
+
+                    Button {
+                        isInspectorPresented.toggle()
+                    } label: {
+                        Image(systemName: "sidebar.right")
+                    }
+                    .help(isInspectorPresented ? "Hide Inspector" : "Show Inspector")
                 }
-                .help(isInspectorPresented ? "Hide Inspector" : "Show Inspector")
             }
         }
         .navigationTitle(windowTitle)
@@ -115,6 +130,56 @@ private struct RecordingStudioContent: View {
 
     private var shareSuggestedTitle: String {
         model.projectDisplayName
+    }
+
+    @ViewBuilder
+    private var videoCropActions: some View {
+        Menu {
+            Picker("Aspect Ratio", selection: videoCropAspectBinding) {
+                ForEach(CropAspectRatio.allCases) { aspect in
+                    Text(aspect.title).tag(aspect)
+                }
+            }
+            .pickerStyle(.inline)
+            .labelsHidden()
+        } label: {
+            Label(model.videoCropAspect.title, systemImage: "aspectratio")
+                .labelStyle(.titleAndIcon)
+        }
+        .help("Crop aspect ratio")
+
+        Button("Reset") {
+            withAnimation(.snappy(duration: 0.18)) {
+                model.resetVideoCrop()
+            }
+        }
+        .help("Reset the selection to the whole video")
+
+        Button("Cancel") {
+            withAnimation(.snappy(duration: 0.22)) {
+                model.cancelVideoCrop()
+            }
+        }
+        .keyboardShortcut(.cancelAction)
+
+        Button("Crop") {
+            withAnimation(.snappy(duration: 0.22)) {
+                model.applyVideoCrop()
+            }
+        }
+        .keyboardShortcut(.defaultAction)
+        .buttonStyle(.borderedProminent)
+    }
+
+    private var videoCropAspectBinding: Binding<CropAspectRatio> {
+        Binding(
+            get: { model.videoCropAspect },
+            set: { aspect in
+                withAnimation(.snappy(duration: 0.18)) {
+                    model.setVideoCropAspect(aspect)
+                }
+            }
+        )
     }
 
     /// AppKit already paints the unsaved dot in the close button; the title
@@ -374,91 +439,37 @@ private struct StudioCanvas: View {
                 height: max(proxy.size.height - 56, 100)
             )
             let canvasSize = Self.aspectFit(model.previewCanvasSize, into: available)
-            let layout = RecordingStudioLayout.make(
+            let cropEditingLayout = RecordingStudioLayout.make(
                 canvasSize: canvasSize,
                 style: model.style,
                 includeBubble: model.hasCameraVideo,
-                contentAspect: model.previewContentAspect,
-                contentMode: model.previewContentMode
+                contentAspect: model.sourceVideoAspect,
+                contentMode: .fit
             )
 
-            TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !model.isPlaying)) { _ in
-                let state = model.previewViewportFrame(at: model.displayTime)
+            ZStack(alignment: .topLeading) {
+                StudioCanvasComposition(
+                    model: model,
+                    canvasSize: canvasSize,
+                    isEditingVideoCrop: model.isCroppingVideo
+                )
 
-                ZStack {
-                    // Fixed frame + clip so a scaledToFill wallpaper can never
-                    // inflate the ZStack bounds and shift the card off-center.
-                    StudioBackgroundView(style: model.style.background)
-                        .frame(width: canvasSize.width, height: canvasSize.height)
-                        .clipped()
+                if model.isCroppingVideo {
+                    VideoCropOverlay(
+                        model: model,
+                        canvasSize: canvasSize,
+                        videoFrame: cropEditingLayout.cardRect
+                    )
 
-                    // The recording card: video with the virtual camera
-                    // transform, clipped to the rounded padded card. The
-                    // synthetic cursor overlays inside the same clip so it
-                    // pans, zooms, and crops exactly like the pixels below.
-                    StudioPlayerLayerView(player: model.screenPlayer, gravity: .resize)
-                        .frame(
-                            width: layout.contentFillSize.width,
-                            height: layout.contentFillSize.height
-                        )
-                        .scaleEffect(state.magnification)
-                        .offset(
-                            x: (0.5 - state.anchor.x) * state.magnification * layout.contentFillSize.width,
-                            y: (0.5 - state.anchor.y) * state.magnification * layout.contentFillSize.height
-                        )
-                        .frame(width: layout.cardRect.width, height: layout.cardRect.height)
-                        .overlay {
-                            if let pointer = model.pointerFrame(at: model.displayTime) {
-                                StudioCursorOverlay(
-                                    pointer: pointer,
-                                    artwork: model.artwork(id: pointer.artworkID),
-                                    state: state,
-                                    cardSize: layout.cardRect.size,
-                                    contentSize: layout.contentFillSize,
-                                    cursorScale: model.style.cursorScale,
-                                    showsClickEffect: model.showsPressEffects
-                                )
-                            }
-                        }
-                        .clipShape(RoundedRectangle(cornerRadius: layout.cardCornerRadius, style: .continuous))
-                        .overlay {
-                            // Keystroke caption in card space: pinned to its
-                            // edge, unaffected by the zoom transform.
-                            if let caption = model.keystrokeCaption(at: model.displayTime) {
-                                StudioKeystrokeCaptionView(
-                                    caption: caption,
-                                    placement: model.keystrokePlacement,
-                                    cardSize: layout.cardRect.size
-                                )
-                            }
-                        }
-                        .shadow(
-                            color: .black.opacity(model.style.background == .none ? 0 : 0.55 * model.style.shadow),
-                            radius: min(canvasSize.width, canvasSize.height) * 0.045 * model.style.shadow,
-                            y: min(canvasSize.width, canvasSize.height) * 0.016 * model.style.shadow
-                        )
-                        .position(x: layout.cardRect.midX, y: layout.cardRect.midY)
-
-                    if model.isCameraVisible(at: model.displayTime), layout.bubbleRect.width > 0 {
-                        StudioCameraBubble(model: model, layout: layout)
-                    }
-
-                    // Subtitle bar in canvas space - it can sit over the
-                    // background below the card, not just over the video, so
-                    // padded and portrait layouts keep their caption area.
-                    if let subtitle = model.subtitleText(at: model.displayTime) {
-                        StudioSubtitleBarView(
-                            text: subtitle,
-                            karaokeLine: model.subtitleKaraokeLine(at: model.displayTime),
-                            style: model.subtitleStyle,
-                            canvasSize: canvasSize
-                        )
-                    }
+                    CropResolutionBadge(size: model.videoCropPixelSize)
+                        .padding(12)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                        .allowsHitTesting(false)
                 }
-                .frame(width: canvasSize.width, height: canvasSize.height)
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             }
+            .coordinateSpace(name: VideoCropOverlay.coordinateSpaceName)
             .frame(width: canvasSize.width, height: canvasSize.height)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             .position(x: proxy.size.width / 2, y: proxy.size.height / 2)
         }
     }
@@ -467,6 +478,231 @@ private struct StudioCanvas: View {
         guard size.width > 0, size.height > 0 else { return bounds }
         let scale = min(bounds.width / size.width, bounds.height / size.height)
         return CGSize(width: size.width * scale, height: size.height * scale)
+    }
+}
+
+/// The complete canvas composition. A video crop changes only the screen card
+/// layout and viewport; background, camera and captions remain in canvas space.
+private struct StudioCanvasComposition: View {
+    @Bindable var model: RecordingStudioModel
+    let canvasSize: CGSize
+    let isEditingVideoCrop: Bool
+
+    var body: some View {
+        let layout = RecordingStudioLayout.make(
+            canvasSize: canvasSize,
+            style: model.style,
+            includeBubble: model.hasCameraVideo,
+            contentAspect: isEditingVideoCrop ? model.sourceVideoAspect : model.previewContentAspect,
+            contentMode: isEditingVideoCrop ? .fit : model.previewContentMode,
+            contentCropRect: isEditingVideoCrop ? CropRectEditor.unit : model.videoCropRect
+        )
+
+        TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !model.isPlaying)) { _ in
+            let state = isEditingVideoCrop
+                ? ViewportFrame.identity
+                : model.previewViewportFrame(at: model.displayTime)
+
+            ZStack {
+                StudioBackgroundView(style: model.style.background)
+                    .frame(width: canvasSize.width, height: canvasSize.height)
+                    .clipped()
+
+                StudioPlayerLayerView(player: model.screenPlayer, gravity: .resize)
+                    .frame(
+                        width: layout.contentFillSize.width,
+                        height: layout.contentFillSize.height
+                    )
+                    .scaleEffect(state.magnification)
+                    .offset(
+                        x: (0.5 - state.anchor.x) * state.magnification * layout.contentFillSize.width,
+                        y: (0.5 - state.anchor.y) * state.magnification * layout.contentFillSize.height
+                    )
+                    .frame(width: layout.cardRect.width, height: layout.cardRect.height)
+                    .overlay {
+                        if let pointer = model.pointerFrame(at: model.displayTime) {
+                            StudioCursorOverlay(
+                                pointer: pointer,
+                                artwork: model.artwork(id: pointer.artworkID),
+                                state: state,
+                                cardSize: layout.cardRect.size,
+                                contentSize: layout.contentFillSize,
+                                cursorScale: model.style.cursorScale,
+                                showsClickEffect: model.showsPressEffects
+                            )
+                        }
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: layout.cardCornerRadius, style: .continuous))
+                    .overlay {
+                        if let caption = model.keystrokeCaption(at: model.displayTime) {
+                            StudioKeystrokeCaptionView(
+                                caption: caption,
+                                placement: model.keystrokePlacement,
+                                cardSize: layout.cardRect.size
+                            )
+                        }
+                    }
+                    .shadow(
+                        color: .black.opacity(model.style.background == .none ? 0 : 0.55 * model.style.shadow),
+                        radius: min(canvasSize.width, canvasSize.height) * 0.045 * model.style.shadow,
+                        y: min(canvasSize.width, canvasSize.height) * 0.016 * model.style.shadow
+                    )
+                    .position(x: layout.cardRect.midX, y: layout.cardRect.midY)
+
+                if model.isCameraVisible(at: model.displayTime), layout.bubbleRect.width > 0 {
+                    StudioCameraBubble(model: model, layout: layout)
+                }
+
+                if let subtitle = model.subtitleText(at: model.displayTime) {
+                    StudioSubtitleBarView(
+                        text: subtitle,
+                        karaokeLine: model.subtitleKaraokeLine(at: model.displayTime),
+                        style: model.subtitleStyle,
+                        canvasSize: canvasSize
+                    )
+                }
+            }
+            .frame(width: canvasSize.width, height: canvasSize.height)
+        }
+        .frame(width: canvasSize.width, height: canvasSize.height)
+    }
+}
+
+private struct VideoCropOverlay: View {
+    static let coordinateSpaceName = "VideoCropSpace"
+
+    @Bindable var model: RecordingStudioModel
+    let canvasSize: CGSize
+    /// The uncropped screen-video card inside the surrounding canvas.
+    let videoFrame: CGRect
+    @State private var moveStartCrop: CGRect?
+
+    private var cropViewRect: CGRect {
+        let crop = model.workingVideoCropRect.standardized
+        return CGRect(
+            x: videoFrame.minX + crop.minX * videoFrame.width,
+            y: videoFrame.minY + crop.minY * videoFrame.height,
+            width: crop.width * videoFrame.width,
+            height: crop.height * videoFrame.height
+        )
+    }
+
+    private var visibleHandles: [CropHandle] {
+        model.videoCropAspect.locksAspect
+            ? CropHandle.allCases.filter(\.isCorner)
+            : CropHandle.allCases
+    }
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            Path { path in
+                path.addRect(videoFrame)
+                path.addRect(cropViewRect)
+            }
+            .fill(Color.black.opacity(0.55), style: FillStyle(eoFill: true))
+            .allowsHitTesting(false)
+
+            Path { path in
+                for index in 1...2 {
+                    let x = cropViewRect.minX + cropViewRect.width * CGFloat(index) / 3
+                    path.move(to: CGPoint(x: x, y: cropViewRect.minY))
+                    path.addLine(to: CGPoint(x: x, y: cropViewRect.maxY))
+                    let y = cropViewRect.minY + cropViewRect.height * CGFloat(index) / 3
+                    path.move(to: CGPoint(x: cropViewRect.minX, y: y))
+                    path.addLine(to: CGPoint(x: cropViewRect.maxX, y: y))
+                }
+            }
+            .stroke(Color.white.opacity(0.35), lineWidth: 0.75)
+            .allowsHitTesting(false)
+
+            Rectangle()
+                .strokeBorder(Color.white.opacity(0.95), lineWidth: 1.5)
+                .frame(width: cropViewRect.width, height: cropViewRect.height)
+                .position(x: cropViewRect.midX, y: cropViewRect.midY)
+                .shadow(color: .black.opacity(0.3), radius: 1)
+                .allowsHitTesting(false)
+
+            Rectangle()
+                .fill(Color.white.opacity(0.001))
+                .frame(width: max(cropViewRect.width, 1), height: max(cropViewRect.height, 1))
+                .position(x: cropViewRect.midX, y: cropViewRect.midY)
+                .gesture(moveGesture)
+
+            ForEach(visibleHandles, id: \.self) { handle in
+                VideoCropHandleView(handle: handle)
+                    .position(handlePoint(handle))
+                    .gesture(handleGesture(handle))
+            }
+        }
+        .frame(width: canvasSize.width, height: canvasSize.height, alignment: .topLeading)
+    }
+
+    private var moveGesture: some Gesture {
+        DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.coordinateSpaceName))
+            .onChanged { value in
+                let start = moveStartCrop ?? model.workingVideoCropRect.standardized
+                if moveStartCrop == nil { moveStartCrop = start }
+                guard videoFrame.width > 0, videoFrame.height > 0 else { return }
+                model.moveVideoCrop(
+                    from: start,
+                    byNormalized: CGSize(
+                        width: value.translation.width / videoFrame.width,
+                        height: value.translation.height / videoFrame.height
+                    )
+                )
+            }
+            .onEnded { _ in moveStartCrop = nil }
+    }
+
+    private func handleGesture(_ handle: CropHandle) -> some Gesture {
+        DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.coordinateSpaceName))
+            .onChanged { value in
+                guard videoFrame.width > 0, videoFrame.height > 0 else { return }
+                model.updateVideoCrop(
+                    handle: handle,
+                    toNormalized: CGPoint(
+                        x: (value.location.x - videoFrame.minX) / videoFrame.width,
+                        y: (value.location.y - videoFrame.minY) / videoFrame.height
+                    )
+                )
+            }
+    }
+
+    private func handlePoint(_ handle: CropHandle) -> CGPoint {
+        let unit = handle.unitPoint
+        return CGPoint(
+            x: cropViewRect.minX + cropViewRect.width * unit.x,
+            y: cropViewRect.minY + cropViewRect.height * unit.y
+        )
+    }
+}
+
+private struct VideoCropHandleView: View {
+    let handle: CropHandle
+
+    var body: some View {
+        ZStack {
+            Color.white.opacity(0.001)
+                .frame(width: 30, height: 30)
+                .contentShape(Rectangle())
+
+            if handle.isCorner {
+                RoundedRectangle(cornerRadius: 2.5, style: .continuous)
+                    .fill(Color.white)
+                    .frame(width: 13, height: 13)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 2.5, style: .continuous)
+                            .strokeBorder(Color.black.opacity(0.18), lineWidth: 0.5)
+                    }
+                    .shadow(color: .black.opacity(0.35), radius: 1.5, y: 0.5)
+            } else {
+                let isHorizontal = handle == .top || handle == .bottom
+                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                    .fill(Color.white)
+                    .frame(width: isHorizontal ? 26 : 7, height: isHorizontal ? 7 : 26)
+                    .shadow(color: .black.opacity(0.35), radius: 1.5, y: 0.5)
+            }
+        }
     }
 }
 

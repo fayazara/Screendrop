@@ -249,6 +249,7 @@ Every new recording is stored as a non-destructive session package. The package 
 - Adjust padding, corner radius, and shadow.
 - Export in the original aspect ratio, `16:9`, `9:16`, `1:1`, or `4:5`.
 - Choose **Fill** for a pointer-following reframed crop or **Fit** to keep the full recording visible on the background.
+- Crop only the screen-video card with freeform, original, `1:1`, `16:9`, `9:16`, `4:3`, or `3:2` handles; the background canvas and source recording remain unchanged.
 - Save the current background, layout, cursor, and camera design as a named preset.
 - Choose a preset as the default for future recordings.
 
