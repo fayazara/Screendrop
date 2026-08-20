@@ -27,6 +27,26 @@
     -->
 
     <item>
+      <title>Version 0.31.2</title>
+      <sparkle:version>26</sparkle:version>
+      <sparkle:shortVersionString>0.31.2</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.4</sparkle:minimumSystemVersion>
+      <pubDate>Thu, 20 Aug 2026 06:50:25 +0000</pubDate>
+      <description><![CDATA[
+        <h2>What's New in 0.31.2</h2>
+        <ul>
+          <li>Deleting a recording from the editor or the Projects browser now removes its preview card instead of leaving a card behind for footage that no longer exists</li>
+        </ul>
+      ]]></description>
+      <enclosure
+        url="https://github.com/fayazara/screendrop/releases/download/v0.31.2/Screendrop.dmg"
+        type="application/octet-stream"
+        sparkle:edSignature="IYZenw+3Au7q24/m21OAmtL03rIwndD1Sr93nZNnJy2PswAVJQB4ufCemPoVwAfSawh5iUZ4yGTTrQamHGpuCA=="
+        length="6577551"
+      />
+    </item>
+
+    <item>
       <title>Version 0.31.1</title>
       <sparkle:version>25</sparkle:version>
       <sparkle:shortVersionString>0.31.1</sparkle:shortVersionString>
