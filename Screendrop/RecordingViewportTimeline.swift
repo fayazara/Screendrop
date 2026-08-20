@@ -18,7 +18,7 @@ nonisolated enum ZoomAnchorMode: String, Codable, CaseIterable, Sendable {
     /// Track the latest recorded pointer sample directly.
     case pointerAnchor
     /// Hold on stable regions of pointer activity instead of chasing every
-    /// recorded sample. Newly synthesized zooms use this mode.
+    /// recorded sample. This remains available as an explicit editing choice.
     case smartAnchor
     /// Frame an explicit normalized point selected by the user.
     case pinnedAnchor
@@ -150,7 +150,7 @@ nonisolated enum ZoomCueSynthesizer {
     private static let earliestStart: TimeInterval = 0.001
     private static let defaultMagnification = 1.5
 
-    /// Builds editable Smart cues around press events. A sorted one-pass merge
+    /// Builds editable Pointer cues around press events. A sorted one-pass merge
     /// is transitive, so cues connected by the allowed gap naturally become
     /// one continuous zoom.
     static func cues(from capture: PointerCaptureFile, duration: TimeInterval) -> [ZoomCue] {
@@ -174,7 +174,7 @@ nonisolated enum ZoomCueSynthesizer {
                     start: start,
                     end: end,
                     zoom: defaultMagnification,
-                    anchorMode: .smartAnchor,
+                    anchorMode: .pointerAnchor,
                     pinnedPoint: CGPoint(x: press.x, y: press.y),
                     boundsBias: 0.25
                 )

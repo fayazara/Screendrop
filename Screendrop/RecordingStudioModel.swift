@@ -930,7 +930,7 @@ final class RecordingStudioModel {
             start: span.lowerBound,
             end: span.upperBound,
             zoom: 1.5,
-            anchorMode: hasPointerTrack ? .smartAnchor : .pinnedAnchor,
+            anchorMode: hasPointerTrack ? .pointerAnchor : .pinnedAnchor,
             pinnedPoint: target,
             boundsBias: hasPointerTrack ? 0.25 : 0
         )
