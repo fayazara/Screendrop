@@ -702,18 +702,21 @@ final class ScreenRecordingManager {
                 includesAppWindows: includesAppWindows
             )
             sourceSize = CGSize(width: freshDisplay.width, height: freshDisplay.height)
-            // SCDisplay.frame follows Quartz's top-left global coordinate
-            // space, while NSPanel/NSEvent mappings use AppKit's bottom-left
-            // space. Keep the mapping rect in AppKit coordinates; the event
-            // log converts it back exactly once when resolving CGEvent points.
-            captureRect = ActiveDisplayResolver.screen(for: freshDisplay.displayID)?.frame
-                ?? Self.appKitRect(fromQuartzRect: CGDisplayBounds(freshDisplay.displayID))
+            // Input mapping rects are always Quartz top-left, the space
+            // SCDisplay.frame, SCWindow.frame, and CGEvent locations already
+            // share. Only the area selection, which arrives from AppKit, is
+            // converted — and exactly once, here rather than at normalization.
+            let bounds = CGDisplayBounds(freshDisplay.displayID)
+            captureRect = bounds.isEmpty ? freshDisplay.frame : bounds
             displayID = freshDisplay.displayID
             tracksDynamicGeometry = false
         case .window(let window):
             let freshWindow = content.windows.first(where: { $0.windowID == window.windowID }) ?? window
             filter = SCContentFilter(desktopIndependentWindow: freshWindow)
             sourceSize = freshWindow.frame.size
+            // Already Quartz top-left. Per-frame `screenRect` supersedes this
+            // as soon as the first frame lands; it only covers events that
+            // beat the stream's first frame.
             captureRect = freshWindow.frame
             displayID = nil
             tracksDynamicGeometry = true
@@ -731,7 +734,7 @@ final class ScreenRecordingManager {
             )
             sourceRect = mappedSourceRect
             sourceSize = mappedSourceRect.size
-            captureRect = rect
+            captureRect = Self.quartzRect(fromAppKitRect: rect)
             displayID = freshDisplay.displayID
             tracksDynamicGeometry = false
         }
@@ -762,7 +765,11 @@ final class ScreenRecordingManager {
         )
     }
 
-    private static func appKitRect(fromQuartzRect rect: CGRect) -> CGRect {
+    /// AppKit's global space has its origin at the main display's bottom-left
+    /// with Y growing upward; Quartz's has it at the top-left growing downward.
+    /// Flipping about the main display's height converts between them, and
+    /// stays correct for displays placed above or beside the main one.
+    private static func quartzRect(fromAppKitRect rect: CGRect) -> CGRect {
         let mainDisplayHeight = CGDisplayBounds(CGMainDisplayID()).height
         return CGRect(
             x: rect.minX,

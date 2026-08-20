@@ -14,9 +14,11 @@ import CoreMedia
 import Foundation
 import ScreenCaptureKit
 
-/// Where the capture lives on screen (AppKit coordinates) and how large the
-/// written surface is in pixels. Input events are normalized through this
-/// mapping into recording coordinates.
+/// Where the capture lives on screen and how large the written surface is in
+/// pixels. `captureRect` is in Quartz's top-left-origin global display space —
+/// the same space as `CGDisplayBounds`, `SCWindow.frame`, and ScreenCaptureKit's
+/// per-frame `screenRect` — so pointer events, capture geometry, and the video
+/// surface all share one origin and no axis is ever flipped twice.
 nonisolated struct RecordingInputMapping: Sendable {
     let captureRect: CGRect
     let pixelWidth: Int
@@ -79,7 +81,6 @@ nonisolated final class PointerActivityRecorder: NSObject, @unchecked Sendable {
     private var fallbackGlobalMonitor: Any?
     private var fallbackLocalMonitor: Any?
     private var cursorAppearanceTimer: Timer?
-    private var primaryDisplayHeight: CGFloat = 0
 
     @MainActor
     func start(
@@ -101,7 +102,6 @@ nonisolated final class PointerActivityRecorder: NSObject, @unchecked Sendable {
             pressedButtons = []
             pauseStartedUptime = nil
             pauseIntervals = []
-            primaryDisplayHeight = CGDisplayBounds(CGMainDisplayID()).height
         }
 
         captureActiveArtwork()
@@ -687,10 +687,18 @@ nonisolated final class PointerActivityRecorder: NSObject, @unchecked Sendable {
         at uptime: TimeInterval,
         mapping: RecordingInputMapping
     ) -> (x: Double, y: Double)? {
+        // Two hops, both top-left: screen point to a fraction of the source's
+        // onscreen rectangle, then that fraction into the frame the source
+        // occupies inside the fixed output surface. The second hop is what
+        // keeps a window correct once it is resized, because ScreenCaptureKit
+        // then scales the content down and pins it to the surface's top-left
+        // corner instead of refitting the surface to the window.
         if tracksDynamicGeometry,
            let geometry = geometry(at: uptime),
            geometry.screenRect.width > 0,
-           geometry.screenRect.height > 0 {
+           geometry.screenRect.height > 0,
+           geometry.contentRect.width > 0,
+           geometry.contentRect.height > 0 {
             let sourceX = (screenPoint.x - geometry.screenRect.minX) / geometry.screenRect.width
             let sourceY = (screenPoint.y - geometry.screenRect.minY) / geometry.screenRect.height
             let surfaceWidth = Double(mapping.pixelWidth) / geometry.scaleFactor
@@ -702,16 +710,11 @@ nonisolated final class PointerActivityRecorder: NSObject, @unchecked Sendable {
             )
         }
 
-        let quartzRect = CGRect(
-            x: mapping.captureRect.minX,
-            y: primaryDisplayHeight - mapping.captureRect.maxY,
-            width: mapping.captureRect.width,
-            height: mapping.captureRect.height
-        )
-        guard quartzRect.width > 0, quartzRect.height > 0 else { return nil }
+        let captureRect = mapping.captureRect
+        guard captureRect.width > 0, captureRect.height > 0 else { return nil }
         return (
-            x: (screenPoint.x - quartzRect.minX) / quartzRect.width,
-            y: (screenPoint.y - quartzRect.minY) / quartzRect.height
+            x: (screenPoint.x - captureRect.minX) / captureRect.width,
+            y: (screenPoint.y - captureRect.minY) / captureRect.height
         )
     }
 
@@ -740,7 +743,16 @@ nonisolated final class PointerActivityRecorder: NSObject, @unchecked Sendable {
         }
     }
 
+    /// ScreenCaptureKit hands rectangle attachments over as the CFDictionary
+    /// form of a CGRect, not as a boxed CGRect. Missing that left `screenRect`
+    /// permanently nil, which silently disabled per-frame window tracking and
+    /// pushed every window recording onto the static fallback mapping.
     private static func rectValue(_ value: Any?) -> CGRect? {
+        guard let value else { return nil }
+        if CFGetTypeID(value as CFTypeRef) == CFDictionaryGetTypeID(),
+           let rect = CGRect(dictionaryRepresentation: value as! CFDictionary) {
+            return rect
+        }
         if let rect = value as? CGRect { return rect }
         if let value = value as? NSValue { return value.rectValue }
         return nil
