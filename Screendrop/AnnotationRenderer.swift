@@ -160,7 +160,7 @@ enum AnnotationRenderer {
 
     nonisolated private static func exportColorSpace(for image: CGImage) -> CGColorSpace {
         // Fall back to device RGB unless the source space can actually back
-        // the 8-bit premultiplied contexts the render pipeline creates —
+        // the 8-bit premultiplied contexts the render pipeline creates -
         // otherwise an exotic embedded profile would fail the whole export.
         guard let colorSpace = image.colorSpace,
               colorSpace.model == .rgb,

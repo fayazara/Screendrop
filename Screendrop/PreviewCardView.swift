@@ -284,7 +284,7 @@ struct PreviewCardView: View {
     }
 
     /// Recordings capture without the OS cursor, so Save and Copy render the
-    /// real deliverable first. That can take a few seconds — say so.
+    /// real deliverable first. That can take a few seconds - say so.
     private var preparingProgressOverlay: some View {
         VStack(spacing: 8) {
             ProgressView()

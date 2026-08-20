@@ -20,7 +20,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild build \
   2>&1 | grep -E "(BUILD SUCCEEDED|BUILD FAILED|error:)" | head -20
 ```
 
-There are two shared schemes (`Screendrop` and `Screendrop Dev`) — both build the same target with Debug config. Use `Screendrop` unless told otherwise.
+There are two shared schemes (`Screendrop` and `Screendrop Dev`) - both build the same target with Debug config. Use `Screendrop` unless told otherwise.
 
 No test target exists. Build success is the only automated verification.
 
@@ -28,9 +28,9 @@ No test target exists. Build success is the only automated verification.
 
 The project uses **strict concurrency** settings that are easy to violate:
 
-- `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` — every type is implicitly `@MainActor` unless explicitly opted out.
+- `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` - every type is implicitly `@MainActor` unless explicitly opted out.
 - `SWIFT_APPROACHABLE_CONCURRENCY = YES`
-- `SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES` — imports in one file do not leak to other files.
+- `SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES` - imports in one file do not leak to other files.
 
 When adding new types, assume `@MainActor` isolation by default. If a type must be `Sendable` or `nonisolated`, mark it explicitly.
 
@@ -38,13 +38,13 @@ When adding new types, assume `@MainActor` isolation by default. If a type must 
 
 All source is in `Screendrop/` (flat, no subdirectories). Key flow:
 
-1. **App entry** — `ScreendropApp.swift`: `@main` App struct. Creates a `MenuBarExtra`, a Settings window, and an annotation editor `WindowGroup`.
-2. **Hotkeys** — `HotkeyManager.swift`: Registers global Carbon hotkeys (Option+1/2/3) at launch via `AppDelegate`.
-3. **Capture** — `CaptureCoordinator.swift` → `ScreenshotManager.swift`: Fullscreen uses `ScreenCaptureKit`; window/area use `/usr/sbin/screencapture` CLI.
-4. **Preview** — `PreviewPanelPresenter.swift` + `PreviewWindowView.swift`: Borderless floating `NSPanel` showing a screenshot stack. Uses `ScreenshotPreviewStack` (an `@Observable` model).
-5. **Annotation** — `AnnotationEditorWindow.swift` + `AnnotationEditorModel.swift` + `AnnotationCanvas.swift`: Full annotation editor with tools (rectangle, ellipse, arrow, freehand, text, numbered circles, pixelate, blur). All coordinates are normalized (0..1) relative to the image.
-6. **Rendering** — `AnnotationRenderer.swift`: Composites annotations onto the source image at full pixel resolution using Core Graphics.
-7. **Preferences** — `ScreendropPreferences.swift` + `SettingsView.swift`: `UserDefaults`-backed settings (auto-save, auto-copy, auto-compress, export directory).
+1. **App entry** - `ScreendropApp.swift`: `@main` App struct. Creates a `MenuBarExtra`, a Settings window, and an annotation editor `WindowGroup`.
+2. **Hotkeys** - `HotkeyManager.swift`: Registers global Carbon hotkeys (Option+1/2/3) at launch via `AppDelegate`.
+3. **Capture** - `CaptureCoordinator.swift` → `ScreenshotManager.swift`: Fullscreen uses `ScreenCaptureKit`; window/area use `/usr/sbin/screencapture` CLI.
+4. **Preview** - `PreviewPanelPresenter.swift` + `PreviewWindowView.swift`: Borderless floating `NSPanel` showing a screenshot stack. Uses `ScreenshotPreviewStack` (an `@Observable` model).
+5. **Annotation** - `AnnotationEditorWindow.swift` + `AnnotationEditorModel.swift` + `AnnotationCanvas.swift`: Full annotation editor with tools (rectangle, ellipse, arrow, freehand, text, numbered circles, pixelate, blur). All coordinates are normalized (0..1) relative to the image.
+6. **Rendering** - `AnnotationRenderer.swift`: Composites annotations onto the source image at full pixel resolution using Core Graphics.
+7. **Preferences** - `ScreendropPreferences.swift` + `SettingsView.swift`: `UserDefaults`-backed settings (auto-save, auto-copy, auto-compress, export directory).
 
 ### Singletons
 
@@ -57,8 +57,8 @@ All annotation positions/sizes are normalized to `[0, 1]` relative to the source
 ## Conventions
 
 - **No SPM packages or external dependencies.** The project uses only Apple frameworks (SwiftUI, AppKit, ScreenCaptureKit, CoreGraphics, CoreImage, ImageIO, Carbon).
-- **`@Observable` macro** (Observation framework) is used for state — not `ObservableObject`/`@Published`.
-- **App sandbox is disabled** (`ENABLE_APP_SANDBOX = NO`) — the app needs screen capture permissions and direct filesystem access.
+- **`@Observable` macro** (Observation framework) is used for state - not `ObservableObject`/`@Published`.
+- **App sandbox is disabled** (`ENABLE_APP_SANDBOX = NO`) - the app needs screen capture permissions and direct filesystem access.
 - Screenshots are saved as lossless PNG to `NSTemporaryDirectory()` first, then optionally compressed to JPEG on export.
 
 ## Commits
@@ -69,4 +69,4 @@ Make atomic commits. Each commit should represent exactly one logical change (e.
 
 - Screen recording permission (`NSScreenCaptureUsageDescription` in Info.plist) is required.
 - Hardened runtime is enabled.
-- No App Sandbox — do not add sandbox entitlements.
+- No App Sandbox - do not add sandbox entitlements.

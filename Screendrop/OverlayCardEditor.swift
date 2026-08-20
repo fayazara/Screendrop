@@ -143,7 +143,7 @@ struct OverlayCardEditor: View {
 
             if let action {
                 // Keep the chip (and its drag gesture) mounted while it's being
-                // dragged — just hide it — so `.onEnded` still fires. Removing it
+                // dragged - just hide it - so `.onEnded` still fires. Removing it
                 // here would tear down the gesture mid-drag and orphan the chip.
                 chip(action, style: .corner)
                     .opacity(action == dragging ? 0 : 1)
@@ -165,7 +165,7 @@ struct OverlayCardEditor: View {
 
                     // When the only remaining center item is the one being
                     // dragged, overlay the empty-slot placeholder onto its
-                    // reserved row so it stays centered — rather than adding a
+                    // reserved row so it stays centered - rather than adding a
                     // second row that pushes the placeholder below center.
                     if action == dragging && visibleCount == 0 {
                         slotPlaceholder(isCircle: false, highlighted: highlighted)
@@ -378,7 +378,7 @@ struct OverlayCardEditor: View {
 /// Center-origin is guaranteed structurally: the OUTER frame is a fixed size
 /// (always the full pill width), so `.position(_)` has a stable anchor and never
 /// drifts. The visible capsule lives INSIDE that fixed frame and is the only
-/// thing that resizes — and because it's centered in the fixed frame, it grows
+/// thing that resizes - and because it's centered in the fixed frame, it grows
 /// and shrinks symmetrically from the middle. The icon and label sit on top and
 /// trade places with opacity + a scale that collapses toward (or expands from)
 /// that same center point.
@@ -420,7 +420,7 @@ private struct FloatingMorphChip: View {
             .overlay(
                 Capsule().strokeBorder(.black.opacity(0.06), lineWidth: 0.5)
             )
-            // Fixed outer box (max width), centered — stable anchor for
+            // Fixed outer box (max width), centered - stable anchor for
             // `.position`; the capsule above resizes within it from the center.
             .frame(width: pillWidth, height: Self.diameter)
             .shadow(color: .black.opacity(0.32), radius: 12, x: 0, y: 7)

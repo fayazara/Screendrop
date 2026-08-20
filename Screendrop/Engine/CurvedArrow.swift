@@ -290,7 +290,7 @@ enum CurvedArrow {
     }
 
     /// Put the middle handle halfway along the body arc. If the body arc has grown past the handle
-    /// arc, the terminals have swapped — flip them back and put the handle on the other side.
+    /// arc, the terminals have swapped - flip them back and put the handle on the other side.
     private static func placeCenterHandle(
         center: Vec,
         radius: Double,

@@ -4,7 +4,7 @@
 //
 //  On notched Macs, a fullscreen app with the menu bar hidden leaves a solid
 //  black strip across the top of a fullscreen display capture (the menu-bar /
-//  notch area the app doesn't draw into). This trims that strip off — but only
+//  notch area the app doesn't draw into). This trims that strip off - but only
 //  when it's actually empty black. If the menu bar is revealed (it shows menu
 //  items) or the app draws content edge-to-edge behind the notch, the strip
 //  contains non-black pixels and is preserved.

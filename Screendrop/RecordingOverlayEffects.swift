@@ -145,7 +145,7 @@ nonisolated struct KeystrokeCaptionTimeline: Sendable {
         let end = min(naturalEnd, nextStart ?? .greatestFiniteMagnitude)
         guard time < end else { return nil }
 
-        // Pop-in is skipped when the previous chord was still on screen —
+        // Pop-in is skipped when the previous chord was still on screen -
         // the caption just swaps its content in place.
         let previousEnd: TimeInterval? = index > 0
             ? events[index - 1].time + Self.popInDuration + Self.holdDuration + Self.popOutDuration

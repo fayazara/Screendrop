@@ -15,9 +15,9 @@ import Foundation
 import ScreenCaptureKit
 
 /// Where the capture lives on screen and how large the written surface is in
-/// pixels. `captureRect` is in Quartz's top-left-origin global display space —
+/// pixels. `captureRect` is in Quartz's top-left-origin global display space -
 /// the same space as `CGDisplayBounds`, `SCWindow.frame`, and ScreenCaptureKit's
-/// per-frame `screenRect` — so pointer events, capture geometry, and the video
+/// per-frame `screenRect` - so pointer events, capture geometry, and the video
 /// surface all share one origin and no axis is ever flipped twice.
 nonisolated struct RecordingInputMapping: Sendable {
     let captureRect: CGRect
@@ -367,7 +367,7 @@ nonisolated final class PointerActivityRecorder: NSObject, @unchecked Sendable {
         CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
         CGEvent.tapEnable(tap: tap, enable: true)
 
-        // Without Input Monitoring, tapCreate still hands back a valid port —
+        // Without Input Monitoring, tapCreate still hands back a valid port -
         // it just never enables and silently delivers nothing. Non-nil is
         // therefore not proof of a working tap; only an enabled tap may stand
         // in for the sampled fallback.
@@ -550,7 +550,7 @@ nonisolated final class PointerActivityRecorder: NSObject, @unchecked Sendable {
     /// One physical click reaches here from both the event tap and the AppKit
     /// monitors. Matching button, phase, and location inside
     /// `duplicatePressWindow` marks a duplicate rather than a human
-    /// double-click — those repeat far slower and interleave a release.
+    /// double-click - those repeat far slower and interleave a release.
     private func appendPress(_ press: CapturedPressEvent) {
         if let last = presses.last,
            last.button == press.button,

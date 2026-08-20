@@ -195,7 +195,7 @@ enum ScreendropPreferences {
 
     /// Whether the annotation editor displays a downscaled preview of the
     /// screenshot to reduce memory usage. This only affects the on-screen
-    /// editing preview — exported images are always rendered at full
+    /// editing preview - exported images are always rendered at full
     /// resolution. Defaults to on.
     static var lowResolutionEditorPreview: Bool {
         if UserDefaults.standard.object(forKey: lowResolutionEditorPreviewKey) == nil {
@@ -328,7 +328,7 @@ enum ScreenshotFileActions {
         //   image editors) read raw pixels directly.
         //
         // Only providing image data is why pasting worked in Gmail but not in
-        // terminal apps — those read the file URL flavor instead.
+        // terminal apps - those read the file URL flavor instead.
         let item = NSPasteboardItem()
         item.setString(url.absoluteString, forType: .fileURL)
         item.setData(imageData, forType: dataType)

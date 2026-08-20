@@ -73,7 +73,7 @@ extension AnnoEditor {
             return
         }
 
-        // Nothing under the pointer — but the selection's own bounds act as a drag handle, so a
+        // Nothing under the pointer - but the selection's own bounds act as a drag handle, so a
         // hollow shape can be moved from its empty middle. Ported from
         // `isPointInRotatedSelectionBounds`, which tests the *rotated* bounds as a polygon.
         if canDragSelectionBackground,
@@ -550,7 +550,7 @@ extension AnnoEditor {
                     props.w = Swift.max(TextMeasure.minWidth, abs(width * sx))
                     props.autoSize = false
                 } else {
-                    // Corners scale the type itself, uniformly — text can't stretch on one axis.
+                    // Corners scale the type itself, uniformly - text can't stretch on one axis.
                     let uniform = (abs(sx) + abs(sy)) / 2
                     props.fontSize = Swift.max(4, props.fontSize * uniform)
                     if !props.autoSize {
@@ -631,7 +631,7 @@ extension AnnoEditor {
     /// Create an empty text shape at a page point and start typing into it.
     ///
     /// The shape is placed so the click lands on the vertical middle of the first line, and
-    /// horizontally according to the alignment — which is the anchor `updateEditingText` then keeps
+    /// horizontally according to the alignment - which is the anchor `updateEditingText` then keeps
     /// fixed as the text grows.
     func createText(at pagePoint: Vec) {
         markUndo()

@@ -36,7 +36,7 @@ final class InkPathSink {
         lastControl = nil
     }
 
-    /// SVG's `a r,r 0 0 1 dx,dy` — a circular arc with largeArc=0, sweep=1.
+    /// SVG's `a r,r 0 0 1 dx,dy` - a circular arc with largeArc=0, sweep=1.
     func arc(radius: Double, to p: Vec) {
         addSvgArc(from: current, to: p, rx: radius, ry: radius, xAxisRotation: 0, largeArc: false, sweep: true)
         current = p

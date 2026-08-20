@@ -177,7 +177,7 @@ nonisolated struct KaraokeTimeline: Sendable {
 
     /// Groups timed words into cues the same way the cues were chunked
     /// from them (a word belongs to the last cue starting at or before
-    /// it), but displays the cue's *text* — the editable source of truth —
+    /// it), but displays the cue's *text* - the editable source of truth -
     /// with timings carried over from the recognizer's words.
     init(cues: [RecordingSubtitleCue], words: [RecordingTranscriptWord]) {
         let sortedCues = cues
@@ -264,8 +264,8 @@ nonisolated struct KaraokeTimeline: Sendable {
 /// Geometry shared verbatim by the SwiftUI preview and the CoreGraphics
 /// exporter: a rounded black bar with white text, center-locked
 /// horizontally at the style's vertical position. Everything derives from
-/// the full canvas height — the bar belongs to the composition, background
-/// included, not just the recording card — so it is identical at any
+/// the full canvas height - the bar belongs to the composition, background
+/// included, not just the recording card - so it is identical at any
 /// render resolution and stays put in padded or portrait layouts.
 nonisolated struct SubtitleBarMetrics: Sendable {
     let fontSize: CGFloat

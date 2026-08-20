@@ -10,7 +10,7 @@
 //
 //  Show/hide choreography: the collapsed state is geometrically identical
 //  to the hardware notch (same width, height, and corner radii), so hiding
-//  is a single spring back to that rect — once it lands, the window is
+//  is a single spring back to that rect - once it lands, the window is
 //  removed via the animation's completion callback. No timer chains, so
 //  the window can never be yanked mid-flight, and every visible pixel of
 //  the collapse is hidden behind the physical notch. Text lives inside the
@@ -129,7 +129,7 @@ final class TeleprompterOverlayModel {
 final class TeleprompterOverlayPresenter {
     static let shared = TeleprompterOverlayPresenter()
 
-    /// One spring for every phase — the "magnetic" feel comes from the
+    /// One spring for every phase - the "magnetic" feel comes from the
     /// expand, collapse, and scroll all settling with the same physics.
     static let spring = Animation.spring(response: 0.42, dampingFraction: 0.78)
     static let scrollSpring = Animation.spring(response: 0.5, dampingFraction: 0.86)
@@ -230,7 +230,7 @@ final class TeleprompterOverlayPresenter {
         // The content springs its own width/height every frame (expand
         // collapse, line-scroll). Left at its default, NSHostingView fights
         // that by continuously re-deriving window min/max size constraints
-        // from the mid-animation ideal size, which never settles — AppKit's
+        // from the mid-animation ideal size, which never settles - AppKit's
         // constraint-update watchdog eventually kills the app. The window
         // is sized explicitly via `position(_:on:)` instead, so bridging is
         // switched off and the hosting view just fills whatever frame the
@@ -336,7 +336,7 @@ private struct TeleprompterOverlayView: View {
         guard model.spokenWordCount > 0 else { return 0 }
         let activeWord = model.spokenWordCount - 1
         var activeLine = model.layout.lineIndex(forWord: activeWord)
-        // Prompter rules: never spend a slot on text already read — the
+        // Prompter rules: never spend a slot on text already read - the
         // line being spoken pins to the top and every slot below is
         // upcoming script. And since recognition trails the voice, reaching
         // a line's last word already scrolls the next line up, so the
@@ -391,7 +391,7 @@ private struct TeleprompterOverlayView: View {
     }
 
     /// Reading palette: what's already been said falls away, the live word
-    /// carries the karaoke accent, and everything ahead stays bright — the
+    /// carries the karaoke accent, and everything ahead stays bright - the
     /// reader's eyes live in the upcoming text.
     private func color(forWord index: Int) -> Color {
         let spoken = model.spokenWordCount

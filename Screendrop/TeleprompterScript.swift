@@ -36,7 +36,7 @@ nonisolated enum TeleprompterScriptText {
 /// Tracks reading progress: given everything the recognizer has heard so
 /// far, how many script display words have been spoken. Greedy with a
 /// short lookahead, so misrecognized or skipped words don't stall the
-/// prompter — the pointer re-anchors on the next word that matches.
+/// prompter - the pointer re-anchors on the next word that matches.
 nonisolated struct TeleprompterScriptMatcher: Sendable {
     private struct Entry {
         let normalized: String
@@ -149,7 +149,7 @@ struct TeleprompterScriptLayout {
         return lineOfWord[min(max(index, 0), lineOfWord.count - 1)]
     }
 
-    /// Whether this word closes its line — the reader's cue that their eyes
+    /// Whether this word closes its line - the reader's cue that their eyes
     /// need the next line now, not after the recognizer catches up.
     func isLastWord(inLine index: Int) -> Bool {
         guard index >= 0, index < lineOfWord.count else { return false }

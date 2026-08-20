@@ -88,7 +88,7 @@ extension View {
     }
 }
 
-/// Width of the peek tab — matched to the card width so the pill lines up
+/// Width of the peek tab - matched to the card width so the pill lines up
 /// exactly under the card column.
 let previewPeekTabWidth: CGFloat = previewCardSize.width
 

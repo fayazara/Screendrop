@@ -24,13 +24,13 @@ final class ScreenshotPreviewStack {
 
     /// Items the user has explicitly engaged with via a high-intent action
     /// (Quick Look or opening an editor). Auto-close is permanently cancelled
-    /// for these so we never yank a capture out from under the user while — or
-    /// after — they were actively working with it.
+    /// for these so we never yank a capture out from under the user while - or
+    /// after - they were actively working with it.
     private var engagedItemIDs: Set<ScreenshotPreviewItem.ID> = []
 
     /// When true the overlay is tucked into a small "peek" tab at the bottom
     /// edge instead of showing the full stack. The overlay window itself stays
-    /// visible the whole time — this only changes what it renders. Used while an
+    /// visible the whole time - this only changes what it renders. Used while an
     /// editor is open and when the user scrolls the stack down to hide it.
     var isCollapsed = false
 
@@ -138,7 +138,7 @@ final class ScreenshotPreviewStack {
         guard CloudUploader.shared.isConfigured else { return }
         Task {
             do {
-                // Automatic, unattended upload — no popover, just the
+                // Automatic, unattended upload - no popover, just the
                 // remembered comments/likes default.
                 let result = try await CloudUploader.shared.upload(
                     itemID: itemID,
@@ -507,7 +507,7 @@ final class ScreenshotPreviewStack {
     /// Dismisses any card backed by a recording package that is going away.
     /// The overlay is a third view of the same recording alongside History and
     /// the Projects browser, and unlike those two it is never rebuilt from
-    /// disk — so without this it keeps showing a card whose footage is gone.
+    /// disk - so without this it keeps showing a card whose footage is gone.
     func dismissRecordingSession(_ directoryURL: URL) {
         let packagePath = directoryURL.standardizedFileURL.path
         // The trailing separator keeps a sibling package with a longer name
@@ -806,7 +806,7 @@ final class ScreenshotPreviewStack {
     }
 
     /// Copying and saving both hand the file to the user, so both resolve the
-    /// session's deliverable first — the raw screen master has no cursor.
+    /// session's deliverable first - the raw screen master has no cursor.
     private func copyVideoURLToClipboard(_ url: URL, itemID: ScreenshotPreviewItem.ID?) async -> Bool {
         do {
             let deliverableURL = try await prepareDeliverable(from: url, itemID: itemID)

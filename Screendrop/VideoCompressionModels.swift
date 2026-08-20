@@ -87,12 +87,12 @@ enum VideoCompressionResolution: String, CaseIterable, Identifiable, Codable, Se
 }
 
 /// Delivery container for exported recordings. The encoded video and audio
-/// are identical either way — only the wrapper differs.
+/// are identical either way - only the wrapper differs.
 enum VideoExportContainer: String, CaseIterable, Identifiable, Codable, Sendable {
     /// What capture already writes, so a plain recording exports as a
     /// copy-on-write clone with no rewrite at all.
     case mov = "MOV"
-    /// Plays outside Apple platforms — Slack, Discord, browsers, Windows.
+    /// Plays outside Apple platforms - Slack, Discord, browsers, Windows.
     /// Costs a container rewrite when the source is a QuickTime master.
     case mp4 = "MP4"
 
@@ -118,7 +118,7 @@ struct VideoCompressionSettings: Codable, Equatable, Sendable {
     var removeAudio = false
     /// Optional so projects saved before the format picker keep decoding.
     /// A synthesized `Codable` decoder ignores property defaults and throws
-    /// on a missing key, and `loadEditDocument` swallows that with `try?` —
+    /// on a missing key, and `loadEditDocument` swallows that with `try?` -
     /// a non-optional field here would silently discard the whole project.
     var container: VideoExportContainer?
 

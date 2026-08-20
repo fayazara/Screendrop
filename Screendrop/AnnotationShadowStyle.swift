@@ -87,7 +87,7 @@ struct AnnotationShadowLayer {
 /// card interior is punched back out. SwiftUI scales a shadow by the caster's
 /// own alpha, so the caster has to be solid for the alpha to mean what it says,
 /// and the knockout keeps that solid black from showing through translucent
-/// borders or screenshots with alpha — same result as the exporter's clipped
+/// borders or screenshots with alpha - same result as the exporter's clipped
 /// fill.
 struct AnnotationCardShadowBackdrop: View {
     var cornerRadii: RectangleCornerRadii

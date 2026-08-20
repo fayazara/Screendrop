@@ -5,7 +5,7 @@
 //  Live narration tracking for the teleprompter: microphone sample buffers
 //  are teed off the recording's SCStream (no second capture session), fed
 //  into SpeechAnalyzer with volatile results enabled, and every recognizer
-//  update is matched against the script. Progress only ever moves forward —
+//  update is matched against the script. Progress only ever moves forward -
 //  a volatile-result retraction must never scroll the prompter backwards
 //  while someone is mid-sentence.
 //
@@ -136,7 +136,7 @@ nonisolated final class TeleprompterSpeechEngine: @unchecked Sendable {
         lock.withLock { isPaused = paused }
     }
 
-    /// Tears the session down without waiting for trailing results — the
+    /// Tears the session down without waiting for trailing results - the
     /// overlay is collapsing anyway.
     func finish() {
         let (continuation, analyzer, task): (

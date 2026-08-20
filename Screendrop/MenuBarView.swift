@@ -113,7 +113,7 @@ struct MenuBarView: View {
 
     private func projectMenuTitle(for project: RecordingProjectSummary) -> String {
         let name = truncatedMenuTitle(project.displayName)
-        return project.hasUnsavedDraft ? "\(name) — Unsaved" : name
+        return project.hasUnsavedDraft ? "\(name) - Unsaved" : name
     }
 
     @ViewBuilder

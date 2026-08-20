@@ -5,7 +5,7 @@
 //  Screen captures are recorded without the OS cursor (see
 //  ScreenRecordingManager.buildConfiguration) and keep the camera as a
 //  separate movie, so a session's raw screen master is never what the user
-//  saw. Anything that hands a recording to the user — Save, Copy, upload —
+//  saw. Anything that hands a recording to the user - Save, Copy, upload -
 //  has to go through here first, or it ships a video with no pointer, no
 //  camera bubble, and none of the project's edits.
 //

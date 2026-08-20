@@ -173,7 +173,7 @@ struct OverlayCardLayout: Codable, Equatable {
 
     /// Moves `action` into `zone`. When dropping onto an occupied corner, the
     /// displaced action is relocated to `fallback` (typically the dragged
-    /// action's origin) so it stays visible — i.e. a swap.
+    /// action's origin) so it stays visible - i.e. a swap.
     mutating func place(
         _ action: OverlayCardAction,
         into zone: OverlayCardZone,

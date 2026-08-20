@@ -12,9 +12,9 @@ non-interactively**, so a release can be triggered directly from a chat session
 
 There are two modes:
 
-- **Full auto (`-build`)** — archive, export (Developer ID), notarize, staple,
+- **Full auto (`-build`)** - archive, export (Developer ID), notarize, staple,
   package, sign, and publish. Nothing in Xcode's GUI is required.
-- **Package-only** (no `-build`) — assumes the user already exported a
+- **Package-only** (no `-build`) - assumes the user already exported a
   notarized `~/Downloads/Screendrop.app` from Xcode, then packages & publishes.
 
 Prefer **full auto** unless the user says they've already exported the app.
@@ -25,7 +25,7 @@ Always required:
 
 1. Tools installed: `create-dmg` (brew), `gh` (GitHub CLI, authenticated), `git`, `plutil`.
 2. The Sparkle `sign_update` binary in DerivedData (created when the project is
-   built/archived — the `-build` flow produces it automatically).
+   built/archived - the `-build` flow produces it automatically).
 
 For **full auto (`-build`)** additionally:
 
@@ -37,7 +37,7 @@ For **full auto (`-build`)** additionally:
      --key /path/to/AuthKey_XXXXXXXXXX.p8 --key-id XXXXXXXXXX --issuer <issuer-uuid>
    ```
    If notarization fails with a credentials error, this profile is missing or
-   wrong — ask the user to re-run `store-credentials`.
+   wrong - ask the user to re-run `store-credentials`.
 
 ## The Release CLI
 
@@ -45,14 +45,14 @@ Source: `/Users/fayazahmed/Developer/fayazara/mac/Screendrop/cmd/screendrop-rele
 
 ### Flags
 
-- `-build` — run the archive → export → notarize → staple phase first.
-- `-set-version <x.y.z>` — set `MARKETING_VERSION` before archiving (and commit it). Used with `-build`.
-- `-set-build <n>` — set `CURRENT_PROJECT_VERSION` before archiving (and commit it). Used with `-build`.
-- `-scheme <name>` — Xcode scheme to archive (default `Screendrop`).
-- `-notes "<text>"` — release notes, one bullet per line (markdown `- ` prefixes are stripped). Skips the interactive prompt.
-- `-notes-file <path>` — read release notes from a file instead.
-- `-notary-profile <name>` — notarytool keychain profile (default `screendrop-notary`).
-- `-yes` / `-y` — assume "yes" for all confirmation prompts (non-interactive).
+- `-build` - run the archive → export → notarize → staple phase first.
+- `-set-version <x.y.z>` - set `MARKETING_VERSION` before archiving (and commit it). Used with `-build`.
+- `-set-build <n>` - set `CURRENT_PROJECT_VERSION` before archiving (and commit it). Used with `-build`.
+- `-scheme <name>` - Xcode scheme to archive (default `Screendrop`).
+- `-notes "<text>"` - release notes, one bullet per line (markdown `- ` prefixes are stripped). Skips the interactive prompt.
+- `-notes-file <path>` - read release notes from a file instead.
+- `-notary-profile <name>` - notarytool keychain profile (default `screendrop-notary`).
+- `-yes` / `-y` - assume "yes" for all confirmation prompts (non-interactive).
 
 ### Triggering a full release from here (recommended)
 
@@ -64,7 +64,7 @@ Source: `/Users/fayazahmed/Developer/fayazara/mac/Screendrop/cmd/screendrop-rele
      Screendrop.xcodeproj/project.pbxproj | sort -u
    ```
    Pick the next `MARKETING_VERSION` (use real dotted semver like `0.20.2`, never
-   regress — e.g. don't go `0.19` → `0.2`) and `CURRENT_PROJECT_VERSION` = current + 1.
+   regress - e.g. don't go `0.19` → `0.2`) and `CURRENT_PROJECT_VERSION` = current + 1.
 2. **Make sure code changes are committed and pushed** to `main` first, so the
    release tag points at the released source. (The CLI commits the version bump
    and pushes the appcast, but it does not push your other unrelated commits.)
@@ -76,7 +76,7 @@ Source: `/Users/fayazahmed/Developer/fayazara/mac/Screendrop/cmd/screendrop-rele
      -notes "First note
    Second note"
    ```
-   Notarization blocks for a few minutes — this is expected, not a hang. Use a
+   Notarization blocks for a few minutes - this is expected, not a hang. Use a
    generous tool timeout (~7 min).
 
 ### Package-only (app already exported by the user)
@@ -89,21 +89,21 @@ go run ./cmd/screendrop-release -yes -notes "Your notes here"
 ### What it does (in order)
 
 With `-build`:
-1. **Set version/build** (if `-set-version`/`-set-build` given) — edits pbxproj and commits.
-2. **Archive** — `xcodebuild archive` (scheme `Screendrop`, Release, `generic/platform=macOS`).
-3. **Export** — `xcodebuild -exportArchive` with a generated Developer ID `ExportOptions.plist`.
-4. **Notarize** — zips the app and runs `xcrun notarytool submit --wait`, verifying `status: Accepted`.
-5. **Staple** — `xcrun stapler staple`, then places the app at `~/Downloads/Screendrop.app`.
+1. **Set version/build** (if `-set-version`/`-set-build` given) - edits pbxproj and commits.
+2. **Archive** - `xcodebuild archive` (scheme `Screendrop`, Release, `generic/platform=macOS`).
+3. **Export** - `xcodebuild -exportArchive` with a generated Developer ID `ExportOptions.plist`.
+4. **Notarize** - zips the app and runs `xcrun notarytool submit --wait`, verifying `status: Accepted`.
+5. **Staple** - `xcrun stapler staple`, then places the app at `~/Downloads/Screendrop.app`.
 
 Then always:
 6. **Preflight checks** + **validate** the app's version/build and Sparkle keys.
 7. **Collect release notes** (from `-notes`/`-notes-file`, else stdin).
 8. **Create DMG** with `create-dmg` → `~/Downloads/Screendrop.dmg`.
 9. **Sign DMG** with Sparkle `sign_update` (EdDSA).
-10. **Push commits** — push any local commits (e.g. the version bump) to `main`.
-11. **GitHub release** — `gh release create vX.Y.Z` with the DMG attached.
-12. **Update + push appcast.xml** — prepend the new `<item>` (de-duping any entry for the same build), commit & push to `main`.
-13. **Homebrew cask** — regenerate and push the cask to `fayazara/homebrew-tap` (non-fatal).
+10. **Push commits** - push any local commits (e.g. the version bump) to `main`.
+11. **GitHub release** - `gh release create vX.Y.Z` with the DMG attached.
+12. **Update + push appcast.xml** - prepend the new `<item>` (de-duping any entry for the same build), commit & push to `main`.
+13. **Homebrew cask** - regenerate and push the cask to `fayazara/homebrew-tap` (non-fatal).
 
 **Ordering & robustness:** the release is created **before** the appcast is
 pushed, so a published appcast never points at a missing release. Network
@@ -136,12 +136,12 @@ afterward to sync your local `main`.
 
 ## Troubleshooting
 
-- **Partial failure / network error mid-release** — just re-run the exact same command. The pipeline is idempotent: an existing GitHub release gets the DMG re-uploaded, and the appcast entry for that build is replaced (not duplicated). Network calls already retry with backoff.
-- **notarytool credentials error** — the `screendrop-notary` keychain profile is missing/invalid; have the user re-run `store-credentials`.
-- **Notarization "Invalid"** — inspect with `xcrun notarytool log <submission-id> --keychain-profile screendrop-notary` (usually a signing/entitlements issue).
-- **`xcodebuild archive` fails** — the CLI prints the last ~40 lines and auto-sets `DEVELOPER_DIR` to Xcode; if it still fails, common causes are signing or a Dev-scheme/`LSUIElement` mismatch. Confirm scheme is `Screendrop` (not `Screendrop Dev`).
-- **Screendrop.app not found** (package-only mode) — the user must export from Xcode first, or use `-build`.
-- **sign_update not found** — build/archive the project once so DerivedData has the Sparkle artifacts.
-- **gh auth** — run `gh auth login`.
-- **Build already in appcast** — re-running is safe (the entry is replaced), but a *new* release still needs a higher build number; bump `-set-build`.
-- **Version regression** — never set `MARKETING_VERSION` lower (Sparkle compares by build number, but the display string should still read forward, e.g. `0.20.1`, not `0.2`).
+- **Partial failure / network error mid-release** - just re-run the exact same command. The pipeline is idempotent: an existing GitHub release gets the DMG re-uploaded, and the appcast entry for that build is replaced (not duplicated). Network calls already retry with backoff.
+- **notarytool credentials error** - the `screendrop-notary` keychain profile is missing/invalid; have the user re-run `store-credentials`.
+- **Notarization "Invalid"** - inspect with `xcrun notarytool log <submission-id> --keychain-profile screendrop-notary` (usually a signing/entitlements issue).
+- **`xcodebuild archive` fails** - the CLI prints the last ~40 lines and auto-sets `DEVELOPER_DIR` to Xcode; if it still fails, common causes are signing or a Dev-scheme/`LSUIElement` mismatch. Confirm scheme is `Screendrop` (not `Screendrop Dev`).
+- **Screendrop.app not found** (package-only mode) - the user must export from Xcode first, or use `-build`.
+- **sign_update not found** - build/archive the project once so DerivedData has the Sparkle artifacts.
+- **gh auth** - run `gh auth login`.
+- **Build already in appcast** - re-running is safe (the entry is replaced), but a *new* release still needs a higher build number; bump `-set-build`.
+- **Version regression** - never set `MARKETING_VERSION` lower (Sparkle compares by build number, but the display string should still read forward, e.g. `0.20.1`, not `0.2`).

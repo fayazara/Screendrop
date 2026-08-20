@@ -4,11 +4,11 @@
 //
 //  Captures keyboard shortcuts during recording as timestamped events on the
 //  host clock, mirroring PointerActivityRecorder. Nothing is drawn while
-//  recording — Studio decides later whether (and where) the captured chords
+//  recording - Studio decides later whether (and where) the captured chords
 //  appear in the preview and export.
 //
 //  Only special keys (Tab, Esc, arrows, F-keys, …) and modifier shortcuts
-//  (⌘C, ⌃⌥→, …) are recorded. Plain typing — including shifted letters —
+//  (⌘C, ⌃⌥→, …) are recorded. Plain typing - including shifted letters -
 //  never lands in the sidecar.
 //
 
@@ -210,7 +210,7 @@ final class RecordingKeystrokeRecorder {
             let changedFlags = currentFlags.symmetricDifference(lastModifierFlags)
             lastModifierFlags = currentFlags
 
-            // Caps Lock toggles in/out — record the toggle as its own event.
+            // Caps Lock toggles in/out - record the toggle as its own event.
             if changedFlags.contains(.capsLock) {
                 record(modifiers: [], key: "⇪", uptime: uptime)
             }

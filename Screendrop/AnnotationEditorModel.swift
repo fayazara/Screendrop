@@ -9,7 +9,7 @@ import SwiftUI
 
 /// The editor window's model.
 ///
-/// Annotations themselves live in `engine` — the ported drawing-app editor — which owns the
+/// Annotations themselves live in `engine` - the ported drawing-app editor - which owns the
 /// document, the selection and the pointer state machine. This type keeps the things that are
 /// Screendrop's rather than the engine's: the image being edited, the background recipe, crop, zoom
 /// and the inspector's current style.
@@ -71,8 +71,8 @@ final class AnnotationEditorModel {
     static let maxZoomPercent = 400
 
     /// While cropping, the image is fit with this much breathing room (in
-    /// points) on every side so the crop resize handles — which are centered on
-    /// the crop edges — never spill outside the interactive canvas bounds.
+    /// points) on every side so the crop resize handles - which are centered on
+    /// the crop edges - never spill outside the interactive canvas bounds.
     static let cropHandleMargin: CGFloat = 26
 
     // Text style defaults (applied to new text, updated when selecting existing text)

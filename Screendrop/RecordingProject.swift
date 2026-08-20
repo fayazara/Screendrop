@@ -5,8 +5,8 @@
 //  Per-project bookkeeping that lives beside the capture manifest: the name
 //  shown in the Projects browser, when the project was last committed with
 //  ⌘S, and when it was last opened (which orders the Recordings menu).
-//  Every field is optional so a package recorded before projects existed —
-//  or one whose sidecar was lost — still resolves to sensible defaults.
+//  Every field is optional so a package recorded before projects existed -
+//  or one whose sidecar was lost - still resolves to sensible defaults.
 //
 
 import Foundation

@@ -25,7 +25,7 @@ extension View {
 // MARK: - On Click Outside
 
 /// Fires when a mouse-down occurs outside the view's bounds within the same window.
-/// The click is not consumed — the target element still receives it.
+/// The click is not consumed - the target element still receives it.
 private struct OnClickOutsideModifier: ViewModifier {
     let enabled: Bool
     let action: () -> Void

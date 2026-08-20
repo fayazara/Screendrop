@@ -1,6 +1,6 @@
 # Screendrop
 
-> **Beta** — Screendrop is under active development. Expect rough edges and occasional breaking changes. Feedback and bug reports are welcome via [GitHub Issues](https://github.com/fayazara/Screendrop/issues).
+> **Beta** - Screendrop is under active development. Expect rough edges and occasional breaking changes. Feedback and bug reports are welcome via [GitHub Issues](https://github.com/fayazara/Screendrop/issues).
 <br />
 <p>
   <a href="https://github.com/fayazara/Screendrop/releases/latest/download/Screendrop.dmg">
@@ -283,7 +283,7 @@ Transcript cuts update the video timeline and captions together and remain undoa
 
 ### Export and Share
 
-Studio exports the complete composition—screen, camera, backgrounds, zooms, cursor, click effects, keystrokes, captions, edits, speed changes, and selected audio—in one render.
+Studio exports the complete composition-screen, camera, backgrounds, zooms, cursor, click effects, keystrokes, captions, edits, speed changes, and selected audio-in one render.
 
 You can choose quality, codec, resolution, and whether to include audio. Export and Share show progress, can be cancelled, and report completion. Renders are cached against the project state, so exporting or sharing the same edit again can reuse finished work.
 
@@ -341,7 +341,7 @@ Screendrop verifies the Worker URL and token before enabling uploads.
 1. Screendrop sends the file to the Worker with `PUT /api/upload`.
 2. The Worker validates the bearer token, streams the file to R2, and writes its metadata to D1.
 3. The Worker returns a share URL. Screendrop copies it and stores it in local History.
-4. For edited recordings, Screendrop uploads the rendered final cut—not the raw screen master.
+4. For edited recordings, Screendrop uploads the rendered final cut-not the raw screen master.
 5. Screendrop then adds best-effort video sidecars: a title, poster, transcript remapped to the edited timeline, and a storyboard sprite used for scrub previews.
 
 The share link works as soon as the main upload finishes and becomes richer as the sidecars arrive.

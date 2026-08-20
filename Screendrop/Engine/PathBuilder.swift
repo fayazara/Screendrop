@@ -1,7 +1,7 @@
 import CoreGraphics
 import Foundation
 
-/// Builds a path once and renders it either solid or in old-apps's "draw" style — two jittered
+/// Builds a path once and renders it either solid or in old-apps's "draw" style - two jittered
 /// passes with rounded corners, which is what makes a rectangle look hand-drawn.
 ///
 /// Ported from `packages/old-apps/src/lib/shapes/shared/PathBuilder.tsx`, keeping the parts that

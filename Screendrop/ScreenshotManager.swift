@@ -129,7 +129,7 @@ final class ScreenshotManager {
         }
 
         let trimmed = NotchBarTrimmer.trimmingEmptyMenuBar(image, displayID: displayID)
-        // Same reference back means nothing was trimmed — leave the file as-is.
+        // Same reference back means nothing was trimmed - leave the file as-is.
         guard trimmed !== image else { return }
 
         let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil)

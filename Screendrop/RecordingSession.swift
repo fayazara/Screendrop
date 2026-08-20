@@ -60,7 +60,7 @@ nonisolated struct RecordingSession: Sendable, Equatable {
 
     /// True once the project has been committed with an explicit save. Every
     /// package written by older builds has an `edit.json` from the previous
-    /// silent autosave, so those open as already-saved — no migration.
+    /// silent autosave, so those open as already-saved - no migration.
     var hasSavedProject: Bool {
         FileManager.default.fileExists(atPath: editDocumentURL.path)
     }
@@ -79,7 +79,7 @@ nonisolated struct RecordingSession: Sendable, Equatable {
 
     /// The flattened cache on disk, whichever container it was rendered into.
     /// Nil when the project has never been rendered. Probing every container
-    /// keeps an existing render valid after the export format is changed —
+    /// keeps an existing render valid after the export format is changed -
     /// switching the picker converts on save rather than forcing a re-render.
     var existingFinalURL: URL? {
         for container in VideoExportContainer.allCases {

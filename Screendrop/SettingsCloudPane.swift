@@ -201,11 +201,11 @@ struct CloudSettingsPane: View {
                     VStack(alignment: .leading, spacing: 14) {
                         SetupStepView(
                             number: 1,
-                            text: "Copy the upload token above — you'll paste it into Cloudflare in the next step."
+                            text: "Copy the upload token above - you'll paste it into Cloudflare in the next step."
                         )
                         SetupStepView(
                             number: 2,
-                            text: "Click \"Deploy to Cloudflare\". It clones the worker, provisions R2 + D1, and asks for the UPLOAD_TOKEN secret — paste the token you copied."
+                            text: "Click \"Deploy to Cloudflare\". It clones the worker, provisions R2 + D1, and asks for the UPLOAD_TOKEN secret - paste the token you copied."
                         )
                         SetupStepView(
                             number: 3,

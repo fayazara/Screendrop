@@ -9,7 +9,7 @@
 //  2. Worker streams the body directly to R2 via binding (no buffering)
 //  3. Worker creates the D1 metadata row, returns the shareable short URL
 //
-//  The user only needs a worker URL and upload token — no S3 credentials.
+//  The user only needs a worker URL and upload token - no S3 credentials.
 //
 
 import AppKit
@@ -63,7 +63,7 @@ final class CloudUploader: NSObject {
             throw CloudUploadError.notConfigured
         }
 
-        // The Dock mirrors the whole span — the deliverable render (when
+        // The Dock mirrors the whole span - the deliverable render (when
         // one is needed) plus the upload itself.
         let dockProgressID = DockExportProgressCoordinator.shared.start()
 
@@ -215,7 +215,7 @@ final class CloudUploader: NSObject {
 
     /// Deletes an upload from the cloud entirely: R2 files (main file, poster,
     /// transcript, storyboard) plus its D1 row and comments/likes/view events.
-    /// Irreversible — the share link 404s immediately after.
+    /// Irreversible - the share link 404s immediately after.
     func deleteFromCloud(uploadID: String) async throws {
         let creds = CloudCredentialStore.shared.snapshot()
         guard creds.isConfigured else {

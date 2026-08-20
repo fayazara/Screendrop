@@ -71,7 +71,7 @@ struct PreviewWindowView: View {
             // Both the stack and the peek tab stay mounted; collapsing/expanding
             // just slides them vertically (the window clips them at the bottom
             // edge). Keeping them mounted means the cards don't re-run their
-            // horizontal entrance slide on expand — the whole stack moves as one
+            // horizontal entrance slide on expand - the whole stack moves as one
             // along a single vertical axis, and the peek pill slides in as the
             // stack slides out.
             ZStack {
@@ -109,7 +109,7 @@ struct PreviewWindowView: View {
 
                 // Removals and insertions reflow the remaining cards; a card
                 // sliding under a stationary cursor fires hover mid-flight, so
-                // suppress hover actions until the reflow settles — same
+                // suppress hover actions until the reflow settles - same
                 // treatment as the collapse/expand transitions.
                 if !previewStack.isCollapsed {
                     scheduleTransitionReset()
@@ -198,7 +198,7 @@ struct PreviewWindowView: View {
                     },
                     onUpload: {
                         // This overlay card can auto-dismiss, so it isn't a
-                        // good popover anchor — use the remembered default
+                        // good popover anchor - use the remembered default
                         // instead of prompting per upload.
                         Task {
                             do {
@@ -244,7 +244,7 @@ struct PreviewWindowView: View {
         }
         // Report the whole column as one interactive region (rather than each
         // card) so the passthrough hosting view treats the inter-card gaps and
-        // edges as interactive too — otherwise the cursor flickers in and out of
+        // edges as interactive too - otherwise the cursor flickers in and out of
         // the hit area while moving across the stack and hover feels glitchy.
         // Only while expanded, so the off-screen stack doesn't capture clicks.
         .reportsInteractiveRect(active: !previewStack.isCollapsed && !previewStack.isExiting)
@@ -267,7 +267,7 @@ struct PreviewWindowView: View {
         .reportsInteractiveRect(active: previewStack.isCollapsed && !previewStack.isExiting)
     }
 
-    /// "1 Screenshot" / "3 Screenshots" — or "Captures" when the stack also
+    /// "1 Screenshot" / "3 Screenshots" - or "Captures" when the stack also
     /// holds recordings, so the label stays accurate.
     private var peekTitle: String {
         let count = previewStack.items.count

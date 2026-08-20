@@ -4,7 +4,7 @@ import SwiftUI
 /// The annotation layer: one `NSView` that draws every shape and the selection chrome.
 ///
 /// It is a pure renderer. Pointer input still arrives through `AnnotationCanvas`'s existing
-/// gesture, which already unprojects the camera transform and owns zoom and pan — so the engine
+/// gesture, which already unprojects the camera transform and owns zoom and pan - so the engine
 /// gets clean page-space points without this view having to re-implement any of that.
 ///
 /// Ported in spirit from the drawing-app's `UI/CanvasView.swift`, minus the parts that belong to
@@ -78,7 +78,7 @@ final class AnnoCanvasNSView: NSView {
         self.spotlightClip = spotlightClip
         self.imageFrame = imageFrame
         self.imageSize = imageSize
-        // The editor's camera has to track the layout even when no pointer event has fired —
+        // The editor's camera has to track the layout even when no pointer event has fired -
         // otherwise a window resize leaves the selection chrome drawing against a stale frame.
         editor.viewport = AnnoViewport(imageFrame: imageFrame, imageSize: imageSize)
 
@@ -192,7 +192,7 @@ final class AnnoCanvasNSView: NSView {
             context.stroke(rect)
         }
 
-        // While text is being typed the selection frame stays hidden — the text view is the only
+        // While text is being typed the selection frame stays hidden - the text view is the only
         // affordance.
         guard editor.editingTextId == nil, editor.tool == .select, !editor.selectedIds.isEmpty else { return }
 

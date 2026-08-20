@@ -36,7 +36,7 @@ struct RecordingSessionControls: View {
     }
 
     /// Starting and finishing are both moments where the transport can't
-    /// safely be driven — the capture graph is being wired up or torn down.
+    /// safely be driven - the capture graph is being wired up or torn down.
     private var isSettling: Bool {
         manager.state == .starting || manager.state == .finishing
     }
@@ -64,7 +64,7 @@ struct RecordingSessionControls: View {
                 id: .restart,
                 title: "Start over",
                 systemImage: "arrow.counterclockwise",
-                accessibility: "Restart — discard what's recorded and start again"
+                accessibility: "Restart - discard what's recorded and start again"
             ) {
                 manager.restartRecording()
             }
@@ -85,7 +85,7 @@ struct RecordingSessionControls: View {
                 id: .discard,
                 title: "Discard recording",
                 systemImage: "trash.fill",
-                accessibility: "Discard — delete this recording without saving"
+                accessibility: "Discard - delete this recording without saving"
             ) {
                 manager.deleteRecording()
             }

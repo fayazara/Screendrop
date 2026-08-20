@@ -71,8 +71,8 @@ final class CameraRecordingManager {
     /// Starts the capture session and shows the floating preview, without
     /// writing anything to disk yet. Call this as soon as the camera is
     /// enabled in the pre-record picker (or whenever it's re-shown with the
-    /// camera already on) so the sensor's exposure/white-balance ramp — the
-    /// visible fade-in macOS shows whenever a capture session starts cold —
+    /// camera already on) so the sensor's exposure/white-balance ramp - the
+    /// visible fade-in macOS shows whenever a capture session starts cold -
     /// finishes before "Start Recording", instead of showing up live and at
     /// the start of the recorded footage.
     @discardableResult
@@ -103,7 +103,7 @@ final class CameraRecordingManager {
         return true
     }
 
-    /// Tears down a warm preview that never turned into a recording — the
+    /// Tears down a warm preview that never turned into a recording - the
     /// camera was toggled off, or the pre-record picker was dismissed
     /// without starting. No-op while an actual recording is using the camera.
     func stopPreview() async {
@@ -115,10 +115,10 @@ final class CameraRecordingManager {
     }
 
     /// Starts writing camera frames to `outputURL`. Reuses an already-warm
-    /// preview session for the same device when one is running — so
-    /// recording never re-triggers the startup ramp — otherwise it starts a
+    /// preview session for the same device when one is running - so
+    /// recording never re-triggers the startup ramp - otherwise it starts a
     /// fresh session (e.g. a recording started without the picker bar).
-    /// Returns false (without throwing) when the camera can't start —
+    /// Returns false (without throwing) when the camera can't start -
     /// a missing device or denied permission should never abort the
     /// screen recording itself.
     func start(outputURL: URL, deviceID: String, displayID: CGDirectDisplayID?) async -> Bool {
@@ -245,7 +245,7 @@ nonisolated private final class CameraCaptureEngine: NSObject, AVCaptureVideoDat
     private var output: AVCaptureVideoDataOutput?
     private var activeDevice: AVCaptureDevice?
 
-    /// Starts the capture session only — no movie is written yet. Frames
+    /// Starts the capture session only - no movie is written yet. Frames
     /// reach `captureOutput` immediately (for the live preview layer), but
     /// `CameraMovieWriter.writeVideoSample` silently no-ops until
     /// `beginWriting` has run, since it has no asset writer to append to.
@@ -307,7 +307,7 @@ nonisolated private final class CameraCaptureEngine: NSObject, AVCaptureVideoDat
         await writer.cancel()
     }
 
-    /// Tears the session down without ever having written a movie — the
+    /// Tears the session down without ever having written a movie - the
     /// warm preview was toggled off or dismissed before recording began.
     func stopSessionOnly() async {
         await stopSession()
@@ -351,7 +351,7 @@ nonisolated private final class CameraCaptureEngine: NSObject, AVCaptureVideoDat
         session.addOutput(output)
         self.output = output
 
-        // Mirror the recorded video so it matches the on-screen preview —
+        // Mirror the recorded video so it matches the on-screen preview -
         // the FaceTime convention users expect from a talking-head bubble.
         if let connection = output.connection(with: .video), connection.isVideoMirroringSupported {
             connection.automaticallyAdjustsVideoMirroring = false

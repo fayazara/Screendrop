@@ -6,7 +6,7 @@
 //  brings the bar up at the bottom of the active screen; it picks the source
 //  (display / window / area) and toggles the capture inputs (camera,
 //  microphone, system audio) for the next recording, then hands off to
-//  CaptureCoordinator — at which point the same bar morphs into the in-session
+//  CaptureCoordinator - at which point the same bar morphs into the in-session
 //  controls (RecordingControlPresenter). Clicks and keystrokes are always
 //  logged to the session sidecar; whether they appear is decided later in
 //  Studio.
@@ -55,7 +55,7 @@ struct RecordingPickerControls: View {
                 id: .area,
                 title: "Drag to select a region",
                 systemImage: "rectangle.dashed",
-                accessibility: "Area — drag to select the region to record"
+                accessibility: "Area - drag to select the region to record"
             ) {
                 startAreaRecording()
             }
@@ -85,8 +85,8 @@ struct RecordingPickerControls: View {
                 onIcon: "speaker.wave.2.fill",
                 offIcon: "speaker.slash",
                 accessibility: systemAudio
-                    ? "System audio on — click to stop capturing what you hear"
-                    : "System audio off — click to capture what you hear"
+                    ? "System audio on - click to stop capturing what you hear"
+                    : "System audio off - click to capture what you hear"
             ) {
                 systemAudio.toggle()
             }
@@ -98,8 +98,8 @@ struct RecordingPickerControls: View {
                 onIcon: "text.pad.header",
                 offIcon: "text.pad.header",
                 accessibility: teleprompterEnabled
-                    ? "Teleprompter on — click to edit the script"
-                    : "Teleprompter off — click to write a script"
+                    ? "Teleprompter on - click to edit the script"
+                    : "Teleprompter off - click to write a script"
             ) {
                 TeleprompterComposerPresenter.shared.toggle()
             }
@@ -110,7 +110,7 @@ struct RecordingPickerControls: View {
                 id: .close,
                 title: "Close",
                 systemImage: "xmark",
-                accessibility: "Close the recorder — Esc"
+                accessibility: "Close the recorder - Esc"
             ) {
                 dismissPicker()
             }
@@ -143,13 +143,13 @@ struct RecordingPickerControls: View {
             .menuStyle(.button)
             .buttonStyle(BarButtonStyle())
             .menuIndicator(.hidden)
-            .accessibilityLabel("Display — choose which screen to record")
+            .accessibilityLabel("Display - choose which screen to record")
         } else {
             BarActionButton(
                 id: .display,
                 title: "Record the whole screen",
                 systemImage: "menubar.rectangle",
-                accessibility: "Display — record the whole screen"
+                accessibility: "Display - record the whole screen"
             ) {
                 guard let display = sources.displays.first else { return }
                 startRecording {
@@ -189,7 +189,7 @@ struct RecordingPickerControls: View {
         .menuStyle(.button)
         .buttonStyle(BarButtonStyle())
         .menuIndicator(.hidden)
-        .accessibilityLabel("Window — choose an app window to record")
+        .accessibilityLabel("Window - choose an app window to record")
     }
 
     private func startAreaRecording() {
@@ -232,16 +232,16 @@ struct RecordingPickerControls: View {
 
     private var cameraAccessibilityLabel: String {
         guard !cameraID.isEmpty else {
-            return "Camera off — click to record your camera, right-click to pick one"
+            return "Camera off - click to record your camera, right-click to pick one"
         }
         guard let camera = RecordingDeviceCatalog.cameras().first(where: { $0.uniqueID == cameraID }) else {
-            return "Camera unavailable — right-click to choose another camera"
+            return "Camera unavailable - right-click to choose another camera"
         }
-        return "Camera on — \(camera.localizedName), right-click to switch"
+        return "Camera on - \(camera.localizedName), right-click to switch"
     }
 
     /// The pill only has room for the state, so an attached-but-missing
-    /// device is worth calling out there — it's the one case where the icon
+    /// device is worth calling out there - it's the one case where the icon
     /// alone is misleading.
     private var microphoneTooltip: String {
         guard !microphoneID.isEmpty else { return "Microphone off" }
@@ -253,12 +253,12 @@ struct RecordingPickerControls: View {
 
     private var microphoneAccessibilityLabel: String {
         guard !microphoneID.isEmpty else {
-            return "Microphone off — click to choose an input"
+            return "Microphone off - click to choose an input"
         }
         guard let microphone = RecordingDeviceCatalog.microphone(withID: microphoneID) else {
-            return "Microphone unavailable — choose another input"
+            return "Microphone unavailable - choose another input"
         }
-        return "Microphone on — \(microphone.localizedName)"
+        return "Microphone on - \(microphone.localizedName)"
     }
 
     @ViewBuilder
@@ -350,7 +350,7 @@ struct RecordingPickerControls: View {
 
     private var timerAccessibilityLabel: String {
         startDelaySeconds == 0
-            ? "Timer off — click to add a countdown before recording starts"
+            ? "Timer off - click to add a countdown before recording starts"
             : "Timer: \(timerLabel(startDelaySeconds)) before recording starts"
     }
 
@@ -375,8 +375,8 @@ struct RecordingPickerControls: View {
     }
 
     /// Starts the camera session (and its floating preview) ahead of "Start
-    /// Recording", so its exposure/white-balance ramp — the fade-in macOS
-    /// shows whenever a capture session starts cold — finishes before
+    /// Recording", so its exposure/white-balance ramp - the fade-in macOS
+    /// shows whenever a capture session starts cold - finishes before
     /// anything is actually being recorded.
     private func warmCameraPreview() async {
         guard !cameraID.isEmpty else { return }
@@ -393,7 +393,7 @@ struct RecordingPickerControls: View {
 
     // MARK: Pieces
 
-    /// An input toggle is the same control as a source button — the "off"
+    /// An input toggle is the same control as a source button - the "off"
     /// state is carried by dimming the tint, not by shrinking the target.
     private func inputToggle(
         id: BarTooltipID,

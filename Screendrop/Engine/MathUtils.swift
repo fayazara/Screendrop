@@ -145,7 +145,7 @@ func makeRng(_ seed: String) -> () -> Double {
         z = w
         let shiftedW = Int32(bitPattern: UInt32(bitPattern: w) >> 19)
         let shiftedT = Int32(bitPattern: UInt32(bitPattern: t) >> 8)
-        // `w ^= ((w >>> 19) ^ t ^ (t >>> 8)) >>> 0` — the result of `^` in JS is signed 32-bit,
+        // `w ^= ((w >>> 19) ^ t ^ (t >>> 8)) >>> 0` - the result of `^` in JS is signed 32-bit,
         // so the division below can go negative, giving a range of roughly [-1, 1).
         w ^= shiftedW ^ t ^ shiftedT
         return (Double(w) / 0x1_0000_0000) * 2

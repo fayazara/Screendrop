@@ -86,7 +86,7 @@ enum AnnoShapeRenderer {
             stroke: nil,
             // Non-zero, not even-odd. OpenType contours are wound so that counters (the hole in an
             // "o") come out hollow under non-zero anyway, and even-odd additionally punches a hole
-            // wherever two glyphs overlap — which at bold weights is most of a sentence.
+            // wherever two glyphs overlap - which at bold weights is most of a sentence.
             usesEvenOddFill: false
         )]
     }

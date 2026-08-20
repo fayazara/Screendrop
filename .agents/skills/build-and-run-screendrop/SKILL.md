@@ -22,12 +22,12 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
 - If there is only one scheme, use it without asking.
 - If there is more than one scheme, ask the user which one to build/run
   (via AskUserQuestion) before proceeding, unless the user already named a
-  scheme in their request (e.g. "run the Dev scheme"). Don't assume — the
+  scheme in their request (e.g. "run the Dev scheme"). Don't assume - the
   schemes can point at different configurations, bundle IDs, and even
   different launch arguments (e.g. `Screendrop Demo` builds the same
   `Screendrop.app` as the plain scheme but launches it with `--demo-mode`).
 
-2. **Resolve build settings for the chosen scheme** — don't hardcode the
+2. **Resolve build settings for the chosen scheme** - don't hardcode the
    configuration or output path, since it varies per scheme:
 
 ```bash
@@ -57,7 +57,7 @@ help the user fix them. Do not proceed to run a broken build. If the output is
 empty or unclear, re-run without the grep filter to get full output for
 diagnosis.
 
-4. **Kill every running instance of the app, across all schemes** — not just
+4. **Kill every running instance of the app, across all schemes** - not just
    the one being launched. Different schemes can produce different
    executable names (`Screendrop`, `Screendrop Dev`), and leaving an old
    instance from another scheme running is confusing (duplicate menu bar
@@ -71,7 +71,7 @@ killall "Screendrop Dev" 2>/dev/null
 
 (It's fine if these error because that variant wasn't running. If a new
 scheme is added later with a different `EXECUTABLE_NAME`, add its `killall`
-line here too — check with `EXECUTABLE_NAME` from step 2.)
+line here too - check with `EXECUTABLE_NAME` from step 2.)
 
 5. **Run** the freshly built app using the path resolved in step 2:
 
@@ -97,8 +97,8 @@ open "<BUILT_PRODUCTS_DIR>/Screendrop.app" --args --demo-mode
 ## Notes
 
 - DerivedData paths are specific to this machine/checkout and can change
-  between clean builds — always resolve `BUILT_PRODUCTS_DIR` via
+  between clean builds - always resolve `BUILT_PRODUCTS_DIR` via
   `-showBuildSettings` (step 2) rather than assuming a fixed path.
 - `Screendrop Demo` and plain `Screendrop` share the same `Screendrop.app`
-  bundle and `Screendrop` executable name — they're only distinguished by the
+  bundle and `Screendrop` executable name - they're only distinguished by the
   `--demo-mode` launch argument, not by build output.

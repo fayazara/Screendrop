@@ -2,7 +2,7 @@ import Foundation
 
 /// The shape store: shapes in z-order (back to front), arrow bindings, and the derived geometry
 /// every other system reads. This plays the role of old-apps's `Editor` for the parts the ported
-/// engines need — `getShape`, `getShapeGeometry`, `getShapePageTransform`, `getShapePageBounds`.
+/// engines need - `getShape`, `getShapeGeometry`, `getShapePageTransform`, `getShapePageBounds`.
 final class AnnoDocument {
     private(set) var shapes: [AnnoShape] = []
     private(set) var bindings: [ArrowBinding] = []
@@ -100,7 +100,7 @@ final class AnnoDocument {
     /// Drop the derived state for specific shapes.
     ///
     /// An arrow's shape depends on whatever it's bound to, so moving a shape also invalidates the
-    /// arrows attached to it — but nothing else. Clearing every cache on every edit meant dragging
+    /// arrows attached to it - but nothing else. Clearing every cache on every edit meant dragging
     /// one shape recomputed the geometry of all the others.
     private func invalidate(_ ids: Set<AnnoShapeID>) {
         var stale = ids

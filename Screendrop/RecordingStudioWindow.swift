@@ -121,7 +121,7 @@ private struct RecordingStudioContent: View {
     /// says it in words for anyone who reads the title bar first.
     private var windowTitle: String {
         model.hasUnsavedChanges
-            ? "\(model.projectDisplayName) — Edited"
+            ? "\(model.projectDisplayName) - Edited"
             : model.projectDisplayName
     }
 
@@ -443,7 +443,7 @@ private struct StudioCanvas: View {
                         StudioCameraBubble(model: model, layout: layout)
                     }
 
-                    // Subtitle bar in canvas space — it can sit over the
+                    // Subtitle bar in canvas space - it can sit over the
                     // background below the card, not just over the video, so
                     // padded and portrait layouts keep their caption area.
                     if let subtitle = model.subtitleText(at: model.displayTime) {
@@ -477,7 +477,7 @@ private struct StudioCursorOverlay: View {
     let artwork: PointerArtwork?
     let state: ViewportFrame
     let cardSize: CGSize
-    /// The video's draw size at magnification 1 — equal to the card
+    /// The video's draw size at magnification 1 - equal to the card
     /// normally, larger when a reframe aspect-fills it.
     var contentSize: CGSize?
     let cursorScale: CGFloat
@@ -837,7 +837,7 @@ private struct StudioTranscriptEditPanel: View {
 /// paragraph: the chip's side padding doubles as the inter-word space
 /// (layout spacing is zero), which also makes a multi-word selection's
 /// highlight contiguous like real text selection. The font weight never
-/// changes with state — a width change would reflow the whole paragraph
+/// changes with state - a width change would reflow the whole paragraph
 /// on every playback tick. Kept to plain stored values so ticks only
 /// re-render the words whose state actually changed.
 private struct StudioTranscriptWordView: View {
@@ -1180,7 +1180,7 @@ private struct StudioTimelineEditor: View {
 
     /// The two lanes that carry real edit targets live in a horizontal scroll
     /// view sized to the zoomed timeline. The ruler, playhead and lane chrome
-    /// stay viewport-sized and redraw against `scrollX` instead — a rounded
+    /// stay viewport-sized and redraw against `scrollX` instead - a rounded
     /// rectangle or Canvas tens of thousands of points wide would be a single
     /// oversized layer, while an AppKit view only ever draws its visible rect.
     private func scrollingLanes(scale: StudioTimelineScale) -> some View {
@@ -1285,7 +1285,7 @@ private struct StudioTimelineEditor: View {
     }
 
     /// Keeps the zoom inside range after the viewport or the edited duration
-    /// changes — a cut or a wider window can leave the old scale past the cap.
+    /// changes - a cut or a wider window can leave the old scale past the cap.
     private func clampZoom() {
         let clamped = min(max(zoom, 1), scale.maxZoom)
         if abs(clamped - zoom) > 0.0001 {
@@ -1551,7 +1551,7 @@ private struct StudioTimelineScale: Equatable {
 }
 
 /// Full-height playhead with a grabbable crown pin in the lane above the
-/// ruler. The crown is the only hit target — everywhere else the overlay
+/// ruler. The crown is the only hit target - everywhere else the overlay
 /// passes clicks through to the tracks underneath.
 private struct StudioTimelinePlayhead: View {
     let time: TimeInterval
@@ -2065,7 +2065,7 @@ private struct StudioZoomCueBlock: View {
             }
             .contentShape(Rectangle())
             .gesture(
-                // Global coordinates — the handle itself moves while resizing,
+                // Global coordinates - the handle itself moves while resizing,
                 // so local-space translations feed back into the drag and jitter.
                 DragGesture(coordinateSpace: .global)
                     .onChanged { value in
@@ -2983,12 +2983,12 @@ private struct StudioInspector: View {
 
     /// The round trip around tools that clean up speech but offer no API:
     /// write the cut's soundtrack out, run it through the tool, bring the
-    /// result back in as the project's audio. Two buttons and a file chip —
+    /// result back in as the project's audio. Two buttons and a file chip -
     /// the explaining is left to tooltips.
     private var audioControls: some View {
         VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
             // A silent recording has nothing to send out, but it can still
-            // be given a soundtrack — so only the export half is withheld.
+            // be given a soundtrack - so only the export half is withheld.
             if model.hasAudio {
                 InspectorSegmented(
                     options: RecordingAudioFormat.allCases,
@@ -3109,8 +3109,8 @@ private struct StudioInspector: View {
                     .foregroundStyle(.orange)
                     .help(
                         drift > 0
-                            ? "Runs \(Self.spanText(drift)) longer than the cut — the tail is dropped"
-                            : "Runs \(Self.spanText(-drift)) shorter than the cut — the end plays silent"
+                            ? "Runs \(Self.spanText(drift)) longer than the cut - the tail is dropped"
+                            : "Runs \(Self.spanText(-drift)) shorter than the cut - the end plays silent"
                     )
             }
 

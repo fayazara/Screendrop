@@ -38,10 +38,10 @@ nonisolated enum ExportAspectPreset: String, Codable, CaseIterable, Sendable {
     var help: String {
         switch self {
         case .original: "Keep the recording's own aspect ratio"
-        case .wide16x9: "Landscape 16:9 — YouTube"
-        case .vertical9x16: "Vertical 9:16 — Shorts, Reels, TikTok"
+        case .wide16x9: "Landscape 16:9 - YouTube"
+        case .vertical9x16: "Vertical 9:16 - Shorts, Reels, TikTok"
         case .square: "Square 1:1"
-        case .portrait4x5: "Portrait 4:5 — feed posts"
+        case .portrait4x5: "Portrait 4:5 - feed posts"
         }
     }
 
@@ -136,7 +136,7 @@ nonisolated struct ReframeTrack: Sendable {
     /// Builds the reframe camera along the editor timeline.
     ///
     /// - Parameters:
-    ///   - focus: Normalized (0...1) point of interest at an editor time —
+    ///   - focus: Normalized (0...1) point of interest at an editor time -
     ///     the smoothed pointer when available; nil falls back to the zoom
     ///     anchor (which is the canvas center when unzoomed).
     static func build(

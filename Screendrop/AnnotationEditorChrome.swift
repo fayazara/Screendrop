@@ -93,7 +93,7 @@ struct LowResolutionPreviewNotice: View {
                     .frame(width: diameter, height: diameter)
 
                 if isExpanded {
-                    Text("Low-res preview to save memory — exports stay full quality")
+                    Text("Low-res preview to save memory - exports stay full quality")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -119,7 +119,7 @@ struct AnnotationEditorWorkspaceBackground: View {
 
     var body: some View {
         ZStack {
-            // A flat, fully desaturated gray rather than a system material —
+            // A flat, fully desaturated gray rather than a system material -
             // vibrancy materials pick up a bluish cast from the accent color
             // and whatever's behind the window, which reads as tinted rather
             // than neutral.

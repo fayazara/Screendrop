@@ -4,8 +4,8 @@
 //
 //  One floating bar, two modes. Before recording it picks the source and the
 //  capture inputs; during recording it drives the session. They share a
-//  single panel so the handoff is a morph — the bar's rounded rect animates
-//  to the new width while the controls cross-fade — rather than one window
+//  single panel so the handoff is a morph - the bar's rounded rect animates
+//  to the new width while the controls cross-fade - rather than one window
 //  vanishing and another appearing somewhere near it.
 //
 //  RecordingPickerPresenter and RecordingControlPresenter are the entry
@@ -89,7 +89,7 @@ final class RecordingBarPresenter {
 
     func hide() {
         // `orderOut` sends no exit events, so a hover that's live when the
-        // bar hides has to be ended by hand — it holds the pointing hand.
+        // bar hides has to be ended by hand - it holds the pointing hand.
         BarControlHoverView.endActiveHover()
         panel?.orderOut(nil)
         // The composer only makes sense floating above the bar.
@@ -133,7 +133,7 @@ final class RecordingBarPresenter {
         let size = CGSize(width: BarMetrics.panelWidth, height: BarMetrics.panelHeight)
         let origin = CGPoint(
             x: visibleFrame.midX - size.width / 2,
-            // Dropped by the bottom slack so the bar — not the panel — lands
+            // Dropped by the bottom slack so the bar - not the panel - lands
             // 48pt above the visible frame.
             y: visibleFrame.minY + 48 - BarMetrics.shadowSlack
         )
@@ -142,8 +142,8 @@ final class RecordingBarPresenter {
 
     /// The bar's hosting view is created once and just reordered in/out on
     /// every show/hide, so its SwiftUI `.task` never reruns after the first
-    /// appearance. Reading the camera preference here — on every real
-    /// `showPicker()` — is what makes a camera left on from a previous
+    /// appearance. Reading the camera preference here - on every real
+    /// `showPicker()` - is what makes a camera left on from a previous
     /// session warm up immediately instead of needing an off/on toggle.
     private func warmCameraPreviewIfEnabled() {
         let cameraID = ScreendropPreferences.recordingCameraDeviceID
@@ -167,8 +167,8 @@ final class RecordingBarPresenter {
         panel.isOpaque = false
         // Shadows are drawn in SwiftUI, not by AppKit. The window shadow is
         // derived from the window's alpha silhouette and recomputed lazily,
-        // so anything that fades or resizes inside the panel — the tooltip,
-        // the morph — leaves its shadow outline hanging for a frame or two
+        // so anything that fades or resizes inside the panel - the tooltip,
+        // the morph - leaves its shadow outline hanging for a frame or two
         // after the fill has moved on. The panel reserves slack on all four
         // sides so SwiftUI's shadows aren't clipped by the panel edge, which
         // was the original reason for using the AppKit one.
@@ -186,7 +186,7 @@ final class RecordingBarPresenter {
         // Nothing in the bar wants a cursor other than the pointing hand its
         // controls push. Left on, AppKit's own cursor rectangles reset the
         // pointer to an arrow on every mouse move the moment Screendrop is
-        // the active app — which it is whenever the picker is opened from
+        // the active app - which it is whenever the picker is opened from
         // inside the app.
         panel.disableCursorRects()
         panel.titleVisibility = .hidden
@@ -238,7 +238,7 @@ private final class RecordingBarHostingView<Content: View>: NSHostingView<Conten
         false
     }
 
-    /// The panel is much larger than the bar — fixed size, so a morph never
+    /// The panel is much larger than the bar - fixed size, so a morph never
     /// resizes the window, plus slack for tooltips and shadows. AppKit
     /// hit-tests by view bounds, not alpha, so without this all that empty
     /// space would silently swallow clicks meant for whatever is behind it.
@@ -261,7 +261,7 @@ private struct RecordingBarView: View {
     var body: some View {
         bar
             // The panel is a fixed size both modes sit inside, so a morph only
-            // ever changes the bar's own width — never the window's. The bar
+            // ever changes the bar's own width - never the window's. The bar
             // sits at the bottom: the slack above it is the tooltip's room,
             // the slack below is the shadow's.
             .padding(.bottom, BarMetrics.shadowSlack)
@@ -296,7 +296,7 @@ private struct RecordingBarView: View {
         .coordinateSpace(.named(BarCoordinateSpace.bar))
         .overlay(tooltipLayer)
         // What the hosting view hit-tests against and what satellite windows
-        // anchor to — the bar, not the panel it floats in.
+        // anchor to - the bar, not the panel it floats in.
         .onGeometryChange(for: CGRect.self) {
             $0.frame(in: .named(BarCoordinateSpace.panel))
         } action: {
@@ -305,7 +305,7 @@ private struct RecordingBarView: View {
     }
 
     /// Positioned off the hovered control's measured frame rather than a
-    /// hardcoded index, so it keeps tracking when the bar's contents change —
+    /// hardcoded index, so it keeps tracking when the bar's contents change -
     /// a mode swap, or the display picker becoming a menu on a second monitor.
     private var tooltipLayer: some View {
         GeometryReader { _ in

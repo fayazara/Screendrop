@@ -2,7 +2,7 @@
 //  RecordingBarChrome.swift
 //  Screendrop
 //
-//  Shared chrome for the floating recording bar — its geometry, its tooltip
+//  Shared chrome for the floating recording bar - its geometry, its tooltip
 //  system and the control style both of its modes are built from. The
 //  pre-record picker and the in-session controls are the same bar with
 //  different contents, not two bars that resemble each other, which is what
@@ -27,7 +27,7 @@ enum BarMetrics {
     static let shadowSlack: CGFloat = 28
 
     /// The panel is a fixed size that both modes sit centred inside, so
-    /// morphing between them never resizes the window — only the bar's own
+    /// morphing between them never resizes the window - only the bar's own
     /// rounded rect animates. Wide enough for the widest mode plus the room a
     /// tooltip needs beyond the end controls.
     static let panelWidth: CGFloat = 760
@@ -39,23 +39,23 @@ enum BarMetrics {
     /// They're all AppKit label colours rather than SwiftUI's `.primary` and
     /// friends. Hierarchical styles also resolve against the *control* active
     /// state, and this bar lives in a `.nonactivatingPanel` that never becomes
-    /// key — so `.primary` renders dimmed to near-invisible inside a `Button`
+    /// key - so `.primary` renders dimmed to near-invisible inside a `Button`
     /// while a `Menu` label right beside it stays full strength. These invert
     /// with the appearance and nothing else.
     static let activeTint = Color(nsColor: .labelColor)
-    /// A control that's off is dimmed, never shrunk — the target stays the
+    /// A control that's off is dimmed, never shrunk - the target stays the
     /// same size whichever state it's in.
     static let inactiveTint = Color(nsColor: .labelColor).opacity(0.4)
     static let stroke = Color(nsColor: .separatorColor)
     /// A hairline to define the pill's edge against a background of the same
-    /// brightness — grey in light mode, white in dark, and faint in both.
+    /// brightness - grey in light mode, white in dark, and faint in both.
     static let edge = Color(nsColor: .labelColor).opacity(0.12)
     /// Stop and the recording dot. The system red so it stays legible
     /// whichever variant the glass is in.
     static let recordTint = Color(nsColor: .systemRed)
 
     /// The puck that appears behind an icon on hover. Faint enough to read as
-    /// the pointer resting on a target rather than as a second control state —
+    /// the pointer resting on a target rather than as a second control state -
     /// the toggles already use tint for on/off.
     static let hoverFill = Color(nsColor: .labelColor).opacity(0.11)
     static let hoverDiameter: CGFloat = 32
@@ -80,14 +80,14 @@ enum BarTooltip {
     static let reservedHeight: CGFloat = gap + pillHeight + 16
 
     static let showDelay = Duration.milliseconds(160)
-    /// How long after leaving a control the bar stays "warm" — hover another
+    /// How long after leaving a control the bar stays "warm" - hover another
     /// control inside this window and its tooltip appears with no delay.
     static let warmWindow = Duration.milliseconds(500)
 }
 
 /// Stable identity per control, so the pill can glide between controls
 /// instead of cross-fading in place. It has to survive the control's own
-/// label changing — Pause becomes Resume without becoming a different
+/// label changing - Pause becomes Resume without becoming a different
 /// control.
 enum BarTooltipID: String {
     case display
@@ -196,11 +196,11 @@ struct BarTooltipPill: View {
 /// by `BarActionButton` everywhere else.
 ///
 /// It owns the hover puck and the tooltip because every control in the bar is
-/// one of these — including the ones that are only a `Menu`'s label, which a
+/// one of these - including the ones that are only a `Menu`'s label, which a
 /// wrapper around the button couldn't reach.
 struct BarActionLabel: View {
     let id: BarTooltipID
-    /// What the tooltip says. Short — the long form goes on `accessibility`.
+    /// What the tooltip says. Short - the long form goes on `accessibility`.
     let title: String
     let systemImage: String
     var tint: Color = BarMetrics.activeTint
@@ -215,7 +215,7 @@ struct BarActionLabel: View {
             .font(.system(size: 17, weight: .regular))
             .foregroundStyle(tint.opacity(isEnabled ? 1 : 0.3))
             .frame(width: BarMetrics.controlSize, height: BarMetrics.controlSize)
-            // As a background so the puck never takes part in layout — it's
+            // As a background so the puck never takes part in layout - it's
             // wider than the icon and would otherwise spread the bar.
             .background {
                 Circle()
@@ -231,7 +231,7 @@ struct BarActionLabel: View {
             // One of two cursor paths, for the two states the bar lives in.
             // While Screendrop is the active app the system's pointer-style
             // engine owns the cursor and enforces the declared style against
-            // any NSCursor.set — so the style has to be declared. It resolves
+            // any NSCursor.set - so the style has to be declared. It resolves
             // against the key window, which is why the presenter makes the
             // panel key when showing it. While Screendrop is inactive the
             // engine doesn't consult it at all and BarControlHover's NSCursor
@@ -273,7 +273,7 @@ struct BarActionLabel: View {
 ///
 /// `.plain` isn't neutral on macOS: it still fades its content for the
 /// inactive control state, and this bar lives in a `.nonactivatingPanel` that
-/// never becomes key — so every button reads as permanently disabled no matter
+/// never becomes key - so every button reads as permanently disabled no matter
 /// what colour it's given. Owning `makeBody` opts out of that, and buys a real
 /// press state on the way past.
 struct BarButtonStyle: ButtonStyle {
@@ -288,7 +288,7 @@ struct BarActionButton: View {
     let title: String
     let systemImage: String
     var tint: Color = BarMetrics.activeTint
-    /// Only worth setting where the tooltip leaves something out — the device
+    /// Only worth setting where the tooltip leaves something out - the device
     /// a control is bound to, what a destructive action destroys.
     var accessibility: String?
     let action: () -> Void
@@ -327,11 +327,11 @@ enum BarCoordinateSpace {
 
 /// The single source of hover for a bar control: one of these sits behind
 /// every `BarActionLabel`, and the cursor, the puck and the tooltip are all
-/// driven from it — a control that renders at all gets all three.
+/// driven from it - a control that renders at all gets all three.
 ///
 /// It's an AppKit tracking area rather than `.onHover`/`.pointerStyle`
 /// because those resolve against the active app and the key window, and this
-/// bar floats in a `.nonactivatingPanel` over whatever is being recorded — it
+/// bar floats in a `.nonactivatingPanel` over whatever is being recorded - it
 /// is usually neither. A tracking area marked `.activeAlways` is delivered
 /// in both states.
 struct BarControlHover: NSViewRepresentable {
@@ -382,7 +382,7 @@ final class BarControlHoverView: NSView {
         handOwner?.endHover()
     }
 
-    /// Purely an observer — the click belongs to the SwiftUI control this
+    /// Purely an observer - the click belongs to the SwiftUI control this
     /// sits behind.
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
@@ -439,8 +439,8 @@ final class BarControlHoverView: NSView {
     }
 
     /// The set is deferred one turn of the run loop on purpose. Everything
-    /// that fights for the cursor — AppKit's cursor-rect management while the
-    /// app is active, the hosting view's own tracking — reasserts the arrow
+    /// that fights for the cursor - AppKit's cursor-rect management while the
+    /// app is active, the hosting view's own tracking - reasserts the arrow
     /// *during* the event's dispatch, so a cursor set inline is overwritten
     /// before the user sees it. One set after the turn outlives them all, and
     /// it's re-run on every subsequent move.
@@ -453,7 +453,7 @@ final class BarControlHoverView: NSView {
     }
 
     /// Restores the arrow only if no other control claimed the hand in the
-    /// same turn — sliding along the bar exits one control and enters the
+    /// same turn - sliding along the bar exits one control and enters the
     /// next, and the arrow must not blink in between.
     private func releaseHand() {
         guard Self.handOwner === self else { return }

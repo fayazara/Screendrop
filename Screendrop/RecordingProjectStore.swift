@@ -3,7 +3,7 @@
 //  Screendrop
 //
 //  The Projects browser's model. Recording packages on disk are the source
-//  of truth — not history.json — so a project whose History row was deleted
+//  of truth - not history.json - so a project whose History row was deleted
 //  is still reachable, and a package deleted in Finder disappears here.
 //
 

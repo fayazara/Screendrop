@@ -7,7 +7,7 @@ import Foundation
 /// Draws a document's shapes into a `CGContext`.
 ///
 /// The canvas and the exporter both come through here, differing only in the transform they pass
-/// and the resolution of the screenshot they hand over — which is what makes the preview a true
+/// and the resolution of the screenshot they hand over - which is what makes the preview a true
 /// reduction of the export rather than a second implementation that happens to agree.
 ///
 /// Three passes, in this order:

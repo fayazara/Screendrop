@@ -11,8 +11,8 @@
 //  These types are deliberately `nonisolated`: AppIntents' static metadata
 //  (title, description, the shortcuts list) must be readable without a
 //  MainActor hop, since the framework can index it from a background
-//  context. Only `perform()` — which touches the app's MainActor-isolated
-//  capture/recording state — is annotated `@MainActor`.
+//  context. Only `perform()` - which touches the app's MainActor-isolated
+//  capture/recording state - is annotated `@MainActor`.
 //
 
 import AppIntents

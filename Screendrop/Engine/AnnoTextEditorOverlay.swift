@@ -17,7 +17,7 @@ final class AnnoTextEditorOverlay: NSTextView {
     var editedShapeId: AnnoShapeID? { shapeId }
 
     /// `NSTextView.init(frame:)` is a convenience initializer that builds the text network and then
-    /// routes through this designated one, so a subclass has to implement it — otherwise the
+    /// routes through this designated one, so a subclass has to implement it - otherwise the
     /// runtime traps on an unimplemented initializer.
     override init(frame frameRect: NSRect, textContainer container: NSTextContainer?) {
         super.init(frame: frameRect, textContainer: container)
@@ -105,7 +105,7 @@ final class AnnoTextEditorOverlay: NSTextView {
 
         if props.autoSize, let container = textContainer, let layoutManager {
             // Auto-sizing text must never wrap. Sizing the container from the shape's measured
-            // width wraps the moment a keystroke outgrows it — the shape only re-measures *after*
+            // width wraps the moment a keystroke outgrows it - the shape only re-measures *after*
             // the text view has already laid out. Worse, the shape is measured at the page font
             // size while the overlay lays out at `fontSize * zoom`, and those don't scale exactly.
             //
@@ -125,7 +125,7 @@ final class AnnoTextEditorOverlay: NSTextView {
 
         frameRotation = 0
         frame = CGRect(x: origin.x, y: origin.y, width: width, height: height)
-        // The canvas is flipped, so a positive rotation reads clockwise on screen — the same
+        // The canvas is flipped, so a positive rotation reads clockwise on screen - the same
         // direction a positive `shape.rotation` turns the drawn shape.
         frameRotation = shape.rotation * 180 / .pi
     }
@@ -140,7 +140,7 @@ final class AnnoTextEditorOverlay: NSTextView {
 
     /// Draw the caret's text the way the canvas draws committed text: plain antialiasing, no font
     /// smoothing. AppKit stem-darkens light text on a dark background, which made type look
-    /// noticeably heavier while editing than it did the moment it committed — and heavier than the
+    /// noticeably heavier while editing than it did the moment it committed - and heavier than the
     /// exported PNG, which is the side that has to be right.
     override func draw(_ dirtyRect: NSRect) {
         NSGraphicsContext.current?.cgContext.setShouldSmoothFonts(false)

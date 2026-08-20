@@ -20,7 +20,7 @@ final class CaptureCountdownPresenter {
 
     /// Runs the countdown if `seconds` is positive, otherwise returns
     /// immediately. Shared by screenshots (`captureDelaySeconds`) and
-    /// recordings (`recordingStartDelaySeconds`) — callers pass whichever
+    /// recordings (`recordingStartDelaySeconds`) - callers pass whichever
     /// preference applies.
     func runIfNeeded(seconds: Int, displayID: CGDirectDisplayID?) async {
         guard seconds > 0 else { return }

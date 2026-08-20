@@ -14,7 +14,7 @@ struct CloudUploadOptions: Sendable {
     var socialEnabled: Bool
 
     /// `nil` title means "let the worker fall back to the filename (or,
-    /// for recordings, the auto-generated 'Screen Recording — …' title)".
+    /// for recordings, the auto-generated 'Screen Recording - …' title)".
     var trimmedTitleOrNil: String? {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed

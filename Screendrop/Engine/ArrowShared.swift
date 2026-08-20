@@ -58,7 +58,7 @@ enum ArrowShared {
         guard let boundShape = document.shape(binding.toId) else { return Vec(0, 0) }
         let bounds = document.geometry(boundShape).bounds
         // An imprecise binding aims at the shape's center. Shapes that contain each other, or an
-        // arrow bound to the same shape twice, force the precise anchor instead — a center-to-center
+        // arrow bound to the same shape twice, force the precise anchor instead - a center-to-center
         // arrow would be degenerate in those cases.
         let shouldUsePreciseAnchor = binding.isPrecise || forcePrecise
         let normalizedAnchor = shouldUsePreciseAnchor
@@ -100,7 +100,7 @@ enum ArrowShared {
         return (start, end)
     }
 
-    /// How the two bound shapes relate. Offsets and precise anchors only apply when it's "safe" —
+    /// How the two bound shapes relate. Offsets and precise anchors only apply when it's "safe" -
     /// when the shapes aren't the same shape, and neither contains the other.
     static func boundShapeRelationship(_ document: AnnoDocument, _ startShapeId: AnnoShapeID?, _ endShapeId: AnnoShapeID?) -> Relationship {
         guard let startShapeId, let endShapeId else { return .safe }

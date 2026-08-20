@@ -84,12 +84,12 @@ nonisolated enum CloudSidecarUploader {
 
     // MARK: - Title
 
-    /// "Screen Recording — Jul 17 at 9:46 PM": what the share page shows
+    /// "Screen Recording - Jul 17 at 9:46 PM": what the share page shows
     /// instead of a timestamped filename.
     private static func defaultTitle(for date: Date) -> String {
         let formatter = DateFormatter()
         formatter.dateFormat = "MMM d 'at' h:mm a"
-        return "Screen Recording — \(formatter.string(from: date))"
+        return "Screen Recording - \(formatter.string(from: date))"
     }
 
     // MARK: - Poster
@@ -242,7 +242,7 @@ nonisolated enum CloudSidecarUploader {
     ) -> CloudTranscriptPayload? {
         let session = RecordingSession(directoryURL: sessionDirectory)
         // The upload was rendered from what the editor currently shows, so
-        // the transcript has to come from the same document — the draft when
+        // the transcript has to come from the same document - the draft when
         // there is one, not the last saved state.
         guard let document = session.effectiveEditDocument(),
               let cues = document.subtitleCues, !cues.isEmpty else {

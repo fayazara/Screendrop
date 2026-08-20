@@ -5,7 +5,7 @@
 //  Glue between the recording lifecycle and the teleprompter: decides
 //  whether a starting recording gets the overlay, owns the live speech
 //  engine for the session, and tears both down on every finish path.
-//  The engine is optional — no microphone means the script still shows,
+//  The engine is optional - no microphone means the script still shows,
 //  it just doesn't auto-advance.
 //
 

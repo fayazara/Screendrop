@@ -112,7 +112,7 @@ enum VideoFileActions {
     /// Copies when the source already matches the destination container, and
     /// otherwise rewrites it. A file extension is a claim about the bytes, so
     /// renaming a QuickTime master to `.mp4` would produce a file some players
-    /// reject — the remux is what makes the rename honest. Matching containers
+    /// reject - the remux is what makes the rename honest. Matching containers
     /// take the copy path, which on APFS is a clone rather than a byte copy.
     static func save(from sourceURL: URL, to destinationURL: URL) async throws {
         if FileManager.default.fileExists(atPath: destinationURL.path) {

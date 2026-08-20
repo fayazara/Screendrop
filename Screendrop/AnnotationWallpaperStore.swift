@@ -186,7 +186,7 @@ final class AnnotationWallpaperStore {
 
         // This function is `nonisolated`, so the synchronous extraction and
         // large-file moves below run on the global executor rather than the
-        // main actor — the UI never stalls while `ditto` unpacks the archive.
+        // main actor - the UI never stalls while `ditto` unpacks the archive.
         try installDownloadedArchive(
             downloadedURL: downloadedURL,
             wallpapersDirectory: wallpapersDirectory,

@@ -80,7 +80,7 @@ enum TextMeasure {
                 Swift.max(1, opticalSize ?? props.fontSize),
             // Re-assert the weight. SF is a variable font, and a descriptor round trip through a
             // design or an optical size can re-resolve it from the family and drop the `wght`
-            // variation that `systemFont(ofSize:weight:)` applied — silently leaving Regular.
+            // variation that `systemFont(ofSize:weight:)` applied - silently leaving Regular.
             .traits: [NSFontDescriptor.TraitKey.weight: weight.rawValue],
         ])
         return NSFont(descriptor: descriptor, size: size) ?? base

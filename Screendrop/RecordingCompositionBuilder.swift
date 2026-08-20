@@ -80,7 +80,7 @@ nonisolated enum RecordingCompositionBuilder {
         }
 
         // The import is already the finished cut's soundtrack, so it lies
-        // flat from zero rather than being re-cut through the clip list —
+        // flat from zero rather than being re-cut through the clip list -
         // and is clipped to whatever the timeline still holds.
         let audioLength = min(replacementAudio.duration, insertionTime.seconds)
         if audioLength > 0,

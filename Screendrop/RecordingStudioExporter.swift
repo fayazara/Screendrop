@@ -9,7 +9,7 @@
 //  are mixed and passed through on the unchanged timeline, unless the
 //  project imported a soundtrack to replace them.
 //
-//  Everything static — the background fill and the card shadow — is
+//  Everything static - the background fill and the card shadow - is
 //  rendered once into a backdrop image; per frame the work is one backdrop
 //  blit plus the clipped video draws.
 //
@@ -24,7 +24,7 @@ import SwiftUI
 
 nonisolated final class RecordingStudioExporter: @unchecked Sendable {
     /// Fixed output cadence for both the writer's frame clock and the
-    /// compositor's motion-blur shutter — kept as one constant so they can
+    /// compositor's motion-blur shutter - kept as one constant so they can
     /// never drift apart.
     private static let outputFrameRate: Double = 60
 
@@ -235,8 +235,8 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
         let writer = try AVAssetWriter(outputURL: outputURL, fileType: container.fileType)
         // Faststart puts the index ahead of the media so a shared link plays
         // before it finishes downloading. The writer pays for that with an
-        // extra pass at the end, so only MP4 — the container people actually
-        // stream — opts in.
+        // extra pass at the end, so only MP4 - the container people actually
+        // stream - opts in.
         writer.shouldOptimizeForNetworkUse = container.supportsFastStart
 
         let codec: AVVideoCodecType = configuration.exportSettings.codec == .hevc ? .hevc : .h264
@@ -364,7 +364,7 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
     ) async throws {
         // Render on a fixed output clock, not per source frame. Screen
         // captures only contain frames where pixels changed, so a static
-        // screen has second-long gaps — but the virtual camera animates
+        // screen has second-long gaps - but the virtual camera animates
         // through them (most zoom-outs happen exactly there, seconds after
         // the last click). Each tick re-renders the newest source frame at
         // or before it; only writing on source arrivals would hold the last
@@ -393,7 +393,7 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
 
             if previousClipID != location.segmentID {
                 // Never carry a sparse screen-capture frame across a hard
-                // edit boundary — the reader may not have caught up yet to
+                // edit boundary - the reader may not have caught up yet to
                 // the new clip's starting source position.
                 if previousClipID != nil {
                     currentBuffer = nil
@@ -593,7 +593,7 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
     private let backdrop: CGImage?
     /// Fixed output cadence, matching `pumpVideo`'s frame clock. Since the
     /// output timeline is gapless by construction, the shutter window for
-    /// motion-blur supersampling is always exactly one output frame — no
+    /// motion-blur supersampling is always exactly one output frame - no
     /// need to measure elapsed time between calls.
     private let outputFrameInterval: TimeInterval
 
@@ -684,7 +684,7 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
             // frame's shutter interval. Pans smear linearly, zooms radially,
             // and settled frames pay for a single draw. The viewport timeline
             // runs on the gapless output clock, so the shutter is always
-            // exactly one output frame — no per-call time tracking needed.
+            // exactly one output frame - no per-call time tracking needed.
             let shutter = outputFrameInterval
             let sampleCount = blurSampleCount(at: editorTime, shutter: shutter)
 
@@ -711,7 +711,7 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
         // source pixels.
         drawPointer(editorTime: editorTime, in: context)
 
-        // The keystroke caption stays in card space — pinned to its edge and
+        // The keystroke caption stays in card space - pinned to its edge and
         // unaffected by the zoom transform, like a broadcast lower third.
         drawKeystrokeCaption(at: sourceTime, in: context)
 
@@ -758,8 +758,8 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
             context.restoreGState()
         }
 
-        // The subtitle bar lives in canvas space — over the background too,
-        // not just the card — and above everything else, camera included.
+        // The subtitle bar lives in canvas space - over the background too,
+        // not just the card - and above everything else, camera included.
         drawSubtitleBar(at: sourceTime, in: context)
     }
 

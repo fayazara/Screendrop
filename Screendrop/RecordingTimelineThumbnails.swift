@@ -38,14 +38,14 @@ final class RecordingTimelineThumbnailStore {
     /// Tile layout for the lane: tiles cover `spacing` of source time each and
     /// start at `index * spacing` in absolute source time, never at the clip's
     /// edge. Anchoring to time rather than to a pixel width is what lets a lane
-    /// that is being pinched keep the same tiles — they widen with the zoom and
+    /// that is being pinched keep the same tiles - they widen with the zoom and
     /// only subdivide when the detail level actually changes.
     nonisolated struct Grid: Equatable, Sendable {
         var level: Int
         var spacing: TimeInterval
     }
 
-    /// Tiles across the whole recording at the coarsest level — the overview
+    /// Tiles across the whole recording at the coarsest level - the overview
     /// strip a fitted timeline shows.
     private static let baseTileCount = 32
     /// Finest spacing worth sampling; below this neighboring tiles would be
@@ -100,7 +100,7 @@ final class RecordingTimelineThumbnailStore {
     }
 
     /// Tile grid for tiles that should each cover at least `targetSpan` of
-    /// source time — normally "one thumbnail's width of the lane".
+    /// source time - normally "one thumbnail's width of the lane".
     func grid(forTargetSpan targetSpan: TimeInterval) -> Grid {
         guard duration > 0, targetSpan > 0, baseSpacing > 0 else {
             return Grid(level: 0, spacing: max(baseSpacing, 0))
@@ -181,7 +181,7 @@ final class RecordingTimelineThumbnailStore {
         baseSpacing / pow(2, Double(level))
     }
 
-    /// Coarsest level whose tiles are still wide enough to hold a thumbnail —
+    /// Coarsest level whose tiles are still wide enough to hold a thumbnail -
     /// its spacing lands in `[targetSpan, 2 * targetSpan)`. Tiles are one level
     /// tile each, so every tile is a distinct frame without oversampling.
     private func level(forSpacing targetSpan: TimeInterval) -> Int {

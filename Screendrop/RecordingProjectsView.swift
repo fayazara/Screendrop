@@ -3,7 +3,7 @@
 //  Screendrop
 //
 //  Every screen recording Screendrop has kept, as reopenable projects. This
-//  is the way back into an edit — History lists captures and previews them,
+//  is the way back into an edit - History lists captures and previews them,
 //  this lists projects and opens them in Studio.
 //
 
@@ -75,7 +75,7 @@ struct RecordingProjectsView: View {
     }
 
     /// The window is hosted by AppKit, so the chrome lives in the view rather
-    /// than in a scene toolbar — the same shape History uses.
+    /// than in a scene toolbar - the same shape History uses.
     private var header: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {

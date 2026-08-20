@@ -387,7 +387,7 @@ struct AnnotationEditorWindow: View {
     /// is nothing to persist.
     ///
     /// This is the only thing that puts annotations on disk, so every route
-    /// out of the editor — Done, Save, Upload, the close prompt — goes
+    /// out of the editor - Done, Save, Upload, the close prompt - goes
     /// through it.
     @discardableResult
     private func commitEdits() async throws -> URL? {

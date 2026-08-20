@@ -49,7 +49,7 @@ enum InspectorMetrics {
 enum InspectorControlPalette {
     /// The opaque surface every fill below is tuned against. Track and
     /// selection fills sit at 4–10% opacity, so they only read as a control
-    /// when something solid is behind them — over a popover's vibrancy they
+    /// when something solid is behind them - over a popover's vibrancy they
     /// wash out to nothing. Any presentation hosting these controls has to
     /// paint this itself.
     static func panelBackground(for colorScheme: ColorScheme) -> Color {
@@ -84,7 +84,7 @@ extension Font {
 
 // MARK: - Field chrome
 
-/// The uniform "field" background — a subtly filled, hairline-stroked rounded
+/// The uniform "field" background - a subtly filled, hairline-stroked rounded
 /// rectangle at the standard control height. Used by every input affordance so
 /// menus, steppers and pickers share one silhouette.
 private struct InspectorFieldChrome: ViewModifier {
@@ -259,7 +259,7 @@ extension InspectorDisclosureSection where Accessory == EmptyView {
 }
 
 /// A small, restrained "clear" affordance for a section header's accessory
-/// slot — an X that reads as an action without competing with the title.
+/// slot - an X that reads as an action without competing with the title.
 struct InspectorClearButton: View {
     let help: String
     let action: () -> Void

@@ -106,7 +106,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Files handed to us via Finder's "Open With" (or `open -a Screendrop`)
     /// before `onOpenFiles` is wired up, e.g. a cold launch where SwiftUI's
-    /// scene body — and therefore the `openWindow` closure — hasn't run yet.
+    /// scene body - and therefore the `openWindow` closure - hasn't run yet.
     private var pendingOpenURLs: [URL] = []
     var onOpenFiles: (([URL]) -> Void)? {
         didSet {
@@ -119,7 +119,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// The notification delegate has to be in place *before* launch
     /// finishes, or the system handles clicks on export notifications
-    /// itself — activating the app and never calling us back to reveal the
+    /// itself - activating the app and never calling us back to reveal the
     /// file. `applicationDidFinishLaunching` is already too late.
     func applicationWillFinishLaunching(_ notification: Notification) {
         UNUserNotificationCenter.current().delegate = RecordingExportNotificationDelegate.shared
@@ -152,11 +152,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Guard against silently losing captures. Screenshots that were never
     /// saved to disk (Auto Save off and not manually saved) only live in the
-    /// temporary directory, so quitting — including a Sparkle update relaunch,
-    /// which terminates the app — discards them. Warn before that happens.
+    /// temporary directory, so quitting - including a Sparkle update relaunch,
+    /// which terminates the app - discards them. Warn before that happens.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         // Studio's autosave is debounced. Flushing here means quitting never
-        // costs the last edit — the project reopens on its draft.
+        // costs the last edit - the project reopens on its draft.
         StudioProjectRegistry.shared.flushDrafts()
         let unsavedProjectCount = StudioProjectRegistry.shared.unsavedProjectCount
         let unsavedCount = ScreenshotPreviewStack.shared.unsavedItems.count
@@ -201,7 +201,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Turn on Auto Save in Settings to keep every capture automatically.
         """
         if unsavedProjectCount > 0 {
-            // Unlike captures, these are safe — say so, so the warning above
+            // Unlike captures, these are safe - say so, so the warning above
             // doesn't read as covering them too.
             informativeText += """
             \n\n\(unsavedProjectCount) recording project\(unsavedProjectCount == 1 ? " has" : "s have") \

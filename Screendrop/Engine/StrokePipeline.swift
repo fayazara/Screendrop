@@ -246,7 +246,7 @@ final class StrokePipeline {
         }
 
         // Seed the pressure from the average over the first stretch of the stroke. This prevents
-        // "dots" at the start of the line — drawn lines almost always start slow.
+        // "dots" at the start of the line - drawn lines almost always start slow.
         var prevPressure = pressures[0]
         for i in 0..<n {
             if runningLengths[i] > size * 5 { break }

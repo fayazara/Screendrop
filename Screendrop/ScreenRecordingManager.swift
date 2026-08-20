@@ -437,7 +437,7 @@ final class ScreenRecordingManager {
 
         if let error = result.error {
             // The writer hit trouble mid-flight but the fragmented file is
-            // playable up to that point — deliver it instead of losing it.
+            // playable up to that point - deliver it instead of losing it.
             let warning = "Recording ended early (\(error.localizedDescription)). Everything captured so far was saved."
             errorMessage = [errorMessage, warning]
                 .compactMap { $0 }
@@ -593,7 +593,7 @@ final class ScreenRecordingManager {
         alert.informativeText = """
         Screendrop can't record until it's allowed under Privacy & Security > \
         Screen & System Audio Recording. After turning it on, quit and reopen \
-        Screendrop — macOS applies the permission on relaunch.
+        Screendrop - macOS applies the permission on relaunch.
         """
         alert.addButton(withTitle: "Open System Settings")
         alert.addButton(withTitle: "Cancel")
@@ -605,7 +605,7 @@ final class ScreenRecordingManager {
     }
 
     /// A recording that never started produced no file, so silence here reads
-    /// as "the button does nothing" — say what went wrong instead.
+    /// as "the button does nothing" - say what went wrong instead.
     private static func presentStartFailureAlert(error: Error) {
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
@@ -705,7 +705,7 @@ final class ScreenRecordingManager {
             // Input mapping rects are always Quartz top-left, the space
             // SCDisplay.frame, SCWindow.frame, and CGEvent locations already
             // share. Only the area selection, which arrives from AppKit, is
-            // converted — and exactly once, here rather than at normalization.
+            // converted - and exactly once, here rather than at normalization.
             let bounds = CGDisplayBounds(freshDisplay.displayID)
             captureRect = bounds.isEmpty ? freshDisplay.frame : bounds
             displayID = freshDisplay.displayID
@@ -1189,7 +1189,7 @@ nonisolated private final class ScreenRecordingWriter: @unchecked Sendable {
         }
     }
 
-    /// Returns false — and reports the failure exactly once — when the
+    /// Returns false - and reports the failure exactly once - when the
     /// asset writer has silently entered the failed state (disk full,
     /// encoder error, non-monotonic timestamps).
     private func checkWriterHealth() -> Bool {

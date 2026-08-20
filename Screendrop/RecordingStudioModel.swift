@@ -297,7 +297,7 @@ final class RecordingStudioModel {
 
         lastSavedDocument = session?.loadEditDocument()
         // A draft that outlived its editor means the last session ended
-        // without a save — a crash, a force quit, or a Studio window that is
+        // without a save - a crash, a force quit, or a Studio window that is
         // still open elsewhere. Reopen on the draft so nothing is lost; the
         // project simply opens dirty.
         let document = session?.effectiveEditDocument()
@@ -787,7 +787,7 @@ final class RecordingStudioModel {
             cameraPlayer.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero)
             return
         }
-        // The camera master is a separate, unedited recording — it has no
+        // The camera master is a separate, unedited recording - it has no
         // composition to bake speed into, so a sped-up clip must also play
         // the camera bubble at that rate or the two drift apart immediately.
         let rate = Float(speed(atEditorTime: currentTime))
@@ -1007,7 +1007,7 @@ final class RecordingStudioModel {
 
     /// One visual block per cue on the edited timeline. A cue's per-segment
     /// slices are always contiguous in editor time (a cut removes the editor
-    /// time between them), so they merge into a single block — cutting a clip
+    /// time between them), so they merge into a single block - cutting a clip
     /// inside a zoom never splits the zoom's lane representation.
     var zoomTimelineBlocks: [RecordingZoomTimelineBlock] {
         zoomCues
@@ -1097,7 +1097,7 @@ final class RecordingStudioModel {
     }
 
     /// True until the project has been saved at least once. Only these get
-    /// offered "Delete and close" — throwing away a project the user already
+    /// offered "Delete and close" - throwing away a project the user already
     /// committed to would be unrecoverable.
     var hasNeverBeenSaved: Bool {
         guard let session else { return false }
@@ -1170,7 +1170,7 @@ final class RecordingStudioModel {
         flushDraft()
     }
 
-    /// Deletes the whole recording package — footage included — and its
+    /// Deletes the whole recording package - footage included - and its
     /// History entry. Reserved for a project that was never saved.
     func deleteProject() {
         guard let session else { return }
@@ -1382,7 +1382,7 @@ final class RecordingStudioModel {
         return TranscriptEditPlanner.isFiller(transcriptWords[index])
     }
 
-    /// Fillers that would actually be cut — ones already removed don't count.
+    /// Fillers that would actually be cut - ones already removed don't count.
     var removableFillerWordCount: Int {
         TranscriptEditPlanner.fillerIndices(in: transcriptWords)
             .count { transcriptWordSurvives($0) }
@@ -1672,7 +1672,7 @@ final class RecordingStudioModel {
     }
 
     /// The flattened deliverable when it provably matches the current
-    /// in-memory edits — the render is stamped with the document that
+    /// in-memory edits - the render is stamped with the document that
     /// produced it. Both Export and Share can then skip the render entirely.
     private var freshDeliverableURL: URL? {
         guard let session else { return nil }
@@ -1706,8 +1706,8 @@ final class RecordingStudioModel {
         pause()
 
         // A fresh deliverable (e.g. right after a share) is byte-identical
-        // to what this render would produce — same configuration builds
-        // both — so exporting becomes a plain copy into the save folder.
+        // to what this render would produce - same configuration builds
+        // both - so exporting becomes a plain copy into the save folder.
         if let cached = freshDeliverableURL {
             let suggestedFileName = exportSuggestedFileName
             exportTask = Task { [weak self] in
@@ -1776,7 +1776,7 @@ final class RecordingStudioModel {
 
     // MARK: - Audio only
 
-    /// True once there is a soundtrack to export or swap — the recording's
+    /// True once there is a soundtrack to export or swap - the recording's
     /// own audio, or one already imported over it.
     var hasAudio: Bool {
         hasRecordedAudio || replacementAudio != nil
@@ -1799,7 +1799,7 @@ final class RecordingStudioModel {
     }
 
     /// Writes the edited soundtrack on its own, for cleanup in a tool that
-    /// has no API — the outbound half of the replace-audio round trip.
+    /// has no API - the outbound half of the replace-audio round trip.
     func exportAudio() {
         guard !audioExportState.isExporting, isLoaded, hasAudio else { return }
         pause()
@@ -1953,7 +1953,7 @@ final class RecordingStudioModel {
 
     /// The Loom loop: render the current edits, cache the result as the
     /// session's flattened deliverable, upload it, and copy the share
-    /// link — without leaving the Studio or touching a save panel.
+    /// link - without leaving the Studio or touching a save panel.
     func shareToCloud(options: CloudUploadOptions) {
         guard !shareState.isBusy, !exportState.isExporting, isLoaded,
               canShareToCloud else {
