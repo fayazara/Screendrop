@@ -36,6 +36,10 @@ final class CaptureCoordinator {
         Task { await performCaptureArea() }
     }
 
+    func captureText() {
+        Task { await performCaptureText() }
+    }
+
     // MARK: - Awaitable Capture Actions
 
     /// Awaitable variants for callers (App Intents / Shortcuts) that need the
@@ -92,6 +96,24 @@ final class CaptureCoordinator {
         ) else { return nil }
         let displayID = ActiveDisplayResolver.activeDisplayID(preferPointer: true)
         return finishCapture(url: url, displayID: displayID)
+    }
+
+    private func performCaptureText() async {
+        guard let url = await ScreenshotManager.shared.captureArea(
+            delaySeconds: ScreendropPreferences.captureDelaySeconds
+        ) else { return }
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let text = await ImageTextRecognizer.recognizeText(at: url)
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            NSSound.beep()
+            return
+        }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        if ScreendropPreferences.playSounds {
+            CaptureFeedbackSound.play()
+        }
     }
 
     func recordFullscreen(_ display: SCDisplay) {

@@ -150,6 +150,7 @@ enum CaptureHotkeyAction: String, CaseIterable, Identifiable {
     case fullscreen
     case window
     case area
+    case textCapture
     case screenRecording
 
     var id: Self { self }
@@ -159,6 +160,7 @@ enum CaptureHotkeyAction: String, CaseIterable, Identifiable {
         case .fullscreen: 1
         case .window: 2
         case .area: 3
+        case .textCapture: 5
         case .screenRecording: 4
         }
     }
@@ -168,6 +170,7 @@ enum CaptureHotkeyAction: String, CaseIterable, Identifiable {
         case .fullscreen: "Fullscreen"
         case .window: "Window"
         case .area: "Area"
+        case .textCapture: "Capture Text"
         case .screenRecording: "Screen Recording"
         }
     }
@@ -180,6 +183,8 @@ enum CaptureHotkeyAction: String, CaseIterable, Identifiable {
             HotkeyShortcut(modifiers: [.option], keyCode: Int(kVK_ANSI_2))
         case .area:
             HotkeyShortcut(modifiers: [.option], keyCode: Int(kVK_ANSI_3))
+        case .textCapture:
+            HotkeyShortcut(modifiers: [.option], keyCode: Int(kVK_ANSI_5))
         case .screenRecording:
             HotkeyShortcut(modifiers: [.option], keyCode: Int(kVK_ANSI_4))
         }
@@ -193,6 +198,8 @@ enum CaptureHotkeyAction: String, CaseIterable, Identifiable {
             ScreendropPreferences.windowHotkeyKey
         case .area:
             ScreendropPreferences.areaHotkeyKey
+        case .textCapture:
+            ScreendropPreferences.textCaptureHotkeyKey
         case .screenRecording:
             ScreendropPreferences.screenRecordingHotkeyKey
         }
@@ -214,6 +221,8 @@ enum CaptureHotkeyAction: String, CaseIterable, Identifiable {
             CaptureCoordinator.shared.captureWindow()
         case .area:
             CaptureCoordinator.shared.captureArea()
+        case .textCapture:
+            CaptureCoordinator.shared.captureText()
         case .screenRecording:
             Task { @MainActor in
                 RecordingPickerPresenter.shared.toggle()

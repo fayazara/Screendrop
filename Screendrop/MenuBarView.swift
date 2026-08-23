@@ -36,6 +36,12 @@ struct MenuBarView: View {
             }
 
             Button {
+                CaptureCoordinator.shared.captureText()
+            } label: {
+                Label("Capture Text", systemImage: "text.viewfinder")
+            }
+
+            Button {
                 RecordingPickerPresenter.shared.show()
             } label: {
                 Label("Record Screen", systemImage: "record.circle")
