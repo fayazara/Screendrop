@@ -92,6 +92,26 @@ enum TextMeasure {
         CGFloat(Swift.max(1, props.fontSize) * lineHeightMultiple)
     }
 
+    /// How far the outline reaches past the glyph edge, as a fraction of the font size.
+    ///
+    /// Tied to the type size rather than a fixed pixel width so the edge keeps the same weight
+    /// relative to the letters whether the label is a caption or a headline.
+    static let outlineWidthMultiple: Double = 0.06
+
+    /// The visible outline width for `props`, in the same units as its font size. Zero when the
+    /// text has no outline.
+    static func outlineWidth(_ props: TextProps) -> CGFloat {
+        guard props.outline != .none else { return 0 }
+        return CGFloat(Swift.max(1, props.fontSize) * outlineWidthMultiple)
+    }
+
+    /// The line width to stroke the glyph path with. A stroke is centred on the glyph edge, so it
+    /// is drawn at twice the visible width and the fill that follows covers the inner half - which
+    /// keeps the letters at their proper weight instead of eating into their stems.
+    static func outlineStrokeWidth(_ props: TextProps) -> CGFloat {
+        outlineWidth(props) * 2
+    }
+
     /// The paragraph style every consumer shares.
     static func paragraphStyle(_ props: TextProps) -> NSParagraphStyle {
         let height = lineHeight(props)
@@ -222,10 +242,46 @@ enum TextMeasure {
         guard !props.text.isEmpty else { return CGMutablePath() }
 
         let (storage, layoutManager, container) = layout(props, containerWidth: lockedContainerWidth(props))
+        defer { withExtendedLifetime(storage) {} }
+        return glyphPath(in: layoutManager, storage: storage, container: container, underline: props.isUnderline)
+    }
+
+    /// Traces the glyphs of a laid-out container, origin at the container's top left, y down.
+    ///
+    /// Shared with the editing overlay, which traces its own `NSTextView` layout so the outline it
+    /// draws under the caret sits exactly where the committed glyphs will.
+    static func glyphPath(
+        in layoutManager: NSLayoutManager,
+        storage: NSTextStorage,
+        container: NSTextContainer,
+        underline: Bool
+    ) -> CGPath {
+        trace(layoutManager, storage: storage, container: container, glyphs: true, underline: underline)
+    }
+
+    /// Just the underline rules of a laid-out container, in the same space as `glyphPath`.
+    ///
+    /// The editing overlay fills these itself when text is outlined: AppKit's own rule sits a few
+    /// points off the one the committed glyph path carries, and an outline traced around one and
+    /// a fill drawn on the other read as two separate lines.
+    static func underlinePath(
+        in layoutManager: NSLayoutManager,
+        storage: NSTextStorage,
+        container: NSTextContainer
+    ) -> CGPath {
+        trace(layoutManager, storage: storage, container: container, glyphs: false, underline: true)
+    }
+
+    private static func trace(
+        _ layoutManager: NSLayoutManager,
+        storage: NSTextStorage,
+        container: NSTextContainer,
+        glyphs: Bool,
+        underline: Bool
+    ) -> CGPath {
         let result = CGMutablePath()
         let glyphRange = layoutManager.glyphRange(for: container)
         guard glyphRange.length > 0 else { return result }
-        defer { withExtendedLifetime(storage) {} }
 
         layoutManager.enumerateLineFragments(forGlyphRange: glyphRange) { _, usedRect, _, lineRange, _ in
             var lineFont: NSFont?
@@ -250,7 +306,7 @@ enum TextMeasure {
                 lineFont = font
                 baseline = fragment.origin.y + location.y
 
-                guard let outline = CTFontCreatePathForGlyph(font as CTFont, glyph, nil) else { continue }
+                guard glyphs, let outline = CTFontCreatePathForGlyph(font as CTFont, glyph, nil) else { continue }
 
                 // Outlines are y-up from the baseline; the box's space is y-down from the top.
                 let transform = CGAffineTransform(
@@ -262,13 +318,15 @@ enum TextMeasure {
             }
 
             // Underline isn't part of a glyph outline, so lay a rule under each line by hand, using
-            // the font's own position and thickness.
-            if props.isUnderline, let lineFont, let baseline, usedRect.width > 0 {
+            // the font's own position and thickness. The used rect counts the container's line
+            // fragment padding on both sides; the rule should span the glyphs alone.
+            let padding = container.lineFragmentPadding
+            if underline, let lineFont, let baseline, usedRect.width > padding * 2 {
                 let thickness = Swift.max(1, lineFont.underlineThickness)
                 result.addRect(CGRect(
-                    x: usedRect.minX,
+                    x: usedRect.minX + padding,
                     y: baseline - lineFont.underlinePosition - thickness / 2,
-                    width: usedRect.width,
+                    width: usedRect.width - padding * 2,
                     height: thickness
                 ))
             }

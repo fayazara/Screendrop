@@ -643,6 +643,7 @@ extension AnnoEditor {
         props.isItalic = currentTextIsItalic
         props.isUnderline = currentTextIsUnderline
         props.align = currentTextAlign
+        props.outline = currentTextOutline
 
         let size = TextMeasure.measure(props)
         let x: Double

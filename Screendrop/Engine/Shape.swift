@@ -113,6 +113,24 @@ enum TextAlign: String, CaseIterable, Codable {
     }
 }
 
+/// A contrasting edge drawn around text, so a label stays legible over a busy screenshot instead
+/// of dissolving into whatever happens to sit behind it.
+enum TextOutline: String, CaseIterable, Codable {
+    case none
+    case white
+    case black
+
+    var label: String { rawValue.capitalized }
+
+    var nsColor: NSColor? {
+        switch self {
+        case .none: nil
+        case .white: .white
+        case .black: .black
+        }
+    }
+}
+
 struct TextProps: Codable, Equatable, Hashable {
     var text: String = ""
     var swatch: AnnotationSwatch = .red
@@ -123,11 +141,38 @@ struct TextProps: Codable, Equatable, Hashable {
     var isItalic = false
     var isUnderline = false
     var align: TextAlign = .start
+    var outline: TextOutline = .none
     /// The box's width. Meaningful only when `autoSize` is false, where text wraps into it.
     var w: Double = 16
     /// While true the box is exactly as wide as its text. Dragging a side handle turns it off,
     /// which is how text switches from growing to wrapping.
     var autoSize = true
+}
+
+extension TextProps {
+    private enum CodingKeys: String, CodingKey {
+        case text, swatch, fontSize, fontFamily, isBold, isItalic, isUnderline, align, outline, w, autoSize
+    }
+
+    /// Hand-written so a sidecar saved before `outline` existed still decodes. The synthesized
+    /// decoder throws on the missing key, which would turn every older document with text in it
+    /// into a flat screenshot. An outline this build doesn't know is read as none for the same
+    /// reason: a newer sidecar should degrade to plain text, not to no annotations at all.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        text = try container.decode(String.self, forKey: .text)
+        swatch = try container.decode(AnnotationSwatch.self, forKey: .swatch)
+        fontSize = try container.decode(Double.self, forKey: .fontSize)
+        fontFamily = try container.decode(AnnoFontFamily.self, forKey: .fontFamily)
+        isBold = try container.decode(Bool.self, forKey: .isBold)
+        isItalic = try container.decode(Bool.self, forKey: .isItalic)
+        isUnderline = try container.decode(Bool.self, forKey: .isUnderline)
+        align = try container.decode(TextAlign.self, forKey: .align)
+        outline = try container.decodeIfPresent(String.self, forKey: .outline)
+            .flatMap(TextOutline.init(rawValue:)) ?? TextOutline.none
+        w = try container.decode(Double.self, forKey: .w)
+        autoSize = try container.decode(Bool.self, forKey: .autoSize)
+    }
 }
 
 enum RedactionKind: String, CaseIterable, Codable {

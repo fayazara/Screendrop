@@ -16,6 +16,11 @@ final class AnnoTextEditorOverlay: NSTextView {
     /// Which shape this caret belongs to, so the canvas can tell a retarget from a no-op.
     var editedShapeId: AnnoShapeID? { shapeId }
 
+    /// The layout manager built in `init(editor:shapeId:)`, which draws the outline.
+    private var outlineLayoutManager: AnnoTextEditorLayoutManager? {
+        layoutManager as? AnnoTextEditorLayoutManager
+    }
+
     /// `NSTextView.init(frame:)` is a convenience initializer that builds the text network and then
     /// routes through this designated one, so a subclass has to implement it - otherwise the
     /// runtime traps on an unimplemented initializer.
@@ -30,7 +35,7 @@ final class AnnoTextEditorOverlay: NSTextView {
         // Build the text network by hand rather than going through `init(frame:)`, which Swift no
         // longer inherits now that the designated initializer above is overridden.
         let storage = NSTextStorage()
-        let layoutManager = NSLayoutManager()
+        let layoutManager = AnnoTextEditorLayoutManager()
         storage.addLayoutManager(layoutManager)
         let container = NSTextContainer(size: CGSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
         layoutManager.addTextContainer(container)
@@ -77,12 +82,17 @@ final class AnnoTextEditorOverlay: NSTextView {
         paragraph.maximumLineHeight = TextMeasure.lineHeight(viewProps)
         paragraph.lineBreakMode = .byWordWrapping
 
+        // Outlined text draws its own underline (see `AnnoTextEditorLayoutManager`), so AppKit's
+        // rule is only asked for when there is no outline to keep it in step with.
+        let outlineColor = props.outline.nsColor
+        let drawsOwnUnderline = props.isUnderline && outlineColor != nil
+
         var attributes: [NSAttributedString.Key: Any] = [
             .font: font,
             .paragraphStyle: paragraph,
             .foregroundColor: props.swatch.nsColor,
         ]
-        if props.isUnderline {
+        if props.isUnderline, !drawsOwnUnderline {
             attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
         }
 
@@ -96,12 +106,34 @@ final class AnnoTextEditorOverlay: NSTextView {
             storage.setAttributes(attributes, range: NSRange(location: 0, length: storage.length))
         }
 
-        // The shape's box in view space. The frame origin is the shape's local origin, which is
-        // also what `frameRotation` turns about.
+        if let outlineLayoutManager {
+            outlineLayoutManager.outlineColor = outlineColor
+            outlineLayoutManager.outlineStrokeWidth = TextMeasure.outlineStrokeWidth(viewProps)
+            outlineLayoutManager.outlinesUnderline = props.isUnderline
+            outlineLayoutManager.underlineColor = drawsOwnUnderline ? props.swatch.nsColor : nil
+        }
+        // The outline reaches past the glyphs on every side, and the text view clips its text to
+        // the container, so pad the container by the visible width: line fragment padding at the
+        // sides, the container inset above and below. Whole points, because AppKit floors the
+        // inset when it places the container and the frame offset below has to match it exactly
+        // or the text lands a fraction off where it commits.
+        let outlinePad = ceil(TextMeasure.outlineWidth(viewProps))
+        textContainerInset = NSSize(width: 0, height: outlinePad)
+        textContainer?.lineFragmentPadding = outlinePad
+
+        // The shape's box in view space. The glyphs' origin - the frame origin plus the padding,
+        // turned through the shape's rotation - lands on the shape's local origin, which is what
+        // `frameRotation` turns about.
         let bounds = editor.document.geometry(shape).bounds
         let origin = editor.pageToScreen(Vec(shape.x, shape.y))
-        var width = Swift.max(bounds.w * zoom, Double(fontSize) * 0.6)
-        var height = Swift.max(bounds.h * zoom, Double(TextMeasure.lineHeight(viewProps)))
+        let cosine = cos(shape.rotation)
+        let sine = sin(shape.rotation)
+        let frameOrigin = CGPoint(
+            x: origin.x - (outlinePad * cosine - outlinePad * sine),
+            y: origin.y - (outlinePad * sine + outlinePad * cosine)
+        )
+        var width = Swift.max(bounds.w * zoom, Double(fontSize) * 0.6) + outlinePad * 2
+        var height = Swift.max(bounds.h * zoom, Double(TextMeasure.lineHeight(viewProps))) + outlinePad * 2
 
         if props.autoSize, let container = textContainer, let layoutManager {
             // Auto-sizing text must never wrap. Sizing the container from the shape's measured
@@ -113,21 +145,26 @@ final class AnnoTextEditorOverlay: NSTextView {
             // exactly that. Nothing can wrap, and alignment still has a real width to work in.
             container.size = CGSize(width: 1_000_000, height: CGFloat.greatestFiniteMagnitude)
             layoutManager.ensureLayout(for: container)
+            // The used rect already counts the line fragment padding on both sides.
             let used = layoutManager.usedRect(for: container)
             let natural = ceil(used.width)
             container.size = CGSize(width: natural + 2, height: CGFloat.greatestFiniteMagnitude)
             // Leave room for the caret past the last glyph.
             width = Swift.max(width, Double(natural + fontSize * 0.5))
-            height = Swift.max(height, Double(ceil(used.height)))
+            height = Swift.max(height, Double(ceil(used.height)) + outlinePad * 2)
         } else {
+            // Padded the same way, so the text still wraps at the shape's width.
             textContainer?.size = CGSize(width: width, height: CGFloat.greatestFiniteMagnitude)
         }
 
         frameRotation = 0
-        frame = CGRect(x: origin.x, y: origin.y, width: width, height: height)
+        frame = CGRect(x: frameOrigin.x, y: frameOrigin.y, width: width, height: height)
         // The canvas is flipped, so a positive rotation reads clockwise on screen - the same
         // direction a positive `shape.rotation` turns the drawn shape.
         frameRotation = shape.rotation * 180 / .pi
+        // The text view only invalidates the glyphs that changed; the outline around them reaches
+        // a little further, so repaint the whole (small) view rather than leave slivers behind.
+        needsDisplay = true
     }
 
     func loadText() {
@@ -149,6 +186,64 @@ final class AnnoTextEditorOverlay: NSTextView {
 
     override func cancelOperation(_ sender: Any?) {
         editor?.stopEditingText()
+    }
+}
+
+/// Draws the outline under the caret's text the way the canvas will once it commits: the same
+/// glyph tracing and the same width, scaled by the camera.
+///
+/// It lives in the layout manager rather than the view's `draw(_:)` so it can go down after the
+/// selection highlight and before the glyphs - stroked from the view, it would sit under the
+/// highlight and vanish for whatever is selected. Tracing this view's own layout rather than the
+/// shape's keeps the edge on the glyphs the caret is actually moving through.
+@MainActor
+private final class AnnoTextEditorLayoutManager: NSLayoutManager {
+    /// `nil` when the text has no outline.
+    var outlineColor: NSColor?
+    /// Already doubled, per `TextMeasure.outlineStrokeWidth`; view points.
+    var outlineStrokeWidth: CGFloat = 0
+    /// Whether the underline rule is traced into the outline as well.
+    var outlinesUnderline = false
+    /// When set, the underline is filled here over the glyphs instead of by AppKit, so the rule
+    /// the outline was traced around is the rule that gets drawn.
+    var underlineColor: NSColor?
+
+    private var isOutlining: Bool {
+        outlineColor != nil && outlineStrokeWidth > 0 && (textStorage?.length ?? 0) > 0
+    }
+
+    /// Stroke first, let AppKit fill the glyphs on top, then lay the rule over both. The text view
+    /// clips all of this to the container, which is why `sync()` pads the container rather than
+    /// just the frame.
+    override func drawGlyphs(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
+        guard isOutlining, let outlineColor, let storage = textStorage, let container = textContainers.first,
+              let context = NSGraphicsContext.current?.cgContext else {
+            super.drawGlyphs(forGlyphRange: glyphsToShow, at: origin)
+            return
+        }
+
+        let glyphs = TextMeasure.glyphPath(in: self, storage: storage, container: container, underline: outlinesUnderline)
+        context.saveGState()
+        context.translateBy(x: origin.x, y: origin.y)
+        context.addPath(glyphs)
+        context.setStrokeColor(outlineColor.cgColor)
+        context.setLineWidth(outlineStrokeWidth)
+        context.setLineCap(.round)
+        context.setLineJoin(.round)
+        context.strokePath()
+        context.restoreGState()
+
+        super.drawGlyphs(forGlyphRange: glyphsToShow, at: origin)
+
+        if let underlineColor {
+            let rules = TextMeasure.underlinePath(in: self, storage: storage, container: container)
+            context.saveGState()
+            context.translateBy(x: origin.x, y: origin.y)
+            context.addPath(rules)
+            context.setFillColor(underlineColor.cgColor)
+            context.fillPath()
+            context.restoreGState()
+        }
     }
 }
 

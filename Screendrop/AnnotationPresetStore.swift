@@ -42,6 +42,9 @@ struct AnnotationStylePreset: Codable, Equatable {
     var textIsItalic = false
     var textIsUnderline = false
     var textAlignmentRawValue = NSTextAlignment.left.rawValue
+    /// Optional so a preset saved before outlines existed still decodes, rather than resetting
+    /// every remembered style to its default.
+    var textOutlineRawValue: String?
 
     var selectedTool: AnnotationTool {
         AnnotationTool(rawValue: selectedToolRawValue) ?? .rectangle
@@ -57,6 +60,10 @@ struct AnnotationStylePreset: Codable, Equatable {
 
     var textAlignment: NSTextAlignment {
         NSTextAlignment(rawValue: textAlignmentRawValue) ?? .left
+    }
+
+    var textOutline: TextOutline {
+        textOutlineRawValue.flatMap(TextOutline.init(rawValue:)) ?? TextOutline.none
     }
 }
 

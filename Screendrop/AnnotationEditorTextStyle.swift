@@ -52,6 +52,11 @@ extension AnnotationEditorModel {
         set { setTextAlignment(newValue) }
     }
 
+    var selectedTextOutline: TextOutline {
+        get { selectedTextShape?.textProps?.outline ?? textOutline }
+        set { setTextOutline(newValue) }
+    }
+
     func setTextFontSize(_ pointSize: CGFloat) {
         let clamped = max(pointSize, 4)
         textFontSize = clamped
@@ -93,6 +98,13 @@ extension AnnotationEditorModel {
         engine.currentTextAlign = TextAlign(alignment)
         saveAnnotationPreset()
         updateSelectedText { $0.align = TextAlign(alignment) }
+    }
+
+    func setTextOutline(_ outline: TextOutline) {
+        textOutline = outline
+        engine.currentTextOutline = outline
+        saveAnnotationPreset()
+        updateSelectedText { $0.outline = outline }
     }
 
     private func updateSelectedText(_ mutate: (inout TextProps) -> Void) {

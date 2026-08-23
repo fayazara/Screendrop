@@ -82,6 +82,7 @@ final class AnnotationEditorModel {
     var textIsItalic = false
     var textIsUnderline = false
     var textAlignment: NSTextAlignment = .left
+    var textOutline: TextOutline = .none
 
     /// A full snapshot of the editor's image state, captured before a crop so
     /// the operation can be undone/redone.
@@ -394,6 +395,7 @@ final class AnnotationEditorModel {
             textIsItalic = props.isItalic
             textIsUnderline = props.isUnderline
             textAlignment = props.align.nsTextAlignment
+            textOutline = props.outline
         }
     }
 
@@ -525,6 +527,7 @@ final class AnnotationEditorModel {
         textIsItalic = preset.textIsItalic
         textIsUnderline = preset.textIsUnderline
         textAlignment = preset.textAlignment
+        textOutline = preset.textOutline
 
         engine.tool = selectedTool
         engine.currentSwatch = selectedSwatch
@@ -536,6 +539,7 @@ final class AnnotationEditorModel {
         engine.currentTextIsItalic = textIsItalic
         engine.currentTextIsUnderline = textIsUnderline
         engine.currentTextAlign = TextAlign(textAlignment)
+        engine.currentTextOutline = textOutline
     }
 
     func saveAnnotationPreset() {
@@ -551,7 +555,8 @@ final class AnnotationEditorModel {
             textIsBold: textIsBold,
             textIsItalic: textIsItalic,
             textIsUnderline: textIsUnderline,
-            textAlignmentRawValue: textAlignment.rawValue
+            textAlignmentRawValue: textAlignment.rawValue,
+            textOutlineRawValue: textOutline.rawValue
         )
         AnnotationPresetStore.save(preset)
     }

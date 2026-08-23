@@ -59,6 +59,21 @@ struct AnnotationTextStyleControls: View {
                         .font(.system(size: 11, weight: .semibold))
                 }
             )
+
+            VStack(alignment: .leading, spacing: InspectorMetrics.groupLabelSpacing) {
+                InspectorGroupLabel("Outline")
+
+                InspectorSegmented(
+                    options: TextOutline.allCases,
+                    isSelected: { $0 == model.selectedTextOutline },
+                    onTap: { model.selectedTextOutline = $0 },
+                    label: { outline in
+                        Text(outline.label)
+                            .font(.system(size: 11, weight: .medium))
+                    }
+                )
+            }
+            .help("Outline the text so it stays readable over busy backgrounds")
         }
         .frame(maxWidth: .infinity)
         .onAppear(perform: syncFontSizeText)
