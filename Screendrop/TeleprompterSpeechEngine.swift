@@ -19,7 +19,8 @@
 import Foundation
 import Speech
 
-nonisolated final class TeleprompterSpeechEngine: @unchecked Sendable {
+@available(macOS 26.0, *)
+nonisolated final class TeleprompterSpeechEngine: TeleprompterSpeechTracking, @unchecked Sendable {
     private let matcher: TeleprompterScriptMatcher
     /// Called with the (monotonic) count of script display words spoken.
     private let onProgress: @Sendable (Int) -> Void

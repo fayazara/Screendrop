@@ -104,16 +104,7 @@ struct PreviewCardView: View {
                     .aspectRatio(contentMode: .fit)
                     .clipShape(.rect(cornerRadius: cornerRadius))
             }
-            .onDragSessionUpdated { session in
-                switch session.phase {
-                case .active:
-                    onDragBegan()
-                case .ended:
-                    onDragEnded()
-                default:
-                    break
-                }
-            }
+            .compatibleDragSessionUpdated(onBegan: onDragBegan, onEnded: onDragEnded)
             .onHover { status in
                 withAnimation(previewStackAnimation) {
                     isHovered = status

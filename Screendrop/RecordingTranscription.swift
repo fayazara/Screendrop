@@ -336,6 +336,7 @@ nonisolated enum RecordingTranscriptionService {
     private static let cueGapThreshold: TimeInterval = 0.9
     private static let minimumCueDuration: TimeInterval = 0.8
 
+    @available(macOS 26.0, *)
     static func transcribe(screenMovieURL: URL) async throws -> RecordingTranscript {
         let narrationURL = try await extractNarrationAudio(from: screenMovieURL)
         defer { try? FileManager.default.removeItem(at: narrationURL) }
@@ -373,6 +374,7 @@ nonisolated enum RecordingTranscriptionService {
     /// are per-locale, so an unsupported language has to fail loudly rather
     /// than produce gibberish English cues. Also used by the live
     /// teleprompter, which tracks the same narration as it is spoken.
+    @available(macOS 26.0, *)
     static func resolveLocale() async throws -> Locale {
         let supported = await SpeechTranscriber.supportedLocales
         let current = Locale.current
@@ -439,6 +441,7 @@ nonisolated enum RecordingTranscriptionService {
         return outputURL
     }
 
+    @available(macOS 26.0, *)
     private static func collectWords(from transcriber: SpeechTranscriber) async throws -> [RecordingTranscriptWord] {
         var words: [RecordingTranscriptWord] = []
         for try await result in transcriber.results where result.isFinal {

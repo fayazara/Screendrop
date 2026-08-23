@@ -173,7 +173,7 @@ struct PreviewPeekTab: View {
             }
             .padding(.trailing, 6)
         }
-        .glassEffect(.regular.interactive(), in: shape)
+        .compatibleGlassEffect(in: shape, interactive: true)
         .overlay {
             // Match the cards' border exactly (colour, thickness, opacity).
             shape

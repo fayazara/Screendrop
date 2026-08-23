@@ -10,7 +10,14 @@
 //
 
 import CoreGraphics
+import CoreMedia
 import Foundation
+
+nonisolated protocol TeleprompterSpeechTracking: Sendable {
+    func ingest(_ sampleBuffer: CMSampleBuffer)
+    func setPaused(_ paused: Bool)
+    func finish()
+}
 
 @MainActor
 final class TeleprompterController {
@@ -18,7 +25,7 @@ final class TeleprompterController {
 
     /// The session's live tracker. Read once when the recording wires its
     /// audio callback, so the sample-queue tee never touches the main actor.
-    private(set) var activeEngine: TeleprompterSpeechEngine?
+    private(set) var activeEngine: (any TeleprompterSpeechTracking)?
     private var hasPreflightedAssets = false
 
     private init() {}
@@ -26,6 +33,7 @@ final class TeleprompterController {
     /// Kicks off the on-device model download when the user enables the
     /// teleprompter, so pressing Record never waits on an install.
     func preflightAssets() {
+        guard #available(macOS 26.0, *) else { return }
         guard !hasPreflightedAssets else { return }
         hasPreflightedAssets = true
         Task.detached {
@@ -45,6 +53,7 @@ final class TeleprompterController {
         guard microphoneActive else { return }
         let matcher = TeleprompterScriptMatcher(script: script)
         guard !matcher.isEmpty else { return }
+        guard #available(macOS 26.0, *) else { return }
 
         let engine = TeleprompterSpeechEngine(matcher: matcher) { spokenWordCount in
             Task { @MainActor in

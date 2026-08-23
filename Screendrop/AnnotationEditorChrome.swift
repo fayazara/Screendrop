@@ -43,7 +43,7 @@ struct AnnotationZoomControl: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 7)
                 .contentShape(Capsule())
-                .glassEffect(.regular.interactive())
+                .compatibleGlassEffect(interactive: true)
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
@@ -66,7 +66,7 @@ struct CropResolutionBadge: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 7)
             .fixedSize()
-            .glassEffect()
+            .compatibleGlassEffect()
             .help("Crop size")
     }
 }
@@ -104,7 +104,7 @@ struct LowResolutionPreviewNotice: View {
             }
             .frame(height: diameter)
             .fixedSize()
-            .glassEffect()
+            .compatibleGlassEffect()
         }
         .buttonStyle(.plain)
         .help("Why is this preview low resolution?")

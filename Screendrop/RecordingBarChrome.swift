@@ -181,7 +181,7 @@ struct BarTooltipPill: View {
             .fixedSize()
             .padding(.horizontal, 9)
             .frame(height: BarTooltip.pillHeight)
-            .glassEffect(.regular, in: shape)
+            .compatibleGlassEffect(in: shape)
             .overlay {
                 shape.strokeBorder(BarMetrics.edge, lineWidth: 0.5)
             }

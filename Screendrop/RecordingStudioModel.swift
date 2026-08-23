@@ -1301,6 +1301,10 @@ final class RecordingStudioModel {
 
     func transcribe() {
         guard !transcriptionState.isTranscribing, isLoaded else { return }
+        guard #available(macOS 26.0, *) else {
+            transcriptionState = .failed("On-device transcription requires macOS 26 or newer.")
+            return
+        }
         transcriptionState = .transcribing
         let movieURL = screenURL
         transcriptionTask = Task { [weak self] in
