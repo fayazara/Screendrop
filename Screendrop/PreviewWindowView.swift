@@ -207,8 +207,7 @@ struct PreviewWindowView: View {
                                     fileURL: item.url,
                                     socialEnabled: CloudUploadPreferences.lastSocialEnabled
                                 )
-                                NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString(result.url, forType: .string)
+                                CloudUploader.applyPostUploadClipboard(shareURL: result.url)
                                 ScreenshotHistoryStore.shared.setCloudURL(for: item.url, cloudURL: result.url)
                             } catch {
                                 print("Cloud upload failed: \(error)")

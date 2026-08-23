@@ -2037,8 +2037,7 @@ final class RecordingStudioModel {
                     socialEnabled: options.socialEnabled
                 )
 
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(result.url, forType: .string)
+                CloudUploader.applyPostUploadClipboard(shareURL: result.url)
                 if session != nil {
                     ScreenshotHistoryStore.shared.setCloudURL(for: uploadURL, cloudURL: result.url)
                 }

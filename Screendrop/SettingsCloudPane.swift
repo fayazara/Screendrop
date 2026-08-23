@@ -19,6 +19,9 @@ struct CloudSettingsPane: View {
     @State private var workerURL = ""
     @State private var uploadToken = ""
 
+    @AppStorage(ScreendropPreferences.cloudCopyLinkAfterUploadKey)
+    private var copyLinkAfterUpload = true
+
     @State private var workerStatus: ConnectionStatus = .unchecked
     @State private var isLoading = true
     @State private var tokenRevealed = false
@@ -135,6 +138,22 @@ struct CloudSettingsPane: View {
                     }
                     Text("Paste this token as the **UPLOAD_TOKEN** secret when you deploy the worker to Cloudflare.")
                 }
+            }
+
+            // MARK: - Uploads
+
+            Section {
+                Toggle(isOn: $copyLinkAfterUpload) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Copy share link after upload")
+                        Text("When off, uploads still run and history keeps the link, but the clipboard is left alone (e.g. your copied image stays pasteable).")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .toggleStyle(.switch)
+            } header: {
+                Text("Uploads")
             }
 
             // MARK: - Update notice

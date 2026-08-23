@@ -224,7 +224,9 @@ enum ScreendropPreferences {
     }
 
     // MARK: - Cloud
-    
+
+    static let cloudCopyLinkAfterUploadKey = "cloudCopyLinkAfterUpload"
+
     static var cloudWorkerURL: String {
         CloudCredentialStore.shared.workerURL
     }
@@ -236,6 +238,17 @@ enum ScreendropPreferences {
     /// Cloud upload is available when the worker URL and upload token are configured.
     static var isCloudConfigured: Bool {
         CloudCredentialStore.shared.isConfigured
+    }
+
+    /// When true (default), a successful cloud upload also clears the pasteboard
+    /// and writes the share URL. When false, upload still records `cloudURL` in
+    /// history but leaves whatever was already on the clipboard (e.g. an image
+    /// from auto-copy) alone.
+    static var cloudCopyLinkAfterUpload: Bool {
+        if UserDefaults.standard.object(forKey: cloudCopyLinkAfterUploadKey) == nil {
+            return true
+        }
+        return UserDefaults.standard.bool(forKey: cloudCopyLinkAfterUploadKey)
     }
 }
 

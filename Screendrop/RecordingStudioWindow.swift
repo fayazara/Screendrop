@@ -182,7 +182,11 @@ private struct RecordingStudioContent: View {
                     .labelStyle(.titleAndIcon)
             }
             .disabled(!model.isLoaded || model.exportState.isExporting)
-            .help("Upload this recording and copy the share link")
+            .help(
+                ScreendropPreferences.cloudCopyLinkAfterUpload
+                    ? "Upload this recording and copy the share link"
+                    : "Upload this recording without replacing the clipboard"
+            )
         case .rendering(let progress):
             SharePill(stage: "Rendering", progress: progress) {
                 model.cancelShare()
@@ -199,13 +203,21 @@ private struct RecordingStudioContent: View {
         case .finished(let url):
             HStack(spacing: 6) {
                 Button {
+                    // Explicit user action — always copy, ignore the preference.
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(url, forType: .string)
                 } label: {
-                    Label("Link Copied", systemImage: "checkmark.circle.fill")
+                    Label(
+                        ScreendropPreferences.cloudCopyLinkAfterUpload ? "Link Copied" : "Copy Link",
+                        systemImage: "checkmark.circle.fill"
+                    )
                         .foregroundStyle(.green)
                 }
-                .help("Copy the share link again")
+                .help(
+                    ScreendropPreferences.cloudCopyLinkAfterUpload
+                        ? "Copy the share link again"
+                        : "Copy the share link"
+                )
 
                 CloudUploadButton(suggestedTitle: shareSuggestedTitle, onUpload: model.shareToCloud) {
                     Image(systemName: "link")

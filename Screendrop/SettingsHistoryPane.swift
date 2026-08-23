@@ -112,8 +112,7 @@ struct SettingsHistoryPane: View {
                     title: options.trimmedTitleOrNil,
                     socialEnabled: options.socialEnabled
                 )
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(result.url, forType: .string)
+                CloudUploader.applyPostUploadClipboard(shareURL: result.url)
                 ScreenshotHistoryStore.shared.setCloudURL(for: item.url, cloudURL: result.url)
             } catch {
                 // Nothing in this list can carry a failure badge, so an

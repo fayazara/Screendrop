@@ -125,7 +125,10 @@ struct AnnotationEditorWindow: View {
                     }
                     .padding(.horizontal, 6)
                 } else if didCopyLink {
-                    Label("Link copied", systemImage: "checkmark.circle.fill")
+                    Label(
+                        ScreendropPreferences.cloudCopyLinkAfterUpload ? "Link copied" : "Uploaded",
+                        systemImage: "checkmark.circle.fill"
+                    )
                         .labelStyle(.titleAndIcon)
                         .padding(.horizontal, 6)
                 } else {
@@ -135,7 +138,11 @@ struct AnnotationEditorWindow: View {
                 }
             }
             .tint(.accentColor)
-            .help("Upload to the cloud and copy the link")
+            .help(
+                ScreendropPreferences.cloudCopyLinkAfterUpload
+                    ? "Upload to the cloud and copy the share link"
+                    : "Upload to the cloud without replacing the clipboard"
+            )
             .disabled(isUploading)
         }
 
@@ -371,8 +378,7 @@ struct AnnotationEditorWindow: View {
                     title: options.trimmedTitleOrNil,
                     socialEnabled: options.socialEnabled
                 )
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(result.url, forType: .string)
+                _ = CloudUploader.applyPostUploadClipboard(shareURL: result.url)
                 ScreenshotHistoryStore.shared.setCloudURL(for: resultURL, cloudURL: result.url)
                 withAnimation(.snappy(duration: 0.2)) { didCopyLink = true }
             } catch {

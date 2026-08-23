@@ -145,8 +145,7 @@ final class ScreenshotPreviewStack {
                     fileURL: url,
                     socialEnabled: CloudUploadPreferences.lastSocialEnabled
                 )
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(result.url, forType: .string)
+                CloudUploader.applyPostUploadClipboard(shareURL: result.url)
                 ScreenshotHistoryStore.shared.setCloudURL(for: url, cloudURL: result.url)
             } catch {
                 print("Auto cloud upload failed: \(error)")

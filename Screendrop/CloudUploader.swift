@@ -53,6 +53,21 @@ final class CloudUploader: NSObject {
         CloudCredentialStore.shared.isConfigured
     }
 
+    /// After a successful upload, optionally copy the share URL to the general
+    /// pasteboard based on `ScreendropPreferences.cloudCopyLinkAfterUpload`.
+    ///
+    /// Explicit "copy share link" actions (toolbar link buttons, history copy)
+    /// should write the pasteboard directly and skip this helper.
+    ///
+    /// - Returns: `true` when the share URL was written to the pasteboard.
+    @discardableResult
+    static func applyPostUploadClipboard(shareURL: String) -> Bool {
+        guard ScreendropPreferences.cloudCopyLinkAfterUpload else { return false }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(shareURL, forType: .string)
+        return true
+    }
+
     func upload(
         itemID: UUID,
         fileURL: URL,
