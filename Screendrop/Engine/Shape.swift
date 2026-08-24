@@ -115,19 +115,25 @@ enum TextAlign: String, CaseIterable, Codable {
 
 /// A contrasting edge drawn around text, so a label stays legible over a busy screenshot instead
 /// of dissolving into whatever happens to sit behind it.
-enum TextOutline: String, CaseIterable, Codable {
-    case none
-    case white
-    case black
+struct TextOutline: Codable, Equatable, Hashable {
+    /// The edge's colour.
+    var swatch: AnnotationSwatch
+    /// How far the edge reaches past the glyphs, in page pixels.
+    var width: Double
+}
 
-    var label: String { rawValue.capitalized }
+extension TextOutline {
+    /// What the width slider offers. A sidecar width outside it is drawn as stored.
+    static let widthRange: ClosedRange<Double> = 1...24
 
-    var nsColor: NSColor? {
-        switch self {
-        case .none: nil
-        case .white: .white
-        case .black: .black
-        }
+    /// A fresh outline's width follows the type - the ratio the feature was designed against
+    /// (a 10 px edge on 80 px type) - so the first result looks right at any size; from there
+    /// the user owns the pixel value.
+    static let defaultWidthMultiple: Double = 0.12
+
+    static func defaultWidth(forFontSize fontSize: Double) -> Double {
+        let proportional = (Swift.max(1, fontSize) * defaultWidthMultiple).rounded()
+        return Swift.min(Swift.max(proportional, widthRange.lowerBound), widthRange.upperBound)
     }
 }
 
@@ -141,12 +147,20 @@ struct TextProps: Codable, Equatable, Hashable {
     var isItalic = false
     var isUnderline = false
     var align: TextAlign = .start
-    var outline: TextOutline = .none
+    var outline: TextOutline?
     /// The box's width. Meaningful only when `autoSize` is false, where text wraps into it.
     var w: Double = 16
     /// While true the box is exactly as wide as its text. Dragging a side handle turns it off,
     /// which is how text switches from growing to wrapping.
     var autoSize = true
+
+    /// The outline to draw, if any. A width that has been zeroed out - only possible in a
+    /// hand-edited sidecar, the slider floors at 1 - means no outline rather than a hairline:
+    /// Core Graphics strokes a line width of 0 at the thinnest the device can draw.
+    var activeOutline: TextOutline? {
+        guard let outline, outline.width > 0 else { return nil }
+        return outline
+    }
 }
 
 extension TextProps {
@@ -156,8 +170,8 @@ extension TextProps {
 
     /// Hand-written so a sidecar saved before `outline` existed still decodes. The synthesized
     /// decoder throws on the missing key, which would turn every older document with text in it
-    /// into a flat screenshot. An outline this build doesn't know is read as none for the same
-    /// reason: a newer sidecar should degrade to plain text, not to no annotations at all.
+    /// into a flat screenshot. An outline this build can't read is dropped for the same reason:
+    /// a sidecar from another build should degrade to plain text, not to no annotations at all.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         text = try container.decode(String.self, forKey: .text)
@@ -168,8 +182,7 @@ extension TextProps {
         isItalic = try container.decode(Bool.self, forKey: .isItalic)
         isUnderline = try container.decode(Bool.self, forKey: .isUnderline)
         align = try container.decode(TextAlign.self, forKey: .align)
-        outline = try container.decodeIfPresent(String.self, forKey: .outline)
-            .flatMap(TextOutline.init(rawValue:)) ?? TextOutline.none
+        outline = (try? container.decodeIfPresent(TextOutline.self, forKey: .outline)) ?? nil
         w = try container.decode(Double.self, forKey: .w)
         autoSize = try container.decode(Bool.self, forKey: .autoSize)
     }

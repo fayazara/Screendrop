@@ -552,7 +552,21 @@ extension AnnoEditor {
                 } else {
                     // Corners scale the type itself, uniformly - text can't stretch on one axis.
                     let uniform = (abs(sx) + abs(sy)) / 2
+                    let previousFontSize = props.fontSize
                     props.fontSize = Swift.max(4, props.fontSize * uniform)
+                    // The edge scales by the ratio the font actually changed - not the raw
+                    // uniform - so its weight relative to the letters survives the 4 px floor
+                    // and a shrink-then-grow round trip. Only a live outline scales, and only
+                    // to another positive finite width: a hand-edited sidecar can hold a dead
+                    // (width <= 0) outline or a font size extreme enough to overflow or
+                    // underflow the ratio, and a width that JSONEncoder cannot persist - or
+                    // one that silently kills the edge - must never be stored.
+                    if let width = props.activeOutline?.width, previousFontSize > 0 {
+                        let scaled = width * (props.fontSize / previousFontSize)
+                        if scaled.isFinite, scaled > 0 {
+                            props.outline?.width = scaled
+                        }
+                    }
                     if !props.autoSize {
                         props.w = Swift.max(TextMeasure.minWidth, props.w * uniform)
                     }

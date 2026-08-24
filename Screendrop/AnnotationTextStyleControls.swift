@@ -64,14 +64,32 @@ struct AnnotationTextStyleControls: View {
                 InspectorGroupLabel("Outline")
 
                 InspectorSegmented(
-                    options: TextOutline.allCases,
-                    isSelected: { $0 == model.selectedTextOutline },
-                    onTap: { model.selectedTextOutline = $0 },
-                    label: { outline in
-                        Text(outline.label)
+                    options: TextOutlineSegment.allCases,
+                    isSelected: { ($0 == TextOutlineSegment.color) == model.selectedTextOutlineEnabled },
+                    onTap: { model.selectedTextOutlineEnabled = ($0 == TextOutlineSegment.color) },
+                    label: { segment in
+                        Text(segment.title)
                             .font(.system(size: 11, weight: .medium))
                     }
                 )
+
+                if model.selectedTextOutlineEnabled {
+                    AnnotationSwatchStrip(selectedSwatch: model.selectedTextOutlineSwatch) { swatch in
+                        // The shared colour panel keeps calling the last strip that opened it,
+                        // even after this strip left the screen (outline switched to None, or
+                        // the selection moved to plain text); a stale scrub must not re-arm or
+                        // touch the outline through an invisible control.
+                        guard model.selectedTextOutlineEnabled else { return }
+                        model.selectedTextOutlineSwatch = swatch
+                    }
+
+                    InspectorSlider(
+                        "Width",
+                        value: $model.selectedTextOutlineWidth,
+                        range: CGFloat(TextOutline.widthRange.lowerBound)...CGFloat(TextOutline.widthRange.upperBound),
+                        format: .pixels
+                    )
+                }
             }
             .help("Outline the text so it stays readable over busy backgrounds")
         }
@@ -189,6 +207,18 @@ struct AnnotationTextStyleControls: View {
         let size = max(model.selectedTextFontSize + delta, AnnotationTextMetrics.minimumFontSize)
         model.selectedTextFontSize = size
         syncFontSizeText()
+    }
+}
+
+private enum TextOutlineSegment: CaseIterable, Hashable {
+    case none
+    case color
+
+    var title: String {
+        switch self {
+        case .none: "None"
+        case .color: "Color"
+        }
     }
 }
 

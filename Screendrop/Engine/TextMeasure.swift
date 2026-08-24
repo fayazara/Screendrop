@@ -92,17 +92,11 @@ enum TextMeasure {
         CGFloat(Swift.max(1, props.fontSize) * lineHeightMultiple)
     }
 
-    /// How far the outline reaches past the glyph edge, as a fraction of the font size.
-    ///
-    /// Tied to the type size rather than a fixed pixel width so the edge keeps the same weight
-    /// relative to the letters whether the label is a caption or a headline.
-    static let outlineWidthMultiple: Double = 0.06
-
-    /// The visible outline width for `props`, in the same units as its font size. Zero when the
-    /// text has no outline.
+    /// The visible outline width for `props`, in the same units as the rest of the props - page
+    /// pixels as stored, view points once a caller has scaled the props by the camera. Zero when
+    /// the text has no outline.
     static func outlineWidth(_ props: TextProps) -> CGFloat {
-        guard props.outline != .none else { return 0 }
-        return CGFloat(Swift.max(1, props.fontSize) * outlineWidthMultiple)
+        CGFloat(props.activeOutline?.width ?? 0)
     }
 
     /// The line width to stroke the glyph path with. A stroke is centred on the glyph edge, so it

@@ -138,7 +138,7 @@ final class AnnoEditor {
     var currentTextIsItalic = false
     var currentTextIsUnderline = false
     var currentTextAlign: TextAlign = .start
-    var currentTextOutline: TextOutline = .none
+    var currentTextOutline: TextOutline?
     var currentArrowheadStart: Arrowhead = .none
     var currentArrowheadEnd: Arrowhead = .arrow
 

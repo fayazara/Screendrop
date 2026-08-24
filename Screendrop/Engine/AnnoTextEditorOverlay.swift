@@ -73,6 +73,10 @@ final class AnnoTextEditorOverlay: NSTextView {
         var viewProps = props
         viewProps.fontSize = Swift.max(1, props.fontSize * zoom)
         viewProps.w = props.w * zoom
+        // The outline width is stored in page pixels like the font size; scale it by the camera
+        // too, so the container padding and the layout manager's stroke below - all derived from
+        // `viewProps` - come out in view points.
+        viewProps.outline?.width *= zoom
 
         let fontSize = CGFloat(viewProps.fontSize)
         let font = TextMeasure.font(viewProps, opticalSize: props.fontSize)
@@ -84,7 +88,7 @@ final class AnnoTextEditorOverlay: NSTextView {
 
         // Outlined text draws its own underline (see `AnnoTextEditorLayoutManager`), so AppKit's
         // rule is only asked for when there is no outline to keep it in step with.
-        let outlineColor = props.outline.nsColor
+        let outlineColor = props.activeOutline?.swatch.nsColor
         let drawsOwnUnderline = props.isUnderline && outlineColor != nil
 
         var attributes: [NSAttributedString.Key: Any] = [

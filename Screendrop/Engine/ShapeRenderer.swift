@@ -85,11 +85,11 @@ enum AnnoShapeRenderer {
 
         // The outline goes first, as its own element, so the fill lands on top of it and only the
         // outer half of the stroke shows (see `TextMeasure.outlineStrokeWidth`).
-        if let outline = props.outline.nsColor {
+        if let outline = props.activeOutline {
             elements.append(RenderElement(
                 content: .glyphs(glyphs),
                 fill: nil,
-                stroke: outline,
+                stroke: outline.swatch.nsColor,
                 strokeWidth: TextMeasure.outlineStrokeWidth(props)
             ))
         }
