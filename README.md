@@ -167,7 +167,7 @@ Available tools include:
 - Straight line and arrow
 - Freehand drawing
 - Numbered markers
-- Text with font, weight, alignment, size, and white or black outline controls
+- Text with font, weight, alignment, size, and outline controls with adjustable color and width
 - Highlight regions that dim everything outside the selection
 - Pixelate and blur
 - Select, move, resize, multi-select, delete, undo, and redo
