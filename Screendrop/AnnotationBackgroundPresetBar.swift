@@ -5,6 +5,7 @@
 
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct AnnotationBackgroundPresetBar: View {
     @Bindable var model: AnnotationEditorModel
@@ -14,6 +15,7 @@ struct AnnotationBackgroundPresetBar: View {
     @State private var isNameEditorPresented = false
     @State private var draftName = ""
     @State private var presetPendingDeletion: AnnotationBackgroundPreset?
+    @State private var transferAlert: PresetTransferAlert?
     @FocusState private var isNameFieldFocused: Bool
 
     private var appliedPreset: AnnotationBackgroundPreset? {
@@ -101,6 +103,13 @@ struct AnnotationBackgroundPresetBar: View {
         } message: { preset in
             Text("“\(preset.name)” will be removed from your saved presets. The current canvas settings won’t change.")
         }
+        .alert(item: $transferAlert) { alert in
+            Alert(
+                title: Text(alert.title),
+                message: Text(alert.message),
+                dismissButton: .default(Text("OK"))
+            )
+        }
     }
 
     private var presetMenu: some View {
@@ -117,7 +126,9 @@ struct AnnotationBackgroundPresetBar: View {
                 guard let preset = presetStore.preset(id: presetID) else { return }
                 onEditorAction()
                 presetPendingDeletion = preset
-            }
+            },
+            onImportPreset: importPresets,
+            onExportPreset: exportPreset
         )
         .frame(maxWidth: .infinity, minHeight: 28, maxHeight: 28)
         .help(presetHelp)
@@ -233,6 +244,141 @@ struct AnnotationBackgroundPresetBar: View {
         presetStore.setActivePreset(id: preset.id)
         isNameEditorPresented = false
     }
+
+    private func importPresets() {
+        onEditorAction()
+
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.screendropPreset]
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.title = "Import Screenshot Presets"
+        panel.prompt = "Import"
+
+        panel.begin { response in
+            guard response == .OK else { return }
+            let urls = panel.urls
+
+            Task { @MainActor in
+                var importedPresets: [AnnotationBackgroundPreset] = []
+                var omittedWallpaperCount = 0
+                var failures: [String] = []
+
+                for url in urls {
+                    do {
+                        let transferFile = try AnnotationBackgroundPresetTransferFile.load(from: url)
+                        let result = try presetStore.importTransferFile(transferFile)
+                        importedPresets.append(contentsOf: result.importedPresets)
+                        omittedWallpaperCount += result.omittedWallpaperCount
+                    } catch {
+                        failures.append("\(url.lastPathComponent): \(error.localizedDescription)")
+                    }
+                }
+
+                if let firstImportedPreset = importedPresets.first {
+                    withAnimation(.snappy(duration: 0.2)) {
+                        model.applyBackgroundPreset(firstImportedPreset)
+                    }
+                }
+
+                transferAlert = Self.importAlert(
+                    importedCount: importedPresets.count,
+                    omittedWallpaperCount: omittedWallpaperCount,
+                    failures: failures
+                )
+            }
+        }
+    }
+
+    private func exportPreset(_ presetID: AnnotationBackgroundPreset.ID) {
+        onEditorAction()
+
+        do {
+            let transferFile = try presetStore.transferFile(for: presetID)
+            guard let preset = presetStore.preset(id: presetID) else {
+                throw AnnotationBackgroundPresetTransferError.presetNotFound
+            }
+
+            let panel = NSSavePanel()
+            panel.allowedContentTypes = [.screendropPreset]
+            panel.canCreateDirectories = true
+            panel.isExtensionHidden = false
+            panel.title = "Export Screenshot Preset"
+            panel.prompt = "Export"
+            panel.nameFieldStringValue = "\(Self.safeFilename(for: preset.name)).\(AnnotationBackgroundPresetTransferFile.filenameExtension)"
+
+            panel.begin { response in
+                guard response == .OK, let url = panel.url else { return }
+
+                Task { @MainActor in
+                    do {
+                        let data = try transferFile.encodedData()
+                        try data.write(to: url, options: .atomic)
+                        let omittedWallpaper = transferFile.presets.first?.omitted.contains(.wallpaper) == true
+                        transferAlert = PresetTransferAlert(
+                            title: "Preset Exported",
+                            message: omittedWallpaper
+                                ? "The local wallpaper was not included. The imported preset will use no background."
+                                : "“\(preset.name)” is ready to share."
+                        )
+                    } catch {
+                        transferAlert = PresetTransferAlert(
+                            title: "Export Failed",
+                            message: error.localizedDescription
+                        )
+                    }
+                }
+            }
+        } catch {
+            transferAlert = PresetTransferAlert(
+                title: "Export Failed",
+                message: error.localizedDescription
+            )
+        }
+    }
+
+    private static func importAlert(
+        importedCount: Int,
+        omittedWallpaperCount: Int,
+        failures: [String]
+    ) -> PresetTransferAlert {
+        guard importedCount > 0 else {
+            return PresetTransferAlert(
+                title: "Import Failed",
+                message: failures.joined(separator: "\n")
+            )
+        }
+
+        let presetNoun = importedCount == 1 ? "preset" : "presets"
+        var messages = ["Imported \(importedCount) \(presetNoun)."]
+        if omittedWallpaperCount > 0 {
+            let wallpaperNoun = omittedWallpaperCount == 1 ? "wallpaper was" : "wallpapers were"
+            messages.append(
+                "\(omittedWallpaperCount) local \(wallpaperNoun) not included and will use no background."
+            )
+        }
+        if !failures.isEmpty {
+            messages.append("Some files could not be imported:\n\(failures.joined(separator: "\n"))")
+        }
+        return PresetTransferAlert(
+            title: importedCount == 1 ? "Preset Imported" : "Presets Imported",
+            message: messages.joined(separator: "\n\n")
+        )
+    }
+
+    private static func safeFilename(for presetName: String) -> String {
+        let forbiddenCharacters = CharacterSet(charactersIn: "/:\n\r")
+        let components = presetName.components(separatedBy: forbiddenCharacters)
+        let sanitized = components.filter { !$0.isEmpty }.joined(separator: "-")
+        return sanitized.isEmpty ? "Screenshot Preset" : sanitized
+    }
+}
+
+private struct PresetTransferAlert: Identifiable {
+    let id = UUID()
+    let title: String
+    let message: String
 }
 
 private struct AnnotationPresetPopUpButton: NSViewRepresentable {
@@ -245,6 +391,8 @@ private struct AnnotationPresetPopUpButton: NSViewRepresentable {
     let onSelectPreset: (AnnotationBackgroundPreset.ID?) -> Void
     let onSetDefaultPreset: (AnnotationBackgroundPreset.ID?) -> Void
     let onDeletePreset: (AnnotationBackgroundPreset.ID) -> Void
+    let onImportPreset: () -> Void
+    let onExportPreset: (AnnotationBackgroundPreset.ID) -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
@@ -301,7 +449,6 @@ private struct AnnotationPresetPopUpButton: NSViewRepresentable {
                 let emptyItem = NSMenuItem(title: "No Saved Presets", action: nil, keyEquivalent: "")
                 emptyItem.isEnabled = false
                 menu.addItem(emptyItem)
-                return menu
             }
 
             if !availablePresets.isEmpty {
@@ -352,6 +499,46 @@ private struct AnnotationPresetPopUpButton: NSViewRepresentable {
                 menu.addItem(defaultItem)
             }
 
+            menu.addItem(.separator())
+
+            let importItem = NSMenuItem(
+                title: "Import Preset…",
+                action: #selector(importPreset(_:)),
+                keyEquivalent: ""
+            )
+            importItem.target = self
+            importItem.image = NSImage(
+                systemSymbolName: "square.and.arrow.down",
+                accessibilityDescription: nil
+            )
+            menu.addItem(importItem)
+
+            if !parent.presets.isEmpty {
+                let exportItem = NSMenuItem(title: "Export Preset", action: nil, keyEquivalent: "")
+                exportItem.image = NSImage(
+                    systemSymbolName: "square.and.arrow.up",
+                    accessibilityDescription: nil
+                )
+                exportItem.submenu = makeExportMenu(presets: parent.presets)
+                menu.addItem(exportItem)
+            }
+
+            return menu
+        }
+
+        private func makeExportMenu(presets: [AnnotationBackgroundPreset]) -> NSMenu {
+            let menu = NSMenu(title: "Export Preset")
+            menu.autoenablesItems = false
+
+            for preset in presets {
+                menu.addItem(
+                    presetItem(
+                        preset,
+                        action: #selector(exportPreset(_:)),
+                        isSelected: false
+                    )
+                )
+            }
             return menu
         }
 
@@ -418,6 +605,15 @@ private struct AnnotationPresetPopUpButton: NSViewRepresentable {
         @objc private func deletePreset(_ sender: NSMenuItem) {
             guard let presetID = presetID(from: sender) else { return }
             parent.onDeletePreset(presetID)
+        }
+
+        @objc private func importPreset(_ sender: NSMenuItem) {
+            parent.onImportPreset()
+        }
+
+        @objc private func exportPreset(_ sender: NSMenuItem) {
+            guard let presetID = presetID(from: sender) else { return }
+            parent.onExportPreset(presetID)
         }
     }
 }

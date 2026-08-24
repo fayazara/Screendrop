@@ -48,6 +48,11 @@ struct AnnotationBackgroundPreset: Identifiable, Codable, Equatable {
     }
 }
 
+struct AnnotationBackgroundPresetImportResult {
+    var importedPresets: [AnnotationBackgroundPreset]
+    var omittedWallpaperCount: Int
+}
+
 extension AnnotationBackgroundSettings {
     fileprivate var presetComparable: AnnotationBackgroundSettings {
         var comparable = self
@@ -171,6 +176,51 @@ final class AnnotationBackgroundPresetStore {
         }
         activePresetID = id
         persist()
+    }
+
+    func transferFile(
+        for id: AnnotationBackgroundPreset.ID
+    ) throws -> AnnotationBackgroundPresetTransferFile {
+        guard let preset = preset(id: id) else {
+            throw AnnotationBackgroundPresetTransferError.presetNotFound
+        }
+        return AnnotationBackgroundPresetTransferFile(preset: preset)
+    }
+
+    /// Imports portable presets with fresh local identities. Imported presets
+    /// never replace an existing preset or become the default automatically.
+    @discardableResult
+    func importTransferFile(
+        _ transferFile: AnnotationBackgroundPresetTransferFile
+    ) throws -> AnnotationBackgroundPresetImportResult {
+        let transferPresets = try transferFile.validatedPresets()
+        var importedPresets: [AnnotationBackgroundPreset] = []
+        var omittedWallpaperCount = 0
+
+        for transferPreset in transferPresets {
+            let normalized = Self.normalizedName(transferPreset.name)
+            let baseName = normalized.isEmpty ? "Untitled Preset" : normalized
+            let name = Self.uniqueSanitizedName(
+                baseName,
+                existingNames: presets.map(\.name) + importedPresets.map(\.name)
+            )
+            let preset = AnnotationBackgroundPreset(
+                name: name,
+                settings: transferPreset.settings.annotationSettings
+            )
+            importedPresets.append(preset)
+
+            if transferPreset.omitted.contains(.wallpaper) {
+                omittedWallpaperCount += 1
+            }
+        }
+
+        presets.append(contentsOf: importedPresets)
+        persist()
+        return AnnotationBackgroundPresetImportResult(
+            importedPresets: importedPresets,
+            omittedWallpaperCount: omittedWallpaperCount
+        )
     }
 
     @discardableResult
