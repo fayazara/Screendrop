@@ -183,7 +183,7 @@ Crop at full resolution with freeform, original, `1:1`, `16:9`, `9:16`, `4:3`, a
 Turn a plain screenshot into a finished visual without leaving Screendrop:
 
 - Apply solid colors, gradients, custom images, or downloadable wallpaper packs.
-- Save and reuse background presets.
+- Save, import, export, and share background presets as versioned `.screendroppreset` JSON files.
 - Adjust padding, corner radius, shadow, aspect ratio, and nine-point alignment.
 - Add a configurable solid border around the screenshot.
 - Add a text watermark with placement and typography controls.
@@ -191,6 +191,8 @@ Turn a plain screenshot into a finished visual without leaving Screendrop:
 - Add radial or directional progressive blur, either clipped to the screenshot or bleeding into the surrounding scene.
 
 The editor keeps these effects live and re-editable instead of flattening them into the source.
+
+Shared presets include portable colors, gradients, layout, camera, blur, border, and watermark settings. Local wallpaper images and their file paths are never exported or imported; a wallpaper-based preset uses no background when opened on another Mac.
 
 ## Screen Recording
 

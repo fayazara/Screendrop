@@ -33,5 +33,27 @@
 	<string>https://raw.githubusercontent.com/fayazara/screendrop/main/appcast.xml</string>
 	<key>SUPublicEDKey</key>
 	<string>MA/6n0fqT0T2updDlkXr8BjhJKoHWik9uf6Lh5pUG7U=</string>
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.json</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Screendrop Screenshot Preset</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.fayazahmed.screendrop.preset</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>screendroppreset</string>
+				</array>
+				<key>public.mime-type</key>
+				<string>application/vnd.screendrop.preset+json</string>
+			</dict>
+		</dict>
+	</array>
 </dict>
 </plist>
