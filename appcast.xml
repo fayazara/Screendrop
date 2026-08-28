@@ -27,6 +27,26 @@
     -->
 
     <item>
+      <title>Version 0.31.3</title>
+      <sparkle:version>27</sparkle:version>
+      <sparkle:shortVersionString>0.31.3</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.4</sparkle:minimumSystemVersion>
+      <pubDate>Fri, 28 Aug 2026 09:07:11 +0000</pubDate>
+      <description><![CDATA[
+        <h2>What's New in 0.31.3</h2>
+        <ul>
+          <li>Add non-destructive video cropping</li>
+        </ul>
+      ]]></description>
+      <enclosure
+        url="https://github.com/fayazara/screendrop/releases/download/v0.31.3/Screendrop.dmg"
+        type="application/octet-stream"
+        sparkle:edSignature="3VU576Ielxsp0wsB84PMrnjIe3C+4oszP/5R9DktGViFTvFwzjyKiqfX++ZagSWVKCEcztAIQmuOvYGmwAKABQ=="
+        length="6689368"
+      />
+    </item>
+
+    <item>
       <title>Version 0.31.2</title>
       <sparkle:version>26</sparkle:version>
       <sparkle:shortVersionString>0.31.2</sparkle:shortVersionString>
