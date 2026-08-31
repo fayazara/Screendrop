@@ -9,6 +9,15 @@ import AppKit
 import ScreenCaptureKit
 import SwiftUI
 
+/// What a Capture Text run produced. `cancelled` and `noTextFound` look the
+/// same to a caller handed a plain optional, but a Shortcut needs to tell the
+/// user which one happened.
+enum CaptureTextOutcome {
+    case cancelled
+    case noTextFound
+    case copied(String)
+}
+
 /// Single long-lived coordinator that manages the capture → preview flow.
 @Observable
 final class CaptureCoordinator {
@@ -62,6 +71,16 @@ final class CaptureCoordinator {
         await performCaptureArea()
     }
 
+    /// Returns the recognized text rather than a URL - Capture Text produces
+    /// no file, and a Shortcuts action that hands back a string is what makes
+    /// it composable with the rest of a workflow. The outcome distinguishes a
+    /// cancelled selection from a region that simply had no text in it, which
+    /// a Shortcut needs to report accurately.
+    @discardableResult
+    func captureTextAwaiting() async -> CaptureTextOutcome {
+        await performCaptureText()
+    }
+
     @discardableResult
     private func performCaptureFullscreen() async -> URL? {
         let displayID = ActiveDisplayResolver.activeDisplayID(preferPointer: false)
@@ -106,10 +125,11 @@ final class CaptureCoordinator {
     ///
     /// The self-timer is handled by screencapture's `-T`, so the delay happens
     /// after the area is drawn, matching Capture Area.
-    private func performCaptureText() async {
+    @discardableResult
+    private func performCaptureText() async -> CaptureTextOutcome {
         guard let url = await ScreenshotManager.shared.captureArea(
             delaySeconds: ScreendropPreferences.captureDelaySeconds
-        ) else { return }
+        ) else { return .cancelled }
         defer { try? FileManager.default.removeItem(at: url) }
 
         // Resolved before recognition runs, so the toast lands on the display
@@ -123,7 +143,7 @@ final class CaptureCoordinator {
             if ScreendropPreferences.playSounds {
                 NSSound.beep()
             }
-            return
+            return .noTextFound
         }
 
         NSPasteboard.general.clearContents()
@@ -132,6 +152,7 @@ final class CaptureCoordinator {
         if ScreendropPreferences.playSounds {
             CaptureFeedbackSound.play()
         }
+        return .copied(text)
     }
 
     func recordFullscreen(_ display: SCDisplay) {
