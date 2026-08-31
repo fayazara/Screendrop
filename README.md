@@ -33,6 +33,7 @@ A beautiful screenshot + screen recording + Loom alternative - all native, self 
 - Capture a display, window, or selected area as a screenshot or recording.
 - Configure global hotkeys, timers, file formats, save behavior, and complete after-capture workflows.
 - Copy, compress, save, pin, preview, annotate, edit, upload, or delete directly from a customizable floating preview stack.
+- Grab text off the screen with on-device OCR - no screenshot saved, just the text on your clipboard.
 - Open images from Finder with Screendrop and edit imported copies without touching the originals.
 - Annotate non-destructively with drawing tools, crop, smart redaction, backgrounds, wallpaper packs, perspective effects, progressive blur, borders, and watermarks.
 - Record camera, microphone, and system audio as separately editable sources.
@@ -82,8 +83,9 @@ Screendrop can be controlled from its menu bar item or with global hotkeys.
 | `Option + 2` | Capture a window |
 | `Option + 3` | Capture an area |
 | `Option + 4` | Open the screen-recording picker |
+| `Option + 5` | Capture text (OCR) to the clipboard |
 
-All four shortcuts are customizable under **Settings → Screenshots** and **Settings → Screen Recordings**.
+All five shortcuts are customizable under **Settings → Screenshots** and **Settings → Screen Recordings**.
 
 You can also:
 
@@ -106,6 +108,17 @@ Screenshot preferences include:
 - A configurable export folder and a Save action that can bypass the save panel.
 - A lower-resolution editor preview to reduce memory use while preserving full-resolution exports.
 - An option to include Screendrop's own windows in screenshots and recordings; they are excluded by default.
+
+### Capture Text
+
+**Capture Text** (`Option + 5`, or the menu bar) drags out an area like a normal
+area capture, recognizes the text inside it with on-device Vision OCR, and puts
+that text on the clipboard. No image is saved, nothing is added to History, and
+no preview card appears - a brief toast confirms what was copied.
+
+Recognized lines are returned in reading order, so multi-column screenshots
+paste in the order you read them rather than the order Vision happened to find
+them.
 
 ### After-Capture Automation
 
