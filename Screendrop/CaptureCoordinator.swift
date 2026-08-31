@@ -98,19 +98,37 @@ final class CaptureCoordinator {
         return finishCapture(url: url, displayID: displayID)
     }
 
+    /// Capture Text is the odd one out: it recognizes the text inside the drawn
+    /// area, puts it on the clipboard, and throws the image away. It
+    /// deliberately skips `finishCapture` - there is no file to import into
+    /// history, no preview card to raise, and no after-capture action to run -
+    /// so the toast and the capture sound are its only feedback.
+    ///
+    /// The self-timer is handled by screencapture's `-T`, so the delay happens
+    /// after the area is drawn, matching Capture Area.
     private func performCaptureText() async {
         guard let url = await ScreenshotManager.shared.captureArea(
             delaySeconds: ScreendropPreferences.captureDelaySeconds
         ) else { return }
         defer { try? FileManager.default.removeItem(at: url) }
 
+        // Resolved before recognition runs, so the toast lands on the display
+        // the user was just drawing on rather than wherever the pointer
+        // drifted to while Vision worked.
+        let displayID = ActiveDisplayResolver.activeDisplayID(preferPointer: true)
         let text = await ImageTextRecognizer.recognizeText(at: url)
+
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            NSSound.beep()
+            CaptureTextFeedbackPresenter.shared.showNoTextFound(displayID: displayID)
+            if ScreendropPreferences.playSounds {
+                NSSound.beep()
+            }
             return
         }
+
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
+        CaptureTextFeedbackPresenter.shared.showCopied(text: text, displayID: displayID)
         if ScreendropPreferences.playSounds {
             CaptureFeedbackSound.play()
         }
