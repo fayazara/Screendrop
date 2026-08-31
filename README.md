@@ -404,4 +404,9 @@ It creates a DMG, signs the update for Sparkle, creates the GitHub release, upda
 
 ## License
 
-Screendrop is dedicated to the public domain under [CC0 1.0 Universal](LICENSE).
+Screendrop is source-available, not open source. It is released under the
+[Screendrop Source-Available License](LICENSE).
+
+You may read, build, run, and modify Screendrop for personal or internal use. You may not
+sell it, redistribute it (source or compiled builds), rebrand it, or offer it as a
+commercial product or service without prior written permission.
