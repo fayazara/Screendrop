@@ -316,7 +316,9 @@ struct PreviewWindowView: View {
         }
         
         globalKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { event in
-            if previewStack.hoveredItemID != nil || QuickLookPreviewPresenter.isShown {
+            if previewStack.isPasteDismissalReady
+                || previewStack.hoveredItemID != nil
+                || QuickLookPreviewPresenter.isShown {
                 _ = handlePreviewKey(event)
             }
         }
@@ -398,6 +400,14 @@ struct PreviewWindowView: View {
     private func handlePreviewKey(_ event: NSEvent) -> Bool {
         guard !previewStack.isExiting else { return false }
 
+        // This is an observation-only shortcut: keep the Ctrl+V event flowing
+        // to the destination app while closing the preview once its copied
+        // image is actually being pasted.
+        if isPasteShortcut(event), previewStack.isPasteDismissalReady {
+            previewStack.dismissAll()
+            return false
+        }
+
         if event.keyCode == 53, QuickLookPreviewPresenter.isShown {
             QuickLookPreviewPresenter.dismiss()
             return true
@@ -410,5 +420,13 @@ struct PreviewWindowView: View {
         }
         
         return false
+    }
+
+    /// Recognizes Ctrl+V for the prototype paste-to-dismiss behavior, without
+    /// treating Command-V or modified variants as a paste confirmation.
+    private func isPasteShortcut(_ event: NSEvent) -> Bool {
+        event.modifierFlags.contains(.control)
+            && event.modifierFlags.intersection([.command, .option, .shift]).isEmpty
+            && (event.keyCode == 9 || event.charactersIgnoringModifiers?.lowercased() == "v")
     }
 }
