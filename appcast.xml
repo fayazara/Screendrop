@@ -27,6 +27,27 @@
     -->
 
     <item>
+      <title>Version 0.31.4</title>
+      <sparkle:version>28</sparkle:version>
+      <sparkle:shortVersionString>0.31.4</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.4</sparkle:minimumSystemVersion>
+      <pubDate>Tue, 01 Sep 2026 06:50:30 +0000</pubDate>
+      <description><![CDATA[
+        <h2>What's New in 0.31.4</h2>
+        <ul>
+          <li>Add Capture Text: OCR area capture with Shortcuts support</li>
+          <li>Relicense from CC0 to a source-available license</li>
+        </ul>
+      ]]></description>
+      <enclosure
+        url="https://github.com/fayazara/screendrop/releases/download/v0.31.4/Screendrop.dmg"
+        type="application/octet-stream"
+        sparkle:edSignature="YkdT0urxQ8n/pmCugmR6iz7rSxZLeYIErzA2bseOJcnVPD4wEb/bPflSZkhzOaNX6cpDSMmTYCdjesB49RV1Cg=="
+        length="6718786"
+      />
+    </item>
+
+    <item>
       <title>Version 0.31.3</title>
       <sparkle:version>27</sparkle:version>
       <sparkle:shortVersionString>0.31.3</sparkle:shortVersionString>
