@@ -412,10 +412,13 @@ struct PreviewWindowView: View {
         // Ctrl+C follows the same hovered-card path as the visible Copy
         // action, so the clipboard behavior and dismissal stay in sync for
         // both images and recordings.
-        if !previewStack.isCollapsed,
+        if ScreendropPreferences.previewCloseAfterCopying,
+           !previewStack.isCollapsed,
            PreviewPanelPresenter.shared.isPreviewFocused,
            isCopyShortcut(event),
            let hoveredItem = previewStack.hoveredItem {
+            // Keep the keyboard shortcut opt-out separate from the visible
+            // copy action, so the copy button remains available when disabled.
             previewStack.copyToClipboard(id: hoveredItem.id)
             return true
         }

@@ -160,7 +160,6 @@ struct AnnotationEditorWindow: View {
         Button(action: finishEditing) {
             Image(systemName: "checkmark.circle")
         }
-        .keyboardShortcut("c", modifiers: .control)
         .help("Finish editing and save (Ctrl+C)")
 
         Button {
