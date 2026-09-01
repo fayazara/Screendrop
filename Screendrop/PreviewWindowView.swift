@@ -409,26 +409,26 @@ struct PreviewWindowView: View {
             return true
         }
 
-        // Ctrl+C follows the same hovered-card path as the visible Copy
-        // action, so the clipboard behavior and dismissal stay in sync for
-        // both images and recordings.
+        // A focused preview can handle Ctrl+C without a pointer hover; when
+        // another app owns focus, preserve the existing hovered-card path.
+        let copyTarget = previewStack.hoveredItem
+            ?? (PreviewPanelPresenter.shared.isPreviewFocused ? previewStack.items.first : nil)
+
         if ScreendropPreferences.previewCloseAfterCopying,
            !previewStack.isCollapsed,
-           PreviewPanelPresenter.shared.isPreviewFocused,
            isCopyShortcut(event),
-           let hoveredItem = previewStack.hoveredItem {
+           let copyTarget {
             // Keep the keyboard shortcut opt-out separate from the visible
             // copy action, so the copy button remains available when disabled.
-            previewStack.copyToClipboard(id: hoveredItem.id)
+            previewStack.copyToClipboard(id: copyTarget.id)
             return true
         }
         
         return false
     }
 
-    /// Recognizes Ctrl+C while a preview card is hovered. The caller still
-    /// requires a hovered item so a visible overlay never hijacks copy events
-    /// sent to another app.
+    /// Recognizes Ctrl+C. The caller selects the hovered card, or the newest
+    /// card when the focused preview has no hovered card.
     private func isCopyShortcut(_ event: NSEvent) -> Bool {
         event.modifierFlags.contains(.control)
             && event.modifierFlags.intersection([.command, .option, .shift]).isEmpty
