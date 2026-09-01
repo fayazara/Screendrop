@@ -8,6 +8,7 @@
 //
 
 import AppKit
+import CoreGraphics
 import SwiftUI
 
 let previewCardSize = CGSize(width: 165, height: 124)
@@ -31,6 +32,7 @@ struct PreviewWindowView: View {
     @State private var stackHeight: CGFloat = 500
     @State private var peekHeight: CGFloat = 64
     @AppStorage(ScreendropPreferences.previewPositionKey) private var previewPositionRaw = PreviewOverlayPosition.right.rawValue
+    @AppStorage(ScreendropPreferences.previewCloseAfterPastingKey) private var previewCloseAfterPasting = false
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismiss) private var dismissWindow
 
@@ -135,6 +137,11 @@ struct PreviewWindowView: View {
             installScrollMonitor()
         }
         .onDisappear(perform: tearDown)
+        .onChange(of: previewCloseAfterPasting) { _, isEnabled in
+            if isEnabled {
+                requestInputMonitoringAccessIfNeeded()
+            }
+        }
         .onChange(of: previewStack.items.count) { _, count in
             if count == 0 {
                 if let onRequestClose {
@@ -303,9 +310,18 @@ struct PreviewWindowView: View {
     }
     
     // MARK: - Keyboard
+
+    /// Requests listen access only for the paste-dismissal feature; keeping the
+    /// prompt opt-in avoids asking screenshot-only users for input monitoring.
+    private func requestInputMonitoringAccessIfNeeded() {
+        guard previewCloseAfterPasting, !CGPreflightListenEventAccess() else { return }
+        _ = CGRequestListenEventAccess()
+    }
     
     private func installKeyMonitors() {
         guard keyMonitor == nil, globalKeyMonitor == nil else { return }
+
+        requestInputMonitoringAccessIfNeeded()
         
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             if handlePreviewKey(event) {
