@@ -22,6 +22,7 @@ import ScreenCaptureKit
 
 nonisolated enum ScreendropIntentError: Error, CustomLocalizedStringResourceConvertible {
     case captureCancelled
+    case noTextRecognized
     case recordingAlreadyActive
     case noActiveRecording
     case noDisplayAvailable
@@ -30,6 +31,8 @@ nonisolated enum ScreendropIntentError: Error, CustomLocalizedStringResourceConv
         switch self {
         case .captureCancelled:
             "The screenshot was cancelled before it could be captured."
+        case .noTextRecognized:
+            "No text was recognized in the captured area."
         case .recordingAlreadyActive:
             "Screendrop is already recording."
         case .noActiveRecording:
@@ -84,6 +87,25 @@ nonisolated struct TakeAreaScreenshotIntent: AppIntent {
             throw ScreendropIntentError.captureCancelled
         }
         return .result(value: IntentFile(fileURL: url))
+    }
+}
+
+nonisolated struct CaptureTextIntent: AppIntent {
+    static var title: LocalizedStringResource = "Capture Text"
+    static var description = IntentDescription(
+        "Recognizes the text inside a region you drag out, copies it to the clipboard, and returns it."
+    )
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ReturnsValue<String> {
+        switch await CaptureCoordinator.shared.captureTextAwaiting() {
+        case .cancelled:
+            throw ScreendropIntentError.captureCancelled
+        case .noTextFound:
+            throw ScreendropIntentError.noTextRecognized
+        case .copied(let text):
+            return .result(value: text)
+        }
     }
 }
 
@@ -181,6 +203,15 @@ nonisolated struct ScreendropShortcuts: AppShortcutsProvider {
             ],
             shortTitle: "Take Area Screenshot",
             systemImageName: "crop"
+        )
+        AppShortcut(
+            intent: CaptureTextIntent(),
+            phrases: [
+                "Capture text with \(.applicationName)",
+                "Copy text from the screen with \(.applicationName)"
+            ],
+            shortTitle: "Capture Text",
+            systemImageName: "text.viewfinder"
         )
         AppShortcut(
             intent: StartScreenRecordingIntent(),

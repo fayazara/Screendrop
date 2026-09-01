@@ -9,6 +9,15 @@ import AppKit
 import ScreenCaptureKit
 import SwiftUI
 
+/// What a Capture Text run produced. `cancelled` and `noTextFound` look the
+/// same to a caller handed a plain optional, but a Shortcut needs to tell the
+/// user which one happened.
+enum CaptureTextOutcome {
+    case cancelled
+    case noTextFound
+    case copied(String)
+}
+
 /// Single long-lived coordinator that manages the capture → preview flow.
 @Observable
 final class CaptureCoordinator {
@@ -36,6 +45,10 @@ final class CaptureCoordinator {
         Task { await performCaptureArea() }
     }
 
+    func captureText() {
+        Task { await performCaptureText() }
+    }
+
     // MARK: - Awaitable Capture Actions
 
     /// Awaitable variants for callers (App Intents / Shortcuts) that need the
@@ -56,6 +69,16 @@ final class CaptureCoordinator {
     @discardableResult
     func captureAreaAwaiting() async -> URL? {
         await performCaptureArea()
+    }
+
+    /// Returns the recognized text rather than a URL - Capture Text produces
+    /// no file, and a Shortcuts action that hands back a string is what makes
+    /// it composable with the rest of a workflow. The outcome distinguishes a
+    /// cancelled selection from a region that simply had no text in it, which
+    /// a Shortcut needs to report accurately.
+    @discardableResult
+    func captureTextAwaiting() async -> CaptureTextOutcome {
+        await performCaptureText()
     }
 
     @discardableResult
@@ -92,6 +115,44 @@ final class CaptureCoordinator {
         ) else { return nil }
         let displayID = ActiveDisplayResolver.activeDisplayID(preferPointer: true)
         return finishCapture(url: url, displayID: displayID)
+    }
+
+    /// Capture Text is the odd one out: it recognizes the text inside the drawn
+    /// area, puts it on the clipboard, and throws the image away. It
+    /// deliberately skips `finishCapture` - there is no file to import into
+    /// history, no preview card to raise, and no after-capture action to run -
+    /// so the toast and the capture sound are its only feedback.
+    ///
+    /// The self-timer is handled by screencapture's `-T`, so the delay happens
+    /// after the area is drawn, matching Capture Area.
+    @discardableResult
+    private func performCaptureText() async -> CaptureTextOutcome {
+        guard let url = await ScreenshotManager.shared.captureArea(
+            delaySeconds: ScreendropPreferences.captureDelaySeconds
+        ) else { return .cancelled }
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        // Resolved before recognition runs, so the toast lands on the display
+        // the user was just drawing on rather than wherever the pointer
+        // drifted to while Vision worked.
+        let displayID = ActiveDisplayResolver.activeDisplayID(preferPointer: true)
+        let text = await ImageTextRecognizer.recognizeText(at: url)
+
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            CaptureTextFeedbackPresenter.shared.showNoTextFound(displayID: displayID)
+            if ScreendropPreferences.playSounds {
+                NSSound.beep()
+            }
+            return .noTextFound
+        }
+
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        CaptureTextFeedbackPresenter.shared.showCopied(text: text, displayID: displayID)
+        if ScreendropPreferences.playSounds {
+            CaptureFeedbackSound.play()
+        }
+        return .copied(text)
     }
 
     func recordFullscreen(_ display: SCDisplay) {
