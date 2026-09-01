@@ -408,7 +408,26 @@ struct PreviewWindowView: View {
             QuickLookPreviewPresenter.show(url: hoveredItem.url)
             return true
         }
+
+        // Ctrl+C follows the same hovered-card path as the visible Copy
+        // action, so the clipboard behavior and dismissal stay in sync for
+        // both images and recordings.
+        if !previewStack.isCollapsed,
+           isCopyShortcut(event),
+           let hoveredItem = previewStack.hoveredItem {
+            previewStack.copyToClipboard(id: hoveredItem.id)
+            return true
+        }
         
         return false
+    }
+
+    /// Recognizes Ctrl+C while a preview card is hovered. The caller still
+    /// requires a hovered item so a visible overlay never hijacks copy events
+    /// sent to another app.
+    private func isCopyShortcut(_ event: NSEvent) -> Bool {
+        event.modifierFlags.contains(.control)
+            && event.modifierFlags.intersection([.command, .option, .shift]).isEmpty
+            && (event.keyCode == 8 || event.charactersIgnoringModifiers?.lowercased() == "c")
     }
 }
