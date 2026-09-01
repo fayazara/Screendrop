@@ -18,6 +18,14 @@ final class PreviewPanelPresenter {
 
     private var panel: NSPanel?
 
+    /// Whether the visible preview panel is still the key window. Preview
+    /// shortcuts use this to avoid handling copy from another app after focus
+    /// moves away from the popup.
+    var isPreviewFocused: Bool {
+        guard let panel else { return false }
+        return panel.isVisible && panel.isKeyWindow && NSApp.keyWindow === panel
+    }
+
     private init() {}
 
     func show(displayID: CGDirectDisplayID?) {

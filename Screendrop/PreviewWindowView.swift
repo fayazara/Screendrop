@@ -413,6 +413,7 @@ struct PreviewWindowView: View {
         // action, so the clipboard behavior and dismissal stay in sync for
         // both images and recordings.
         if !previewStack.isCollapsed,
+           PreviewPanelPresenter.shared.isPreviewFocused,
            isCopyShortcut(event),
            let hoveredItem = previewStack.hoveredItem {
             previewStack.copyToClipboard(id: hoveredItem.id)
