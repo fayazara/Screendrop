@@ -211,13 +211,12 @@ final class AnnotationKeyCommandHandlerView: NSView {
             && event.charactersIgnoringModifiers?.lowercased() == "s"
     }
 
-    /// Recognizes Ctrl+C for finishing annotation editing, including layouts
-    /// where the control-modified event reports a control character instead of
-    /// the letter `c`.
+    /// Recognizes Ctrl+C for finishing annotation editing using the logical
+    /// character from the active keyboard layout instead of a fixed key code.
     private static func isFinishEditing(_ event: NSEvent) -> Bool {
         event.modifierFlags.contains(.control)
             && event.modifierFlags.intersection([.command, .option, .shift]).isEmpty
-            && (event.keyCode == 8 || event.charactersIgnoringModifiers?.lowercased() == "c")
+            && event.charactersIgnoringModifiers?.lowercased() == "c"
     }
 
     private static func isUndo(_ event: NSEvent) -> Bool {

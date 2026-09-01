@@ -427,11 +427,13 @@ struct PreviewWindowView: View {
         return false
     }
 
-    /// Recognizes Ctrl+C. The caller selects the hovered card, or the newest
-    /// card when the focused preview has no hovered card.
+    /// Recognizes a non-repeating Ctrl+C using the logical character from the
+    /// active keyboard layout. The caller selects the hovered card, or the
+    /// newest card when the focused preview has no hovered card.
     private func isCopyShortcut(_ event: NSEvent) -> Bool {
         event.modifierFlags.contains(.control)
             && event.modifierFlags.intersection([.command, .option, .shift]).isEmpty
-            && (event.keyCode == 8 || event.charactersIgnoringModifiers?.lowercased() == "c")
+            && !event.isARepeat
+            && event.charactersIgnoringModifiers?.lowercased() == "c"
     }
 }
