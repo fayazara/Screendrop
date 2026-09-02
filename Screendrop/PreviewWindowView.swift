@@ -409,10 +409,10 @@ struct PreviewWindowView: View {
             return true
         }
 
-        // A focused preview can handle Ctrl+C without a pointer hover; when
-        // another app owns focus, preserve the existing hovered-card path.
-        let copyTarget = previewStack.hoveredItem
-            ?? (PreviewPanelPresenter.shared.isPreviewFocused ? previewStack.items.first : nil)
+        // Ctrl+C belongs to the focused preview. A hover selects that card;
+        // otherwise the newest card is the focused preview's target.
+        guard PreviewPanelPresenter.shared.isPreviewFocused else { return false }
+        let copyTarget = previewStack.hoveredItem ?? previewStack.items.first
 
         if ScreendropPreferences.previewCloseAfterCopying,
            !previewStack.isCollapsed,
