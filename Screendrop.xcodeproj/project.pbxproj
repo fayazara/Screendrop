@@ -9,16 +9,24 @@
 /* Begin PBXBuildFile section */
 		31A100022F9DC05A002A7AF3 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 31A100012F9DC05A002A7AF3 /* Sparkle */; };
 		5EB13EE1F16DFCBCFE9A3449 /* DockProgress in Frameworks */ = {isa = PBXBuildFile; productRef = 6711E7AD88BD96C1258D3CE6 /* DockProgress */; };
+		A1B2C3D4E5F600000000B101 /* StudioSourceImageCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F600000000B001 /* StudioSourceImageCache.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		3163891D2F9DC05A002A7AF3 /* Screendrop.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Screendrop.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A1B2C3D4E5F600000000A002 /* ScreendropTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ScreendropTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A1B2C3D4E5F600000000B001 /* StudioSourceImageCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = StudioSourceImageCache.swift; path = Screendrop/StudioSourceImageCache.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		3163891F2F9DC05A002A7AF3 /* Screendrop */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = Screendrop;
+			sourceTree = "<group>";
+		};
+		A1B2C3D4E5F600000000A001 /* ScreendropTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = ScreendropTests;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -33,6 +41,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A1B2C3D4E5F600000000A005 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -40,6 +55,7 @@
 			isa = PBXGroup;
 			children = (
 				3163891F2F9DC05A002A7AF3 /* Screendrop */,
+				A1B2C3D4E5F600000000A001 /* ScreendropTests */,
 				3163891E2F9DC05A002A7AF3 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -48,6 +64,7 @@
 			isa = PBXGroup;
 			children = (
 				3163891D2F9DC05A002A7AF3 /* Screendrop.app */,
+				A1B2C3D4E5F600000000A002 /* ScreendropTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -79,6 +96,28 @@
 			productReference = 3163891D2F9DC05A002A7AF3 /* Screendrop.app */;
 			productType = "com.apple.product-type.application";
 		};
+		A1B2C3D4E5F600000000A003 /* ScreendropTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A1B2C3D4E5F600000000A009 /* Build configuration list for PBXNativeTarget "ScreendropTests" */;
+			buildPhases = (
+				A1B2C3D4E5F600000000A004 /* Sources */,
+				A1B2C3D4E5F600000000A005 /* Frameworks */,
+				A1B2C3D4E5F600000000A006 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				A1B2C3D4E5F600000000A001 /* ScreendropTests */,
+			);
+			name = ScreendropTests;
+			packageProductDependencies = (
+			);
+			productName = ScreendropTests;
+			productReference = A1B2C3D4E5F600000000A002 /* ScreendropTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -91,6 +130,9 @@
 				TargetAttributes = {
 					3163891C2F9DC05A002A7AF3 = {
 						CreatedOnToolsVersion = 26.4;
+					};
+					A1B2C3D4E5F600000000A003 = {
+						CreatedOnToolsVersion = 26.6;
 					};
 				};
 			};
@@ -113,12 +155,20 @@
 			projectRoot = "";
 			targets = (
 				3163891C2F9DC05A002A7AF3 /* Screendrop */,
+				A1B2C3D4E5F600000000A003 /* ScreendropTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		3163891B2F9DC05A002A7AF3 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A1B2C3D4E5F600000000A006 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -132,6 +182,14 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A1B2C3D4E5F600000000A004 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A1B2C3D4E5F600000000B101 /* StudioSourceImageCache.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -448,6 +506,63 @@
 			};
 			name = "Debug Dev";
 		};
+		A1B2C3D4E5F600000000A00A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = TB2S44TFQS;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.fayazahmed.ScreendropTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		A1B2C3D4E5F600000000A00B /* Debug Dev */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = TB2S44TFQS;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.fayazahmed.ScreendropTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = "Debug Dev";
+		};
+		A1B2C3D4E5F600000000A00C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = TB2S44TFQS;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.fayazahmed.ScreendropTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -467,6 +582,16 @@
 				316389292F9DC05B002A7AF3 /* Debug */,
 				31CA951B2FCB2749003035C6 /* Debug Dev */,
 				3163892A2F9DC05B002A7AF3 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A1B2C3D4E5F600000000A009 /* Build configuration list for PBXNativeTarget "ScreendropTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A1B2C3D4E5F600000000A00A /* Debug */,
+				A1B2C3D4E5F600000000A00B /* Debug Dev */,
+				A1B2C3D4E5F600000000A00C /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

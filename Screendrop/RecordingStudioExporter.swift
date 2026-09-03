@@ -597,6 +597,11 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
     private let pointerScale: CGFloat
     private let colorSpace: CGColorSpace
     private let backdrop: CGImage?
+    /// The output clock ticks faster than a sparse screen capture emits
+    /// frames, so consecutive ticks routinely draw the same source buffer.
+    /// One slot per stream turns those repeats into a lookup.
+    private let screenImageCache: StudioSourceImageCache
+    private let cameraImageCache: StudioSourceImageCache
     /// Fixed output cadence, matching `pumpVideo`'s frame clock. Since the
     /// output timeline is gapless by construction, the shutter window for
     /// motion-blur supersampling is always exactly one output frame - no
@@ -641,7 +646,10 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
         self.reframe = reframe
         self.outputFrameInterval = outputFrameInterval
         self.pointerScale = style.cursorScale
-        self.colorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
+        let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
+        self.colorSpace = colorSpace
+        self.screenImageCache = StudioSourceImageCache(colorSpace: colorSpace)
+        self.cameraImageCache = StudioSourceImageCache(colorSpace: colorSpace)
         self.backdrop = Self.renderBackdrop(
             canvasSize: canvasSize,
             layout: layout,
@@ -688,7 +696,7 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
             context.fill(CGRect(origin: .zero, size: canvasSize))
         }
 
-        if let screenImage = Self.makeImage(from: screenFrame, colorSpace: colorSpace) {
+        if let screenImage = screenImageCache.image(for: screenFrame) {
             // Motion blur by temporal supersampling: while the virtual camera
             // is moving, average several sub-frame camera states across the
             // frame's shutter interval. Pans smear linearly, zooms radially,
@@ -727,7 +735,7 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
 
         if let cameraFrame,
            layout.bubbleRect.width > 0,
-           let cameraImage = Self.makeImage(from: cameraFrame, colorSpace: colorSpace) {
+           let cameraImage = cameraImageCache.image(for: cameraFrame) {
             let bubble = layout.bubbleRect
             let imageSize = CGSize(width: cameraImage.width, height: cameraImage.height)
             let scale = max(bubble.width / imageSize.width, bubble.height / imageSize.height)
@@ -1116,25 +1124,6 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
             cornerHeight: boundedRadius,
             transform: nil
         )
-    }
-
-    private static func makeImage(from pixelBuffer: CVPixelBuffer, colorSpace: CGColorSpace) -> CGImage? {
-        CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
-        defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
-
-        guard let base = CVPixelBufferGetBaseAddress(pixelBuffer),
-              let context = CGContext(
-                data: base,
-                width: CVPixelBufferGetWidth(pixelBuffer),
-                height: CVPixelBufferGetHeight(pixelBuffer),
-                bitsPerComponent: 8,
-                bytesPerRow: CVPixelBufferGetBytesPerRow(pixelBuffer),
-                space: colorSpace,
-                bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
-              ) else {
-            return nil
-        }
-        return context.makeImage()
     }
 
     private static func renderBackdrop(
