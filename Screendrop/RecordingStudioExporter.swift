@@ -124,6 +124,41 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
         }
     }
 
+    /// One decoded screen frame on its way from the reader thread to the
+    /// compositing loop. `CVPixelBuffer` carries no Sendable conformance,
+    /// but ownership passes hand to hand here - the producer drops its
+    /// reference the moment it hands the frame over.
+    private struct SourceFrame: @unchecked Sendable {
+        let buffer: CVPixelBuffer
+        let time: TimeInterval
+    }
+
+    /// One frame's worth of already-resolved inputs, handed to a worker.
+    /// Everything ordered has been settled by the time one of these exists.
+    private struct FrameJob: @unchecked Sendable {
+        let screenBuffer: CVPixelBuffer
+        let cameraBuffer: CVPixelBuffer?
+        let editorTime: TimeInterval
+        let sourceTime: TimeInterval
+        let index: Int
+    }
+
+    /// A composited frame waiting its turn to be appended. The writer needs
+    /// presentation order, which workers finishing out of order cannot give.
+    private struct RenderedFrame: @unchecked Sendable {
+        let buffer: CVPixelBuffer
+        let editorTime: TimeInterval
+        let index: Int
+    }
+
+    /// How many frames composite at once. Two cores stay free for the
+    /// decoder thread and the encoder, and the ceiling bounds memory: every
+    /// frame in flight holds a full-size destination buffer, which is
+    /// 74.6 MB at 5760x3240.
+    private static var compositingConcurrency: Int {
+        min(4, max(2, ProcessInfo.processInfo.activeProcessorCount - 2))
+    }
+
     private final class CancelFlag: @unchecked Sendable {
         private let lock = NSLock()
         private var cancelled = false
@@ -378,74 +413,125 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
         let duration = clipTimeline.duration
         let frameCount = max(1, Int((duration * frameRate).rounded()))
 
-        func nextSourceFrame() -> (buffer: CVPixelBuffer, time: TimeInterval)? {
-            while let sampleBuffer = output.copyNextSampleBuffer() {
+        // Decoding used to run inline in this loop, so a frame was never
+        // decoded while another was being drawn. The queue moves the
+        // blocking reader onto its own thread and keeps a small look-ahead.
+        // The bound stays low deliberately: every buffered frame is a
+        // full-size pixel buffer held out of the reader's pool.
+        nonisolated(unsafe) let trackOutput = output
+        let sourceFrames = PrefetchQueue<SourceFrame>(capacity: 3) {
+            while let sampleBuffer = trackOutput.copyNextSampleBuffer() {
                 guard let buffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { continue }
-                return (buffer, CMSampleBufferGetPresentationTimeStamp(sampleBuffer).seconds)
+                return SourceFrame(
+                    buffer: buffer,
+                    time: CMSampleBufferGetPresentationTimeStamp(sampleBuffer).seconds
+                )
             }
             return nil
         }
+        defer { sourceFrames.cancel() }
+
+        // Compositing one frame depends only on its own timestamps, so
+        // frames draw on as many cores as are free. Everything ordered stays
+        // on this task: walking the clip timeline, advancing the source
+        // reader, and pulling camera frames, since `CameraFrameFeed` is a
+        // sequential decoder that assumes rising source times.
+        let workerCount = Self.compositingConcurrency
+        let compositors = ResourcePool(
+            (0..<workerCount).map { _ in compositor.makeWorkerCopy() }
+        )
+        nonisolated(unsafe) let bufferAdaptor = adaptor
+        nonisolated(unsafe) let writerInput = input
+
+        let renderer = OrderedConcurrentRenderer<FrameJob, RenderedFrame>(
+            concurrency: workerCount,
+            render: { job in
+                guard let worker = compositors.borrow() else {
+                    throw ExportError.writerFailed(nil)
+                }
+                defer { compositors.giveBack(worker) }
+                guard let pixelBufferPool = bufferAdaptor.pixelBufferPool else {
+                    throw ExportError.writerFailed(nil)
+                }
+                var destination: CVPixelBuffer?
+                CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pixelBufferPool, &destination)
+                guard let destination else {
+                    throw ExportError.writerFailed(nil)
+                }
+                try worker.render(
+                    screenFrame: job.screenBuffer,
+                    cameraFrame: job.cameraBuffer,
+                    editorTime: job.editorTime,
+                    sourceTime: job.sourceTime,
+                    into: destination
+                )
+                return RenderedFrame(
+                    buffer: destination,
+                    editorTime: job.editorTime,
+                    index: job.index
+                )
+            },
+            emit: { rendered in
+                // Waiting on the writer here rather than before compositing
+                // means the workers keep drawing while it catches up.
+                while !writerInput.isReadyForMoreMediaData {
+                    if cancelFlag.isCancelled { throw ExportError.cancelled }
+                    try await Task.sleep(nanoseconds: 2_000_000)
+                }
+                let pts = CMTime(seconds: rendered.editorTime, preferredTimescale: 600)
+                if !bufferAdaptor.append(rendered.buffer, withPresentationTime: pts) {
+                    throw ExportError.writerFailed(nil)
+                }
+                if rendered.index % 10 == 0 {
+                    progress(min(0.98, Double(rendered.index) / Double(frameCount)))
+                }
+            }
+        )
 
         var currentBuffer: CVPixelBuffer?
-        var pending = nextSourceFrame()
+        var pending = await sourceFrames.next()
         var previousClipID: UUID?
 
-        for frame in 0..<frameCount {
-            if cancelFlag.isCancelled { throw ExportError.cancelled }
-            let editorTime = Double(frame) / frameRate
-            guard let location = clipTimeline.location(at: editorTime) else { break }
-            let sourceTime = location.sourceTime
-
-            if previousClipID != location.segmentID {
-                // Never carry a sparse screen-capture frame across a hard
-                // edit boundary - the reader may not have caught up yet to
-                // the new clip's starting source position.
-                if previousClipID != nil {
-                    currentBuffer = nil
-                }
-                previousClipID = location.segmentID
-            }
-
-            while let sample = pending, sample.time <= editorTime {
-                currentBuffer = sample.buffer
-                pending = nextSourceFrame()
-            }
-            // Ticks before the first source frame show it early rather than
-            // emitting black; a capture with no frames at all has nothing to
-            // render.
-            guard let sourceBuffer = currentBuffer ?? pending?.buffer else { break }
-
-            while !input.isReadyForMoreMediaData {
+        do {
+            for frame in 0..<frameCount {
                 if cancelFlag.isCancelled { throw ExportError.cancelled }
-                try await Task.sleep(nanoseconds: 2_000_000)
-            }
+                let editorTime = Double(frame) / frameRate
+                guard let location = clipTimeline.location(at: editorTime) else { break }
+                let sourceTime = location.sourceTime
 
-            guard let pool = adaptor.pixelBufferPool else {
-                throw ExportError.writerFailed(nil)
-            }
-            var destinationBuffer: CVPixelBuffer?
-            CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &destinationBuffer)
-            guard let destinationBuffer else {
-                throw ExportError.writerFailed(nil)
-            }
+                if previousClipID != location.segmentID {
+                    // Never carry a sparse screen-capture frame across a hard
+                    // edit boundary - the reader may not have caught up yet to
+                    // the new clip's starting source position.
+                    if previousClipID != nil {
+                        currentBuffer = nil
+                    }
+                    previousClipID = location.segmentID
+                }
 
-            let cameraBuffer = cameraFeed?.latestFrame(at: sourceTime)
-            try compositor.render(
-                screenFrame: sourceBuffer,
-                cameraFrame: cameraBuffer,
-                editorTime: editorTime,
-                sourceTime: sourceTime,
-                into: destinationBuffer
-            )
+                while let sample = pending, sample.time <= editorTime {
+                    currentBuffer = sample.buffer
+                    pending = await sourceFrames.next()
+                }
+                // Ticks before the first source frame show it early rather than
+                // emitting black; a capture with no frames at all has nothing to
+                // render.
+                guard let sourceBuffer = currentBuffer ?? pending?.buffer else { break }
 
-            let pts = CMTime(seconds: editorTime, preferredTimescale: 600)
-            if !adaptor.append(destinationBuffer, withPresentationTime: pts) {
-                throw ExportError.writerFailed(nil)
+                try await renderer.submit(
+                    FrameJob(
+                        screenBuffer: sourceBuffer,
+                        cameraBuffer: cameraFeed?.latestFrame(at: sourceTime),
+                        editorTime: editorTime,
+                        sourceTime: sourceTime,
+                        index: frame
+                    )
+                )
             }
-
-            if frame % 10 == 0 {
-                progress(min(0.98, Double(frame) / Double(frameCount)))
-            }
+            try await renderer.finish()
+        } catch {
+            renderer.cancel()
+            throw error
         }
         input.markAsFinished()
     }
@@ -597,6 +683,11 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
     private let pointerScale: CGFloat
     private let colorSpace: CGColorSpace
     private let backdrop: CGImage?
+    /// The output clock ticks faster than a sparse screen capture emits
+    /// frames, so consecutive ticks routinely draw the same source buffer.
+    /// One slot per stream turns those repeats into a lookup.
+    private let screenImageCache: StudioSourceImageCache
+    private let cameraImageCache: StudioSourceImageCache
     /// Fixed output cadence, matching `pumpVideo`'s frame clock. Since the
     /// output timeline is gapless by construction, the shutter window for
     /// motion-blur supersampling is always exactly one output frame - no
@@ -641,13 +732,48 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
         self.reframe = reframe
         self.outputFrameInterval = outputFrameInterval
         self.pointerScale = style.cursorScale
-        self.colorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
+        let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
+        self.colorSpace = colorSpace
+        self.screenImageCache = StudioSourceImageCache(colorSpace: colorSpace)
+        self.cameraImageCache = StudioSourceImageCache(colorSpace: colorSpace)
         self.backdrop = Self.renderBackdrop(
             canvasSize: canvasSize,
             layout: layout,
             style: style,
             colorSpace: colorSpace
         )
+    }
+
+    /// A sibling for another frame worker. Everything costly is immutable
+    /// and shared by reference - the layout maths and the pre-rendered
+    /// backdrop above all - while the caches are fresh, because none of
+    /// them is thread-safe. Building one is cheap; building a compositor
+    /// per frame would not be, since a cold one re-decodes the pointer
+    /// artwork.
+    private init(sharing other: StudioFrameCompositor) {
+        canvasSize = other.canvasSize
+        videoCropRect = other.videoCropRect
+        layout = other.layout
+        viewportTimeline = other.viewportTimeline
+        pointerTimeline = other.pointerTimeline
+        showsPressEffects = other.showsPressEffects
+        keystrokeTimeline = other.keystrokeTimeline
+        keystrokePlacement = other.keystrokePlacement
+        subtitleTimeline = other.subtitleTimeline
+        subtitleStyle = other.subtitleStyle
+        karaokeTimeline = other.karaokeTimeline
+        reframe = other.reframe
+        pointerScale = other.pointerScale
+        colorSpace = other.colorSpace
+        backdrop = other.backdrop
+        outputFrameInterval = other.outputFrameInterval
+        artworkImageCache = other.artworkImageCache
+        screenImageCache = StudioSourceImageCache(colorSpace: other.colorSpace)
+        cameraImageCache = StudioSourceImageCache(colorSpace: other.colorSpace)
+    }
+
+    func makeWorkerCopy() -> StudioFrameCompositor {
+        StudioFrameCompositor(sharing: self)
     }
 
     /// The virtual camera for a frame: the reframe crop-and-follow track
@@ -688,7 +814,7 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
             context.fill(CGRect(origin: .zero, size: canvasSize))
         }
 
-        if let screenImage = Self.makeImage(from: screenFrame, colorSpace: colorSpace) {
+        if let screenImage = screenImageCache.image(for: screenFrame) {
             // Motion blur by temporal supersampling: while the virtual camera
             // is moving, average several sub-frame camera states across the
             // frame's shutter interval. Pans smear linearly, zooms radially,
@@ -727,7 +853,7 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
 
         if let cameraFrame,
            layout.bubbleRect.width > 0,
-           let cameraImage = Self.makeImage(from: cameraFrame, colorSpace: colorSpace) {
+           let cameraImage = cameraImageCache.image(for: cameraFrame) {
             let bubble = layout.bubbleRect
             let imageSize = CGSize(width: cameraImage.width, height: cameraImage.height)
             let scale = max(bubble.width / imageSize.width, bubble.height / imageSize.height)
@@ -1116,25 +1242,6 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
             cornerHeight: boundedRadius,
             transform: nil
         )
-    }
-
-    private static func makeImage(from pixelBuffer: CVPixelBuffer, colorSpace: CGColorSpace) -> CGImage? {
-        CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
-        defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
-
-        guard let base = CVPixelBufferGetBaseAddress(pixelBuffer),
-              let context = CGContext(
-                data: base,
-                width: CVPixelBufferGetWidth(pixelBuffer),
-                height: CVPixelBufferGetHeight(pixelBuffer),
-                bitsPerComponent: 8,
-                bytesPerRow: CVPixelBufferGetBytesPerRow(pixelBuffer),
-                space: colorSpace,
-                bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
-              ) else {
-            return nil
-        }
-        return context.makeImage()
     }
 
     private static func renderBackdrop(
