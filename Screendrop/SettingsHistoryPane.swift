@@ -8,11 +8,18 @@ import SwiftUI
 
 struct SettingsHistoryPane: View {
     @State private var historyStore = ScreenshotHistoryStore.shared
+    @State private var basket = ScreenshotBasket.shared
+    @State private var selectedScreenshotIDs: Set<ScreenshotHistoryItem.ID> = []
+    @State private var selectionAnchorID: ScreenshotHistoryItem.ID?
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
+                if !historyStore.items.isEmpty || !basket.isEmpty {
+                    historySelectionControls
+                }
+
                 if historyStore.items.isEmpty {
                     ContentUnavailableView(
                         "No Captures",
@@ -21,17 +28,18 @@ struct SettingsHistoryPane: View {
                     )
                     .frame(maxWidth: .infinity, minHeight: 360)
                 } else {
-                    Text("\(historyStore.items.count) capture\(historyStore.items.count == 1 ? "" : "s")")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 18)
-                        .padding(.top, 16)
-                        .padding(.bottom, 8)
-
                     LazyVStack(spacing: 0) {
                         ForEach(historyStore.items) { item in
                             SettingsHistoryItemRow(
                                 item: item,
+                                isSelected: selectedScreenshotIDs.contains(item.id),
+                                isInBasket: basket.contains(item.url),
+                                onSelect: { extendsRange in
+                                    select(item, extendsRange: extendsRange)
+                                },
+                                onToggleBasket: {
+                                    toggleBasket(for: item)
+                                },
                                 onPreview: {
                                     QuickLookPreviewPresenter.show(url: item.url)
                                 },
@@ -57,13 +65,18 @@ struct SettingsHistoryPane: View {
                                     historyStore.reveal(item)
                                 },
                                 onDelete: {
+                                    selectedScreenshotIDs.remove(item.id)
+                                    if selectionAnchorID == item.id {
+                                        selectionAnchorID = nil
+                                    }
+                                    basket.remove(item.url)
                                     historyStore.delete(item)
                                 }
                             )
 
                             if item.id != historyStore.items.last?.id {
                                 Divider()
-                                    .padding(.leading, 92)
+                                    .padding(.leading, 124)
                             }
                         }
                     }
@@ -71,6 +84,11 @@ struct SettingsHistoryPane: View {
             }
         }
         .scrollEdgeEffectSoftIfAvailable()
+        .background {
+            HistoryKeyboardShortcutMonitor {
+                selectAllScreenshots()
+            }
+        }
         .toolbar {
             ToolbarItem(placement: .automatic) {
                 Button {
@@ -83,6 +101,111 @@ struct SettingsHistoryPane: View {
         }
         .onAppear {
             historyStore.reload()
+            selectedScreenshotIDs.formIntersection(historyStore.items.map(\.id))
+            if let selectionAnchorID,
+               !selectedScreenshotIDs.contains(selectionAnchorID) {
+                self.selectionAnchorID = nil
+            }
+            basket.pruneMissingFiles()
+        }
+    }
+
+    private var historySelectionControls: some View {
+        VStack(spacing: 10) {
+            HStack(spacing: 10) {
+                Text("\(historyStore.items.count) capture\(historyStore.items.count == 1 ? "" : "s")")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+
+                if !screenshotItems.isEmpty {
+                    Text("Shift-click for a range. ⌘A selects or deselects all screenshots.")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+
+                Spacer()
+
+                if !screenshotItems.isEmpty {
+                    Button("Add \(selectedScreenshotIDs.count) to Basket", systemImage: "basket") {
+                        addSelectionToBasket()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(selectedScreenshotIDs.isEmpty)
+                }
+            }
+
+            if !basket.isEmpty {
+                HStack {
+                    Text("Drag the basket to attach all screenshots at once.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Spacer()
+
+                    ScreenshotBasketShelf()
+                }
+            }
+        }
+        .padding(.horizontal, 18)
+        .padding(.top, 16)
+        .padding(.bottom, 8)
+    }
+
+    private var screenshotItems: [ScreenshotHistoryItem] {
+        historyStore.items.filter { !$0.isVideo }
+    }
+
+    private func select(_ item: ScreenshotHistoryItem, extendsRange: Bool) {
+        guard !item.isVideo else { return }
+
+        if extendsRange,
+           let selectionAnchorID,
+           let anchorIndex = screenshotItems.firstIndex(where: { $0.id == selectionAnchorID }),
+           let itemIndex = screenshotItems.firstIndex(where: { $0.id == item.id }) {
+            let range = min(anchorIndex, itemIndex)...max(anchorIndex, itemIndex)
+            selectedScreenshotIDs.formUnion(screenshotItems[range].map(\.id))
+            return
+        }
+
+        if selectedScreenshotIDs.contains(item.id) {
+            selectedScreenshotIDs.remove(item.id)
+        } else {
+            selectedScreenshotIDs.insert(item.id)
+        }
+        selectionAnchorID = item.id
+    }
+
+    private func selectAllScreenshots() {
+        let screenshotIDs = Set(screenshotItems.map(\.id))
+        guard !screenshotIDs.isEmpty else { return }
+
+        if screenshotIDs.isSubset(of: selectedScreenshotIDs) {
+            selectedScreenshotIDs.removeAll()
+            selectionAnchorID = nil
+        } else {
+            selectedScreenshotIDs = screenshotIDs
+            selectionAnchorID = screenshotItems.first?.id
+        }
+    }
+
+    private func addSelectionToBasket() {
+        let selectedURLs = screenshotItems
+            .filter { selectedScreenshotIDs.contains($0.id) }
+            .map(\.url)
+        basket.add(contentsOf: selectedURLs)
+        selectedScreenshotIDs.removeAll()
+        selectionAnchorID = nil
+
+        if !basket.isEmpty {
+            PreviewPanelPresenter.shared.show(displayID: nil)
+        }
+    }
+
+    private func toggleBasket(for item: ScreenshotHistoryItem) {
+        guard !item.isVideo else { return }
+        basket.toggle(item.url)
+        if basket.contains(item.url) {
+            PreviewPanelPresenter.shared.show(displayID: nil)
         }
     }
 
@@ -125,8 +248,77 @@ struct SettingsHistoryPane: View {
     }
 }
 
+private struct HistoryKeyboardShortcutMonitor: NSViewRepresentable {
+    let onSelectAll: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        context.coordinator.view = view
+        context.coordinator.startMonitoring()
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        context.coordinator.parent = self
+    }
+
+    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        coordinator.stopMonitoring()
+    }
+
+    @MainActor
+    final class Coordinator: NSObject {
+        var parent: HistoryKeyboardShortcutMonitor
+        weak var view: NSView?
+        private var eventMonitor: Any?
+
+        init(parent: HistoryKeyboardShortcutMonitor) {
+            self.parent = parent
+        }
+
+        func startMonitoring() {
+            guard eventMonitor == nil else { return }
+            eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+                guard let self,
+                      event.window === view?.window,
+                      modifiers.contains(.command),
+                      modifiers.intersection([.control, .option, .shift]).isEmpty,
+                      event.charactersIgnoringModifiers?.lowercased() == "a",
+                      !(event.window?.firstResponder is NSTextView) else {
+                    return event
+                }
+
+                parent.onSelectAll()
+                return nil
+            }
+        }
+
+        func stopMonitoring() {
+            if let eventMonitor {
+                NSEvent.removeMonitor(eventMonitor)
+                self.eventMonitor = nil
+            }
+        }
+
+        deinit {
+            if let eventMonitor {
+                NSEvent.removeMonitor(eventMonitor)
+            }
+        }
+    }
+}
+
 private struct SettingsHistoryItemRow: View {
     let item: ScreenshotHistoryItem
+    let isSelected: Bool
+    let isInBasket: Bool
+    let onSelect: (_ extendsRange: Bool) -> Void
+    let onToggleBasket: () -> Void
     let onPreview: () -> Void
     let onCopy: () -> Void
     let onEdit: () -> Void
@@ -142,6 +334,21 @@ private struct SettingsHistoryItemRow: View {
 
     var body: some View {
         HStack(spacing: 14) {
+            if item.isVideo {
+                Color.clear
+                    .frame(width: 18, height: 18)
+            } else {
+                Button {
+                    onSelect(NSEvent.modifierFlags.contains(.shift))
+                } label: {
+                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 16))
+                        .foregroundStyle(isSelected ? Color.accentColor : .secondary)
+                }
+                .buttonStyle(.plain)
+                .help(isSelected ? "Deselect screenshot" : "Select screenshot")
+            }
+
             // Thumbnail
             Group {
                 if let thumbnail {
@@ -165,6 +372,16 @@ private struct SettingsHistoryItemRow: View {
                         .font(.system(size: 18))
                         .foregroundStyle(.white.opacity(0.9), .black.opacity(0.35))
                         .shadow(color: .black.opacity(0.2), radius: 3, x: 0, y: 1)
+                }
+            }
+            .overlay(alignment: .bottomTrailing) {
+                if isInBasket {
+                    Image(systemName: "basket.fill")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(4)
+                        .background(.blue, in: Circle())
+                        .offset(x: 4, y: 4)
                 }
             }
 
@@ -233,10 +450,21 @@ private struct SettingsHistoryItemRow: View {
         .padding(.horizontal, 18)
         .padding(.vertical, 10)
         .contentShape(Rectangle())
+        .onTapGesture {
+            guard !item.isVideo, NSEvent.modifierFlags.contains(.shift) else { return }
+            onSelect(true)
+        }
         .onHover { hovering in
             isHovering = hovering
         }
         .contextMenu {
+            if !item.isVideo {
+                Button(isInBasket ? "Remove from Basket" : "Add to Basket", systemImage: "basket") {
+                    onToggleBasket()
+                }
+                Divider()
+            }
+
             Button("Quick Look", systemImage: "eye") { onPreview() }
             Button("Copy", systemImage: "doc.on.doc") { onCopy() }
             Button(item.isVideo ? "Edit Recording" : "Annotate", systemImage: item.isVideo ? "scissors" : "pencil.tip.crop.circle") { onEdit() }

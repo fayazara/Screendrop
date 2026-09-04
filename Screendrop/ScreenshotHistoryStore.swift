@@ -370,6 +370,8 @@ final class ScreenshotHistoryStore {
     }
 
     func delete(_ item: ScreenshotHistoryItem) {
+        ScreenshotBasket.shared.remove(item.url)
+
         let auxiliaryURLs: [URL]
         if let recordingSession = item.recordingSession {
             auxiliaryURLs = [recordingSession.directoryURL]
