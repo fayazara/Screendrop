@@ -417,7 +417,7 @@ It creates a DMG, signs the update for Sparkle, creates the GitHub release, upda
 
 ## License
 
-Screendrop is source-available, not open source. It is released under the
+Screendrop is source-available. It is released under the
 [Screendrop Source-Available License](LICENSE).
 
 You may read, build, run, and modify Screendrop for personal or internal use. You may not
