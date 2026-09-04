@@ -46,6 +46,7 @@ struct OverlaySettingsPane: View {
     @AppStorage(ScreendropPreferences.previewPositionKey) private var previewPositionRaw = PreviewOverlayPosition.right.rawValue
     @AppStorage(ScreendropPreferences.previewAutoCloseSecondsKey) private var autoCloseSeconds = 0
     @AppStorage(ScreendropPreferences.previewCloseAfterDraggingKey) private var closeAfterDragging = true
+    @AppStorage(ScreendropPreferences.previewCloseAfterCopyingKey) private var closeAfterCopying = true
 
     private let autoCloseOptions: [Int] = [0, 5, 10, 30, 60]
 
@@ -87,6 +88,16 @@ struct OverlaySettingsPane: View {
                     }
                 }
                 .toggleStyle(.switch)
+
+                Toggle(isOn: $closeAfterCopying) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Close after Ctrl+C")
+                        Text("Copy and dismiss the focused preview when you press Ctrl+C.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .toggleStyle(.switch)
             }
 
             Section("Card Actions") {
@@ -100,4 +111,3 @@ struct OverlaySettingsPane: View {
         .contentMargins(.top, 8, for: .scrollContent)
     }
 }
-

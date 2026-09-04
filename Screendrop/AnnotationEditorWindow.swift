@@ -74,6 +74,7 @@ struct AnnotationEditorWindow: View {
             .background(AnnotationKeyCommandHandler(
                 onDelete: model.deleteSelectedAnnotation,
                 onSave: saveEdits,
+                onFinishEditing: finishEditing,
                 onUndo: model.undo,
                 onRedo: model.redo,
                 onSelectAll: model.selectAllAnnotations,
@@ -159,7 +160,7 @@ struct AnnotationEditorWindow: View {
         Button(action: finishEditing) {
             Image(systemName: "checkmark.circle")
         }
-        .help("Finish editing and save")
+        .help("Finish editing and save (Ctrl+C)")
 
         Button {
             clearInspectorFocus()

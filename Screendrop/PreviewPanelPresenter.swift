@@ -18,6 +18,13 @@ final class PreviewPanelPresenter {
 
     private var panel: NSPanel?
 
+    /// Whether the visible preview panel is still the key window. Ctrl+C is local
+    /// to the focused preview, including when the pointer is not over a card.
+    var isPreviewFocused: Bool {
+        guard let panel else { return false }
+        return panel.isVisible && panel.isKeyWindow && NSApp.keyWindow === panel
+    }
+
     private init() {}
 
     func show(displayID: CGDirectDisplayID?) {

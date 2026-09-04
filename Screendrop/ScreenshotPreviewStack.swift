@@ -393,6 +393,9 @@ final class ScreenshotPreviewStack {
 
     func copyToClipboard(id: ScreenshotPreviewItem.ID) {
         guard let item = items.first(where: { $0.id == id }) else { return }
+        // Rendering a recording is asynchronous; ignore another request for
+        // the same card while that render is already preparing its deliverable.
+        guard !preparingItemIDs.contains(id) else { return }
 
         switch item.kind {
         case .image:
