@@ -82,6 +82,19 @@ final class AnnotationEditorModel {
     var textIsItalic = false
     var textIsUnderline = false
     var textAlignment: NSTextAlignment = .left
+    var textOutlineEnabled = false
+    var textOutlineSwatch: AnnotationSwatch = .white
+    /// 0 until the outline is first enabled, when it is seeded from the font size.
+    var textOutlineWidth: CGFloat = 0
+
+    /// The outline new text gets: the remembered colour and width while enabled, nothing while
+    /// off. The parts stay stored separately so toggling the outline off keeps the user's choice.
+    /// The width guard mirrors `TextProps.activeOutline`: an unseeded or zeroed width must never
+    /// arm new text with an outline that draws nothing.
+    var textOutline: TextOutline? {
+        textOutlineEnabled && textOutlineWidth > 0
+            ? TextOutline(swatch: textOutlineSwatch, width: Double(textOutlineWidth)) : nil
+    }
 
     /// A full snapshot of the editor's image state, captured before a crop so
     /// the operation can be undone/redone.
@@ -394,6 +407,15 @@ final class AnnotationEditorModel {
             textIsItalic = props.isItalic
             textIsUnderline = props.isUnderline
             textAlignment = props.align.nsTextAlignment
+            if let outline = props.activeOutline {
+                textOutlineEnabled = true
+                textOutlineSwatch = outline.swatch
+                textOutlineWidth = CGFloat(outline.width)
+            } else {
+                // Keep the remembered colour and width: selecting a plain text label should not
+                // forget what the next outline will look like.
+                textOutlineEnabled = false
+            }
         }
     }
 
@@ -525,6 +547,11 @@ final class AnnotationEditorModel {
         textIsItalic = preset.textIsItalic
         textIsUnderline = preset.textIsUnderline
         textAlignment = preset.textAlignment
+        // Enabled-with-no-width is not a state the UI can save; treat it as off rather than
+        // arming an outline that draws nothing.
+        textOutlineEnabled = (preset.textOutlineEnabled ?? false) && (preset.textOutlineWidth ?? 0) > 0
+        textOutlineSwatch = preset.textOutlineSwatch?.annotationSwatch ?? .white
+        textOutlineWidth = CGFloat(preset.textOutlineWidth ?? 0)
 
         engine.tool = selectedTool
         engine.currentSwatch = selectedSwatch
@@ -536,6 +563,7 @@ final class AnnotationEditorModel {
         engine.currentTextIsItalic = textIsItalic
         engine.currentTextIsUnderline = textIsUnderline
         engine.currentTextAlign = TextAlign(textAlignment)
+        engine.currentTextOutline = textOutline
     }
 
     func saveAnnotationPreset() {
@@ -551,7 +579,10 @@ final class AnnotationEditorModel {
             textIsBold: textIsBold,
             textIsItalic: textIsItalic,
             textIsUnderline: textIsUnderline,
-            textAlignmentRawValue: textAlignment.rawValue
+            textAlignmentRawValue: textAlignment.rawValue,
+            textOutlineEnabled: textOutlineEnabled,
+            textOutlineWidth: textOutlineWidth > 0 ? Double(textOutlineWidth) : nil,
+            textOutlineSwatch: CodableSwatch(swatch: textOutlineSwatch)
         )
         AnnotationPresetStore.save(preset)
     }
@@ -730,6 +761,7 @@ extension AnnotationEditorModel {
             shape.kind = .arrow(p)
         case var .text(p):
             p.fontSize *= uniform
+            p.outline?.width *= uniform
             p.w *= sx
             shape.kind = .text(p)
         }

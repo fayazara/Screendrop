@@ -192,6 +192,13 @@ final class AnnotationColorPanelBridge: NSObject {
     func present(current: NSColor, onChange: @escaping (NSColor) -> Void) {
         let panel = NSColorPanel.shared
         panel.showsAlpha = false
+        // Setting `color` programmatically sends the panel's action, so unbind while seeding:
+        // neither the strip being opened nor whichever strip owned the panel before may receive
+        // a change the user didn't make (it would swap a named swatch for its "custom" twin and
+        // record a junk undo step just for opening the well).
+        self.onChange = nil
+        panel.setTarget(nil)
+        panel.setAction(nil)
         panel.color = current
         self.onChange = onChange
         panel.setTarget(self)
