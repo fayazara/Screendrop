@@ -11,6 +11,8 @@
 		5EB13EE1F16DFCBCFE9A3449 /* DockProgress in Frameworks */ = {isa = PBXBuildFile; productRef = 6711E7AD88BD96C1258D3CE6 /* DockProgress */; };
 		A1B2C3D4E5F600000000B101 /* StudioSourceImageCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F600000000B001 /* StudioSourceImageCache.swift */; };
 		A1B2C3D4E5F600000000B102 /* PrefetchQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F600000000B002 /* PrefetchQueue.swift */; };
+		A1B2C3D4E5F600000000B103 /* OrderedConcurrentRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F600000000B003 /* OrderedConcurrentRenderer.swift */; };
+		A1B2C3D4E5F600000000B104 /* ResourcePool.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F600000000B004 /* ResourcePool.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -18,6 +20,8 @@
 		A1B2C3D4E5F600000000A002 /* ScreendropTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ScreendropTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A1B2C3D4E5F600000000B001 /* StudioSourceImageCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = StudioSourceImageCache.swift; path = Screendrop/StudioSourceImageCache.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F600000000B002 /* PrefetchQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PrefetchQueue.swift; path = Screendrop/PrefetchQueue.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F600000000B003 /* OrderedConcurrentRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrderedConcurrentRenderer.swift; path = Screendrop/OrderedConcurrentRenderer.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F600000000B004 /* ResourcePool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ResourcePool.swift; path = Screendrop/ResourcePool.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -193,6 +197,8 @@
 			files = (
 				A1B2C3D4E5F600000000B101 /* StudioSourceImageCache.swift in Sources */,
 				A1B2C3D4E5F600000000B102 /* PrefetchQueue.swift in Sources */,
+				A1B2C3D4E5F600000000B103 /* OrderedConcurrentRenderer.swift in Sources */,
+				A1B2C3D4E5F600000000B104 /* ResourcePool.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
