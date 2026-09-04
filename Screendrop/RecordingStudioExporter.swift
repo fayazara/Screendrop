@@ -124,6 +124,15 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
         }
     }
 
+    /// One decoded screen frame on its way from the reader thread to the
+    /// compositing loop. `CVPixelBuffer` carries no Sendable conformance,
+    /// but ownership passes hand to hand here - the producer drops its
+    /// reference the moment it hands the frame over.
+    private struct SourceFrame: @unchecked Sendable {
+        let buffer: CVPixelBuffer
+        let time: TimeInterval
+    }
+
     private final class CancelFlag: @unchecked Sendable {
         private let lock = NSLock()
         private var cancelled = false
@@ -378,16 +387,26 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
         let duration = clipTimeline.duration
         let frameCount = max(1, Int((duration * frameRate).rounded()))
 
-        func nextSourceFrame() -> (buffer: CVPixelBuffer, time: TimeInterval)? {
-            while let sampleBuffer = output.copyNextSampleBuffer() {
+        // Decoding used to run inline in this loop, so a frame was never
+        // decoded while another was being drawn. The queue moves the
+        // blocking reader onto its own thread and keeps a small look-ahead.
+        // The bound stays low deliberately: every buffered frame is a
+        // full-size pixel buffer held out of the reader's pool.
+        nonisolated(unsafe) let trackOutput = output
+        let sourceFrames = PrefetchQueue<SourceFrame>(capacity: 3) {
+            while let sampleBuffer = trackOutput.copyNextSampleBuffer() {
                 guard let buffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { continue }
-                return (buffer, CMSampleBufferGetPresentationTimeStamp(sampleBuffer).seconds)
+                return SourceFrame(
+                    buffer: buffer,
+                    time: CMSampleBufferGetPresentationTimeStamp(sampleBuffer).seconds
+                )
             }
             return nil
         }
+        defer { sourceFrames.cancel() }
 
         var currentBuffer: CVPixelBuffer?
-        var pending = nextSourceFrame()
+        var pending = await sourceFrames.next()
         var previousClipID: UUID?
 
         for frame in 0..<frameCount {
@@ -408,7 +427,7 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
 
             while let sample = pending, sample.time <= editorTime {
                 currentBuffer = sample.buffer
-                pending = nextSourceFrame()
+                pending = await sourceFrames.next()
             }
             // Ticks before the first source frame show it early rather than
             // emitting black; a capture with no frames at all has nothing to

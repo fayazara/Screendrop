@@ -10,12 +10,14 @@
 		31A100022F9DC05A002A7AF3 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 31A100012F9DC05A002A7AF3 /* Sparkle */; };
 		5EB13EE1F16DFCBCFE9A3449 /* DockProgress in Frameworks */ = {isa = PBXBuildFile; productRef = 6711E7AD88BD96C1258D3CE6 /* DockProgress */; };
 		A1B2C3D4E5F600000000B101 /* StudioSourceImageCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F600000000B001 /* StudioSourceImageCache.swift */; };
+		A1B2C3D4E5F600000000B102 /* PrefetchQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F600000000B002 /* PrefetchQueue.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		3163891D2F9DC05A002A7AF3 /* Screendrop.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Screendrop.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A1B2C3D4E5F600000000A002 /* ScreendropTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ScreendropTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A1B2C3D4E5F600000000B001 /* StudioSourceImageCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = StudioSourceImageCache.swift; path = Screendrop/StudioSourceImageCache.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F600000000B002 /* PrefetchQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PrefetchQueue.swift; path = Screendrop/PrefetchQueue.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -190,6 +192,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A1B2C3D4E5F600000000B101 /* StudioSourceImageCache.swift in Sources */,
+				A1B2C3D4E5F600000000B102 /* PrefetchQueue.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
