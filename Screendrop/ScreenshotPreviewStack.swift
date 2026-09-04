@@ -43,6 +43,9 @@ final class ScreenshotPreviewStack {
     @ObservationIgnored private var overlayExitTask: Task<Void, Never>?
     @ObservationIgnored private var compressionTasks: [ScreenshotPreviewItem.ID: Task<Void, Never>] = [:]
     @ObservationIgnored private var compressionBadgeTasks: [ScreenshotPreviewItem.ID: Task<Void, Never>] = [:]
+    /// Pasteboard version and preview item for the last automatic image copy,
+    /// used by the prototype Ctrl+V auto-dismiss behavior.
+    @ObservationIgnored private var copiedImagePasteboardState: (itemID: ScreenshotPreviewItem.ID, changeCount: Int)?
     private var visibleCapacity: Int?
 
     var itemIDs: [ScreenshotPreviewItem.ID] {
@@ -63,6 +66,22 @@ final class ScreenshotPreviewStack {
 
     var hasUnsavedItems: Bool {
         !unsavedItems.isEmpty
+    }
+
+    /// Whether the automatically copied image is still current, allowing Ctrl+V
+    /// to dismiss the expanded preview without reacting to stale clipboard data.
+    var isPasteDismissalReady: Bool {
+        guard ScreendropPreferences.previewCloseAfterPasting,
+              AfterCaptureActions.isEnabled(.copy, for: .screenshot),
+              !items.isEmpty,
+              !isCollapsed,
+              !isExiting,
+              let copiedImagePasteboardState,
+              items.contains(where: { $0.id == copiedImagePasteboardState.itemID }) else {
+            return false
+        }
+
+        return NSPasteboard.general.changeCount == copiedImagePasteboardState.changeCount
     }
 
     private init() {}
@@ -107,7 +126,11 @@ final class ScreenshotPreviewStack {
         if AfterCaptureActions.isEnabled(.copy, for: type) {
             switch type {
             case .screenshot:
-                _ = copyURLToClipboard(url)
+                _ = copyURLToClipboard(
+                    url,
+                    itemID: itemID,
+                    tracksPasteDismissal: true
+                )
             case .recording:
                 Task { _ = await copyVideoURLToClipboard(url, itemID: itemID) }
             }
@@ -396,7 +419,11 @@ final class ScreenshotPreviewStack {
 
         switch item.kind {
         case .image:
-            guard copyURLToClipboard(item.url) else { return }
+            guard copyURLToClipboard(
+                item.url,
+                itemID: id,
+                tracksPasteDismissal: false
+            ) else { return }
             dismiss(id: id)
         case .video:
             // Flattening can take a moment, so the card stays up showing
@@ -630,7 +657,11 @@ final class ScreenshotPreviewStack {
         }
 
         if ScreendropPreferences.autoCopy {
-            _ = copyURLToClipboard(item.url)
+            _ = copyURLToClipboard(
+                item.url,
+                itemID: item.id,
+                tracksPasteDismissal: true
+            )
         }
     }
 
@@ -786,9 +817,19 @@ final class ScreenshotPreviewStack {
         compressionResultBadges.removeAll()
     }
 
-    private func copyURLToClipboard(_ url: URL) -> Bool {
+    private func copyURLToClipboard(
+        _ url: URL,
+        itemID: ScreenshotPreviewItem.ID,
+        tracksPasteDismissal: Bool
+    ) -> Bool {
         do {
             try ScreenshotFileActions.copyImageToClipboard(from: url)
+            if tracksPasteDismissal {
+                copiedImagePasteboardState = (
+                    itemID: itemID,
+                    changeCount: NSPasteboard.general.changeCount
+                )
+            }
             return true
         } catch {
             print("Failed to copy screenshot: \(error)")

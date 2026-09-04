@@ -8,6 +8,7 @@
 //
 
 import AppKit
+import CoreGraphics
 import SwiftUI
 
 let previewCardSize = CGSize(width: 165, height: 124)
@@ -31,6 +32,7 @@ struct PreviewWindowView: View {
     @State private var stackHeight: CGFloat = 500
     @State private var peekHeight: CGFloat = 64
     @AppStorage(ScreendropPreferences.previewPositionKey) private var previewPositionRaw = PreviewOverlayPosition.right.rawValue
+    @AppStorage(ScreendropPreferences.previewCloseAfterPastingKey) private var previewCloseAfterPasting = false
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismiss) private var dismissWindow
 
@@ -135,6 +137,11 @@ struct PreviewWindowView: View {
             installScrollMonitor()
         }
         .onDisappear(perform: tearDown)
+        .onChange(of: previewCloseAfterPasting) { _, isEnabled in
+            if isEnabled {
+                requestInputMonitoringAccessIfNeeded()
+            }
+        }
         .onChange(of: previewStack.items.count) { _, count in
             if count == 0 {
                 if let onRequestClose {
@@ -303,9 +310,18 @@ struct PreviewWindowView: View {
     }
     
     // MARK: - Keyboard
+
+    /// Requests listen access only for the paste-dismissal feature; keeping the
+    /// prompt opt-in avoids asking screenshot-only users for input monitoring.
+    private func requestInputMonitoringAccessIfNeeded() {
+        guard previewCloseAfterPasting, !CGPreflightListenEventAccess() else { return }
+        _ = CGRequestListenEventAccess()
+    }
     
     private func installKeyMonitors() {
         guard keyMonitor == nil, globalKeyMonitor == nil else { return }
+
+        requestInputMonitoringAccessIfNeeded()
         
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             if handlePreviewKey(event) {
@@ -316,7 +332,9 @@ struct PreviewWindowView: View {
         }
         
         globalKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { event in
-            if previewStack.hoveredItemID != nil || QuickLookPreviewPresenter.isShown {
+            if previewStack.isPasteDismissalReady
+                || previewStack.hoveredItemID != nil
+                || QuickLookPreviewPresenter.isShown {
                 _ = handlePreviewKey(event)
             }
         }
@@ -398,6 +416,14 @@ struct PreviewWindowView: View {
     private func handlePreviewKey(_ event: NSEvent) -> Bool {
         guard !previewStack.isExiting else { return false }
 
+        // This is an observation-only shortcut: keep the Ctrl+V event flowing
+        // to the destination app while closing the preview once its copied
+        // image is actually being pasted.
+        if isPasteShortcut(event), previewStack.isPasteDismissalReady {
+            previewStack.dismissAll()
+            return false
+        }
+
         if event.keyCode == 53, QuickLookPreviewPresenter.isShown {
             QuickLookPreviewPresenter.dismiss()
             return true
@@ -410,5 +436,13 @@ struct PreviewWindowView: View {
         }
         
         return false
+    }
+
+    /// Recognizes Ctrl+V for the prototype paste-to-dismiss behavior, without
+    /// treating Command-V or modified variants as a paste confirmation.
+    private func isPasteShortcut(_ event: NSEvent) -> Bool {
+        event.modifierFlags.contains(.control)
+            && event.modifierFlags.intersection([.command, .option, .shift]).isEmpty
+            && (event.keyCode == 9 || event.charactersIgnoringModifiers?.lowercased() == "v")
     }
 }
