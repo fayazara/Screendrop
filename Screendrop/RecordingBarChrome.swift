@@ -104,6 +104,12 @@ enum BarTooltipID: String {
     case restart
     case stop
     case discard
+
+    case libraryEdit
+    case libraryCopy
+    case libraryExport
+    case libraryCloud
+    case libraryMore
 }
 
 struct BarTooltipTarget: Equatable {

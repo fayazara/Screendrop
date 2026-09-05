@@ -5,6 +5,9 @@ struct CaptureLibraryInspector: View {
     let model: CaptureLibraryModel
     @State private var byteCount: Int64?
     @State private var pendingCloudDelete: CaptureLibraryItem?
+    @State private var pendingCloudUpload: CaptureLibraryItem?
+    @State private var tooltip = BarTooltipModel()
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var items: [CaptureLibraryItem] { model.selectedItems }
 
     var body: some View {
@@ -30,12 +33,6 @@ struct CaptureLibraryInspector: View {
                             header(item)
                             Divider()
                             information(item)
-                            if item.cloudURL != nil || CloudUploader.shared.isConfigured {
-                                Divider()
-                                sharing(item)
-                            }
-                            Divider()
-                            fileLocation(item)
                         } else {
                             multipleSelection
                         }
@@ -48,6 +45,15 @@ struct CaptureLibraryInspector: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if !items.isEmpty { actionBar }
         }
+        .environment(tooltip)
+        .onChange(of: items.map(\.id)) { _, _ in
+            tooltip.dismiss()
+            pendingCloudUpload = nil
+        }
+        .onChange(of: model.isBusy) { _, isBusy in
+            if isBusy { tooltip.dismiss() }
+        }
+        .onDisappear { tooltip.dismiss() }
         .task(id: items.map(\.thumbnailKey)) {
             byteCount = nil
             let urls = items.map(\.ownedURL)
@@ -120,40 +126,83 @@ struct CaptureLibraryInspector: View {
     /// A fixed Finder-style action strip. All controls use the same icon size,
     /// hit area and hover surface, including the native menu trigger.
     private var actionBar: some View {
-        VStack(spacing: 0) {
-            Divider()
-            HStack(spacing: 0) {
-                actionButton(
-                    .edit,
-                    title: items.first?.isVideo == true ? "Edit Recording" : "Annotate Screenshot",
-                    symbol: items.first?.isVideo == true ? "film" : "pencil.tip.crop.circle"
-                )
-                .disabled(items.count != 1)
-                .frame(maxWidth: .infinity)
-                actionButton(.copy, title: "Copy", symbol: "doc.on.doc")
-                    .frame(maxWidth: .infinity)
-                actionButton(.export, title: "Export", symbol: "square.and.arrow.up")
-                    .frame(maxWidth: .infinity)
-                moreActions(allowsRename: items.count == 1)
-                    .frame(maxWidth: .infinity)
+        HStack(spacing: 0) {
+            actionButton(
+                .edit, id: .libraryEdit,
+                title: items.first?.isVideo == true ? "Edit Recording" : "Annotate Screenshot",
+                symbol: items.first?.isVideo == true ? "film" : "pencil.tip.crop.circle"
+            )
+            .disabled(items.count != 1)
+            actionButton(.copy, id: .libraryCopy, title: "Copy", symbol: "doc.on.doc")
+            actionButton(.export, id: .libraryExport, title: "Export", symbol: "square.and.arrow.up")
+            if CloudUploader.shared.isConfigured || items.contains(where: { $0.cloudURL != nil }) {
+                cloudAction
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .disabled(model.isBusy)
+            moreActions(allowsRename: items.count == 1)
         }
-        .background(.bar)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .disabled(model.isBusy)
+        .coordinateSpace(name: LibraryInspectorActionChrome.coordinateSpace)
+        .overlay(alignment: .topLeading) {
+            GeometryReader { geometry in
+                if let target = tooltip.visible {
+                    let width = geometry.size.width
+                    let verticalOffset = -(BarTooltip.gap + BarTooltip.pillHeight)
+                    BarTooltipPill(text: target.text)
+                        .visualEffect { content, pill in
+                            // Keep the end controls' tooltips inside the narrow inspector.
+                            content.offset(
+                                x: max(8, min(target.frame.midX - pill.size.width / 2,
+                                              width - pill.size.width - 8)),
+                                y: verticalOffset
+                            )
+                        }
+                }
+            }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: tooltip.visible?.id)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: tooltip.visible?.text)
+        }
     }
 
-    private func actionButton(_ action: CaptureLibraryAction, title: String, symbol: String) -> some View {
-        Button { model.perform(action) } label: {
+    private func actionButton(_ action: CaptureLibraryAction, id: BarTooltipID, title: String, symbol: String) -> some View {
+        Button {
+            tooltip.dismiss()
+            model.perform(action)
+        } label: {
             actionIcon(symbol)
-                .frame(width: 40, height: 36)
-                .contentShape(Rectangle())
+                .modifier(LibraryInspectorActionChrome(id: id, title: title))
         }
-        .buttonStyle(.plain)
-        .modifier(LibraryInspectorActionChrome())
-        .help(title)
+        .buttonStyle(BarButtonStyle())
         .accessibilityLabel(title)
+    }
+
+    private var cloudAction: some View {
+        let item = items.count == 1 ? items.first : nil
+        let isShared = item?.cloudURL != nil
+        let title = isShared ? "Copy Cloud Link" : "Share to Cloud"
+        return Button {
+            tooltip.dismiss()
+            guard let item else { return }
+            if isShared {
+                model.copyLink(item)
+            } else {
+                pendingCloudUpload = item
+            }
+        } label: {
+            actionIcon(isShared ? "link" : "icloud.and.arrow.up")
+                .modifier(LibraryInspectorActionChrome(id: .libraryCloud, title: title))
+        }
+        .buttonStyle(BarButtonStyle())
+        .accessibilityLabel(title)
+        .disabled(item == nil)
+        .popover(item: $pendingCloudUpload, arrowEdge: .top) { item in
+            CloudUploadOptionsPopover(suggestedTitle: item.name) { options in
+                model.upload(item, options: options)
+            }
+        }
     }
 
     private func actionIcon(_ symbol: String) -> some View {
@@ -174,91 +223,6 @@ struct CaptureLibraryInspector: View {
                 detailRow("Modified", value: item.modifiedAt.formatted(date: .abbreviated, time: .shortened))
             }
         }
-    }
-
-    private func fileLocation(_ item: CaptureLibraryItem) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                sectionTitle("Location")
-                Spacer()
-                Button { model.perform(.reveal) } label: {
-                    Image(systemName: "arrow.up.right.square")
-                }
-                .buttonStyle(.borderless)
-                .foregroundStyle(.secondary)
-                .disabled(model.isBusy)
-                .help("Reveal in Finder")
-                .accessibilityLabel("Reveal in Finder")
-            }
-            HStack(alignment: .top, spacing: 10) {
-                Image(systemName: item.session != nil ? "shippingbox" : "doc")
-                    .font(.system(size: 20, weight: .light))
-                    .foregroundStyle(.secondary)
-                    .padding(.top, 2)
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(item.ownedURL.lastPathComponent)
-                        .font(.caption)
-                        .lineLimit(2)
-                        .truncationMode(.middle)
-                    Text(item.ownedURL.deletingLastPathComponent().abbreviatedPath)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(3)
-                        .truncationMode(.middle)
-                }
-                .textSelection(.enabled)
-            }
-            .help(item.ownedURL.path)
-        }
-    }
-
-    @ViewBuilder private func sharing(_ item: CaptureLibraryItem) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                sectionTitle("Sharing")
-                Spacer()
-                if item.cloudURL != nil {
-                    Menu {
-                        Button("Delete from Cloud…", systemImage: "icloud.slash", role: .destructive) {
-                            pendingCloudDelete = item
-                        }
-                    } label: { Image(systemName: "ellipsis") }
-                    .menuStyle(.borderlessButton)
-                    .menuIndicator(.hidden)
-                    .fixedSize()
-                    .help("Cloud sharing options")
-                }
-            }
-            if let link = item.cloudURL, let url = URL(string: link) {
-                HStack(spacing: 8) {
-                    Image(systemName: "link").foregroundStyle(.secondary)
-                    Text(link)
-                        .font(.caption)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .textSelection(.enabled)
-                }
-                HStack(spacing: 8) {
-                    Button { model.copyLink(item) } label: {
-                        Label("Copy Link", systemImage: "doc.on.doc").frame(maxWidth: .infinity)
-                    }
-                    Link(destination: url) { Image(systemName: "arrow.up.right") }
-                        .help("Open shared capture")
-                        .accessibilityLabel("Open shared capture")
-                }
-                .buttonStyle(.bordered)
-            } else {
-                Text("Create a link to share this capture.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                CloudUploadButton(suggestedTitle: item.name, onUpload: { model.upload(item, options: $0) }) {
-                    Label("Share to Cloud", systemImage: "icloud.and.arrow.up")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-            }
-        }
-        .disabled(model.isBusy)
     }
 
     private var multipleSelection: some View {
@@ -297,17 +261,26 @@ struct CaptureLibraryInspector: View {
                 Button("Rename…", systemImage: "pencil") { model.perform(.rename) }
             }
             Button("Reveal in Finder", systemImage: "folder") { model.perform(.reveal) }
+            if items.count == 1, let item = items.first, let link = item.cloudURL {
+                Divider()
+                Button("Copy Cloud Link", systemImage: "link") { model.copyLink(item) }
+                if let url = URL(string: link) {
+                    Link(destination: url) { Label("Open Shared Capture", systemImage: "arrow.up.right") }
+                }
+                Button("Delete from Cloud…", systemImage: "icloud.slash", role: .destructive) {
+                    pendingCloudDelete = item
+                }
+            }
             Divider()
             Button("Move to Trash…", systemImage: "trash", role: .destructive) { model.perform(.trash) }
         } label: {
             actionIcon("ellipsis")
-                .frame(width: 40, height: 36)
-                .contentShape(Rectangle())
+                .modifier(LibraryInspectorActionChrome(id: .libraryMore, title: "More Actions"))
         }
-        .menuStyle(.borderlessButton)
+        .menuStyle(.button)
+        .buttonStyle(BarButtonStyle())
         .menuIndicator(.hidden)
-        .modifier(LibraryInspectorActionChrome())
-        .help("More actions")
+        .simultaneousGesture(TapGesture().onEnded { tooltip.dismiss() })
         .accessibilityLabel("More capture actions")
     }
 
@@ -341,16 +314,44 @@ struct CaptureLibraryInspector: View {
 }
 
 private struct LibraryInspectorActionChrome: ViewModifier {
+    static let coordinateSpace = "libraryInspectorActions"
+    let id: BarTooltipID
+    let title: String
     @Environment(\.isEnabled) private var isEnabled
+    @Environment(BarTooltipModel.self) private var tooltip
     @State private var isHovering = false
+    @State private var frame: CGRect = .zero
 
     func body(content: Content) -> some View {
         content
-            .frame(width: 40, height: 36)
+            // Size the actual control label, so its whole slot shares the
+            // same click, hover and tooltip area, including the empty space.
+            .frame(minWidth: 40, maxWidth: .infinity)
+            .frame(height: 36)
             .background(
                 Color.primary.opacity(isHovering && isEnabled ? 0.06 : 0),
                 in: RoundedRectangle(cornerRadius: 8, style: .continuous)
             )
-            .onHover { isHovering = $0 }
+            .contentShape(Rectangle())
+            .onGeometryChange(for: CGRect.self) { geometry in
+                geometry.frame(in: .named(Self.coordinateSpace))
+            } action: { frame in
+                self.frame = frame
+            }
+            .onHover { hovering in
+                isHovering = hovering
+                updateTooltip()
+            }
+            .onChange(of: title) { _, _ in updateTooltip() }
+            .onChange(of: isEnabled) { _, _ in updateTooltip() }
+            .onDisappear { tooltip.endHover(id: id) }
+    }
+
+    private func updateTooltip() {
+        if isHovering && isEnabled {
+            tooltip.hover(id: id, text: title, frame: frame)
+        } else {
+            tooltip.endHover(id: id)
+        }
     }
 }
