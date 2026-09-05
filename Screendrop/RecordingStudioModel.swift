@@ -1798,6 +1798,9 @@ final class RecordingStudioModel {
     /// in-memory edits - the render is stamped with the document that
     /// produced it. Both Export and Share can then skip the render entirely.
     private var freshDeliverableURL: URL? {
+        // Measure the actual renderer during development comparisons, even
+        // when this exact document already has a flattened deliverable.
+        guard ProcessInfo.processInfo.environment["SCREENDROP_EXPORT_BYPASS_CACHE"] != "1" else { return nil }
         guard let session else { return nil }
         return session.freshFinalURL(matching: currentDocument())
     }

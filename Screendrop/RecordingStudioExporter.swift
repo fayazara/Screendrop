@@ -10,8 +10,9 @@
 //  project imported a soundtrack to replace them.
 //
 //  Everything static - the background fill and the card shadow - is
-//  rendered once into a backdrop image; per frame the work is one backdrop
-//  blit plus the clipped video draws.
+//  rendered once into a backdrop image. A Metal compute pass accelerates
+//  eligible motion-blur frames; Core Graphics handles the remaining frames
+//  and the per-frame pointer, camera, and caption overlays.
 //
 
 import AppKit
@@ -20,6 +21,7 @@ import CoreGraphics
 import CoreText
 import Foundation
 import ImageIO
+import OSLog
 import SwiftUI
 
 nonisolated final class RecordingStudioExporter: @unchecked Sendable {
@@ -27,6 +29,7 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
     /// compositor's motion-blur shutter - kept as one constant so they can
     /// never drift apart.
     private static let outputFrameRate: Double = 60
+    private static let logger = Logger(subsystem: "com.fayazahmed.Screendrop", category: "StudioExport")
 
     struct Configuration: Sendable {
         let screenURL: URL
@@ -142,8 +145,11 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
         progress: @escaping @Sendable (Double) -> Void
     ) async throws -> URL {
         let cancelFlag = CancelFlag()
+        let started = CFAbsoluteTimeGetCurrent()
         return try await withTaskCancellationHandler {
-            try await run(configuration, cancelFlag: cancelFlag, progress: progress)
+            let result = try await run(configuration, cancelFlag: cancelFlag, progress: progress)
+            Self.logger.info("Export completed totalSeconds=\(CFAbsoluteTimeGetCurrent() - started)")
+            return result
         } onCancel: {
             cancelFlag.cancel()
         }
@@ -187,7 +193,11 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
         let screenReader = try AVAssetReader(asset: screenAsset)
         let videoOutput = AVAssetReaderTrackOutput(
             track: videoTrack,
-            outputSettings: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
+            outputSettings: [
+                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+                kCVPixelBufferMetalCompatibilityKey as String: true,
+                kCVPixelBufferIOSurfacePropertiesKey as String: [:]
+            ]
         )
         videoOutput.alwaysCopiesSampleData = false
         screenReader.add(videoOutput)
@@ -266,7 +276,9 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
             sourcePixelBufferAttributes: [
                 kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
                 kCVPixelBufferWidthKey as String: canvasWidth,
-                kCVPixelBufferHeightKey as String: canvasHeight
+                kCVPixelBufferHeightKey as String: canvasHeight,
+                kCVPixelBufferMetalCompatibilityKey as String: true,
+                kCVPixelBufferIOSurfacePropertiesKey as String: [:]
             ]
         )
 
@@ -389,6 +401,12 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
         var currentBuffer: CVPixelBuffer?
         var pending = nextSourceFrame()
         var previousClipID: UUID?
+        var renderSeconds = 0.0
+        var writerWaitSeconds = 0.0
+        var renderedFrames = 0
+        defer {
+            Self.logger.info("Export frames=\(renderedFrames) Metal blur frames=\(compositor.metalFrameCount) renderSeconds=\(renderSeconds) writerWaitSeconds=\(writerWaitSeconds)")
+        }
 
         for frame in 0..<frameCount {
             if cancelFlag.isCancelled { throw ExportError.cancelled }
@@ -415,10 +433,12 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
             // render.
             guard let sourceBuffer = currentBuffer ?? pending?.buffer else { break }
 
+            let waitStart = CFAbsoluteTimeGetCurrent()
             while !input.isReadyForMoreMediaData {
                 if cancelFlag.isCancelled { throw ExportError.cancelled }
                 try await Task.sleep(nanoseconds: 2_000_000)
             }
+            writerWaitSeconds += CFAbsoluteTimeGetCurrent() - waitStart
 
             guard let pool = adaptor.pixelBufferPool else {
                 throw ExportError.writerFailed(nil)
@@ -430,13 +450,18 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
             }
 
             let cameraBuffer = cameraFeed?.latestFrame(at: sourceTime)
-            try compositor.render(
-                screenFrame: sourceBuffer,
-                cameraFrame: cameraBuffer,
-                editorTime: editorTime,
-                sourceTime: sourceTime,
-                into: destinationBuffer
-            )
+            let renderStart = CFAbsoluteTimeGetCurrent()
+            try autoreleasepool {
+                try compositor.render(
+                    screenFrame: sourceBuffer,
+                    cameraFrame: cameraBuffer,
+                    editorTime: editorTime,
+                    sourceTime: sourceTime,
+                    into: destinationBuffer
+                )
+            }
+            renderSeconds += CFAbsoluteTimeGetCurrent() - renderStart
+            renderedFrames += 1
 
             let pts = CMTime(seconds: editorTime, preferredTimescale: 600)
             if !adaptor.append(destinationBuffer, withPresentationTime: pts) {
@@ -602,6 +627,11 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
     /// motion-blur supersampling is always exactly one output frame - no
     /// need to measure elapsed time between calls.
     private let outputFrameInterval: TimeInterval
+    private var metalRenderer: StudioMetalScreenRenderer?
+    private var metalFailed = false
+    private(set) var metalFrameCount = 0
+    // Developer comparison switch; export settings and saved projects do not change.
+    private let forceCoreGraphics = ProcessInfo.processInfo.environment["SCREENDROP_EXPORT_RENDERER"] == "cpu"
 
     init(
         canvasSize: CGSize,
@@ -664,6 +694,30 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
         sourceTime: TimeInterval,
         into destination: CVPixelBuffer
     ) throws {
+        // Preserve the original shutter times and adaptive sample count.
+        // Metal completes before the CPU locks this IOSurface for overlays.
+        let shutter = outputFrameInterval
+        let sampleCount = blurSampleCount(at: editorTime, shutter: shutter)
+        let sampleRects = (0..<sampleCount).map { sample in
+            let sampleTime = editorTime - shutter / 2
+                + shutter * (Double(sample) + 0.5) / Double(sampleCount)
+            return layout.frameRect(for: viewportFrame(at: sampleTime))
+        }
+        var renderedWithMetal = false
+        if !forceCoreGraphics, !metalFailed,
+           StudioMetalScreenRenderer.shouldAccelerate(screenFrame: screenFrame, sampleRects: sampleRects) {
+            if metalRenderer == nil {
+                metalRenderer = StudioMetalScreenRenderer(
+                    canvasSize: canvasSize, backdrop: backdrop,
+                    cardPath: roundedPath(for: layout.cardRect, radius: layout.cardCornerRadius), colorSpace: colorSpace
+                )
+            }
+            renderedWithMetal = metalRenderer?.render(
+                screenFrame: screenFrame, sampleRects: sampleRects, into: destination
+            ) == true
+            if renderedWithMetal { metalFrameCount += 1 }
+            else { metalFailed = true }
+        }
         CVPixelBufferLockBaseAddress(destination, [])
         defer { CVPixelBufferUnlockBaseAddress(destination, []) }
 
@@ -681,35 +735,28 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
         }
         context.interpolationQuality = .high
 
-        if let backdrop {
+        if !renderedWithMetal, let backdrop {
             context.draw(backdrop, in: CGRect(origin: .zero, size: canvasSize))
-        } else {
+        } else if !renderedWithMetal {
             context.setFillColor(CGColor(gray: 0, alpha: 1))
             context.fill(CGRect(origin: .zero, size: canvasSize))
         }
 
-        if let screenImage = Self.makeImage(from: screenFrame, colorSpace: colorSpace) {
+        if !renderedWithMetal, let screenImage = Self.makeImage(from: screenFrame, colorSpace: colorSpace) {
             // Motion blur by temporal supersampling: while the virtual camera
             // is moving, average several sub-frame camera states across the
             // frame's shutter interval. Pans smear linearly, zooms radially,
             // and settled frames pay for a single draw. The viewport timeline
             // runs on the gapless output clock, so the shutter is always
             // exactly one output frame - no per-call time tracking needed.
-            let shutter = outputFrameInterval
-            let sampleCount = blurSampleCount(at: editorTime, shutter: shutter)
-
             context.saveGState()
             context.addPath(roundedPath(for: layout.cardRect, radius: layout.cardCornerRadius))
             context.clip()
-            for sample in 0..<sampleCount {
-                let sampleTime = editorTime - shutter / 2
-                    + shutter * (Double(sample) + 0.5) / Double(sampleCount)
-                let drawRect = layout.frameRect(for: viewportFrame(at: sampleTime))
+            for (sample, drawRect) in sampleRects.enumerated() {
                 // Drawing sample i at alpha 1/(i+1) keeps the buffer equal to
                 // the running average of all samples so far.
                 context.setAlpha(1 / CGFloat(sample + 1))
                 context.draw(screenImage, in: flipped(drawRect))
-
             }
             context.restoreGState()
         }

@@ -312,6 +312,8 @@ Studio exports the complete composition-screen, camera, backgrounds, zooms, curs
 
 You can choose quality, codec, resolution, and whether to include audio. Export and Share show progress, can be cancelled, and report completion. Renders are cached against the project state, so exporting or sharing the same edit again can reuse finished work.
 
+Studio uses Metal to accelerate eligible motion-blur frames while retaining the existing shutter timing and temporal samples. Core Graphics remains available for unsupported frames and devices. See [export performance](docs/export-performance.md) for the rendering policy, benchmarks, and comparison workflow.
+
 Screendrop also includes a lightweight trim-and-compress editor for regular video files. FFmpeg enables its conversion and compression options:
 
 ```bash
@@ -411,6 +413,8 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild build \
 ```
 
 There is no test target. A successful Xcode build is the automated verification gate.
+
+The standalone [motion-blur benchmark](docs/export-performance.md#standalone-check) also compares the Metal renderer with Core Graphics and checks encoder interoperability without launching Screendrop.
 
 ## Releasing
 
