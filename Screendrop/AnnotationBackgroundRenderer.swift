@@ -93,10 +93,27 @@ nonisolated enum AnnotationBackgroundRenderer {
         }
 
         if settings.camera.hasEffect {
+            // Perspective can bring pixels outside the original canvas back
+            // into view. Keep the shadow's full falloff in the source bitmap;
+            // clipping it here exposes a hard, transformed canvas edge.
+            let casterRect = settings.border.isVisible && frameGeometry.borderWidth > 0
+                ? frameGeometry.cardRect
+                : frameGeometry.imageRect
+            var foregroundBounds = canvasRect
+            if let shadow = settings.shadowStyle.layer(
+                strength: settings.shadow,
+                referenceEdge: min(casterRect.width, casterRect.height)
+            ) {
+                let falloff = ceil(shadow.radius * 3) + 2
+                let shadowBounds = casterRect
+                    .offsetBy(dx: 0, dy: -shadow.yOffset)
+                    .insetBy(dx: -falloff, dy: -falloff)
+                foregroundBounds = foregroundBounds.union(shadowBounds).integral
+            }
             guard let foregroundContext = CGContext(
                 data: nil,
-                width: width,
-                height: height,
+                width: Int(foregroundBounds.width),
+                height: Int(foregroundBounds.height),
                 bitsPerComponent: 8,
                 bytesPerRow: 0,
                 space: colorSpace,
@@ -104,6 +121,10 @@ nonisolated enum AnnotationBackgroundRenderer {
             ) else {
                 throw CocoaError(.fileWriteUnknown)
             }
+            foregroundContext.translateBy(
+                x: -foregroundBounds.minX,
+                y: -foregroundBounds.minY
+            )
 
             drawScreenshotFrameBacking(
                 settings,
@@ -127,6 +148,7 @@ nonisolated enum AnnotationBackgroundRenderer {
             )
             try AnnotationMockupEffectsRenderer.drawProjectedForeground(
                 foregroundImage,
+                sourceRect: flipped(foregroundBounds, canvasHeight: CGFloat(height)),
                 projection: projection,
                 canvasSize: canvasRect.size,
                 colorSpace: colorSpace,

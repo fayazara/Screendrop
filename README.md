@@ -55,7 +55,6 @@ The download button always points to the newest release.
 
 **Requirements:** macOS 26.4 or newer.
 
-> On first launch, macOS may warn that the app is from an unidentified developer. Right-click the app and choose **Open**, or allow it under **System Settings → Privacy & Security**.
 
 ### Homebrew
 

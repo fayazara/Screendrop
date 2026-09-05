@@ -41,6 +41,7 @@ nonisolated enum AnnotationMockupEffectsRenderer {
 
     static func drawProjectedForeground(
         _ image: CGImage,
+        sourceRect: CGRect,
         projection: AnnotationCameraProjection,
         canvasSize: CGSize,
         colorSpace: CGColorSpace,
@@ -49,6 +50,7 @@ nonisolated enum AnnotationMockupEffectsRenderer {
         let canvasRect = CGRect(origin: .zero, size: canvasSize)
         let output = try projectedForegroundCIImage(
             image,
+            sourceRect: sourceRect,
             projection: projection,
             canvasSize: canvasSize
         )
@@ -176,6 +178,7 @@ nonisolated enum AnnotationMockupEffectsRenderer {
 
     private static func projectedForegroundCIImage(
         _ image: CGImage,
+        sourceRect: CGRect,
         projection: AnnotationCameraProjection,
         canvasSize: CGSize
     ) throws -> CIImage {
@@ -185,10 +188,18 @@ nonisolated enum AnnotationMockupEffectsRenderer {
 
         let filter = CIFilter.perspectiveTransform()
         filter.inputImage = CIImage(cgImage: image)
-        filter.topLeft = coreImagePoint(projection.quad.topLeft, canvasHeight: canvasSize.height)
-        filter.topRight = coreImagePoint(projection.quad.topRight, canvasHeight: canvasSize.height)
-        filter.bottomRight = coreImagePoint(projection.quad.bottomRight, canvasHeight: canvasSize.height)
-        filter.bottomLeft = coreImagePoint(projection.quad.bottomLeft, canvasHeight: canvasSize.height)
+        // Map the padded bitmap through the original canvas homography so
+        // adding shadow space never changes the card's position or perspective.
+        func projectedCorner(x: CGFloat, y: CGFloat) -> CGPoint {
+            coreImagePoint(
+                projection.project(CGPoint(x: x, y: y)),
+                canvasHeight: canvasSize.height
+            )
+        }
+        filter.topLeft = projectedCorner(x: sourceRect.minX, y: sourceRect.minY)
+        filter.topRight = projectedCorner(x: sourceRect.maxX, y: sourceRect.minY)
+        filter.bottomRight = projectedCorner(x: sourceRect.maxX, y: sourceRect.maxY)
+        filter.bottomLeft = projectedCorner(x: sourceRect.minX, y: sourceRect.maxY)
 
         let canvasRect = CGRect(origin: .zero, size: canvasSize)
         guard let output = filter.outputImage?.cropped(to: canvasRect) else {
