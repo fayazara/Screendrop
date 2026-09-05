@@ -40,13 +40,27 @@ final class EditorCloseGuard: NSObject, NSWindowDelegate {
             return
         }
         guard window !== attachedWindow else { return }
-        detach()
+        // Callers configure the callbacks before attaching. Moving between
+        // windows must preserve that configuration; final teardown must not.
+        detachFromWindow()
+        isPrompting = false
+        isCloseApproved = false
         attachedWindow = window
         previousDelegate = window.delegate
         window.delegate = self
     }
 
     func detach() {
+        detachFromWindow()
+        hasUnsavedChanges = { false }
+        offersDelete = { false }
+        projectName = { "" }
+        onDecision = { _, done in done() }
+        isPrompting = false
+        isCloseApproved = false
+    }
+
+    private func detachFromWindow() {
         if let attachedWindow, attachedWindow.delegate === self {
             attachedWindow.delegate = previousDelegate
         }
@@ -68,6 +82,16 @@ final class EditorCloseGuard: NSObject, NSWindowDelegate {
         isPrompting = true
         present(on: sender)
         return false
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        // Break callback ownership at the AppKit close boundary, even if
+        // SwiftUI keeps the scene's state around after its window closes.
+        let delegate = previousDelegate
+        detach()
+        // We implement this delegate method, so forwardingTarget no longer
+        // forwards it. SwiftUI still needs the notification to tear down.
+        delegate?.windowWillClose?(notification)
     }
 
     private func present(on window: NSWindow) {

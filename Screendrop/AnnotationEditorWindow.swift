@@ -52,6 +52,10 @@ struct AnnotationEditorWindow: View {
                 AnnotationEditorActivationPolicy.leave(restorePreview: true)
             }
             .onWindowChange { window in
+                guard let window else {
+                    closeGuard.detach()
+                    return
+                }
                 configureCloseGuard()
                 closeGuard.attach(to: window)
                 closeGuard.refreshDocumentEdited()
@@ -359,7 +363,7 @@ struct AnnotationEditorWindow: View {
                 // matches what's saved in history, then upload that file. The
                 // editor stays open.
                 guard let sourceURL = model.sourceURL,
-                      let resultURL = try await commitEdits() else { return }
+                      let resultURL = try await model.commitEdits() else { return }
 
                 _ = ScreenshotPreviewStack.shared.applyAnnotation(
                     originalURL: sourceURL,
@@ -382,61 +386,6 @@ struct AnnotationEditorWindow: View {
         }
     }
 
-    /// Renders the composite, writes the `.screendrop` sidecar, and repoints
-    /// the editor at the preserved base image so continued edits don't re-bake
-    /// annotations onto an already-composited picture. Returns nil when there
-    /// is nothing to persist.
-    ///
-    /// This is the only thing that puts annotations on disk, so every route
-    /// out of the editor - Done, Save, Upload, the close prompt - goes
-    /// through it.
-    @discardableResult
-    private func commitEdits() async throws -> URL? {
-        guard let sourceURL = model.sourceURL else { return nil }
-
-        let baseURL = model.baseImageURL ?? sourceURL
-        let shapes = model.shapes
-        let bindings = model.bindings
-        let backgroundSettings = model.backgroundSettings
-        let hasContent = !shapes.isEmpty || backgroundSettings.hasRenderableContent || model.isCropped
-        let hadDocument = ScreenshotHistoryStore.shared.hasEditDocument(for: sourceURL)
-
-        // Nothing drawn and nothing previously saved: there is no work to lose.
-        guard hasContent || hadDocument else {
-            model.markSaved()
-            return nil
-        }
-
-        let resultURL: URL
-        if hasContent {
-            let annotatedURL = try await AnnotationRenderer.renderToTemporaryFileInBackground(
-                sourceURL: baseURL,
-                shapes: shapes,
-                backgroundSettings: backgroundSettings
-            )
-            let document = AnnotationDocument(
-                shapes: shapes,
-                bindings: bindings,
-                background: backgroundSettings
-            )
-            resultURL = ScreenshotHistoryStore.shared.commitAnnotations(
-                displayURL: sourceURL,
-                baseURL: baseURL,
-                renderedURL: annotatedURL,
-                document: document
-            )
-            model.baseImageURL = ScreenshotHistoryStore.baseImageURL(for: resultURL)
-        } else {
-            // All annotations were cleared on a previously-edited image:
-            // restore the untouched original.
-            resultURL = ScreenshotHistoryStore.shared.removeAnnotations(displayURL: sourceURL)
-            model.baseImageURL = resultURL
-        }
-
-        model.markSaved()
-        return resultURL
-    }
-
     /// Cmd-S. Commits without closing, so long editing sessions have a
     /// checkpoint that isn't "press Done and start over".
     private func saveEdits() {
@@ -450,7 +399,7 @@ struct AnnotationEditorWindow: View {
             defer { isSaving = false }
             do {
                 guard let sourceURL = model.sourceURL,
-                      let resultURL = try await commitEdits() else { return }
+                      let resultURL = try await model.commitEdits() else { return }
                 _ = ScreenshotPreviewStack.shared.applyAnnotation(
                     originalURL: sourceURL,
                     historyURL: resultURL
@@ -474,7 +423,7 @@ struct AnnotationEditorWindow: View {
         isFinishing = true
         Task {
             do {
-                if let resultURL = try await commitEdits() {
+                if let resultURL = try await model.commitEdits() {
                     let updatedExistingPreview = ScreenshotPreviewStack.shared.applyAnnotation(
                         originalURL: sourceURL,
                         historyURL: resultURL
@@ -493,18 +442,20 @@ struct AnnotationEditorWindow: View {
     }
 
     private func configureCloseGuard() {
-        closeGuard.hasUnsavedChanges = { model.hasUnsavedChanges }
+        closeGuard.hasUnsavedChanges = { [weak model] in model?.hasUnsavedChanges ?? false }
         // A screenshot is already in History whether or not it is annotated,
         // so there is no "delete the whole thing" case here.
         closeGuard.offersDelete = { false }
-        closeGuard.projectName = { model.sourceURL?.lastPathComponent ?? "this screenshot" }
-        closeGuard.onDecision = { decision, done in
+        closeGuard.projectName = { [weak model] in model?.sourceURL?.lastPathComponent ?? "this screenshot" }
+        // Capture only the model, not this view and its @State close guard.
+        closeGuard.onDecision = { [weak model] decision, done in
+            guard let model else { return }
             switch decision {
             case .save:
                 Task {
                     do {
                         if let sourceURL = model.sourceURL,
-                           let resultURL = try await commitEdits() {
+                           let resultURL = try await model.commitEdits() {
                             _ = ScreenshotPreviewStack.shared.applyAnnotation(
                                 originalURL: sourceURL,
                                 historyURL: resultURL

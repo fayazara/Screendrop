@@ -217,8 +217,76 @@ final class AnnotationEditorModel {
     }
 
     func releaseEditorResources() {
+        // A closed SwiftUI scene can outlive its window. Release decoded
+        // pixels and edit history now instead of waiting for model deinit.
+        savedSnapshot = nil
+        sourceURL = nil
+        baseImageURL = nil
+        previewImage = nil
+        previewCGImage = nil
+        imageSize = .zero
+        isPreviewDownscaled = false
+        isCropping = false
+        cropUndoStack.removeAll()
+        cropRedoStack.removeAll()
+        engine.replaceDocument(shapes: [])
         removeOwnedCropFiles()
         RedactionImageProcessor.removeAllCachedPreviewImages()
+    }
+
+    /// Renders the composite, writes the `.screendrop` sidecar, and repoints
+    /// the editor at the preserved base image so continued edits don't re-bake
+    /// annotations onto an already-composited picture. Returns nil when there
+    /// is nothing to persist.
+    ///
+    /// This is the only thing that puts annotations on disk, so every route
+    /// out of the editor - Done, Save, Upload, the close prompt - goes
+    /// through it.
+    @discardableResult
+    func commitEdits() async throws -> URL? {
+        guard let sourceURL = self.sourceURL else { return nil }
+
+        let baseURL = self.baseImageURL ?? sourceURL
+        let shapes = self.shapes
+        let bindings = self.bindings
+        let backgroundSettings = self.backgroundSettings
+        let hasContent = !shapes.isEmpty || backgroundSettings.hasRenderableContent || self.isCropped
+        let hadDocument = ScreenshotHistoryStore.shared.hasEditDocument(for: sourceURL)
+
+        // Nothing drawn and nothing previously saved: there is no work to lose.
+        guard hasContent || hadDocument else {
+            self.markSaved()
+            return nil
+        }
+
+        let resultURL: URL
+        if hasContent {
+            let annotatedURL = try await AnnotationRenderer.renderToTemporaryFileInBackground(
+                sourceURL: baseURL,
+                shapes: shapes,
+                backgroundSettings: backgroundSettings
+            )
+            let document = AnnotationDocument(
+                shapes: shapes,
+                bindings: bindings,
+                background: backgroundSettings
+            )
+            resultURL = ScreenshotHistoryStore.shared.commitAnnotations(
+                displayURL: sourceURL,
+                baseURL: baseURL,
+                renderedURL: annotatedURL,
+                document: document
+            )
+            self.baseImageURL = ScreenshotHistoryStore.baseImageURL(for: resultURL)
+        } else {
+            // All annotations were cleared on a previously-edited image:
+            // restore the untouched original.
+            resultURL = ScreenshotHistoryStore.shared.removeAnnotations(displayURL: sourceURL)
+            self.baseImageURL = resultURL
+        }
+
+        self.markSaved()
+        return resultURL
     }
 
     // MARK: - Unsaved changes

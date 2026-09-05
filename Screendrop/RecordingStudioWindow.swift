@@ -105,12 +105,15 @@ private struct RecordingStudioContent: View {
         }
         .navigationTitle(windowTitle)
         .onWindowChange { window in
+            guard let window else {
+                closeGuard.detach()
+                return
+            }
             configureCloseGuard()
             closeGuard.attach(to: window)
             closeGuard.refreshDocumentEdited()
         }
         .onChange(of: model.hasUnsavedChanges) {
-            configureCloseGuard()
             closeGuard.refreshDocumentEdited()
         }
         .onDeleteCommand {
@@ -192,10 +195,11 @@ private struct RecordingStudioContent: View {
     }
 
     private func configureCloseGuard() {
-        closeGuard.hasUnsavedChanges = { model.hasUnsavedChanges }
-        closeGuard.offersDelete = { model.hasNeverBeenSaved }
-        closeGuard.projectName = { model.projectDisplayName }
-        closeGuard.onDecision = { decision, done in
+        closeGuard.hasUnsavedChanges = { [weak model] in model?.hasUnsavedChanges ?? false }
+        closeGuard.offersDelete = { [weak model] in model?.hasNeverBeenSaved ?? false }
+        closeGuard.projectName = { [weak model] in model?.projectDisplayName ?? "this recording" }
+        closeGuard.onDecision = { [weak model] decision, done in
+            guard let model else { return }
             switch decision {
             case .save:
                 model.saveProject()

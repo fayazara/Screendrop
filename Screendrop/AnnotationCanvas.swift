@@ -179,6 +179,9 @@ struct AnnotationCanvas: View {
             }
             .onDisappear {
                 setCursor(.arrow)
+                progressivelyBlurredImage = nil
+                progressivelyBlurredSourceID = nil
+                settledScene = nil
             }
             .task(id: blurPreviewKey) {
                 await updateProgressiveBlurPreview(
