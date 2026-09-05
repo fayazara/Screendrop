@@ -188,7 +188,7 @@ final class LibraryCollectionLayout: NSCollectionViewFlowLayout {
         minimumInteritemSpacing = 16
         minimumLineSpacing = displayLayout == .grid ? 16 : 6
         if displayLayout == .grid {
-            let columns = max(1, floor((width - 16) / 236))
+            let columns = min(3, max(1, floor((width - 16) / 236)))
             let cellWidth = floor((width - 32 - (columns - 1) * 16) / columns)
             itemSize = CGSize(width: cellWidth, height: floor(cellWidth * 0.625) + 62)
         } else {
@@ -243,6 +243,9 @@ struct LibraryCellContent: View {
     let item: CaptureLibraryItem?
     let layout: CaptureLibraryLayout
     let selected: Bool
+    @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isHovering = false
 
     var body: some View {
         Group {
@@ -269,11 +272,21 @@ struct LibraryCellContent: View {
                     }
                 }
                 .padding(6)
-                .background(selected ? Color.accentColor.opacity(0.14) : Color.clear, in: .rect(cornerRadius: 10))
+                .background(
+                    Color.primary.opacity(selected ? 0.075 : isHovering ? 0.035 : 0.012),
+                    in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+                )
                 .overlay {
-                    RoundedRectangle(cornerRadius: 10)
-                        .strokeBorder(selected ? Color.accentColor : Color.clear, lineWidth: 2)
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(
+                            Color.primary.opacity(selected ? (contrast == .increased ? 0.65 : 0.28) : 0.08),
+                            lineWidth: selected ? 1 : 0.5
+                        )
                 }
+                .onHover { isHovering = $0 }
+                .onChange(of: item.id) { _, _ in isHovering = false }
+                .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: selected)
+                .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: isHovering)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("\(item.name), \(item.kindTitle), \(item.subtitle)")
                 .accessibilityAddTraits(selected ? [.isSelected] : [])
@@ -295,15 +308,19 @@ struct LibraryCellContent: View {
 
     private func thumbnail(_ item: CaptureLibraryItem) -> some View {
         CaptureLibraryThumbnail(item: item)
-            .clipShape(.rect(cornerRadius: 6))
+            .clipShape(.rect(cornerRadius: 10))
+            .overlay {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
+            }
             .overlay(alignment: .bottomTrailing) {
                 if item.isVideo {
                     Label(item.durationText, systemImage: "play.fill")
                         .font(.system(size: 10, weight: .medium).monospacedDigit())
                         .padding(.horizontal, 5).padding(.vertical, 3)
                         .foregroundStyle(.white)
-                        .background(.black.opacity(0.65), in: .rect(cornerRadius: 4))
-                        .padding(5)
+                        .background(.black.opacity(0.65), in: Capsule())
+                        .padding(7)
                 }
             }
     }
