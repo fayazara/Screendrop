@@ -25,6 +25,8 @@ struct ScreenshotHistoryItem: Identifiable, Codable, Equatable {
     /// Absolute path to the non-destructive recording package, when this video
     /// belongs to the new Studio workflow. Older video items remain bare files.
     var recordingSessionPath: String?
+    /// A Library title, kept separate from the file name and editable sidecars.
+    var displayName: String?
 
     var recordingSession: RecordingSession? {
         guard let recordingSessionPath else { return nil }
@@ -60,6 +62,7 @@ struct ScreenshotHistoryItem: Identifiable, Codable, Equatable {
         cloudURL = try container.decodeIfPresent(String.self, forKey: .cloudURL)
         hasEdits = try container.decodeIfPresent(Bool.self, forKey: .hasEdits) ?? false
         recordingSessionPath = try container.decodeIfPresent(String.self, forKey: .recordingSessionPath)
+        displayName = try container.decodeIfPresent(String.self, forKey: .displayName)
     }
 
     init(
@@ -73,7 +76,8 @@ struct ScreenshotHistoryItem: Identifiable, Codable, Equatable {
         duration: Double? = nil,
         cloudURL: String? = nil,
         hasEdits: Bool = false,
-        recordingSessionPath: String? = nil
+        recordingSessionPath: String? = nil,
+        displayName: String? = nil
     ) {
         self.id = id
         self.createdAt = createdAt
@@ -86,6 +90,7 @@ struct ScreenshotHistoryItem: Identifiable, Codable, Equatable {
         self.cloudURL = cloudURL
         self.hasEdits = hasEdits
         self.recordingSessionPath = recordingSessionPath
+        self.displayName = displayName
     }
 }
 
@@ -461,6 +466,28 @@ final class ScreenshotHistoryStore {
 
     func reload() {
         load()
+    }
+
+    func rename(id: UUID, to name: String) {
+        guard let index = items.firstIndex(where: { $0.id == id }) else { return }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        items[index].displayName = trimmed.isEmpty ? nil : trimmed
+        items[index].updatedAt = Date()
+        saveMetadata()
+    }
+
+    /// Called only after Library has successfully moved the owned files to Trash.
+    func removeTrashedItems(ids: Set<UUID>) {
+        guard !ids.isEmpty else { return }
+        items.removeAll { ids.contains($0.id) }
+        saveMetadata()
+    }
+
+    func setLibraryCloudURL(id: UUID, cloudURL: String?) {
+        guard let index = items.firstIndex(where: { $0.id == id }) else { return }
+        items[index].cloudURL = cloudURL
+        items[index].updatedAt = Date()
+        saveMetadata()
     }
 
     private func load() {

@@ -90,13 +90,13 @@ You can also:
 
 - Run capture and recording actions from Apple Shortcuts, Siri, or Spotlight.
 - Right-click one or more images in Finder and choose **Open With → Screendrop**.
-- Reopen recent screenshots and recordings from the menu bar or the full History view.
+- Browse screenshots and recordings together in the native Library, or reopen recent captures from the menu bar.
 
 ## Screenshots
 
 ### Capture
 
-Capture an entire display, a window, or a freely selected area. Screenshots are taken at native display resolution and imported into local History before any optional automation runs.
+Capture an entire display, a window, or a freely selected area. Screenshots are taken at native display resolution and imported into the local Library before any optional automation runs.
 
 Screenshot preferences include:
 
@@ -112,7 +112,7 @@ Screenshot preferences include:
 
 **Capture Text** (`Option + 5`, or the menu bar) drags out an area like a normal
 area capture, recognizes the text inside it with on-device Vision OCR, and puts
-that text on the clipboard. No image is saved, nothing is added to History, and
+that text on the clipboard. No image is saved, nothing is added to Library, and
 no preview card appears - a brief toast confirms what was copied.
 
 Recognized lines are returned in reading order, so multi-column screenshots
@@ -150,18 +150,26 @@ The overlay can appear on the left or right, close automatically after a chosen 
 
 When the stack is collapsed, it becomes a small peek tab instead of disappearing. This keeps captures close without covering the workspace.
 
-### History
+### Library
 
-History keeps screenshots and complete recording projects together. It shows thumbnails, dimensions, capture times, video durations, editable-project state, and saved cloud links.
+Library brings screenshots, videos, and complete recording projects into one native macOS window, replacing the History page and separate Recording Projects browser. The sidebar filters All Captures, Screenshots, and Recordings. Switch between thumbnail grid and list views, search by name, or sort by capture date, name, and last modification. The layout, sort order, and inspector visibility are remembered.
 
-From History you can Quick Look, copy, annotate, edit, upload, reveal in Finder, or delete a capture. The menu bar also exposes a compact list of recent items.
+The browser uses reusable AppKit collection cells, background package discovery, and a bounded thumbnail cache with cancellable loading. The inspector shows dimensions, capture dates, duration, disk usage, editable-project state, file location, and cloud sharing actions. Recording packages and their History entries appear as one capture; existing files and edits stay where they are.
+
+- Double-click a capture or press **Space** for a large Quick Look preview. Use **Edit** to annotate a screenshot or reopen a recording in Studio.
+- Use **Command-click**, **Shift-click**, or **Command-A** to select multiple captures, then copy, export, reveal in Finder, or move them to Trash. **Command-C** copies the selection and **Command-Delete** offers Move to Trash.
+- Press **Return** to rename a selected capture. Screenshot titles are stored separately from filenames, preserving annotation sidecars.
+- Recording previews, copies, and exports resolve the edited deliverable, including the cursor and camera. Preparing an uncached recording can take time; Library shows the operation in its status bar.
+- **Move to Trash** includes the capture's edits and recording tracks. Close a capture's editor first. Exported copies and cloud links are unaffected; deleting a cloud copy is a separate inspector action.
+
+Normal launches open Library, with a Dock icon while regular windows are open. Launch at login stays quietly in the menu bar. Open Library again from the menu bar, Finder, Spotlight, or **Command-Shift-L**. Closing it leaves capture shortcuts and the menu bar available. **Command-Option-I** toggles the inspector.
 
 ### Open Images from Finder
 
 Screendrop registers as an image editor in Finder. Opening an image with Screendrop:
 
 1. Validates the image.
-2. Imports a copy into Screendrop History.
+2. Imports a copy into the Screendrop Library.
 3. Opens the copy in the annotation editor.
 
 The original file is never modified. Multiple selected images can be opened at once, each in its own editor window.
@@ -244,7 +252,7 @@ The teleprompter and its speech tracking are best-effort and never interrupt the
 
 ## Recording Studio
 
-Every new recording is stored as a non-destructive session package. The package preserves the screen master, optional camera master, input timeline, metadata, and a small editable project document. The original media stays untouched, and the project can be reopened from History.
+Every new recording is stored as a non-destructive session package. The package preserves the screen master, optional camera master, input timeline, metadata, and a small editable project document. The original media stays untouched, and the project can be reopened from Library.
 
 ### Timeline Editing
 
@@ -357,7 +365,7 @@ Screendrop verifies the Worker URL and token before enabling uploads.
 
 1. Screendrop sends the file to the Worker with `PUT /api/upload`.
 2. The Worker validates the bearer token, streams the file to R2, and writes its metadata to D1.
-3. The Worker returns a share URL. Screendrop copies it and stores it in local History.
+3. The Worker returns a share URL. Screendrop copies it and stores it in the local Library.
 4. For edited recordings, Screendrop uploads the rendered final cut-not the raw screen master.
 5. Screendrop then adds best-effort video sidecars: a title, poster, transcript remapped to the edited timeline, and a storyboard sprite used for scrub previews.
 

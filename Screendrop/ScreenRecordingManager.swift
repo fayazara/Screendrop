@@ -120,6 +120,7 @@ final class ScreenRecordingManager {
     private let keystrokeRecorder = RecordingKeystrokeRecorder()
     private var displayID: CGDirectDisplayID?
     private var session: RecordingSession?
+    var activeSessionDirectoryURL: URL? { isActive ? session?.directoryURL : nil }
     private var manifest = CaptureManifest()
     private var startedAt: Date?
     private var pausedAt: Date?

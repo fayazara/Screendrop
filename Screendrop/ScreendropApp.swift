@@ -8,6 +8,7 @@
 import SwiftUI
 import UniformTypeIdentifiers
 import UserNotifications
+import Carbon
 
 @main
 struct ScreendropApp: App {
@@ -20,6 +21,23 @@ struct ScreendropApp: App {
 
         MenuBarExtra("Screendrop", image: "MenuBarIcon", isInserted: $showMenuBarIcon) {
             MenuBarView()
+        }
+
+        Window("Screendrop Library", id: "CAPTURE_LIBRARY") {
+            CaptureLibraryView()
+        }
+        .defaultSize(width: 1180, height: 760)
+        .defaultLaunchBehavior(.suppressed)
+        .restorationBehavior(.disabled)
+        .commands {
+            CommandGroup(after: .newItem) {
+                Button("Show Library") { CaptureLibraryModel.shared.show() }
+                    .keyboardShortcut("l", modifiers: [.command, .shift])
+            }
+            CommandGroup(replacing: .appSettings) {
+                Button("Settings…") { SettingsWindowController.show(tab: .general) }
+                    .keyboardShortcut(",", modifiers: .command)
+            }
         }
         
         WindowGroup("Screendrop Annotate", id: "ANNOTATION_EDITOR", for: URL.self) { value in
@@ -37,6 +55,9 @@ struct ScreendropApp: App {
 
     @MainActor
     private func configurePreviewPresentation() {
+        CaptureLibraryModel.shared.installOpener { [openWindow] in
+            openWindow(id: "CAPTURE_LIBRARY")
+        }
         PreviewPanelPresenter.shared.onAnnotate = { [openWindow] url in
             openWindow(id: "ANNOTATION_EDITOR", value: url)
         }
@@ -46,8 +67,8 @@ struct ScreendropApp: App {
                 value: ScreenshotHistoryStore.shared.editorURL(for: url)
             )
         }
-        // The menu bar extra and the Projects window are AppKit-hosted and
-        // have no scene of their own, so they reach the editor through here.
+        // The menu bar extra has no scene of its own, so it reaches Studio
+        // through this opener.
         RecordingProjectOpener.shared.openHandler = { [openWindow] directoryURL in
             openWindow(id: "VIDEO_EDITOR", value: directoryURL)
         }
@@ -103,6 +124,7 @@ struct ScreendropApp: App {
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let updaterManager = UpdaterManager.shared
+    private var openedFilesAtLaunch = false
 
     /// Files handed to us via Finder's "Open With" (or `open -a Screendrop`)
     /// before `onOpenFiles` is wired up, e.g. a cold launch where SwiftUI's
@@ -130,10 +152,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         HotkeyManager.shared.registerHotkeys()
         updaterManager.start()
         RecordingRecoveryCoordinator.recoverInterruptedRecordings()
+        let launchEvent = NSAppleEventManager.shared().currentAppleEvent
+        let launchReason = launchEvent?.paramDescriptor(forKeyword: keyAEPropData)?.enumCodeValue
+        let launchedInBackground = launchReason == keyAELaunchedAsLogInItem
+            || launchReason == keyAELaunchedAsServiceItem
+        // Let Finder's open-file event reach its editor without also opening a
+        // Library. Login/service launches keep the existing quiet menu-bar mode.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, !launchedInBackground, !self.openedFilesAtLaunch else { return }
+            CaptureLibraryModel.shared.show()
+        }
     }
 
     /// Finder "Open With" / `open -a Screendrop file.png` entry point.
     func application(_ application: NSApplication, open urls: [URL]) {
+        openedFilesAtLaunch = true
         guard let onOpenFiles else {
             pendingOpenURLs.append(contentsOf: urls)
             return
@@ -141,13 +174,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         onOpenFiles(urls)
     }
 
-    /// When the menu bar icon is hidden, reopening Screendrop (e.g. from
-    /// Spotlight or Finder) is the only way back in, so surface Settings.
+    /// Finder, Spotlight and the Dock all reopen the same Library window.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
-        if !ScreendropPreferences.showMenuBarIcon {
-            SettingsWindowController.show(tab: .general)
-        }
-        return true
+        CaptureLibraryModel.shared.show()
+        return false
     }
 
     /// Guard against silently losing captures. Screenshots that were never

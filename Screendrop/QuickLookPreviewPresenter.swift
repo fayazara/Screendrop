@@ -17,6 +17,8 @@ final class QuickLookPreviewPresenter: NSObject, QLPreviewPanelDataSource, QLPre
     static var isShown: Bool {
         QLPreviewPanel.sharedPreviewPanelExists() && QLPreviewPanel.shared()?.isVisible == true
     }
+
+    static var currentURL: URL? { shared.previewURL as URL? }
     
     static func show(url: URL) {
         shared.show(url: url)

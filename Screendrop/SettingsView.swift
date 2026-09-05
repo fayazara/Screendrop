@@ -12,7 +12,6 @@ enum SettingsTab: String, CaseIterable, Identifiable {
     case video
     case overlay
     case cloud
-    case history
     case about
 
     var id: Self { self }
@@ -24,7 +23,6 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         case .video: "Screen Recordings"
         case .overlay: "Overlay"
         case .cloud: "Cloud"
-        case .history: "History"
         case .about: "About"
         }
     }
@@ -36,7 +34,6 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         case .video: "video"
         case .overlay: "square.on.square"
         case .cloud: "icloud.and.arrow.up"
-        case .history: "clock.arrow.trianglehead.counterclockwise.rotate.90"
         case .about: "info.circle"
         }
     }
@@ -213,8 +210,6 @@ private struct SettingsDetailView: View {
                 OverlaySettingsPane()
             case .cloud:
                 CloudSettingsPane()
-            case .history:
-                SettingsHistoryPane()
             case .about:
                 SettingsAboutPane()
             }
@@ -235,5 +230,4 @@ extension URL {
         return path
     }
 }
-
 

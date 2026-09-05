@@ -2,7 +2,7 @@
 //  RecordingProjectStore.swift
 //  Screendrop
 //
-//  The Projects browser's model. Recording packages on disk are the source
+//  The recent-recordings menu's model. Recording packages on disk are the source
 //  of truth - not history.json - so a project whose History row was deleted
 //  is still reachable, and a package deleted in Finder disappears here.
 //
@@ -11,7 +11,7 @@ import AppKit
 import AVFoundation
 import Observation
 
-struct RecordingProjectSummary: Identifiable, Equatable {
+nonisolated struct RecordingProjectSummary: Identifiable, Equatable, Sendable {
     let session: RecordingSession
     var displayName: String
     var createdAt: Date
@@ -39,6 +39,7 @@ final class RecordingProjectStore {
     static let shared = RecordingProjectStore()
 
     private(set) var projects: [RecordingProjectSummary] = []
+    @ObservationIgnored private var reloadTask: Task<Void, Never>?
 
     /// Deliberately empty until something asks. Summarizing every package
     /// walks the Recordings folder, which is not worth doing at launch when
@@ -49,15 +50,23 @@ final class RecordingProjectStore {
         projects.reduce(0) { $0 + $1.sizeOnDisk }
     }
 
-    /// The Recordings menu shows only a handful; the rest live in the window.
+    /// The Recordings menu shows only a handful; the rest live in Library.
     var recentProjects: [RecordingProjectSummary] {
         Array(projects.prefix(8))
     }
 
     func reload() {
-        projects = RecordingSessionStore.allSessions()
-            .map(Self.summarize)
-            .sorted { $0.lastActivityAt > $1.lastActivityAt }
+        reloadTask?.cancel()
+        reloadTask = Task {
+            let scan = Task.detached(priority: .utility) {
+                RecordingSessionStore.allSessions()
+                    .compactMap { Task.isCancelled ? nil : Self.summarize($0) }
+                    .sorted { $0.lastActivityAt > $1.lastActivityAt }
+            }
+            let result = await withTaskCancellationHandler { await scan.value } onCancel: { scan.cancel() }
+            guard !Task.isCancelled else { return }
+            projects = result
+        }
     }
 
     func rename(_ project: RecordingProjectSummary, to name: String) {
@@ -118,7 +127,7 @@ final class RecordingProjectStore {
 
     // MARK: - Summaries
 
-    private static func summarize(_ session: RecordingSession) -> RecordingProjectSummary {
+    nonisolated private static func summarize(_ session: RecordingSession) -> RecordingProjectSummary {
         let manifest = session.loadCaptureManifest()
         let metadata = session.loadProjectMetadata()
         let folderCreatedAt = try? session.directoryURL
@@ -142,7 +151,7 @@ final class RecordingProjectStore {
         )
     }
 
-    private static func sizeOnDisk(of directoryURL: URL) -> Int64 {
+    nonisolated private static func sizeOnDisk(of directoryURL: URL) -> Int64 {
         let keys: [URLResourceKey] = [.totalFileAllocatedSizeKey, .fileAllocatedSizeKey]
         guard let enumerator = FileManager.default.enumerator(
             at: directoryURL,
@@ -153,6 +162,7 @@ final class RecordingProjectStore {
 
         var total: Int64 = 0
         for case let url as URL in enumerator {
+            guard !Task.isCancelled else { return total }
             let values = try? url.resourceValues(forKeys: Set(keys))
             let size = values?.totalFileAllocatedSize ?? values?.fileAllocatedSize ?? 0
             total += Int64(size)
@@ -162,7 +172,7 @@ final class RecordingProjectStore {
 }
 
 /// Opening a project has to reach the `VIDEO_EDITOR` scene from AppKit-hosted
-/// surfaces (the menu bar extra, the Projects window), which have no scene
+/// surfaces such as the menu bar extra, which have no scene
 /// environment of their own. `ScreendropApp` installs the opener, mirroring
 /// what `PreviewPanelPresenter.onEditVideo` already does.
 @MainActor

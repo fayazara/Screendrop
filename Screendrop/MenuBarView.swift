@@ -49,6 +49,13 @@ struct MenuBarView: View {
 
             Divider()
 
+            Button {
+                CaptureLibraryModel.shared.show()
+            } label: {
+                Label("Open Library", systemImage: "square.grid.2x2")
+            }
+            .keyboardShortcut("l", modifiers: [.command, .shift])
+
             Menu {
                 projectsMenuContent
             } label: {
@@ -58,7 +65,7 @@ struct MenuBarView: View {
             Menu {
                 historyMenuContent
             } label: {
-                Label("History", systemImage: "clock.arrow.circlepath")
+                Label("Recent Captures", systemImage: "clock.arrow.circlepath")
             }
 
             Button {
@@ -111,9 +118,9 @@ struct MenuBarView: View {
         }
 
         Button {
-            RecordingProjectsWindowController.show()
+            CaptureLibraryModel.shared.show(filter: .recordings)
         } label: {
-            Label("Show All Projects…", systemImage: "square.grid.2x2")
+            Label("Show All Recordings…", systemImage: "square.grid.2x2")
         }
     }
 
@@ -137,10 +144,9 @@ struct MenuBarView: View {
         }
 
         Button {
-            historyStore.reload()
-            openSettings(tab: .history)
+            CaptureLibraryModel.shared.show(filter: .all)
         } label: {
-            Label("Show All History", systemImage: "rectangle.stack")
+            Label("Show All Captures…", systemImage: "rectangle.stack")
         }
     }
 
@@ -185,7 +191,7 @@ struct MenuBarView: View {
     }
 
     private func historyMenuTitle(for item: ScreenshotHistoryItem) -> String {
-        let name = item.fileName
+        let name = item.displayName ?? item.fileName
         let limit = 30
 
         guard name.count > limit else {

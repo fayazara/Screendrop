@@ -28,6 +28,7 @@ struct RecordingStudioWindow: View {
                     .frame(minWidth: 900, minHeight: 600)
             }
         }
+        .modifier(CaptureLibraryEditorRegistration(url: url))
         .task(id: url) {
             guard let url else { return }
             let newModel = RecordingStudioModel(url: url)

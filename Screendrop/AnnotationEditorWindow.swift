@@ -26,6 +26,7 @@ struct AnnotationEditorWindow: View {
 
     var body: some View {
         mainContent
+            .modifier(CaptureLibraryEditorRegistration(url: url))
             .navigationTitle("Screendrop Annotate")
             .toolbarBackgroundVisibility(.visible, for: .windowToolbar)
             .toolbar {

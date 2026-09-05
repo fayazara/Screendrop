@@ -2,7 +2,7 @@
 
 ## Project overview
 
-Screendrop is a native macOS screenshot tool. It runs as a menu-bar-only app (`LSUIElement = YES`, activation policy `.accessory`) with no main window. Built with SwiftUI + AppKit, single Xcode target, no SPM dependencies, no tests.
+Screendrop is a native macOS screenshot and screen recording tool. Its Library window opens on normal launch; login launches remain in the menu bar (`LSUIElement = YES`). `AppActivationPolicy` uses `.regular` while Library, Settings, or editor windows are open, and returns to `.accessory` when they close. Built with SwiftUI + AppKit and no test target.
 
 **Deployment target:** macOS 26.4 (Xcode 26.4 / Tahoe beta SDK).
 **Bundle ID:** `com.fayazahmed.Screendrop`
@@ -45,6 +45,7 @@ All source is in `Screendrop/` (flat, no subdirectories). Key flow:
 5. **Annotation** - `AnnotationEditorWindow.swift` + `AnnotationEditorModel.swift` + `AnnotationCanvas.swift`: Full annotation editor with tools (rectangle, ellipse, arrow, freehand, text, numbered circles, pixelate, blur). All coordinates are normalized (0..1) relative to the image.
 6. **Rendering** - `AnnotationRenderer.swift`: Composites annotations onto the source image at full pixel resolution using Core Graphics.
 7. **Preferences** - `ScreendropPreferences.swift` + `SettingsView.swift`: `UserDefaults`-backed settings (auto-save, auto-copy, auto-compress, export directory).
+8. **Library** - `CaptureLibraryView.swift` + `CaptureLibraryModel.swift`: Single native sidebar/detail/inspector scene. `CaptureLibraryCollection.swift` reuses AppKit cells for grid/list layouts; `CaptureLibraryThumbnails.swift` bounds decoded image memory and concurrency. The model merges History metadata with recording packages by standardized package path. Existing capture storage and editable sidecars remain authoritative. `CaptureLibraryActions.swift` handles batch operations and prevents trashing captures while their editors are open.
 
 ### Singletons
 

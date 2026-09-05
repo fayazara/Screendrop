@@ -23,8 +23,8 @@ struct VideoSettingsPane: View {
 
             Section("Projects") {
                 LabeledContent {
-                    Button("Show All Projects…") {
-                        RecordingProjectsWindowController.show()
+                    Button("Open Recordings Library…") {
+                        CaptureLibraryModel.shared.show(filter: .recordings)
                     }
                 } label: {
                     VStack(alignment: .leading, spacing: 2) {
@@ -100,4 +100,3 @@ struct OverlaySettingsPane: View {
         .contentMargins(.top, 8, for: .scrollContent)
     }
 }
-
