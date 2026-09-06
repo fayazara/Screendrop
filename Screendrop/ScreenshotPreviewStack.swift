@@ -504,10 +504,25 @@ final class ScreenshotPreviewStack {
         dismiss(id: id)
     }
 
-    /// Dismisses any card backed by a recording package that is going away.
-    /// The overlay is a third view of the same recording alongside History and
-    /// the Projects browser, and unlike those two it is never rebuilt from
-    /// disk - so without this it keeps showing a card whose footage is gone.
+    /// Finish the quick-action handoff for one recording, whether its card
+    /// points at a screen master, a flattened deliverable, or a bare movie.
+    /// This only removes the preview; Library continues to own the recording.
+    func dismissVideo(for url: URL) {
+        if RecordingSession.isSessionDirectory(url) {
+            dismissRecordingSession(url)
+        } else if let session = RecordingDeliverable.session(for: url) {
+            dismissRecordingSession(session.directoryURL)
+        } else {
+            let standardizedURL = url.standardizedFileURL
+            let ids = items.filter {
+                $0.kind == .video && $0.url.standardizedFileURL == standardizedURL
+            }.map(\.id)
+            for id in ids { dismiss(id: id) }
+        }
+    }
+
+    /// Dismisses cards for one recording package after a handoff, completed
+    /// action, or deletion. Other captures in the stack remain available.
     func dismissRecordingSession(_ directoryURL: URL) {
         let packagePath = directoryURL.standardizedFileURL.path
         // The trailing separator keeps a sibling package with a longer name
@@ -526,6 +541,9 @@ final class ScreenshotPreviewStack {
     func save(id: ScreenshotPreviewItem.ID) {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
         let kind = items[index].kind
+        // Keep manual video saves available for retry if the copy fails or
+        // the save panel is cancelled, including already-rendered movies.
+        if kind == .video { markEngaged(id: id) }
 
         if ScreendropPreferences.saveButtonUsesConfiguredFolder {
             guard items[index].autoSavedURL == nil else {

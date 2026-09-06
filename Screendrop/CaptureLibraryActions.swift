@@ -121,6 +121,7 @@ extension CaptureLibraryModel {
             ScreenshotHistoryStore.shared.setLibraryCloudURL(id: id, cloudURL: result.url)
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(result.url, forType: .string)
+            if item.isVideo { ScreenshotPreviewStack.shared.dismissVideo(for: item.ownedURL) }
             self.refresh()
         }
     }
@@ -156,6 +157,7 @@ extension CaptureLibraryModel {
                             try CaptureLibraryFiles.export(source, name: item.name, to: directory)
                         }.value
                         exported.append(destination)
+                        if item.isVideo { ScreenshotPreviewStack.shared.dismissVideo(for: item.ownedURL) }
                     } catch { failures.append("\(item.name): \(error.localizedDescription)") }
                 }
                 if !exported.isEmpty { NSWorkspace.shared.activateFileViewerSelecting(exported) }

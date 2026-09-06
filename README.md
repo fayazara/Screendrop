@@ -148,6 +148,8 @@ New captures appear as floating cards on the active display. From a card you can
 
 The overlay can appear on the left or right, close automatically after a chosen delay, and dismiss after a drag. Its actions are completely rearrangeable: drag actions between four corner slots, the center buttons, and a hidden-actions tray in **Settings → Overlay**.
 
+A recording card is a quick handoff: it closes once Studio has loaded successfully or a manual Save or Upload from the card succeeds. Failed or cancelled actions keep the card available for retry. Exporting or sharing from Studio or Library also clears that recording's card; the recording remains in Library. Studio shows **Saved** with a Finder reveal action, or **Link Copied** with actions to copy or open the share link, without creating another overlay.
+
 When the stack is collapsed, it becomes a small peek tab instead of disappearing. This keeps captures close without covering the workspace.
 
 ### Library

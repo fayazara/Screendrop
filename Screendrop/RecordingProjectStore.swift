@@ -211,6 +211,14 @@ final class StudioProjectRegistry {
         models.removeValue(forKey: ObjectIdentifier(model))
     }
 
+    func hasLoadedEditor(for url: URL) -> Bool {
+        let path = url.standardizedFileURL.path
+        return models.values.contains {
+            guard let model = $0.model, model.isLoaded else { return false }
+            return model.sessionURL.standardizedFileURL.path == path
+        }
+    }
+
     var unsavedProjectCount: Int {
         models.values.compactMap(\.model).filter(\.hasUnsavedChanges).count
     }

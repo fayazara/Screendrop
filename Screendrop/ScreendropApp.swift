@@ -61,29 +61,26 @@ struct ScreendropApp: App {
         PreviewPanelPresenter.shared.onAnnotate = { [openWindow] url in
             openWindow(id: "ANNOTATION_EDITOR", value: url)
         }
-        PreviewPanelPresenter.shared.onEditVideo = { [openWindow] url in
-            openWindow(
-                id: "VIDEO_EDITOR",
-                value: ScreenshotHistoryStore.shared.editorURL(for: url)
-            )
+        let openVideoEditor: (URL) -> Void = { [openWindow] url in
+            let editorURL = ScreenshotHistoryStore.shared.editorURL(for: url)
+            openWindow(id: "VIDEO_EDITOR", value: editorURL)
+            // Refocusing an existing Studio window does not run its load task
+            // again. New windows dismiss their card after a successful load.
+            if StudioProjectRegistry.shared.hasLoadedEditor(for: editorURL) {
+                ScreenshotPreviewStack.shared.dismissVideo(for: editorURL)
+            }
         }
+        PreviewPanelPresenter.shared.onEditVideo = openVideoEditor
         // The menu bar extra has no scene of its own, so it reaches Studio
         // through this opener.
-        RecordingProjectOpener.shared.openHandler = { [openWindow] directoryURL in
-            openWindow(id: "VIDEO_EDITOR", value: directoryURL)
-        }
+        RecordingProjectOpener.shared.openHandler = openVideoEditor
 
         CaptureCoordinator.shared.onShowPreview = { [openWindow] url, displayID in
             // Set the editor openers first so auto-annotate can fire during add.
             PreviewPanelPresenter.shared.onAnnotate = { url in
                 openWindow(id: "ANNOTATION_EDITOR", value: url)
             }
-            PreviewPanelPresenter.shared.onEditVideo = { url in
-                openWindow(
-                    id: "VIDEO_EDITOR",
-                    value: ScreenshotHistoryStore.shared.editorURL(for: url)
-                )
-            }
+            PreviewPanelPresenter.shared.onEditVideo = openVideoEditor
 
             let historyURL = ScreenshotHistoryStore.shared.importScreenshot(from: url)
             ScreenshotPreviewStack.shared.add(url: historyURL)

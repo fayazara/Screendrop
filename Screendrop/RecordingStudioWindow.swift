@@ -35,7 +35,13 @@ struct RecordingStudioWindow: View {
             let newModel = RecordingStudioModel(url: url)
             model = newModel
             await newModel.load()
-            if Task.isCancelled { newModel.teardown() }
+            guard !Task.isCancelled else {
+                newModel.teardown()
+                return
+            }
+            if model === newModel, newModel.isLoaded {
+                ScreenshotPreviewStack.shared.dismissVideo(for: newModel.sessionURL)
+            }
         }
         .onDisappear {
             model?.teardown()
@@ -280,6 +286,14 @@ private struct RecordingStudioContent: View {
                 }
                 .help("Copy the share link again")
 
+                if let shareURL = URL(string: url) {
+                    Link(destination: shareURL) {
+                        Image(systemName: "arrow.up.right.square")
+                    }
+                    .accessibilityLabel("Open Share Link")
+                    .help("Open the share link in your browser")
+                }
+
                 CloudUploadButton(suggestedTitle: shareSuggestedTitle, onUpload: model.shareToCloud) {
                     Image(systemName: "link")
                 }
@@ -321,7 +335,7 @@ private struct RecordingStudioContent: View {
                 Button {
                     NSWorkspace.shared.activateFileViewerSelecting([url])
                 } label: {
-                    Label("Reveal", systemImage: "checkmark.circle.fill")
+                    Label("Saved", systemImage: "checkmark.circle.fill")
                         .foregroundStyle(.green)
                 }
                 .help("Reveal exported recording in Finder")

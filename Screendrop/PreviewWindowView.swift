@@ -200,6 +200,7 @@ struct PreviewWindowView: View {
                         // This overlay card can auto-dismiss, so it isn't a
                         // good popover anchor - use the remembered default
                         // instead of prompting per upload.
+                        if item.kind == .video { previewStack.markEngaged(id: item.id) }
                         Task {
                             do {
                                 let result = try await CloudUploader.shared.upload(
@@ -210,6 +211,7 @@ struct PreviewWindowView: View {
                                 NSPasteboard.general.clearContents()
                                 NSPasteboard.general.setString(result.url, forType: .string)
                                 ScreenshotHistoryStore.shared.setCloudURL(for: item.url, cloudURL: result.url)
+                                if item.kind == .video { previewStack.dismiss(id: item.id) }
                             } catch {
                                 print("Cloud upload failed: \(error)")
                             }

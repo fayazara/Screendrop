@@ -1875,6 +1875,7 @@ final class RecordingStudioModel {
         // so a second encode would just fight it for the media engine.
         guard !exportState.isExporting, !shareState.isBusy, isLoaded else { return }
         pause()
+        let previewURL = sessionURL
 
         // A fresh deliverable (e.g. right after a share) is byte-identical
         // to what this render would produce - same configuration builds
@@ -1889,6 +1890,7 @@ final class RecordingStudioModel {
                     )
                     RecordingExportNotifier.notifySuccess(fileURL: savedURL)
                     RecordingExportNotifier.revealIfPreferred(fileURL: savedURL)
+                    ScreenshotPreviewStack.shared.dismissVideo(for: previewURL)
                     self?.exportState = .finished(savedURL)
                 } catch {
                     self?.exportState = .failed(error.localizedDescription)
@@ -1923,6 +1925,7 @@ final class RecordingStudioModel {
                 DockExportProgressCoordinator.shared.finish(dockProgressID)
                 RecordingExportNotifier.notifySuccess(fileURL: savedURL)
                 RecordingExportNotifier.revealIfPreferred(fileURL: savedURL)
+                ScreenshotPreviewStack.shared.dismissVideo(for: previewURL)
                 self?.exportState = .finished(savedURL)
             } catch is CancellationError {
                 DockExportProgressCoordinator.shared.finish(dockProgressID)
@@ -2213,6 +2216,7 @@ final class RecordingStudioModel {
                 if session != nil {
                     ScreenshotHistoryStore.shared.setCloudURL(for: uploadURL, cloudURL: result.url)
                 }
+                ScreenshotPreviewStack.shared.dismissVideo(for: self.sessionURL)
                 self.shareState = .finished(result.url)
             } catch is CancellationError {
                 self?.shareState = .idle
