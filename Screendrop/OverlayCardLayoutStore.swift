@@ -36,7 +36,23 @@ final class OverlayCardLayoutStore {
         else {
             return .default
         }
+
+        // Surface Basket for users who still have the previous untouched
+        // default. Never rearrange a layout the user has customized.
+        if isLegacyDefault(decoded) {
+            return .default
+        }
+
         return decoded.normalized()
+    }
+
+    private static func isLegacyDefault(_ layout: OverlayCardLayout) -> Bool {
+        layout.topLeading == .delete
+            && layout.topTrailing == .close
+            && layout.bottomLeading == .annotate
+            && layout.bottomTrailing == .upload
+            && layout.center == [.copy, .save, .pin]
+            && layout.hidden == [.view, .compress]
     }
 
     private func persist() {

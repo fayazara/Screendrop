@@ -29,7 +29,8 @@ final class PreviewPanelPresenter {
     }
 
     func closeIfEmpty() {
-        guard ScreenshotPreviewStack.shared.items.isEmpty else { return }
+        guard ScreenshotPreviewStack.shared.items.isEmpty,
+              ScreenshotBasket.shared.isEmpty else { return }
 
         QuickLookPreviewPresenter.dismiss()
         destroyPanel()

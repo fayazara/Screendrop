@@ -16,6 +16,7 @@ import Foundation
 /// Every action that can be placed on the preview card.
 enum OverlayCardAction: String, CaseIterable, Codable, Identifiable {
     case copy
+    case basket
     case compress
     case save
     case pin
@@ -31,6 +32,7 @@ enum OverlayCardAction: String, CaseIterable, Codable, Identifiable {
     func symbol(for kind: PreviewMediaKind = .image) -> String {
         switch self {
         case .copy: "doc.on.doc"
+        case .basket: "basket"
         case .compress: "arrow.down.right.and.arrow.up.left"
         case .save: "square.and.arrow.down"
         case .pin: "pin.fill"
@@ -47,6 +49,7 @@ enum OverlayCardAction: String, CaseIterable, Codable, Identifiable {
     func label(for kind: PreviewMediaKind = .image) -> String {
         switch self {
         case .copy: "Copy"
+        case .basket: "Basket"
         case .compress: "Compress"
         case .save: "Save"
         case .pin: "Pin"
@@ -62,6 +65,7 @@ enum OverlayCardAction: String, CaseIterable, Codable, Identifiable {
     func help(for kind: PreviewMediaKind = .image) -> String {
         switch self {
         case .copy: "Copy to clipboard"
+        case .basket: "Add to or remove from the screenshot basket"
         case .compress: "Copy a compressed JPG"
         case .save: "Save to disk"
         case .pin: "Pin to screen"
@@ -77,6 +81,7 @@ enum OverlayCardAction: String, CaseIterable, Codable, Identifiable {
     var detail: String {
         switch self {
         case .copy: "Copy the capture to the clipboard"
+        case .basket: "Collect the screenshot for one multi-file drag"
         case .compress: "Copy a smaller JPG to the clipboard"
         case .save: "Save the capture to your export folder"
         case .pin: "Pin the screenshot as a floating window"
@@ -120,15 +125,15 @@ struct OverlayCardLayout: Codable, Equatable {
     /// Actions that are not shown on the card.
     var hidden: [OverlayCardAction]
 
-    /// Matches the original hard-coded card layout, with the new `view` action
-    /// tucked away in the hidden tray so existing behaviour is unchanged.
+    /// Keeps the most common capture actions visible by default. Less frequent
+    /// actions remain available in the hidden tray and can be rearranged.
     static let `default` = OverlayCardLayout(
         topLeading: .delete,
         topTrailing: .close,
         bottomLeading: .annotate,
         bottomTrailing: .upload,
-        center: [.copy, .save, .pin],
-        hidden: [.view, .compress]
+        center: [.copy, .save, .basket],
+        hidden: [.view, .compress, .pin]
     )
 
     // MARK: - Reads
