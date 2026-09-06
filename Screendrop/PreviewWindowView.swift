@@ -408,7 +408,32 @@ struct PreviewWindowView: View {
             QuickLookPreviewPresenter.show(url: hoveredItem.url)
             return true
         }
+
+        // Ctrl+C belongs to the focused preview. A hover selects that card;
+        // otherwise the newest card is the focused preview's target.
+        guard PreviewPanelPresenter.shared.isPreviewFocused else { return false }
+        let copyTarget = previewStack.hoveredItem ?? previewStack.items.first
+
+        if ScreendropPreferences.previewCloseAfterCopying,
+           !previewStack.isCollapsed,
+           isCopyShortcut(event),
+           let copyTarget {
+            // Keep the keyboard shortcut opt-out separate from the visible
+            // copy action, so the copy button remains available when disabled.
+            previewStack.copyToClipboard(id: copyTarget.id)
+            return true
+        }
         
         return false
+    }
+
+    /// Recognizes a non-repeating Ctrl+C using the logical character from the
+    /// active keyboard layout. The caller selects the hovered card, or the
+    /// newest card when the focused preview has no hovered card.
+    private func isCopyShortcut(_ event: NSEvent) -> Bool {
+        event.modifierFlags.contains(.control)
+            && event.modifierFlags.intersection([.command, .option, .shift]).isEmpty
+            && !event.isARepeat
+            && event.charactersIgnoringModifiers?.lowercased() == "c"
     }
 }

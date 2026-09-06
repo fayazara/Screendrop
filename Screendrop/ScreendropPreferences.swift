@@ -30,6 +30,7 @@ enum ScreendropPreferences {
     static let previewPositionKey = "previewPosition"
     static let previewAutoCloseSecondsKey = "previewAutoCloseSeconds"
     static let previewCloseAfterDraggingKey = "previewCloseAfterDragging"
+    static let previewCloseAfterCopyingKey = "previewCloseAfterCopying"
     static let overlayCardLayoutKey = "overlayCardLayout"
     static let lowResolutionEditorPreviewKey = "lowResolutionEditorPreview"
     static let trimFullscreenMenuBarKey = "trimFullscreenMenuBar"
@@ -192,6 +193,15 @@ enum ScreendropPreferences {
             return true
         }
         return UserDefaults.standard.bool(forKey: previewCloseAfterDraggingKey)
+    }
+
+    /// Whether Ctrl+C copies and closes the focused preview. Defaults to on so
+    /// existing users keep the current shortcut behavior unless they opt out.
+    static var previewCloseAfterCopying: Bool {
+        if UserDefaults.standard.object(forKey: previewCloseAfterCopyingKey) == nil {
+            return true
+        }
+        return UserDefaults.standard.bool(forKey: previewCloseAfterCopyingKey)
     }
 
     /// Whether the annotation editor displays a downscaled preview of the
