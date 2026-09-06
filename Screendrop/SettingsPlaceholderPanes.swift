@@ -46,6 +46,7 @@ struct OverlaySettingsPane: View {
     @AppStorage(ScreendropPreferences.previewPositionKey) private var previewPositionRaw = PreviewOverlayPosition.right.rawValue
     @AppStorage(ScreendropPreferences.previewAutoCloseSecondsKey) private var autoCloseSeconds = 0
     @AppStorage(ScreendropPreferences.previewCloseAfterDraggingKey) private var closeAfterDragging = true
+    @AppStorage(ScreendropPreferences.previewCloseAfterPastingKey) private var closeAfterPasting = false
 
     private let autoCloseOptions: [Int] = [0, 5, 10, 30, 60]
 
@@ -82,6 +83,16 @@ struct OverlaySettingsPane: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Close after dragging")
                         Text("Dismiss the preview once you drag it out to another app.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .toggleStyle(.switch)
+
+                Toggle(isOn: $closeAfterPasting) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Close after pasting")
+                        Text("When Copy to clipboard is enabled, dismiss the preview after you paste with Ctrl+V.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
