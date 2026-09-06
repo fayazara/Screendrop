@@ -33,6 +33,7 @@ final class PinnedScreenshotPresenter {
         panel.hasShadow = true
         panel.level = .floating
         panel.isFloatingPanel = true
+        panel.becomesKeyOnlyIfNeeded = false
         panel.isMovableByWindowBackground = true
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
@@ -92,6 +93,36 @@ final class PinnedScreenshotPresenter {
 private final class PinnedPanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
+
+    override func sendEvent(_ event: NSEvent) {
+        // Borderless non-activating panels do not reliably take key focus when
+        // their background is clicked. Explicitly focus the pin so subsequent
+        // number keys are delivered here without activating Screendrop.
+        if event.type == .leftMouseDown || event.type == .rightMouseDown {
+            makeKey()
+        }
+
+        if event.type == .keyDown, let opacity = Self.opacity(for: event) {
+            alphaValue = opacity
+            return
+        }
+
+        super.sendEvent(event)
+    }
+
+    /// Plain number keys set the opacity of the focused pin: 1 is 10%,
+    /// through 9 at 90%, while 0 restores full opacity.
+    private static func opacity(for event: NSEvent) -> CGFloat? {
+        let disallowedModifiers: NSEvent.ModifierFlags = [.command, .control, .option, .shift]
+        guard event.modifierFlags.intersection(disallowedModifiers).isEmpty,
+              let character = event.charactersIgnoringModifiers?.first,
+              let digit = character.wholeNumberValue,
+              (0...9).contains(digit) else {
+            return nil
+        }
+
+        return digit == 0 ? 1 : CGFloat(digit) / 10
+    }
 }
 
 private struct PinnedScreenshotView: View {
