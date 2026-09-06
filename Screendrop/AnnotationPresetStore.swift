@@ -42,6 +42,12 @@ struct AnnotationStylePreset: Codable, Equatable {
     var textIsItalic = false
     var textIsUnderline = false
     var textAlignmentRawValue = NSTextAlignment.left.rawValue
+    /// Optional so a preset saved before outlines existed still decodes, rather than resetting
+    /// every remembered style to its default.
+    var textOutlineEnabled: Bool?
+    /// nil until the outline has been enabled once; the width is then seeded from the font size.
+    var textOutlineWidth: Double?
+    var textOutlineSwatch: CodableSwatch?
 
     var selectedTool: AnnotationTool {
         AnnotationTool(rawValue: selectedToolRawValue) ?? .rectangle
