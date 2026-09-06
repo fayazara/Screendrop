@@ -39,6 +39,10 @@ struct AnnoCanvasLayer: NSViewRepresentable {
             spotlightClip: spotlightClip
         )
     }
+
+    static func dismantleNSView(_ view: AnnoCanvasNSView, coordinator: ()) {
+        view.releaseResources()
+    }
 }
 
 @MainActor
@@ -50,6 +54,17 @@ final class AnnoCanvasNSView: NSView {
     private var spotlightClip: CGPath?
 
     private var textOverlay: AnnoTextEditorOverlay?
+    private let redactionCache = AnnoRedactionPreviewCache()
+
+    func releaseResources() {
+        textOverlay?.removeFromSuperview()
+        textOverlay = nil
+        editor = nil
+        sourceImage = nil
+        spotlightClip = nil
+        redactionCache.releaseResources()
+        AnnoShapeDrawing.clearCaches()
+    }
 
     /// Page space is y-down, like the image and like the engine.
     override var isFlipped: Bool { true }
@@ -75,6 +90,7 @@ final class AnnoCanvasNSView: NSView {
             }
         }
         self.sourceImage = sourceImage
+        redactionCache.configure(source: sourceImage, imageFrame: imageFrame)
         self.spotlightClip = spotlightClip
         self.imageFrame = imageFrame
         self.imageSize = imageSize
@@ -149,7 +165,8 @@ final class AnnoCanvasNSView: NSView {
                 return sourceImage.cropping(to: crop)
             },
             spotlightClip: spotlightClip,
-            isFlippedContext: true
+            isFlippedContext: true,
+            redactionPreviewCache: redactionCache
         )
 
         // The shape being typed into is drawn by its text overlay instead, so the two don't double

@@ -76,6 +76,7 @@ enum AnnotationRenderer {
         defer {
             ciContext.clearCaches()
             AnnotationMockupEffectsRenderer.clearCaches()
+            AnnoShapeDrawing.clearCaches()
         }
 
         try autoreleasepool {

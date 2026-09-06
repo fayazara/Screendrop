@@ -1,5 +1,5 @@
 import AVFoundation
-// Compile this harness with StudioMetalScreenRenderer.swift; see docs/export-performance.md.
+// Compile with StudioMetalScreenRenderer.swift and StudioScreenLayerCache.swift; see docs/export-performance.md.
 import AppKit
 import CoreText
 import CoreVideo
@@ -237,6 +237,10 @@ struct MotionBlurBenchmark {
         let gpu = StudioMetalScreenRenderer(
             canvasSize: bounds.size, backdrop: nil,
             cardPath: CGPath(rect: bounds, transform: nil), colorSpace: space, library: library)!
+        let screenCache = StudioScreenLayerCache()
+        CVPixelBufferLockBaseAddress(source, .readOnly)
+        let settledScreen = context(source).makeImage()!
+        CVPixelBufferUnlockBaseAddress(source, .readOnly)
         for i in 0..<6 {
             let waitStarted = ContinuousClock.now
             while !input.isReadyForMoreMediaData {
@@ -247,12 +251,20 @@ struct MotionBlurBenchmark {
             }
             var frame: CVPixelBuffer?
             precondition(CVPixelBufferPoolCreatePixelBuffer(nil, adaptor.pixelBufferPool!, &frame) == kCVReturnSuccess)
-            precondition(
-                gpu.render(screenFrame: source, sampleRects: [bounds, bounds.offsetBy(dx: -2, dy: 0)], into: frame!))
+            if i < 2 {
+                precondition(gpu.render(screenFrame: source, sampleRects: [bounds, bounds.offsetBy(dx: -2, dy: 0)], into: frame!))
+            } else if i > 2 {
+                precondition(screenCache.restore(source: source, rect: bounds, into: frame!))
+            }
             CVPixelBufferLockBaseAddress(frame!, [])
             let overlay = context(frame!)
+            if i == 2 {
+                overlay.draw(settledScreen, in: bounds)
+                overlay.flush()
+                screenCache.capture(source: source, rect: bounds, fromLocked: frame!)
+            }
             overlay.setFillColor(CGColor(srgbRed: 1, green: 1, blue: 0, alpha: 1))
-            overlay.fill(CGRect(x: 10, y: 10, width: 30, height: 30))
+            overlay.fill(CGRect(x: 10 + i * 45, y: 10, width: 30, height: 30))
             overlay.flush()
             CVPixelBufferUnlockBaseAddress(frame!, [])
             precondition(adaptor.append(frame!, withPresentationTime: CMTime(value: Int64(i), timescale: 60)))
@@ -280,10 +292,14 @@ struct MotionBlurBenchmark {
             precondition(gpu.render(screenFrame: decoded, sampleRects: [bounds, bounds], into: destination))
             CVPixelBufferLockBaseAddress(destination, .readOnly)
             let pixels = CVPixelBufferGetBaseAddress(destination)!.assumingMemoryBound(to: UInt8.self)
-            let index = (height - 20) * CVPixelBufferGetBytesPerRow(destination) + 20 * 4
+            let row = (height - 20) * CVPixelBufferGetBytesPerRow(destination)
+            let index = row + (20 + frames * 45) * 4
             precondition(
                 pixels[index] < 60 && pixels[index + 1] > 200 && pixels[index + 2] > 200,
                 "CPU overlay was lost or flipped across encoding")
+            if frames > 0 {
+                precondition(pixels[row + 20 * 4 + 1] < 160, "Old overlay was baked into the reused screen")
+            }
             CVPixelBufferUnlockBaseAddress(destination, .readOnly)
             frames += 1
         }
@@ -291,7 +307,7 @@ struct MotionBlurBenchmark {
         precondition(!gpu.render(screenFrame: source, sampleRects: [], into: destination))
         precondition(!gpu.render(screenFrame: source, sampleRects: [.zero], into: destination))
         print(
-            "PASS: encoder pool, Metal/CPU synchronization, \(codec.rawValue) write, and Metal-compatible decoding (6 frames)."
+            "PASS: encoder pool, Metal/CPU synchronization, settled screen reuse, moving overlays, \(codec.rawValue) write/decode (6 frames)."
         )
     }
 }

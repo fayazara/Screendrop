@@ -35,6 +35,13 @@ final class RecordingTimelineThumbnailStore {
         var image: NSImage
     }
 
+    /// Only cancellation crosses executors. Configuration and image requests
+    /// stay on the render task; AVFoundation owns cancellation of pending work.
+    nonisolated private struct ImageGenerationCancellation: @unchecked Sendable {
+        let generator: AVAssetImageGenerator
+        func cancel() { generator.cancelAllCGImageGeneration() }
+    }
+
     /// Tile layout for the lane: tiles cover `spacing` of source time each and
     /// start at `index * spacing` in absolute source time, never at the clip's
     /// edge. Anchoring to time rather than to a pixel width is what lets a lane
@@ -97,6 +104,18 @@ final class RecordingTimelineThumbnailStore {
         thawTask?.cancel()
         thawTask = nil
         frozenLevel = nil
+    }
+
+    func releaseResources() {
+        cancel()
+        images.removeAll()
+        insertionOrder.removeAll()
+        pending.removeAll()
+        queue.removeAll()
+        url = nil
+        duration = 0
+        settledLevel = nil
+        onChange = nil
     }
 
     /// Tile grid for tiles that should each cover at least `targetSpan` of
@@ -235,9 +254,14 @@ final class RecordingTimelineThumbnailStore {
         let requests = batch.map { request(for: $0) }
 
         task = Task { [weak self] in
-            let samples = await Task.detached(priority: .userInitiated) {
+            let renderTask = Task.detached(priority: .userInitiated) {
                 await Self.render(url: url, requests: requests)
-            }.value
+            }
+            let samples = await withTaskCancellationHandler {
+                await renderTask.value
+            } onCancel: {
+                renderTask.cancel()
+            }
             guard let self, !Task.isCancelled else { return }
             self.task = nil
             self.absorb(samples)
@@ -274,23 +298,29 @@ final class RecordingTimelineThumbnailStore {
     }
 
     nonisolated private static func render(url: URL, requests: [Request]) async -> [Sample] {
-        guard !requests.isEmpty else { return [] }
+        guard !requests.isEmpty, !Task.isCancelled else { return [] }
         let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
         generator.appliesPreferredTrackTransform = true
         generator.maximumSize = CGSize(width: 180, height: 110)
+        let cancellation = ImageGenerationCancellation(generator: generator)
 
-        var samples: [Sample] = []
-        // Ascending times let the decoder walk forward through a GOP instead
-        // of seeking backwards for every tile.
-        for request in requests.sorted(by: { $0.sourceTime < $1.sourceTime }) {
-            if Task.isCancelled { break }
-            let tolerance = CMTime(seconds: max(0, request.tolerance), preferredTimescale: 600)
-            generator.requestedTimeToleranceBefore = tolerance
-            generator.requestedTimeToleranceAfter = tolerance
-            let time = CMTime(seconds: request.sourceTime, preferredTimescale: 600)
-            guard let image = try? await generator.image(at: time).image else { continue }
-            samples.append(Sample(key: request.key, image: NSImage(cgImage: image, size: .zero)))
+        return await withTaskCancellationHandler {
+            var samples: [Sample] = []
+            // Ascending times let the decoder walk forward through a GOP instead
+            // of seeking backwards for every tile.
+            for request in requests.sorted(by: { $0.sourceTime < $1.sourceTime }) {
+                if Task.isCancelled { return [] }
+                let tolerance = CMTime(seconds: max(0, request.tolerance), preferredTimescale: 600)
+                generator.requestedTimeToleranceBefore = tolerance
+                generator.requestedTimeToleranceAfter = tolerance
+                let time = CMTime(seconds: request.sourceTime, preferredTimescale: 600)
+                guard let image = try? await generator.image(at: time).image else { continue }
+                guard !Task.isCancelled else { return [] }
+                samples.append(Sample(key: request.key, image: NSImage(cgImage: image, size: .zero)))
+            }
+            return samples
+        } onCancel: {
+            cancellation.cancel()
         }
-        return samples
     }
 }

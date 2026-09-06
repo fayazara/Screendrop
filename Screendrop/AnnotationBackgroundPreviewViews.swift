@@ -76,6 +76,8 @@ struct AnnotationCustomWallpaperPreview: View {
     @State private var image: CGImage?
     @State private var isLoading = true
     @State private var didFail = false
+    @State private var cacheLease: BoundedCGImageCache.Lease?
+    @State private var loadGeneration = UUID()
 
     var body: some View {
         GeometryReader { proxy in
@@ -101,6 +103,12 @@ struct AnnotationCustomWallpaperPreview: View {
                     }
             }
         }
+        .onAppear { cacheLease = AnnotationWallpaperPreviewCache.beginUse() }
+        .onDisappear {
+            loadGeneration = UUID()
+            image = nil
+            cacheLease = nil
+        }
         .task(id: cacheID) {
             await loadImage()
         }
@@ -112,6 +120,10 @@ struct AnnotationCustomWallpaperPreview: View {
 
     @MainActor
     private func loadImage() async {
+        guard !Task.isCancelled else { return }
+        let generation = UUID()
+        loadGeneration = generation
+        if cacheLease == nil { cacheLease = AnnotationWallpaperPreviewCache.beginUse() }
         image = nil
         isLoading = true
         didFail = false
@@ -121,7 +133,7 @@ struct AnnotationCustomWallpaperPreview: View {
             maxPixelSize: maxPixelSize
         )
 
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled, loadGeneration == generation, cacheLease != nil else { return }
         image = loadedImage
         didFail = loadedImage == nil
         isLoading = false

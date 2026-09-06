@@ -157,6 +157,7 @@ Library brings screenshots, videos, and complete recording projects into one nat
 The browser uses reusable AppKit collection cells, background package discovery, and a bounded thumbnail cache with cancellable loading. The inspector shows dimensions, capture dates, duration, disk usage, editable-project state, file location, and cloud sharing actions. Recording packages and their History entries appear as one capture; existing files and edits stay where they are.
 
 - Double-click a capture or press **Space** for a large Quick Look preview. Use **Edit** to annotate a screenshot or reopen a recording in Studio.
+- Reopening an edited screenshot restores its preserved base image and saved annotations and background settings, including screenshots with only background or crop edits.
 - Use **Command-click**, **Shift-click**, or **Command-A** to select multiple captures, then copy, export, reveal in Finder, or move them to Trash. **Command-C** copies the selection and **Command-Delete** offers Move to Trash.
 - Press **Return** to rename a selected capture. Screenshot titles are stored separately from filenames, preserving annotation sidecars.
 - Recording previews, copies, and exports resolve the edited deliverable, including the cursor and camera. Preparing an uncached recording can take time; Library shows the operation in its status bar.
@@ -414,7 +415,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild build \
 
 There is no test target. A successful Xcode build is the automated verification gate.
 
-The standalone [motion-blur benchmark](docs/export-performance.md#standalone-check) also compares the Metal renderer with Core Graphics and checks encoder interoperability without launching Screendrop.
+The standalone [motion-blur benchmark](docs/export-performance.md#standalone-check) also compares the Metal renderer with Core Graphics and checks encoder interoperability and settled screen reuse without launching Screendrop. [Editor performance](docs/editor-performance.md) documents image budgets, close/cancellation behavior, and standalone resource checks.
 
 ## Releasing
 

@@ -405,7 +405,7 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
         var writerWaitSeconds = 0.0
         var renderedFrames = 0
         defer {
-            Self.logger.info("Export frames=\(renderedFrames) Metal blur frames=\(compositor.metalFrameCount) renderSeconds=\(renderSeconds) writerWaitSeconds=\(writerWaitSeconds)")
+            Self.logger.info("Export frames=\(renderedFrames) Metal blur frames=\(compositor.metalFrameCount) reusedScreenFrames=\(compositor.reusedScreenFrameCount) renderSeconds=\(renderSeconds) writerWaitSeconds=\(writerWaitSeconds)")
         }
 
         for frame in 0..<frameCount {
@@ -450,6 +450,9 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
             }
 
             let cameraBuffer = cameraFeed?.latestFrame(at: sourceTime)
+            let nextTime = Double(frame + 1) / frameRate
+            let sourceRepeats = (pending == nil || pending!.time > nextTime)
+                && clipTimeline.location(at: nextTime)?.segmentID == location.segmentID
             let renderStart = CFAbsoluteTimeGetCurrent()
             try autoreleasepool {
                 try compositor.render(
@@ -457,6 +460,7 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
                     cameraFrame: cameraBuffer,
                     editorTime: editorTime,
                     sourceTime: sourceTime,
+                    sourceRepeatsOnNextFrame: sourceRepeats,
                     into: destinationBuffer
                 )
             }
@@ -630,6 +634,9 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
     private var metalRenderer: StudioMetalScreenRenderer?
     private var metalFailed = false
     private(set) var metalFrameCount = 0
+    private let screenLayerCache = StudioScreenLayerCache()
+    private(set) var reusedScreenFrameCount = 0
+    private let bypassScreenCache = ProcessInfo.processInfo.environment["SCREENDROP_EXPORT_BYPASS_SCREEN_CACHE"] == "1"
     // Developer comparison switch; export settings and saved projects do not change.
     private let forceCoreGraphics = ProcessInfo.processInfo.environment["SCREENDROP_EXPORT_RENDERER"] == "cpu"
 
@@ -692,6 +699,7 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
         cameraFrame: CVPixelBuffer?,
         editorTime: TimeInterval,
         sourceTime: TimeInterval,
+        sourceRepeatsOnNextFrame: Bool,
         into destination: CVPixelBuffer
     ) throws {
         // Preserve the original shutter times and adaptive sample count.
@@ -703,8 +711,17 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
                 + shutter * (Double(sample) + 0.5) / Double(sampleCount)
             return layout.frameRect(for: viewportFrame(at: sampleTime))
         }
+        let reusedScreen = !bypassScreenCache && sampleCount == 1 && screenLayerCache.restore(
+            source: screenFrame, rect: sampleRects[0], into: destination
+        )
+        if reusedScreen { reusedScreenFrameCount += 1 }
+        else { screenLayerCache.invalidate() }
+        // Cache only a settled layer that can be reused on the next tick.
+        // Moving frames and continuously changing video avoid the extra copy.
+        let shouldCacheScreen = !bypassScreenCache && sourceRepeatsOnNextFrame && sampleCount == 1
+            && sampleRects[0] == layout.frameRect(for: viewportFrame(at: editorTime + outputFrameInterval))
         var renderedWithMetal = false
-        if !forceCoreGraphics, !metalFailed,
+        if !reusedScreen, !forceCoreGraphics, !metalFailed,
            StudioMetalScreenRenderer.shouldAccelerate(screenFrame: screenFrame, sampleRects: sampleRects) {
             if metalRenderer == nil {
                 metalRenderer = StudioMetalScreenRenderer(
@@ -735,14 +752,15 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
         }
         context.interpolationQuality = .high
 
-        if !renderedWithMetal, let backdrop {
+        if !reusedScreen, !renderedWithMetal, let backdrop {
             context.draw(backdrop, in: CGRect(origin: .zero, size: canvasSize))
-        } else if !renderedWithMetal {
+        } else if !reusedScreen, !renderedWithMetal {
             context.setFillColor(CGColor(gray: 0, alpha: 1))
             context.fill(CGRect(origin: .zero, size: canvasSize))
         }
 
-        if !renderedWithMetal, let screenImage = Self.makeImage(from: screenFrame, colorSpace: colorSpace) {
+        var renderedScreen = reusedScreen || renderedWithMetal
+        if !reusedScreen, !renderedWithMetal, let screenImage = Self.makeImage(from: screenFrame, colorSpace: colorSpace) {
             // Motion blur by temporal supersampling: while the virtual camera
             // is moving, average several sub-frame camera states across the
             // frame's shutter interval. Pans smear linearly, zooms radially,
@@ -759,7 +777,14 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
                 context.draw(screenImage, in: flipped(drawRect))
             }
             context.restoreGState()
+            renderedScreen = true
         }
+
+        if shouldCacheScreen, !reusedScreen, renderedScreen {
+            context.flush()
+            screenLayerCache.capture(source: screenFrame, rect: sampleRects[0], fromLocked: destination)
+        }
+        if !shouldCacheScreen { screenLayerCache.invalidate() }
 
         // Pointer motion is resolved independently from viewport shutter
         // blur. Its interaction magnification and tilt stay anchored at the

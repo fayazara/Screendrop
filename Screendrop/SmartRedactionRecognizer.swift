@@ -19,20 +19,33 @@ nonisolated enum SmartRedactionRecognizer {
     private static let unitRect = CGRect(x: 0, y: 0, width: 1, height: 1)
 
     nonisolated static func sensitiveRegions(at url: URL) async -> [SmartRedactionRegion] {
-        await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                continuation.resume(returning: recognizeSensitiveRegions(at: url))
+        let cancellation = RecognitionCancellation()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                DispatchQueue.global(qos: .userInitiated).async {
+                    let regions = autoreleasepool {
+                        recognizeSensitiveRegions(at: url, cancellation: cancellation)
+                    }
+                    continuation.resume(returning: regions)
+                }
             }
+        } onCancel: {
+            cancellation.cancel()
         }
     }
 
-    nonisolated private static func recognizeSensitiveRegions(at url: URL) -> [SmartRedactionRegion] {
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+    nonisolated private static func recognizeSensitiveRegions(
+        at url: URL, cancellation: RecognitionCancellation
+    ) -> [SmartRedactionRegion] {
+        guard !cancellation.isCancelled,
+              let source = CGImageSourceCreateWithURL(url as CFURL, nil),
               let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
             return []
         }
 
         let request = VNRecognizeTextRequest()
+        guard cancellation.install(request) else { return [] }
+        defer { cancellation.clearRequest() }
         request.recognitionLevel = .accurate
         request.usesLanguageCorrection = true
 
@@ -43,7 +56,8 @@ nonisolated enum SmartRedactionRecognizer {
             return []
         }
 
-        let observations = (request.results as? [VNRecognizedTextObservation]) ?? []
+        guard !cancellation.isCancelled else { return [] }
+        let observations = request.results ?? []
         let imageSize = CGSize(width: cgImage.width, height: cgImage.height)
         let padding = normalizedPadding(for: imageSize)
 
@@ -245,6 +259,34 @@ nonisolated enum SmartRedactionRecognizer {
         }
 
         return sum % 10 == 0
+    }
+}
+
+/// Cancellation can arrive before the image decode or during Vision's
+/// synchronous perform. Never hold the lock while asking Vision to cancel.
+nonisolated private final class RecognitionCancellation: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cancelled = false
+    private var request: VNRequest?
+
+    var isCancelled: Bool { lock.withLock { cancelled } }
+
+    func install(_ request: VNRequest) -> Bool {
+        lock.withLock {
+            guard !cancelled else { return false }
+            self.request = request
+            return true
+        }
+    }
+
+    func clearRequest() { lock.withLock { request = nil } }
+
+    func cancel() {
+        let active = lock.withLock {
+            cancelled = true
+            return request
+        }
+        active?.cancel()
     }
 }
 

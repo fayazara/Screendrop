@@ -207,6 +207,9 @@ final class RecordingStudioModel {
     private var transcriptionTask: Task<Void, Never>?
     private var projectSaveTask: Task<Void, Never>?
     private var screenAsset: AVURLAsset?
+    private var isTornDown = false
+    private var isLoading = false
+    private var wallpaperCacheLease: BoundedCGImageCache.Lease?
     private let editUndoManager = UndoManager()
     private(set) var undoRevision = 0
     private var zoomEditSnapshot: [ZoomCue]?
@@ -250,7 +253,10 @@ final class RecordingStudioModel {
     }
 
     func load() async {
-        guard !isLoaded else { return }
+        guard !isLoaded, !isLoading, !isTornDown, !Task.isCancelled else { return }
+        isLoading = true
+        defer { isLoading = false }
+        wallpaperCacheLease = AnnotationBackgroundRenderer.beginWallpaperUse()
 
         if let session {
             manifest = session.loadCaptureManifest()
@@ -261,17 +267,20 @@ final class RecordingStudioModel {
         screenAsset = asset
         do {
             let (durationTime, tracks) = try await asset.load(.duration, .tracks)
+            guard !isTornDown, !Task.isCancelled else { return }
             sourceDuration = durationTime.seconds
             duration = sourceDuration
             if let videoTrack = tracks.first(where: { $0.mediaType == .video }) {
                 screenVideoTrack = videoTrack
                 let naturalSize = try await videoTrack.load(.naturalSize)
+                guard !isTornDown, !Task.isCancelled else { return }
                 if naturalSize.width > 0, naturalSize.height > 0 {
                     videoSize = naturalSize
                 }
             }
             hasRecordedAudio = tracks.contains { $0.mediaType == .audio }
         } catch {
+            guard !isTornDown, !Task.isCancelled else { return }
             loadError = "Could not open the recording: \(error.localizedDescription)"
             return
         }
@@ -355,10 +364,12 @@ final class RecordingStudioModel {
         if let session, let fileName = document?.replacementAudioFileName {
             let url = session.directoryURL.appendingPathComponent(fileName)
             if FileManager.default.fileExists(atPath: url.path) {
-                replacementAudio = await RecordingReplacementAudio.load(
+                let loadedAudio = await RecordingReplacementAudio.load(
                     url: url,
                     displayName: document?.replacementAudioDisplayName ?? fileName
                 )
+                guard !isTornDown, !Task.isCancelled else { return }
+                replacementAudio = loadedAudio
             }
         }
 
@@ -425,15 +436,25 @@ final class RecordingStudioModel {
     }
 
     func teardown() {
+        guard !isTornDown else { return }
+        isTornDown = true
+        // Persist only a fully loaded document, before releasing its data.
+        if isLoaded { writeDraftNow() }
+        isLoaded = false
         StudioProjectRegistry.shared.unregister(self)
         exportTask?.cancel()
         audioExportTask?.cancel()
         replacementAudioTask?.cancel()
-        shareTask?.cancel()
+        cancelShare()
         transcriptionTask?.cancel()
         projectSaveTask?.cancel()
-        timelineThumbnails.cancel()
-        writeDraftNow()
+        exportTask = nil
+        audioExportTask = nil
+        replacementAudioTask = nil
+        shareTask = nil
+        transcriptionTask = nil
+        projectSaveTask = nil
+        timelineThumbnails.releaseResources()
         pause()
         if let timeObserver {
             screenPlayer.removeTimeObserver(timeObserver)
@@ -445,6 +466,27 @@ final class RecordingStudioModel {
         endObserver = nil
         screenPlayer.replaceCurrentItem(with: nil)
         cameraPlayer.replaceCurrentItem(with: nil)
+        screenAsset?.cancelLoading()
+        screenAsset = nil
+        screenVideoTrack = nil
+        replacementAudio = nil
+        editUndoManager.removeAllActions()
+        zoomEditSnapshot = nil
+        lastSavedDocument = nil
+        pointerCapture = PointerCaptureFile()
+        pointerTimeline = .empty
+        keystrokeTimeline = .empty
+        viewportTimeline = .identity
+        previewReframe = nil
+        reframeFocusTimeline = nil
+        recordedPressTimes.removeAll()
+        zoomCues.removeAll()
+        subtitleCues.removeAll()
+        transcriptWords.removeAll()
+        subtitleTimeline = .empty
+        karaokeTimeline = .empty
+        clipTimeline = RecordingClipTimeline(segments: [])
+        wallpaperCacheLease = nil
     }
 
     // MARK: - Style presets
@@ -1200,8 +1242,9 @@ final class RecordingStudioModel {
     /// The parts of a stored project that need the timeline rebuilt around
     /// them: cuts, the imported soundtrack, and everything derived from both.
     private func applyDocumentTimeline(_ document: RecordingEditDocument) async {
-        guard let session else { return }
+        guard !isTornDown, !Task.isCancelled, let session else { return }
         isApplyingDocument = true
+        defer { isApplyingDocument = false }
 
         if let storedClips = document.clips, !storedClips.isEmpty {
             clipTimeline = RecordingClipTimeline(segments: storedClips)
@@ -1219,10 +1262,12 @@ final class RecordingStudioModel {
         if let fileName = document.replacementAudioFileName {
             let url = session.directoryURL.appendingPathComponent(fileName)
             if url != replacementAudio?.url, FileManager.default.fileExists(atPath: url.path) {
-                replacementAudio = await RecordingReplacementAudio.load(
+                let loadedAudio = await RecordingReplacementAudio.load(
                     url: url,
                     displayName: document.replacementAudioDisplayName ?? fileName
                 )
+                guard !isTornDown, !Task.isCancelled else { return }
+                replacementAudio = loadedAudio
             }
         } else {
             replacementAudio = nil

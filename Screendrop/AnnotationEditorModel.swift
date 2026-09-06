@@ -101,6 +101,9 @@ final class AnnotationEditorModel {
 
     /// Longest-edge cap (in pixels) for the downscaled editing preview.
     private let previewImageMaxPixelSize: CGFloat = 2880
+    @ObservationIgnored private var wallpaperCacheLease: BoundedCGImageCache.Lease?
+    @ObservationIgnored private var smartRedactionTask: Task<Void, Never>?
+    private var smartRedactionGeneration = UUID()
 
     init() {
         engine.onChange = { [weak self] in
@@ -152,11 +155,13 @@ final class AnnotationEditorModel {
     // MARK: - Loading
 
     func load(url: URL?, dismiss: DismissAction) {
+        cancelSmartRedaction()
         guard let url else {
             dismiss()
             return
         }
 
+        wallpaperCacheLease = AnnotationBackgroundRenderer.beginWallpaperUse()
         removeOwnedCropFiles()
         applyAnnotationPreset()
         resetZoom()
@@ -165,7 +170,10 @@ final class AnnotationEditorModel {
         let document = ScreenshotHistoryStore.shared.loadEditDocument(for: url)
         let candidateBaseURL = ScreenshotHistoryStore.baseImageURL(for: url)
         let renderSourceURL: URL
-        if let document, !document.shapes.isEmpty,
+        // Background-only and crop-only edits still have a preserved base.
+        // Reopening their composite would bake the previous styling into the
+        // image and apply it again. Legacy v1 shapes remain raster-only.
+        if let document, document.version >= 2,
            FileManager.default.fileExists(atPath: candidateBaseURL.path) {
             renderSourceURL = candidateBaseURL
             backgroundSettings = document.backgroundSettings
@@ -217,6 +225,8 @@ final class AnnotationEditorModel {
     }
 
     func releaseEditorResources() {
+        cancelSmartRedaction()
+        wallpaperCacheLease = nil
         // A closed SwiftUI scene can outlive its window. Release decoded
         // pixels and edit history now instead of waiting for model deinit.
         savedSnapshot = nil
@@ -519,18 +529,26 @@ final class AnnotationEditorModel {
         isSmartRedacting = true
         smartRedactionMessage = nil
 
-        Task { @MainActor in
+        let generation = UUID()
+        smartRedactionGeneration = generation
+        smartRedactionTask = Task { @MainActor [weak self] in
             let regions = await SmartRedactionRecognizer.sensitiveRegions(at: recognitionURL)
 
-            guard sourceURL == loadedSourceURL,
-                  baseImageURL == recognitionURL || sourceURL == recognitionURL else {
-                isSmartRedacting = false
-                return
-            }
+            guard !Task.isCancelled, let self, self.smartRedactionGeneration == generation else { return }
+            self.smartRedactionTask = nil
+            self.isSmartRedacting = false
+            guard self.sourceURL == loadedSourceURL,
+                  self.baseImageURL == recognitionURL || self.sourceURL == recognitionURL else { return }
 
-            applySmartRedactionRegions(regions, tool: tool)
-            isSmartRedacting = false
+            self.applySmartRedactionRegions(regions, tool: tool)
         }
+    }
+
+    private func cancelSmartRedaction() {
+        smartRedactionGeneration = UUID()
+        smartRedactionTask?.cancel()
+        smartRedactionTask = nil
+        isSmartRedacting = false
     }
 
     private func applySmartRedactionRegions(_ regions: [SmartRedactionRegion], tool: AnnotationTool) {

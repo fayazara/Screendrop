@@ -10,33 +10,43 @@ import ImageIO
 actor AnnotationWallpaperPreviewCache {
     static let shared = AnnotationWallpaperPreviewCache()
 
-    private let imageCache = NSCache<NSString, CGImageBox>()
-    private var inFlightImages: [String: Task<CGImage?, Never>] = [:]
-
-    private init() {
-        imageCache.countLimit = 48
+    nonisolated private static let imageCache = BoundedCGImageCache(byteLimit: 32 * 1024 * 1024, countLimit: 48)
+    private struct PendingImage {
+        let id = UUID()
+        let task: Task<CGImage?, Never>
     }
+    private let decoder = WallpaperDecoder()
+    private var inFlightImages: [String: PendingImage] = [:]
+
+    nonisolated static func beginUse() -> BoundedCGImageCache.Lease { imageCache.beginUse() }
 
     func image(for url: URL, maxPixelSize: CGFloat) async -> CGImage? {
+        guard !Task.isCancelled else { return nil }
+        let generation = Self.imageCache.generation
         let key = Self.cacheID(for: url, maxPixelSize: maxPixelSize)
-        if let cachedImage = imageCache.object(forKey: key as NSString)?.image {
+        if let cachedImage = Self.imageCache.image(for: key) {
             return cachedImage
         }
 
-        if let task = inFlightImages[key] {
-            return await task.value
+        // Old completions must not remove a newer generation's work.
+        let workKey = "\(generation):\(key)"
+        let pending: PendingImage
+        if let existing = inFlightImages[workKey] {
+            pending = existing
+        } else {
+            let decoder = decoder
+            pending = PendingImage(task: Task.detached(priority: .userInitiated) {
+                await decoder.image(at: url, maxPixelSize: maxPixelSize, generation: generation)
+            })
+            inFlightImages[workKey] = pending
         }
 
-        let task = Task.detached(priority: .userInitiated) {
-            Self.downsampledCGImage(at: url, maxPixelSize: maxPixelSize)
-        }
-        inFlightImages[key] = task
-
-        let image = await task.value
-        inFlightImages[key] = nil
+        let image = await pending.task.value
+        if inFlightImages[workKey]?.id == pending.id { inFlightImages[workKey] = nil }
+        guard !Task.isCancelled else { return nil }
 
         if let image {
-            imageCache.setObject(CGImageBox(image), forKey: key as NSString)
+            Self.imageCache.insert(image, for: key, generation: generation)
         }
 
         return image
@@ -60,7 +70,18 @@ actor AnnotationWallpaperPreviewCache {
         return "\(fileSize)-\(modified)"
     }
 
-    private static func downsampledCGImage(at url: URL, maxPixelSize: CGFloat) -> CGImage? {
+    /// A separate actor bounds thumbnail decoding to one image at a time.
+    /// Jobs whose last consumer closed are skipped before allocating pixels.
+    private actor WallpaperDecoder {
+        func image(at url: URL, maxPixelSize: CGFloat, generation: UInt64) -> CGImage? {
+            guard !Task.isCancelled, generation == AnnotationWallpaperPreviewCache.imageCache.generation else { return nil }
+            return autoreleasepool {
+                AnnotationWallpaperPreviewCache.downsampledCGImage(at: url, maxPixelSize: maxPixelSize)
+            }
+        }
+    }
+
+    nonisolated private static func downsampledCGImage(at url: URL, maxPixelSize: CGFloat) -> CGImage? {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, [
             kCGImageSourceShouldCache: false
         ] as CFDictionary) else {
@@ -75,13 +96,5 @@ actor AnnotationWallpaperPreviewCache {
         ]
 
         return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
-    }
-}
-
-nonisolated private final class CGImageBox {
-    let image: CGImage
-
-    init(_ image: CGImage) {
-        self.image = image
     }
 }

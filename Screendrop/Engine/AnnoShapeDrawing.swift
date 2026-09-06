@@ -33,11 +33,14 @@ enum AnnoShapeDrawing {
         /// Graphics lays an image into the rect it is given the same way up either way, so the
         /// flipped case has to invert it back.
         var isFlippedContext = false
+        var redactionPreviewCache: AnnoRedactionPreviewCache? = nil
 
         var pageRect: CGRect { CGRect(origin: .zero, size: pageSize) }
     }
 
     nonisolated(unsafe) private static let ciContext = CIContext(options: [.cacheIntermediates: false])
+
+    nonisolated static func clearCaches() { ciContext.clearCaches() }
 
     static func draw(
         _ document: AnnoDocument,
@@ -204,10 +207,20 @@ enum AnnoShapeDrawing {
         let contextBounds = localRect.applying(full).integral
         guard contextBounds.width >= 1, contextBounds.height >= 1 else { return }
 
-        guard let sampled = sample(contextBounds) else { return }
-        let processed: CGImage? = switch props.kind {
-        case .blur: blurred(sampled, density: props.density)
-        case .pixelate: pixelated(sampled, density: props.density)
+        let render = {
+            guard let sampled = sample(contextBounds) else { return nil as CGImage? }
+            return autoreleasepool {
+                switch props.kind {
+                case .blur: blurred(sampled, density: props.density)
+                case .pixelate: pixelated(sampled, density: props.density)
+                }
+            }
+        }
+        let processed: CGImage?
+        if let cache = target.redactionPreviewCache {
+            processed = cache.image(kind: props.kind.rawValue, density: props.density, bounds: contextBounds, render: render)
+        } else {
+            processed = render()
         }
         guard let processed else { return }
 

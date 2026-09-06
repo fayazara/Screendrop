@@ -9,15 +9,9 @@ import ImageIO
 import SwiftUI
 
 nonisolated enum AnnotationBackgroundRenderer {
-    /// Decoded wallpapers are reused across settled previews and exports so
-    /// compose doesn't pay a disk read + full decode per render. NSCache is
-    /// thread-safe and evicts under memory pressure.
-    nonisolated(unsafe) private static let wallpaperCache: NSCache<NSString, WallpaperCacheBox> = {
-        let cache = NSCache<NSString, WallpaperCacheBox>()
-        cache.countLimit = 4
-        cache.totalCostLimit = 192 * 1024 * 1024
-        return cache
-    }()
+    private static let wallpaperCache = BoundedCGImageCache(byteLimit: 64 * 1024 * 1024, countLimit: 4)
+
+    static func beginWallpaperUse() -> BoundedCGImageCache.Lease { wallpaperCache.beginUse() }
 
     typealias ForegroundOverlay = (
         _ context: CGContext,
@@ -359,6 +353,11 @@ nonisolated enum AnnotationBackgroundRenderer {
     }
 
     private static func loadCGImageForAspectFill(at url: URL, fillSize: CGSize) -> CGImage? {
+        // An export can outlive its editor; keep its current decode usable
+        // until this call completes, even when the last window has closed.
+        let lease = wallpaperCache.beginUse()
+        defer { withExtendedLifetime(lease) {} }
+        let generation = wallpaperCache.generation
         guard let source = CGImageSourceCreateWithURL(url as CFURL, [
             kCGImageSourceShouldCache: false
         ] as CFDictionary) else {
@@ -383,9 +382,9 @@ nonisolated enum AnnotationBackgroundRenderer {
         let cacheKey = AnnotationWallpaperPreviewCache.cacheID(
             for: url,
             maxPixelSize: bucketedMaxPixelSize
-        ) as NSString
-        if let cached = wallpaperCache.object(forKey: cacheKey) {
-            return cached.image
+        )
+        if let cached = wallpaperCache.image(for: cacheKey) {
+            return cached
         }
 
         let options: [CFString: Any] = [
@@ -398,11 +397,7 @@ nonisolated enum AnnotationBackgroundRenderer {
             return nil
         }
 
-        wallpaperCache.setObject(
-            WallpaperCacheBox(image),
-            forKey: cacheKey,
-            cost: image.width * image.height * 4
-        )
+        wallpaperCache.insert(image, for: cacheKey, generation: generation)
         return image
     }
 
@@ -510,13 +505,5 @@ nonisolated enum AnnotationBackgroundRenderer {
             x: rect.minX + unitPoint.x * rect.width,
             y: rect.minY + (1 - unitPoint.y) * rect.height
         )
-    }
-}
-
-nonisolated private final class WallpaperCacheBox {
-    let image: CGImage
-
-    init(_ image: CGImage) {
-        self.image = image
     }
 }

@@ -31,12 +31,15 @@ struct RecordingStudioWindow: View {
         .modifier(CaptureLibraryEditorRegistration(url: url))
         .task(id: url) {
             guard let url else { return }
+            model?.teardown()
             let newModel = RecordingStudioModel(url: url)
             model = newModel
             await newModel.load()
+            if Task.isCancelled { newModel.teardown() }
         }
         .onDisappear {
             model?.teardown()
+            model = nil
         }
     }
 }
