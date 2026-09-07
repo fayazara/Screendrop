@@ -56,6 +56,34 @@ struct EditorViewportChecks {
         near(camera.scale, 0.5, "Fit scale")
         sameFrame(camera.frame, CGRect(x: 34, y: 78, width: 1000, height: 500), "Fit margins")
 
+        // Exercise the native-input mapping too: near -1, the old 1 + value
+        // response turned a small -0.90 -> -0.95 movement into a 50% size drop.
+        let early = AnnotationCanvasViewport.pinchFactor(for: -0.90)
+        let late = AnnotationCanvasViewport.pinchFactor(for: -0.95)
+        precondition(late / early > 0.97, "Late inward pinch suddenly accelerates")
+        for magnitude: CGFloat in [0, 0.01, 0.2, 0.9, 0.99, 1, 2] {
+            let outward = AnnotationCanvasViewport.pinchFactor(for: magnitude)
+            let inward = AnnotationCanvasViewport.pinchFactor(for: -magnitude)
+            near(outward, 1 + magnitude, "Preserve outward pinch response")
+            near(outward * inward, 1, "Symmetric inward/outward response")
+        }
+        var inwardCamera = camera
+        inwardCamera.zoom(to: 2)
+        inwardCamera.beginPinch(at: layout.center)
+        var previousScale = inwardCamera.scale
+        for index in 0...110 {
+            let rawMagnification = -CGFloat(index) / 100
+            inwardCamera.magnify(to: AnnotationCanvasViewport.pinchFactor(for: rawMagnification))
+            precondition(inwardCamera.scale <= previousScale && inwardCamera.scale / previousScale > 0.989,
+                         "Inward pinch must shrink gradually, including across -1")
+            previousScale = inwardCamera.scale
+        }
+        for index in (0..<110).reversed() {
+            inwardCamera.magnify(to: AnnotationCanvasViewport.pinchFactor(for: -CGFloat(index) / 100))
+        }
+        near(inwardCamera.scale, 2, "Inward pinch reversal returns to original scale")
+        inwardCamera.endPinch()
+
         // Real recognizer semantics: factors are cumulative, not event deltas.
         // Every began/identity/redraw/end transition must preserve the visible camera.
         let anchor = CGPoint(x: 230, y: 150)

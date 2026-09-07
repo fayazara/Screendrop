@@ -3,6 +3,14 @@ import CoreGraphics
 /// Editor-only camera. Every layer consumes the same scale and top-left origin;
 /// neither rendering nor gesture start resolves a second fit/manual transform.
 nonisolated struct AnnotationCanvasViewport {
+    /// Keep outward pinch response unchanged, but use its reciprocal inward.
+    /// Mapping negative magnification to 1 + value approaches zero, so tiny
+    /// late-gesture changes can otherwise halve the image in a single update.
+    static func pinchFactor(for magnification: CGFloat) -> CGFloat {
+        guard magnification.isFinite else { return .nan }
+        return magnification >= 0 ? 1 + magnification : 1 / (1 - magnification)
+    }
+
     struct Layout: Equatable {
         var canvasSize: CGSize
         var viewportSize: CGSize
@@ -111,7 +119,7 @@ nonisolated struct AnnotationCanvasViewport {
         )
     }
 
-    /// NSMagnificationGestureRecognizer provides a cumulative factor (1 + value).
+    /// The input adapter supplies a cumulative factor through `pinchFactor`.
     /// Ratios let reversing at a zoom limit respond immediately. The target
     /// stays fixed for the whole gesture; canvas edges may constrain the view.
     mutating func magnify(to factor: CGFloat) {

@@ -81,11 +81,11 @@ struct AnnotationCanvasInputHandler: NSViewRepresentable {
                 let anchor = convert(window.mouseLocationOutsideOfEventStream, from: nil)
                 suppressScrollMomentum = true
                 onBeginPinch?(anchor)
-                onPinch?(1 + recognizer.magnification)
+                onPinch?(AnnotationCanvasViewport.pinchFactor(for: recognizer.magnification))
             case .changed:
-                onPinch?(1 + recognizer.magnification)
+                onPinch?(AnnotationCanvasViewport.pinchFactor(for: recognizer.magnification))
             case .ended:
-                onPinch?(1 + recognizer.magnification)
+                onPinch?(AnnotationCanvasViewport.pinchFactor(for: recognizer.magnification))
                 onEndPinch?()
             case .cancelled, .failed:
                 onEndPinch?()
