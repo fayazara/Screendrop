@@ -26,12 +26,20 @@ enum BarMetrics {
     /// exactly this much so the bar itself doesn't move.
     static let shadowSlack: CGFloat = 28
 
+    /// The reminder tucks behind the bar while keeping its controls below it.
+    static let visibilityBannerHeight: CGFloat = 36
+    static let visibilityBannerOverlap: CGFloat = 8
+    static let visibilityBannerInset: CGFloat = 14
+    static var bottomSlack: CGFloat {
+        shadowSlack + visibilityBannerHeight - visibilityBannerOverlap
+    }
+
     /// The panel is a fixed size that both modes sit centred inside, so
     /// morphing between them never resizes the window - only the bar's own
     /// rounded rect animates. Wide enough for the widest mode plus the room a
     /// tooltip needs beyond the end controls.
     static let panelWidth: CGFloat = 760
-    static var panelHeight: CGFloat { BarTooltip.reservedHeight + height + shadowSlack }
+    static var panelHeight: CGFloat { BarTooltip.reservedHeight + height + bottomSlack }
 
     /// The bar's surface is Liquid Glass, which brings its own fill and
     /// shadow. These are the marks drawn on top of it.

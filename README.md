@@ -396,6 +396,8 @@ macOS may request:
 
 Screendrop windows are excluded from captures by default. Enable **Settings → General → Include Screendrop windows in captures** when you intentionally want preview cards, recording controls, Settings, or other Screendrop UI in the result.
 
+While this setting is enabled, a reminder below the pre-record bar warns that Screendrop windows will be captured. Turn off its switch to disable capture visibility immediately; the reminder disappears when the setting is off or recording begins.
+
 ## Building Locally
 
 Requirements:

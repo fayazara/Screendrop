@@ -13,7 +13,7 @@ final class PreviewWindowCaptureExclusion {
     static let shared = PreviewWindowCaptureExclusion()
 
     /// Whether Screendrop's UI should be available to screenshot and screen
-    /// recording APIs. Opt-in via Settings only.
+    /// recording APIs. Opt in via Settings; the pre-record reminder can turn it off.
     static var includesAppWindowsInCaptures: Bool {
         ScreendropPreferences.includeAppWindowsInCaptures
     }
@@ -31,7 +31,7 @@ final class PreviewWindowCaptureExclusion {
         applyCaptureVisibility(to: window)
     }
 
-    /// Applies a changed Settings value immediately to windows that already
+    /// Applies a changed preference immediately to windows that already
     /// exist, rather than waiting for them to be recreated.
     func refreshRegisteredWindows() {
         for window in registeredWindows.allObjects {

@@ -32,6 +32,14 @@ final class RecordingBarPresenter {
     /// tells the hosting view which part of itself is real and satellite
     /// windows where to anchor.
     var barFrameInPanel: CGRect = .zero
+    var visibilityBannerFrameInPanel: CGRect = .zero
+
+    func containsPanelPoint(_ point: CGPoint) -> Bool {
+        if barFrameInPanel.contains(point) { return true }
+        return mode == .picker
+            && ScreendropPreferences.includeAppWindowsInCaptures
+            && visibilityBannerFrameInPanel.contains(point)
+    }
 
     @ObservationIgnored private var panel: NSPanel?
 
@@ -100,8 +108,11 @@ final class RecordingBarPresenter {
     }
 
     func containsScreenPoint(_ point: CGPoint) -> Bool {
-        guard let barFrame, panel?.isVisible == true else { return false }
-        return barFrame.contains(point)
+        guard let panel, panel.isVisible else { return false }
+        return containsPanelPoint(CGPoint(
+            x: point.x - panel.frame.minX,
+            y: panel.frame.maxY - point.y
+        ))
     }
 
     // MARK: Geometry
@@ -135,7 +146,7 @@ final class RecordingBarPresenter {
             x: visibleFrame.midX - size.width / 2,
             // Dropped by the bottom slack so the bar - not the panel - lands
             // 48pt above the visible frame.
-            y: visibleFrame.minY + 48 - BarMetrics.shadowSlack
+            y: visibleFrame.minY + 48 - BarMetrics.bottomSlack
         )
         panel.setFrame(CGRect(origin: origin, size: size), display: true)
     }
@@ -243,11 +254,11 @@ private final class RecordingBarHostingView<Content: View>: NSHostingView<Conten
     /// hit-tests by view bounds, not alpha, so without this all that empty
     /// space would silently swallow clicks meant for whatever is behind it.
     override func hitTest(_ point: NSPoint) -> NSView? {
-        let bar = RecordingBarPresenter.shared.barFrameInPanel
-        guard bar != .zero else { return nil }
         // SwiftUI reports a top-left origin, and NSHostingView is flipped, so
         // the two agree without conversion.
-        guard bar.contains(convert(point, from: superview)) else { return nil }
+        guard RecordingBarPresenter.shared.containsPanelPoint(convert(point, from: superview)) else {
+            return nil
+        }
         return super.hitTest(point)
     }
 }
@@ -257,17 +268,24 @@ private final class RecordingBarHostingView<Content: View>: NSHostingView<Conten
 private struct RecordingBarView: View {
     @State private var presenter = RecordingBarPresenter.shared
     @State private var tooltip = BarTooltipModel()
+    @AppStorage(ScreendropPreferences.includeAppWindowsInCapturesKey)
+    private var includeAppWindowsInCaptures = false
 
     var body: some View {
         bar
             // The panel is a fixed size both modes sit inside, so a morph only
             // ever changes the bar's own width - never the window's. The bar
             // sits at the bottom: the slack above it is the tooltip's room,
-            // the slack below is the shadow's.
-            .padding(.bottom, BarMetrics.shadowSlack)
+            // the slack below holds the reminder and its shadow. Reserving
+            // it in both modes keeps the bar stationary when it disappears.
+            .padding(.bottom, BarMetrics.bottomSlack)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
             .coordinateSpace(.named(BarCoordinateSpace.panel))
             .environment(tooltip)
+            .onChange(of: includeAppWindowsInCaptures) { _, _ in
+                PreviewWindowCaptureExclusion.shared.refreshRegisteredWindows()
+                Task { await RecordingSourceCatalog.shared.refresh() }
+            }
     }
 
     private var bar: some View {
@@ -293,15 +311,62 @@ private struct RecordingBarView: View {
         .overlay {
             barShape.strokeBorder(BarMetrics.edge, lineWidth: 0.5)
         }
+        .background(alignment: .bottom) {
+            if presenter.mode == .picker && includeAppWindowsInCaptures {
+                visibilityBanner
+                    .padding(.horizontal, BarMetrics.visibilityBannerInset)
+                    .offset(y: BarMetrics.visibilityBannerHeight - BarMetrics.visibilityBannerOverlap)
+            }
+        }
         .coordinateSpace(.named(BarCoordinateSpace.bar))
         .overlay(tooltipLayer)
-        // What the hosting view hit-tests against and what satellite windows
-        // anchor to - the bar, not the panel it floats in.
+        // Satellite windows anchor to the bar itself, excluding the reminder.
         .onGeometryChange(for: CGRect.self) {
             $0.frame(in: .named(BarCoordinateSpace.panel))
         } action: {
             presenter.barFrameInPanel = $0
         }
+    }
+
+    private var visibilityBanner: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(Color(nsColor: .systemOrange))
+                .accessibilityHidden(true)
+            Text("Screendrop windows will be captured")
+                .foregroundStyle(BarMetrics.activeTint)
+            Spacer(minLength: 8)
+            Toggle("Include Screendrop windows in captures", isOn: $includeAppWindowsInCaptures)
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .accessibilityHint("Turn off to hide Screendrop windows from screenshots and recordings")
+        }
+        .font(.system(size: 11, weight: .medium))
+        .padding(.horizontal, 12)
+        .padding(.top, BarMetrics.visibilityBannerOverlap)
+        .frame(maxWidth: .infinity)
+        .frame(height: BarMetrics.visibilityBannerHeight)
+        .glassEffect(.regular, in: visibilityBannerShape)
+        .overlay {
+            visibilityBannerShape
+                .strokeBorder(BarMetrics.edge, lineWidth: 0.5)
+        }
+        .onGeometryChange(for: CGRect.self) {
+            $0.frame(in: .named(BarCoordinateSpace.panel))
+        } action: {
+            presenter.visibilityBannerFrameInPanel = $0
+        }
+    }
+
+    private var visibilityBannerShape: UnevenRoundedRectangle {
+        UnevenRoundedRectangle(
+            topLeadingRadius: 0,
+            bottomLeadingRadius: 12,
+            bottomTrailingRadius: 12,
+            topTrailingRadius: 0,
+            style: .continuous
+        )
     }
 
     /// Positioned off the hovered control's measured frame rather than a
