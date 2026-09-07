@@ -10,6 +10,8 @@ struct CaptureLibraryView: View {
     @AppStorage("captureLibrary.inspectorVisible") private var inspectorVisible = true
     @AppStorage("captureLibrary.sort") private var savedSort: CaptureLibrarySort = .newest
 
+    private var activeFilter: CaptureLibraryFilter { model.filter ?? .all }
+
     var body: some View {
         NavigationSplitView {
             List(selection: $model.filter) {
@@ -48,7 +50,7 @@ struct CaptureLibraryView: View {
                 Divider()
                 statusBar
             }
-            .navigationTitle((model.filter ?? .all).title)
+            .navigationTitle(activeFilter.title)
             .navigationSubtitle("Screendrop")
         }
         .navigationSplitViewStyle(.balanced)
@@ -106,21 +108,39 @@ struct CaptureLibraryView: View {
             ProgressView("Loading Library…").frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if model.visibleItems.isEmpty {
             if !model.searchText.isEmpty {
-                ContentUnavailableView.search(text: model.searchText)
+                ContentUnavailableView {
+                    Label("No Results", systemImage: "magnifyingglass")
+                } description: {
+                    Text("No matches for “\(model.searchText)” in \(activeFilter.title).")
+                } actions: {
+                    Button("Clear Search") { model.searchText = "" }
+                }
             } else {
                 ContentUnavailableView {
-                    Label("No \((model.filter ?? .all) == .all ? "Captures" : (model.filter ?? .all).title)", systemImage: (model.filter ?? .all).symbol)
+                    Label("No \(activeFilter == .all ? "Captures" : activeFilter.title)", systemImage: activeFilter.symbol)
                 } description: {
-                    Text("Screenshots and recordings you capture will appear here.")
+                    Text(emptyLibraryDescription)
                 } actions: {
-                    Button("Capture Area") { CaptureCoordinator.shared.captureArea() }
-                    Button("Record Screen") { RecordingPickerPresenter.shared.show() }
-                        .disabled(ScreenRecordingManager.shared.isActive)
+                    if activeFilter != .recordings {
+                        Button("Capture Area") { CaptureCoordinator.shared.captureArea() }
+                    }
+                    if activeFilter != .screenshots {
+                        Button("Record Screen") { RecordingPickerPresenter.shared.show() }
+                            .disabled(ScreenRecordingManager.shared.isActive)
+                    }
                 }
             }
         } else {
             CaptureLibraryCollection(items: model.visibleItems, revision: model.contentRevision, layout: layout,
                 selection: $model.selection, isBusy: model.isBusy, onAction: model.perform)
+        }
+    }
+
+    private var emptyLibraryDescription: String {
+        switch activeFilter {
+        case .all: "Screenshots and recordings you capture will appear here."
+        case .screenshots: "Take a screenshot to start your screenshot library."
+        case .recordings: "Record your screen to start your recording library."
         }
     }
 
@@ -137,6 +157,7 @@ struct CaptureLibraryView: View {
             if model.isLoading { ProgressView().controlSize(.mini).help("Refreshing Library") }
         }
         .font(.caption)
+        .monospacedDigit()
         .foregroundStyle(.secondary)
         .padding(.horizontal, 16)
         .frame(height: 30)
@@ -156,9 +177,10 @@ struct CaptureLibraryView: View {
         }
         ToolbarItem(placement: .primaryAction) {
             Picker("View", selection: $layout) {
-                Image(systemName: "square.grid.2x2").tag(CaptureLibraryLayout.grid).help("Grid view")
-                Image(systemName: "list.bullet").tag(CaptureLibraryLayout.list).help("List view")
+                Label("Grid View", systemImage: "square.grid.2x2").tag(CaptureLibraryLayout.grid).help("Grid view")
+                Label("List View", systemImage: "list.bullet").tag(CaptureLibraryLayout.list).help("List view")
             }
+            .labelStyle(.iconOnly)
             .pickerStyle(.segmented)
             .help("Switch between grid and list")
         }
@@ -193,9 +215,11 @@ struct CaptureLibraryView: View {
             .help("Capture actions")
         }
         ToolbarItem(placement: .primaryAction) {
-            Button { inspectorVisible.toggle() } label: { Label("Inspector", systemImage: "sidebar.right") }
-                .keyboardShortcut("i", modifiers: [.command, .option])
-                .help("Show or hide details")
+            Button { inspectorVisible.toggle() } label: {
+                Label(inspectorVisible ? "Hide Inspector" : "Show Inspector", systemImage: "sidebar.right")
+            }
+            .keyboardShortcut("i", modifiers: [.command, .option])
+            .help(inspectorVisible ? "Hide Inspector" : "Show Inspector")
         }
     }
 }

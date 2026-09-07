@@ -56,20 +56,8 @@ final class AnnotationEditorModel {
     var cropAspect: CropAspectRatio = .freeform
 
     // MARK: Zoom & pan
-    /// When `true` the canvas is scaled to fit the available viewport (default).
-    var zoomToFit = true
-    /// Absolute display scale used when `zoomToFit` is false.
-    var manualZoomScale: CGFloat = 1
-    /// Pan offset (in view points) applied when the zoomed content overflows the viewport.
-    var panOffset: CGSize = .zero
-    /// The live viewport size, published by `AnnotationCanvas`.
-    var viewportSize: CGSize = .zero
-    /// The backing scale factor of the canvas, published by `AnnotationCanvas`.
-    var displayScale: CGFloat = 2
-
-    static let minZoomPercent = 10
-    static let maxZoomPercent = 400
-
+    /// The rendered camera and active gesture are committed as one value.
+    var canvasViewport = AnnotationCanvasViewport()
     /// While cropping, the image is fit with this much breathing room (in
     /// points) on every side so the crop resize handles - which are centered on
     /// the crop edges - never spill outside the interactive canvas bounds.

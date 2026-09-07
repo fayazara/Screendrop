@@ -83,10 +83,10 @@ struct AnnotationEditorWindow: View {
                 onRedo: model.redo,
                 onSelectAll: model.selectAllAnnotations,
                 onSelectTool: model.selectTool,
-                onZoomIn: { withAnimation(.canvasZoom) { model.zoomIn() } },
-                onZoomOut: { withAnimation(.canvasZoom) { model.zoomOut() } },
-                onFitCanvas: { withAnimation(.canvasZoom) { model.fitCanvas() } },
-                onActualSize: { withAnimation(.canvasZoom) { model.setZoomPercent(100) } },
+                onZoomIn: model.zoomIn,
+                onZoomOut: model.zoomOut,
+                onFitCanvas: model.fitCanvas,
+                onActualSize: { model.setZoomPercent(100) },
                 onToggleCrop: { withAnimation(.snappy(duration: 0.2)) { model.toggleCropping() } },
                 onApplyCrop: { withAnimation(.snappy(duration: 0.2)) { model.applyCrop() } },
                 onCancelCrop: { withAnimation(.snappy(duration: 0.2)) { model.cancelCrop() } },
@@ -247,8 +247,6 @@ struct AnnotationEditorWindow: View {
                     image: previewImage,
                     onEditorInteraction: clearInspectorFocus
                 )
-                    .padding(.horizontal, 34)
-                    .padding(.vertical, 28)
             } else if let errorMessage = model.errorMessage {
                 // A load failure (missing/unreadable source file, e.g. a stale
                 // URL replayed by macOS window restoration) should never sit

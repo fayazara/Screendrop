@@ -45,11 +45,12 @@ struct GeneralSettingsPane: View {
                             .lineLimit(1)
                             .truncationMode(.middle)
                             .foregroundStyle(.primary)
+                            .help(ScreendropPreferences.exportDirectory.path)
                     }
                 }
 
                 HStack(spacing: 8) {
-                    Button("Choose Folder...") {
+                    Button("Choose Folder…") {
                         chooseExportDirectory()
                     }
                     .controlSize(.small)
@@ -62,24 +63,20 @@ struct GeneralSettingsPane: View {
                 }
 
                 Toggle(isOn: saveButtonUsesFolderBinding) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Save without choosing a location")
-                        Text("When you click Save, write straight to the export folder instead of asking where to put it.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+                    SettingsControlLabel(
+                        "Save without choosing a location",
+                        detail: "When you click Save, write straight to the export folder instead of asking where to put it."
+                    )
                 }
                 .toggleStyle(.switch)
             }
 
             Section("System") {
                 Toggle(isOn: launchAtLoginBinding) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Launch at Login")
-                        Text("Start Screendrop automatically when you sign in.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+                    SettingsControlLabel(
+                        "Launch at login",
+                        detail: "Start Screendrop automatically when you sign in."
+                    )
                 }
                 .toggleStyle(.switch)
 
@@ -94,34 +91,28 @@ struct GeneralSettingsPane: View {
                 }
 
                 Toggle(isOn: $playSounds) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Play sounds")
-                        Text("Play the camera shutter sound when a screenshot is taken.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+                    SettingsControlLabel(
+                        "Play sounds",
+                        detail: "Play the camera shutter sound when a screenshot is taken."
+                    )
                 }
                 .toggleStyle(.switch)
 
                 Toggle(isOn: $showMenuBarIcon) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Show menu bar icon")
-                        Text("When hidden, reopen Screendrop to get back to Settings.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+                    SettingsControlLabel(
+                        "Show menu bar icon",
+                        detail: "When hidden, reopen Screendrop to get back to Settings."
+                    )
                 }
                 .toggleStyle(.switch)
             }
 
             Section("Capture Visibility") {
                 Toggle(isOn: $includeAppWindowsInCaptures) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Include Screendrop windows in captures")
-                        Text("Show preview cards, recording controls, Settings, and other Screendrop windows in screenshots and screen recordings.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+                    SettingsControlLabel(
+                        "Include Screendrop windows in captures",
+                        detail: "Show preview cards, recording controls, Settings, and other Screendrop windows in screenshots and screen recordings."
+                    )
                 }
                 .toggleStyle(.switch)
             }

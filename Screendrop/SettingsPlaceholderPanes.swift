@@ -12,13 +12,12 @@ struct VideoSettingsPane: View {
 
             Section("After Export") {
                 Toggle(isOn: $revealExportInFinder) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Reveal in Finder")
-                        Text("Select the exported file in Finder once the render finishes.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+                    SettingsControlLabel(
+                        "Reveal in Finder",
+                        detail: "Select the exported file in Finder once the render finishes."
+                    )
                 }
+                .toggleStyle(.switch)
             }
 
             Section("Projects") {
@@ -27,12 +26,10 @@ struct VideoSettingsPane: View {
                         CaptureLibraryModel.shared.show(filter: .recordings)
                     }
                 } label: {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Recording projects")
-                        Text("Reopen a past recording with every edit intact.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+                    SettingsControlLabel(
+                        "Recording projects",
+                        detail: "Reopen a past recording with every edit intact."
+                    )
                 }
             }
         }
@@ -57,12 +54,10 @@ struct OverlaySettingsPane: View {
                         Text(position.title).tag(position.rawValue)
                     }
                 } label: {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Position on screen")
-                        Text("Where the floating preview cards appear after a capture.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+                    SettingsControlLabel(
+                        "Position on screen",
+                        detail: "Where the floating preview cards appear after a capture."
+                    )
                 }
 
                 Picker(selection: $autoCloseSeconds) {
@@ -70,21 +65,17 @@ struct OverlaySettingsPane: View {
                         Text(seconds == 0 ? "Never" : "\(seconds) seconds").tag(seconds)
                     }
                 } label: {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Auto-close")
-                        Text("Automatically dismiss a preview after this delay, unless you're using it.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+                    SettingsControlLabel(
+                        "Auto-close",
+                        detail: "Automatically dismiss a preview after this delay, unless you're using it."
+                    )
                 }
 
                 Toggle(isOn: $closeAfterDragging) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Close after dragging")
-                        Text("Dismiss the preview once you drag it out to another app.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+                    SettingsControlLabel(
+                        "Close after dragging",
+                        detail: "Dismiss the preview once you drag it out to another app."
+                    )
                 }
                 .toggleStyle(.switch)
             }

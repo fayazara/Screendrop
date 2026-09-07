@@ -264,22 +264,64 @@ struct InspectorClearButton: View {
     let help: String
     let action: () -> Void
 
-    @State private var isHovering = false
+    var body: some View {
+        InspectorIconButton(systemName: "xmark", help: help, action: action)
+    }
+}
+
+/// Shared section-header action, with a larger hit area than its quiet glyph.
+struct InspectorIconButton: View {
+    let systemName: String
+    let help: String
+    let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: "xmark")
+            Image(systemName: systemName)
                 .font(.system(size: 9, weight: .bold))
-                .foregroundStyle(isHovering ? .primary : .secondary)
-                .frame(width: 18, height: 18)
-                .background(
-                    Circle().fill(isHovering ? Color.primary.opacity(0.10) : .clear)
-                )
+                .frame(width: 24, height: 24)
                 .contentShape(Circle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(InspectorIconButtonStyle())
         .help(help)
-        .onHover { isHovering = $0 }
+        .accessibilityLabel(help)
+    }
+}
+
+/// The screenshot and recording preset bars use the same action treatment.
+struct PresetBarIconButton: View {
+    let systemImage: String
+    let accessibilityLabel: String
+    let help: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 14, weight: .medium))
+                .frame(width: 28, height: 28)
+                .contentShape(Circle())
+        }
+        .buttonStyle(InspectorIconButtonStyle())
+        .help(help)
+        .accessibilityLabel(accessibilityLabel)
+    }
+}
+
+private struct InspectorIconButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+    @State private var isHovering = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(isEnabled && (isHovering || configuration.isPressed) ? Color.primary : Color.secondary)
+            .background {
+                Circle().fill(Color.primary.opacity(
+                    isEnabled ? (configuration.isPressed ? 0.12 : isHovering ? 0.08 : 0) : 0
+                ))
+            }
+            .opacity(isEnabled ? 1 : 0.4)
+            .onHover { isHovering = $0 }
     }
 }
 
@@ -419,12 +461,15 @@ struct InspectorSegmented<Option: Hashable, Label: View>: View {
 /// a hairline border at rest, an accent ring when selected. Used for color,
 /// gradient and wallpaper swatches so every picker tile reads identically.
 struct InspectorTile<Content: View>: View {
+    let title: String
     var aspectRatio: CGFloat = 1
     let isSelected: Bool
     let action: () -> Void
     @ViewBuilder let content: () -> Content
 
     private let cornerRadius = InspectorMetrics.tileRadius
+    @Environment(\.isEnabled) private var isEnabled
+    @State private var isHovering = false
 
     var body: some View {
         Button(action: action) {
@@ -433,7 +478,7 @@ struct InspectorTile<Content: View>: View {
                 .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5)
+                        .strokeBorder(Color.primary.opacity(isHovering && isEnabled ? 0.3 : 0.12), lineWidth: 0.5)
                 )
                 .padding(2.5)
                 .overlay {
@@ -445,5 +490,10 @@ struct InspectorTile<Content: View>: View {
                 .contentShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         }
         .buttonStyle(.plain)
+        .opacity(isEnabled ? 1 : 0.4)
+        .onHover { isHovering = $0 }
+        .help(title)
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }

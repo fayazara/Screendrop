@@ -401,29 +401,3 @@ private struct RecordingStudioStylePresetPopUpButton: NSViewRepresentable {
         }
     }
 }
-
-private struct PresetBarIconButton: View {
-    let systemImage: String
-    let accessibilityLabel: String
-    let help: String
-    let action: () -> Void
-
-    @State private var isHovering = false
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: systemImage)
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(isHovering ? .primary : .secondary)
-                .frame(width: 28, height: 28)
-                .background(
-                    Circle().fill(isHovering ? Color.primary.opacity(0.08) : .clear)
-                )
-                .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
-        .help(help)
-        .accessibilityLabel(accessibilityLabel)
-        .onHover { isHovering = $0 }
-    }
-}

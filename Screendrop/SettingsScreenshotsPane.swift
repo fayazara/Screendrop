@@ -36,43 +36,35 @@ struct ScreenshotsSettingsPane: View {
                         Text(seconds == 0 ? "Off" : "\(seconds) seconds").tag(seconds)
                     }
                 } label: {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Self-timer")
-                        Text("Show a countdown before the capture is taken.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+                    SettingsControlLabel(
+                        "Self-timer",
+                        detail: "Show a countdown before the capture is taken."
+                    )
                 }
 
                 Toggle(isOn: $captureWindowShadow) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Capture window shadow")
-                        Text("Include the window's drop shadow when capturing a window.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+                    SettingsControlLabel(
+                        "Capture window shadow",
+                        detail: "Include the window's drop shadow when capturing a window."
+                    )
                 }
                 .toggleStyle(.switch)
 
                 Toggle(isOn: $trimFullscreenMenuBar) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Trim menu bar from fullscreen captures")
-                        Text("On notched Macs, removes the empty black bar at the top of a fullscreen capture. A visible menu bar is kept.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+                    SettingsControlLabel(
+                        "Trim menu bar from fullscreen captures",
+                        detail: "On notched Macs, removes the empty black bar at the top of a fullscreen capture. A visible menu bar is kept."
+                    )
                 }
                 .toggleStyle(.switch)
             }
 
             Section("Annotation Editor") {
                 Toggle(isOn: $lowResolutionEditorPreview) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Use low-resolution preview to save memory")
-                        Text("Shows a downscaled image while editing to reduce memory use. Saved and exported screenshots are always full resolution.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+                    SettingsControlLabel(
+                        "Use low-resolution preview to save memory",
+                        detail: "Shows a downscaled image while editing to reduce memory use. Saved and exported screenshots are always full resolution."
+                    )
                 }
                 .toggleStyle(.switch)
             }
@@ -94,6 +86,8 @@ struct ScreenshotsSettingsPane: View {
                         HStack(spacing: 12) {
                             Slider(value: $compressionQuality, in: 0.1...1, step: 0.05)
                                 .frame(width: 180)
+                                .accessibilityLabel("Compression quality")
+                                .accessibilityValue(compressionQuality.formatted(.percent.precision(.fractionLength(0))))
 
                             Text(compressionQuality, format: .percent.precision(.fractionLength(0)))
                                 .monospacedDigit()

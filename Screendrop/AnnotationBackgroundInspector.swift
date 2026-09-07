@@ -158,20 +158,19 @@ struct AnnotationBackgroundInspector: View {
         case .color:
             LazyVGrid(columns: swatchColumns, spacing: 6) {
                 ForEach(AnnotationBackgroundColor.plainPresets) { color in
-                    InspectorTile(isSelected: settings.style == .solid(color)) {
+                    InspectorTile(title: color.title, isSelected: settings.style == .solid(color)) {
                         onEditorAction()
                         settings.style = .solid(color)
                     } content: {
                         Rectangle().fill(color.color)
                     }
-                    .help(color.title)
                 }
             }
 
         case .gradient:
             LazyVGrid(columns: swatchColumns, spacing: 6) {
                 ForEach(AnnotationBackgroundGradient.presets) { gradient in
-                    InspectorTile(isSelected: settings.style == .gradient(gradient)) {
+                    InspectorTile(title: gradient.title, isSelected: settings.style == .gradient(gradient)) {
                         onEditorAction()
                         settings.style = .gradient(gradient)
                     } content: {
@@ -181,7 +180,6 @@ struct AnnotationBackgroundInspector: View {
                             endPoint: gradient.endPoint
                         ))
                     }
-                    .help(gradient.title)
                 }
             }
 
@@ -300,6 +298,7 @@ struct AnnotationBackgroundInspector: View {
     private func wallpaperTiles(_ wallpapers: [AnnotationCustomWallpaper]) -> some View {
         ForEach(wallpapers) { wallpaper in
             InspectorTile(
+                title: wallpaper.title,
                 aspectRatio: 1.35,
                 isSelected: isSelectedWallpaper(wallpaper)
             ) {
@@ -307,7 +306,6 @@ struct AnnotationBackgroundInspector: View {
             } content: {
                 AnnotationCustomWallpaperPreview(wallpaper: wallpaper)
             }
-            .help(wallpaper.title)
         }
     }
 

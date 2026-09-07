@@ -215,6 +215,8 @@ Turn a plain screenshot into a finished visual without leaving Screendrop:
 
 The editor keeps these effects live and re-editable instead of flattening them into the source.
 
+The canvas zoom menu offers Fit Canvas (⌘1), actual size (⌘0), and zoom in/out (⌘+/⌘−), up to 1000%. Fit leaves breathing room around the composition; zoomed content uses the full editor workspace. Pinch or hold ⌘/Option while scrolling to zoom around the pointer, and scroll to pan. Pinch zoom keeps its starting image point fixed until a canvas edge constrains the view. Menu and keyboard zoom use the center of your current view. Panning stops at the composition edges; axes that fit inside the viewport stay centered. Fit recenters the whole composition. These controls change only the editing view, not the exported image.
+
 Shared presets include portable colors, gradients, layout, camera, blur, border, and watermark settings. Local wallpaper images and their file paths are never exported or imported; a wallpaper-based preset uses no background when opened on another Mac.
 
 ## Screen Recording

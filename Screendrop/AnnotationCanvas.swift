@@ -45,7 +45,8 @@ struct AnnotationCanvas: View {
                 contentSize: model.imageSize,
                 settings: model.backgroundSettings
             )
-            let canvasFrame = model.displayCanvasFrame(in: proxy.size)
+            let viewport = configuredViewport(in: proxy.size)
+            let canvasFrame = viewport.frame
             let displayLayout = backgroundLayout.scaled(to: canvasFrame)
             let imageFrame = displayLayout.imageFrame
             let boundaryFrame = model.backgroundSettings.usesCanvasLayout ? displayLayout.canvasFrame : imageFrame
@@ -127,13 +128,21 @@ struct AnnotationCanvas: View {
                     .allowsHitTesting(false)
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
+            // Image, background, AppKit annotations, crop and watermark share
+            // this viewport. Fit padding belongs to the camera, not the view.
+            .clipped()
             .coordinateSpace(.named(AnnotationCanvasCoordinateSpace.name))
             .contentShape(Rectangle())
             .background(
                 AnnotationCanvasInputHandler(
                     onPan: { dx, dy in model.panBy(dx: dx, dy: dy) },
-                    onZoom: { factor in model.zoomBy(factor) }
+                    onZoom: { factor, anchor in model.zoomBy(factor, anchor: anchor) },
+                    onBeginPinch: { anchor in
+                        model.beginCanvasPinch(at: anchor, visibleViewport: viewport)
+                    },
+                    onPinch: model.updateCanvasPinch,
+                    onEndPinch: model.endCanvasPinch
                 )
             )
             .gesture(interactionGesture(
@@ -142,15 +151,8 @@ struct AnnotationCanvas: View {
                 projection: projection,
                 visibleCanvasFrame: effectiveCamera.hasEffect ? displayLayout.canvasFrame : nil
             ))
-            .onAppear {
-                model.viewportSize = proxy.size
-                model.displayScale = displayScale
-            }
-            .onChange(of: proxy.size) { _, newValue in
-                model.viewportSize = newValue
-            }
-            .onChange(of: displayScale) { _, newValue in
-                model.displayScale = newValue
+            .onChange(of: viewport.layout, initial: true) { _, layout in
+                if let layout { model.canvasViewport.configure(layout) }
             }
             .onContinuousHover { phase in
                 switch phase {
@@ -178,6 +180,7 @@ struct AnnotationCanvas: View {
                 refreshCursor(imageFrame: imageFrame, boundaryFrame: boundaryFrame)
             }
             .onDisappear {
+                model.endCanvasPinch()
                 setCursor(.arrow)
                 progressivelyBlurredImage = nil
                 progressivelyBlurredSourceID = nil
@@ -194,6 +197,18 @@ struct AnnotationCanvas: View {
                 await updateSceneSettlePreview(for: image, key: sceneSettleKey)
             }
         }
+    }
+
+    private func configuredViewport(in size: CGSize) -> AnnotationCanvasViewport {
+        var viewport = model.canvasViewport
+        let cropMargin = model.isCropping ? AnnotationEditorModel.cropHandleMargin : 0
+        viewport.configure(.init(
+            canvasSize: model.canvasPixelSize,
+            viewportSize: size,
+            displayScale: displayScale,
+            fitInsets: CGSize(width: 34 + cropMargin, height: 28 + cropMargin)
+        ))
+        return viewport
     }
 
     @ViewBuilder
@@ -680,80 +695,6 @@ struct AnnotationCanvas: View {
         guard currentCursor != cursor else { return }
         currentCursor = cursor
         cursor.nsCursor.set()
-    }
-}
-
-/// Captures scroll-wheel and pinch-magnify events over the canvas region to
-/// drive panning and zooming, without interfering with SwiftUI drawing gestures.
-private struct AnnotationCanvasInputHandler: NSViewRepresentable {
-    let onPan: (CGFloat, CGFloat) -> Void
-    let onZoom: (CGFloat) -> Void
-
-    func makeNSView(context: Context) -> InputView {
-        let view = InputView()
-        view.onPan = onPan
-        view.onZoom = onZoom
-        return view
-    }
-
-    func updateNSView(_ nsView: InputView, context: Context) {
-        nsView.onPan = onPan
-        nsView.onZoom = onZoom
-    }
-
-    final class InputView: NSView {
-        var onPan: ((CGFloat, CGFloat) -> Void)?
-        var onZoom: ((CGFloat) -> Void)?
-
-        private var monitor: Any?
-
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            installMonitor()
-        }
-
-        deinit {
-            if let monitor {
-                NSEvent.removeMonitor(monitor)
-            }
-        }
-
-        private func installMonitor() {
-            guard monitor == nil else { return }
-
-            monitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel, .magnify]) { [weak self] event in
-                guard let self,
-                      let window = self.window,
-                      window.isKeyWindow,
-                      event.window == window else {
-                    return event
-                }
-
-                if window.firstResponder is NSTextView {
-                    return event
-                }
-
-                let pointInView = self.convert(event.locationInWindow, from: nil)
-                guard self.bounds.contains(pointInView) else {
-                    return event
-                }
-
-                switch event.type {
-                case .magnify:
-                    self.onZoom?(1 + event.magnification)
-                    return nil
-                case .scrollWheel:
-                    if event.modifierFlags.intersection([.command, .option]).isEmpty {
-                        self.onPan?(event.scrollingDeltaX, event.scrollingDeltaY)
-                    } else {
-                        self.onZoom?(1 + event.scrollingDeltaY * 0.0025)
-                    }
-                    return nil
-                default:
-                    return event
-                }
-            }
-        }
     }
 }
 

@@ -5,36 +5,31 @@
 
 import SwiftUI
 
-extension Animation {
-    /// Animation used for discrete zoom changes (menu, shortcuts, zoom in/out).
-    static var canvasZoom: Animation { .smooth(duration: 0.24) }
-}
-
 struct AnnotationZoomControl: View {
     @Bindable var model: AnnotationEditorModel
 
-    private func zoom(_ change: () -> Void) {
-        withAnimation(.canvasZoom, change)
-    }
-
     var body: some View {
         Menu {
-            Button("Zoom In") { zoom { model.zoomIn() } }
+            // The image and AppKit annotation layer must receive the same
+            // camera immediately; implicit SwiftUI-only animation splits them.
+            Button("Zoom In") { model.zoomIn() }
                 .keyboardShortcut("+", modifiers: .command)
-            Button("Zoom Out") { zoom { model.zoomOut() } }
+                .disabled(!model.canZoomIn)
+            Button("Zoom Out") { model.zoomOut() }
                 .keyboardShortcut("-", modifiers: .command)
+                .disabled(!model.canZoomOut)
 
             Divider()
 
-            Button("Fit Canvas") { zoom { model.fitCanvas() } }
+            Button("Fit Canvas") { model.fitCanvas() }
                 .keyboardShortcut("1", modifiers: .command)
 
             Divider()
 
-            Button("50%") { zoom { model.setZoomPercent(50) } }
-            Button("100%") { zoom { model.setZoomPercent(100) } }
+            Button("50%") { model.setZoomPercent(50) }
+            Button("100%") { model.setZoomPercent(100) }
                 .keyboardShortcut("0", modifiers: .command)
-            Button("200%") { zoom { model.setZoomPercent(200) } }
+            Button("200%") { model.setZoomPercent(200) }
         } label: {
             Text("\(model.zoomPercent)%")
                 .font(.system(size: 12, weight: .medium))

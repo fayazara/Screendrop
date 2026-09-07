@@ -413,6 +413,7 @@ private struct SharePill: View {
             }
             .buttonStyle(.plain)
             .help("Cancel Share")
+            .accessibilityLabel("Cancel Share")
         }
         .padding(.leading, 12)
     }
@@ -444,6 +445,7 @@ private struct ExportProgressPill: View {
             }
             .buttonStyle(.plain)
             .help("Cancel Export")
+            .accessibilityLabel("Cancel Export")
         }
         .padding(.leading, 12)
     }
@@ -1181,32 +1183,6 @@ private struct TranscriptFlowLayout: Layout {
     }
 }
 
-/// Small hover-circle icon button matching InspectorClearButton, for section
-/// header actions that aren't a plain "clear".
-private struct StudioInspectorIconButton: View {
-    let systemName: String
-    let help: String
-    let action: () -> Void
-
-    @State private var isHovering = false
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: systemName)
-                .font(.system(size: 9, weight: .bold))
-                .foregroundStyle(isHovering ? .primary : .secondary)
-                .frame(width: 18, height: 18)
-                .background(
-                    Circle().fill(isHovering ? Color.primary.opacity(0.10) : .clear)
-                )
-                .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
-        .help(help)
-        .onHover { isHovering = $0 }
-    }
-}
-
 private extension RecordingKeystrokePlacement {
     var alignment: Alignment {
         switch self {
@@ -1673,6 +1649,7 @@ private struct StudioTimelineEditor: View {
                     .buttonStyle(.plain)
                     .keyboardShortcut(.space, modifiers: [])
                     .help(model.isPlaying ? "Pause" : "Play")
+                    .accessibilityLabel(model.isPlaying ? "Pause" : "Play")
                     .disabled(!model.isLoaded)
 
                     timelineButton("Skip to End", systemImage: "forward.end.fill") {
@@ -1714,19 +1691,28 @@ private struct StudioTimelineEditor: View {
         }
         .buttonStyle(TransportIconButtonStyle())
         .help(help)
+        .accessibilityLabel(help)
     }
 }
 
 private struct TransportIconButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
+    @State private var isHovering = false
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .foregroundStyle(
                 .primary.opacity(
-                    isEnabled ? (configuration.isPressed ? 0.95 : 0.6) : 0.22
+                    isEnabled ? (configuration.isPressed || isHovering ? 0.95 : 0.6) : 0.22
                 )
             )
+            .background {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color.primary.opacity(
+                        isEnabled ? (configuration.isPressed ? 0.08 : isHovering ? 0.04 : 0) : 0
+                    ))
+            }
+            .onHover { isHovering = $0 }
     }
 }
 
@@ -2552,7 +2538,7 @@ private struct StudioInspector: View {
                                             .controlSize(.mini)
                                             .frame(width: 18, height: 18)
                                     } else if model.canTranscribe {
-                                        StudioInspectorIconButton(
+                                        InspectorIconButton(
                                             systemName: "arrow.clockwise",
                                             help: "Transcribe again"
                                         ) {
@@ -2703,6 +2689,7 @@ private struct StudioInspector: View {
                 LazyVGrid(columns: swatchColumns, spacing: 6) {
                     ForEach(AnnotationBackgroundColor.plainPresets) { preset in
                         InspectorTile(
+                            title: preset.title,
                             isSelected: model.style.background == .solid(preset),
                             action: { model.style.background = .solid(preset) }
                         ) {
@@ -2716,6 +2703,7 @@ private struct StudioInspector: View {
                 LazyVGrid(columns: swatchColumns, spacing: 6) {
                     ForEach(AnnotationBackgroundGradient.presets) { preset in
                         InspectorTile(
+                            title: preset.title,
                             isSelected: model.style.background == .gradient(preset),
                             action: { model.style.background = .gradient(preset) }
                         ) {
@@ -2733,13 +2721,13 @@ private struct StudioInspector: View {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 62), spacing: 7)], spacing: 7) {
                     ForEach(availableWallpapers.prefix(12)) { wallpaper in
                         InspectorTile(
+                            title: wallpaper.title,
                             aspectRatio: 1.35,
                             isSelected: model.style.background == .customWallpaper(wallpaper),
                             action: { selectWallpaper(wallpaper) }
                         ) {
                             AnnotationCustomWallpaperPreview(wallpaper: wallpaper)
                         }
-                        .help(wallpaper.title)
                     }
                 }
 
