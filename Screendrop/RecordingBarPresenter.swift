@@ -96,6 +96,7 @@ final class RecordingBarPresenter {
     }
 
     func hide() {
+        if mode == .picker { CaptureCountdownPresenter.shared.cancel() }
         // `orderOut` sends no exit events, so a hover that's live when the
         // bar hides has to be ended by hand - it holds the pointing hand.
         BarControlHoverView.endActiveHover()

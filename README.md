@@ -84,7 +84,7 @@ Screendrop can be controlled from its menu bar item or with global hotkeys.
 | `Option + 4` | Open the screen-recording picker |
 | `Option + 5` | Capture text (OCR) to the clipboard |
 
-All five shortcuts are customizable under **Settings → Screenshots** and **Settings → Screen Recordings**.
+All five shortcuts are customizable under **Settings → Screenshots** and **Settings → Screen Recordings**. If a replacement shortcut cannot be registered, Settings explains the failure and keeps your previous working shortcut.
 
 You can also:
 
@@ -130,7 +130,7 @@ Choose exactly what happens after every screenshot:
 - Open the annotation editor.
 - Pin it above other windows.
 
-Recording automation has its own independent settings for previewing, copying, saving, uploading, and opening Studio.
+Recording automation has its own independent settings for previewing, copying, saving, uploading, and opening Studio. Automatic uploading requires Cloud setup; the action links directly to **Settings → Cloud** when configuration is missing.
 
 ### Floating Preview Stack
 
@@ -147,6 +147,8 @@ New captures appear as floating cards on the active display. From a card you can
 - Copy recognized text from a screenshot using on-device OCR.
 
 The overlay can appear on the left or right, close automatically after a chosen delay, and dismiss after a drag. Its actions are completely rearrangeable: drag actions between four corner slots, the center buttons, and a hidden-actions tray in **Settings → Overlay**.
+
+Opening Save keeps a screenshot preview available if you cancel or saving fails. If a screenshot cannot be written to the configured export folder, choose another location or retry from the error dialog.
 
 A recording card is a quick handoff: it closes once Studio has loaded successfully or a manual Save or Upload from the card succeeds. Failed or cancelled actions keep the card available for retry. Exporting or sharing from Studio or Library also clears that recording's card; the recording remains in Library. Studio shows **Saved** with a Finder reveal action, or **Link Copied** with actions to copy or open the share link, without creating another overlay.
 
@@ -180,6 +182,8 @@ The original file is never modified. Multiple selected images can be opened at o
 ## Annotation Studio
 
 The annotation editor is non-destructive. Screendrop preserves the untouched base image and writes editable state to a neighboring `.screendrop` sidecar, so saved annotations can be reopened and changed later. Display previews are lightweight, while final renders use the source image's full pixel resolution.
+
+Save, Done, and Upload coordinate screenshot commits so conflicting saves cannot overlap. Failed commits keep the editor open with its changes unsaved; file replacements retain recovery copies until the image and editable files are written successfully. Upload also works on screenshots without annotations. Recording Studio likewise stays open when **Save and Close** cannot save the project.
 
 ### Drawing and Redaction
 
@@ -231,6 +235,8 @@ The recording picker provides one place to prepare a session:
 - Toggle system audio.
 - Set a 1, 3, or 5 second start timer.
 - Write and enable a teleprompter script.
+
+During the start countdown, click **Cancel**, press **Escape**, or close the recorder to cancel the pending recording. Source selection is disabled until the countdown finishes or is cancelled. The display control shows source-loading progress; if loading fails, it offers Retry and, when needed, a link to screen recording permissions.
 
 Turning on the camera starts a live preview before recording begins, giving the camera time to settle exposure and white balance. Camera permission failures or disconnected optional devices do not throw away the screen recording; Screendrop warns and continues without that input.
 

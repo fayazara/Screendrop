@@ -22,6 +22,7 @@ final class EditorCloseGuard: NSObject, NSWindowDelegate {
 
     /// Nothing to ask about when this is false.
     var hasUnsavedChanges: () -> Bool = { false }
+    var canClose: () -> Bool = { true }
     /// Only a project that was never saved offers "Delete and close":
     /// discarding a project the user already committed to is unrecoverable,
     /// so that case reverts to the saved state instead.
@@ -53,6 +54,7 @@ final class EditorCloseGuard: NSObject, NSWindowDelegate {
     func detach() {
         detachFromWindow()
         hasUnsavedChanges = { false }
+        canClose = { true }
         offersDelete = { false }
         projectName = { "" }
         onDecision = { _, done in done() }
@@ -75,6 +77,7 @@ final class EditorCloseGuard: NSObject, NSWindowDelegate {
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
+        guard canClose() else { return false }
         if isCloseApproved { return true }
         guard hasUnsavedChanges() else { return true }
         guard !isPrompting else { return false }

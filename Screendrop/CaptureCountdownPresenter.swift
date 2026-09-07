@@ -11,6 +11,7 @@ import SwiftUI
 /// preference. The overlay is fully torn down before the capture fires, so it
 /// never appears in the screenshot.
 @MainActor
+@Observable
 final class CaptureCountdownPresenter {
     static let shared = CaptureCountdownPresenter()
 
@@ -18,34 +19,77 @@ final class CaptureCountdownPresenter {
 
     private init() {}
 
-    /// Runs the countdown if `seconds` is positive, otherwise returns
-    /// immediately. Shared by screenshots (`captureDelaySeconds`) and
-    /// recordings (`recordingStartDelaySeconds`) - callers pass whichever
-    /// preference applies.
-    func runIfNeeded(seconds: Int, displayID: CGDirectDisplayID?) async {
-        guard seconds > 0 else { return }
-        await run(seconds: seconds, displayID: displayID)
+    private(set) var isRunning = false
+    private var runID: UUID?
+    private var countdownTask: Task<Bool, Never>?
+    private var escapeMonitor: Any?
+    private var globalEscapeMonitor: Any?
+
+    /// False means cancelled or another countdown is already in progress.
+    func runIfNeeded(seconds: Int, displayID: CGDirectDisplayID?) async -> Bool {
+        guard !isRunning, !Task.isCancelled else { return false }
+        guard seconds > 0 else { return true }
+        let id = UUID()
+        runID = id
+        isRunning = true
+        installEscapeMonitors()
+        let task = Task { @MainActor in
+            guard runID == id, !Task.isCancelled else { return false }
+            let model = CaptureCountdownModel(remaining: seconds)
+            present(model: model, displayID: displayID)
+            do {
+                for value in stride(from: seconds, through: 1, by: -1) {
+                    try Task.checkCancellation()
+                    model.remaining = value
+                    try await Task.sleep(for: .seconds(1))
+                }
+                dismiss()
+                try await Task.sleep(for: .milliseconds(80))
+                try Task.checkCancellation()
+                return true
+            } catch {
+                return false
+            }
+        }
+        countdownTask = task
+        let completed = await withTaskCancellationHandler {
+            await task.value
+        } onCancel: {
+            task.cancel()
+        }
+        guard runID == id else { return false }
+        cancel()
+        return completed && !Task.isCancelled
     }
 
-    private func run(seconds: Int, displayID: CGDirectDisplayID?) async {
-        let model = CaptureCountdownModel(remaining: seconds)
-        present(model: model, displayID: displayID)
-
-        for value in stride(from: seconds, through: 1, by: -1) {
-            model.remaining = value
-            try? await Task.sleep(for: .seconds(1))
-        }
-
+    func cancel() {
+        countdownTask?.cancel()
+        countdownTask = nil
+        runID = nil
+        isRunning = false
         dismiss()
-        // Give the window server a beat to fully remove the overlay before the
-        // capture begins.
-        try? await Task.sleep(for: .milliseconds(80))
+        if let escapeMonitor { NSEvent.removeMonitor(escapeMonitor) }
+        if let globalEscapeMonitor { NSEvent.removeMonitor(globalEscapeMonitor) }
+        escapeMonitor = nil
+        globalEscapeMonitor = nil
+    }
+
+    private func installEscapeMonitors() {
+        escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard event.keyCode == 53 else { return event }
+            self?.cancel()
+            return nil
+        }
+        globalEscapeMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard event.keyCode == 53 else { return }
+            Task { @MainActor [weak self] in self?.cancel() }
+        }
     }
 
     private func present(model: CaptureCountdownModel, displayID: CGDirectDisplayID?) {
         dismiss()
 
-        let hostingView = NSHostingView(rootView: CaptureCountdownView(model: model))
+        let hostingView = NSHostingView(rootView: CaptureCountdownView(model: model, onCancel: { [weak self] in self?.cancel() }))
         let size = NSSize(width: 160, height: 160)
 
         let panel = NSPanel(
@@ -58,7 +102,7 @@ final class CaptureCountdownPresenter {
         panel.backgroundColor = .clear
         panel.hasShadow = false
         panel.level = .statusBar
-        panel.ignoresMouseEvents = true
+        panel.ignoresMouseEvents = false
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
         panel.contentView = hostingView
         panel.setFrame(NSRect(origin: centeredOrigin(size: size, displayID: displayID), size: size), display: true)
@@ -101,6 +145,7 @@ private final class CaptureCountdownModel {
 
 private struct CaptureCountdownView: View {
     @State var model: CaptureCountdownModel
+    let onCancel: () -> Void
 
     var body: some View {
         ZStack {
@@ -118,5 +163,13 @@ private struct CaptureCountdownView: View {
                 .animation(.snappy, value: model.remaining)
         }
         .frame(width: 160, height: 160)
+        .overlay(alignment: .bottom) {
+            Button("Cancel", action: onCancel)
+                .buttonStyle(.plain)
+                .font(.caption)
+                .foregroundStyle(.white.opacity(0.85))
+                .padding(.bottom, 12)
+                .help("Cancel countdown (Esc)")
+        }
     }
 }

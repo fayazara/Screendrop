@@ -538,14 +538,13 @@ final class ScreenshotPreviewStack {
         }
     }
 
-    func save(id: ScreenshotPreviewItem.ID) {
+    func save(id: ScreenshotPreviewItem.ID, choosingLocation: Bool = false) {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
         let kind = items[index].kind
-        // Keep manual video saves available for retry if the copy fails or
-        // the save panel is cancelled, including already-rendered movies.
-        if kind == .video { markEngaged(id: id) }
+        // A save dialog, cancellation, or failure must not expire the preview.
+        markEngaged(id: id)
 
-        if ScreendropPreferences.saveButtonUsesConfiguredFolder {
+        if !choosingLocation && ScreendropPreferences.saveButtonUsesConfiguredFolder {
             guard items[index].autoSavedURL == nil else {
                 dismiss(id: id)
                 return
@@ -563,9 +562,25 @@ final class ScreenshotPreviewStack {
                 return
             }
 
-            items[index].autoSavedURL = saveToDefaultLocation(from: items[index].url)
-            guard items[index].autoSavedURL != nil else { return }
-            dismiss(id: id)
+            do {
+                items[index].autoSavedURL = try ScreenshotFileActions.saveToDefaultLocation(from: items[index].url)
+                dismiss(id: id)
+            } catch {
+                let alert = NSAlert()
+                alert.alertStyle = .warning
+                alert.messageText = "The screenshot could not be saved"
+                alert.informativeText = error.localizedDescription
+                alert.addButton(withTitle: "Choose Another Location…")
+                alert.addButton(withTitle: "Retry")
+                alert.addButton(withTitle: "Cancel")
+                alert.buttons[2].keyEquivalent = "\u{1b}"
+                NSApp.activate(ignoringOtherApps: true)
+                switch alert.runModal() {
+                case .alertFirstButtonReturn: save(id: id, choosingLocation: true)
+                case .alertSecondButtonReturn: save(id: id)
+                default: break
+                }
+            }
             return
         }
 

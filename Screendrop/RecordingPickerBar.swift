@@ -49,8 +49,8 @@ struct RecordingPickerControls: View {
 
     var body: some View {
         HStack(spacing: BarMetrics.itemSpacing) {
-            displaySource
-            windowSource
+            displaySource.disabled(CaptureCountdownPresenter.shared.isRunning)
+            windowSource.disabled(CaptureCountdownPresenter.shared.isRunning || sources.isLoading)
             BarActionButton(
                 id: .area,
                 title: "Drag to select a region",
@@ -59,6 +59,8 @@ struct RecordingPickerControls: View {
             ) {
                 startAreaRecording()
             }
+            .disabled(!canSelectSource)
+
 
             BarDivider()
 
@@ -120,11 +122,40 @@ struct RecordingPickerControls: View {
         }
     }
 
+    private var canSelectSource: Bool {
+        !sources.isLoading && !sources.displays.isEmpty && !CaptureCountdownPresenter.shared.isRunning
+    }
+
     // MARK: Sources
 
     @ViewBuilder
     private var displaySource: some View {
-        if sources.displays.count > 1 {
+        if sources.isLoading {
+            ProgressView()
+                .controlSize(.small)
+                .frame(width: BarMetrics.controlSize, height: BarMetrics.controlSize)
+                .help("Finding screens and windows…")
+                .accessibilityLabel("Finding screens and windows")
+        } else if sources.errorMessage != nil || sources.displays.isEmpty {
+            Menu {
+                Text(sources.errorMessage ?? "No screens are available.")
+                Button("Retry") { Task { await sources.refresh() } }
+                if !CGPreflightScreenCaptureAccess() {
+                    Button("Open Screen Recording Settings…") {
+                        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
+                            NSWorkspace.shared.open(url)
+                        }
+                    }
+                }
+            } label: {
+                BarActionLabel(id: .display, title: "Recording sources unavailable - click to retry",
+                               systemImage: "exclamationmark.triangle")
+            }
+            .menuStyle(.button)
+            .buttonStyle(BarButtonStyle())
+            .menuIndicator(.hidden)
+            .accessibilityLabel("Recording sources unavailable - retry or open permissions")
+        } else if sources.displays.count > 1 {
             Menu {
                 ForEach(Array(sources.displays.enumerated()), id: \.element.displayID) { index, display in
                     Button(RecordingSourceCatalog.displayTitle(display, index: index)) {
@@ -161,7 +192,9 @@ struct RecordingPickerControls: View {
 
     private var windowSource: some View {
         Menu {
-            if sources.windows.isEmpty {
+            if let errorMessage = sources.errorMessage {
+                Text("Could not load windows: \(errorMessage)")
+            } else if sources.windows.isEmpty {
                 Text("No app windows found")
             }
             ForEach(sources.windows, id: \.windowID) { window in

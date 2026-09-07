@@ -86,10 +86,10 @@ final class CaptureCoordinator {
         let displayID = ActiveDisplayResolver.activeDisplayID(preferPointer: false)
         PreviewWindowPlacement.shared.setTargetDisplayID(displayID)
 
-        await CaptureCountdownPresenter.shared.runIfNeeded(
+        guard await CaptureCountdownPresenter.shared.runIfNeeded(
             seconds: ScreendropPreferences.captureDelaySeconds,
             displayID: displayID
-        )
+        ) else { return nil }
         guard let url = await ScreenshotManager.shared.captureFullscreen(displayID: displayID) else { return nil }
         return finishCapture(url: url, displayID: displayID)
     }
@@ -157,10 +157,10 @@ final class CaptureCoordinator {
 
     func recordFullscreen(_ display: SCDisplay) {
         Task {
-            await CaptureCountdownPresenter.shared.runIfNeeded(
+            guard await CaptureCountdownPresenter.shared.runIfNeeded(
                 seconds: ScreendropPreferences.recordingStartDelaySeconds,
                 displayID: display.displayID
-            )
+            ) else { return }
             ScreenRecordingManager.shared.startRecording(source: ScreenRecordingSource(kind: .fullscreen(display)))
         }
     }
@@ -168,10 +168,10 @@ final class CaptureCoordinator {
     func recordWindow(_ window: SCWindow) {
         Task {
             let displayID = ActiveDisplayResolver.activeDisplayID(preferPointer: true)
-            await CaptureCountdownPresenter.shared.runIfNeeded(
+            guard await CaptureCountdownPresenter.shared.runIfNeeded(
                 seconds: ScreendropPreferences.recordingStartDelaySeconds,
                 displayID: displayID
-            )
+            ) else { return }
             ScreenRecordingManager.shared.startRecording(source: ScreenRecordingSource(kind: .window(window)))
         }
     }
@@ -180,10 +180,10 @@ final class CaptureCoordinator {
         RecordingAreaSelectionPresenter.shared.selectArea(on: display) { rect in
             guard let rect else { return }
             Task {
-                await CaptureCountdownPresenter.shared.runIfNeeded(
+                guard await CaptureCountdownPresenter.shared.runIfNeeded(
                     seconds: ScreendropPreferences.recordingStartDelaySeconds,
                     displayID: display.displayID
-                )
+                ) else { return }
                 ScreenRecordingManager.shared.startRecording(
                     source: ScreenRecordingSource(kind: .area(display: display, rect: rect))
                 )

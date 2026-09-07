@@ -1191,8 +1191,9 @@ final class RecordingStudioModel {
     }
 
     /// ⌘S. Commits the working copy to `edit.json` and clears the draft.
-    func saveProject() {
-        guard isLoaded, let session else { return }
+    @discardableResult
+    func saveProject() -> Bool {
+        guard isLoaded, let session else { return false }
         projectSaveTask?.cancel()
         let document = currentDocument()
         do {
@@ -1204,8 +1205,11 @@ final class RecordingStudioModel {
             dropStaleRender(for: document, in: session)
             RecordingProjectStore.shared.reload()
             flashSaveConfirmation()
+            return true
         } catch {
-            print("Failed to save recording project: \(error)")
+            FailureAlert.present(message: "The recording project could not be saved", error: error,
+                                 detail: "Your editor will stay open. Try saving again after resolving the problem.")
+            return false
         }
     }
 

@@ -41,6 +41,14 @@ struct CaptureHotkeySettingsSection: View {
                     .foregroundStyle(.red)
             }
 
+            ForEach(actions) { action in
+                if let failure = HotkeyManager.shared.registrationErrors[action] {
+                    Text("\(action.title): \(failure)")
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+            }
+
             if recordingAction != nil {
                 Text("Press a key combination with at least one modifier. Press Esc to cancel.")
                     .font(.caption)
@@ -102,11 +110,15 @@ struct CaptureHotkeySettingsSection: View {
             return
         }
 
-        CaptureHotkeyPreferences.saveShortcut(shortcut, for: action)
-        shortcuts[action] = shortcut
-        errorMessage = nil
+        do {
+            try HotkeyManager.shared.setShortcut(shortcut, for: action)
+            shortcuts[action] = shortcut
+            errorMessage = nil
+        } catch {
+            errorMessage = "\(error.localizedDescription) Your previous shortcut has been kept."
+            NSSound.beep()
+        }
         recordingAction = nil
-        HotkeyManager.shared.reloadHotkeys()
     }
 
     private func reloadShortcuts() {

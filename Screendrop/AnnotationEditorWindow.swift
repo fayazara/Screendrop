@@ -24,8 +24,12 @@ struct AnnotationEditorWindow: View {
     @FocusState private var focusedField: AnnotationEditorFocusedField?
     @Environment(\.dismiss) private var dismissWindow
 
+    private var isBusy: Bool { isSaving || isFinishing || isUploading || model.isCommitting }
+
     var body: some View {
         mainContent
+            .disabled(model.isCommitting)
+            .allowsHitTesting(!model.isCommitting)
             .modifier(CaptureLibraryEditorRegistration(url: url))
             .navigationTitle("Screendrop Annotate")
             .toolbarBackgroundVisibility(.visible, for: .windowToolbar)
@@ -34,7 +38,7 @@ struct AnnotationEditorWindow: View {
                     if model.isCropping {
                         cropActions
                     } else {
-                        editingActions
+                        editingActions.disabled(isBusy)
                     }
                 }
             }
@@ -61,7 +65,10 @@ struct AnnotationEditorWindow: View {
                 closeGuard.refreshDocumentEdited()
             }
             .onDeleteCommand {
-                model.deleteSelectedAnnotation()
+                if !model.isCommitting { model.deleteSelectedAnnotation() }
+            }
+            .onChange(of: model.hasUnsavedChanges) { _, _ in
+                closeGuard.refreshDocumentEdited()
             }
             .onChange(of: model.revision) { _, _ in
                 closeGuard.refreshDocumentEdited()
@@ -77,6 +84,7 @@ struct AnnotationEditorWindow: View {
                 closeGuard.refreshDocumentEdited()
             }
             .background(AnnotationKeyCommandHandler(
+                isEnabled: { !model.isCommitting },
                 onDelete: model.deleteSelectedAnnotation,
                 onSave: saveEdits,
                 onUndo: model.undo,
@@ -101,7 +109,7 @@ struct AnnotationEditorWindow: View {
                     onEditorAction: clearInspectorFocus,
                     onPickWallpaper: pickCustomWallpaper
                 )
-                .disabled(model.isCropping)
+                .disabled(model.isCropping || model.isCommitting)
             }
     }
 
@@ -303,7 +311,7 @@ struct AnnotationEditorWindow: View {
 
     private func saveAs() {
         clearInspectorFocus()
-        guard let sourceURL = model.sourceURL else { return }
+        guard !isBusy, let sourceURL = model.sourceURL else { return }
         let baseURL = model.baseImageURL ?? sourceURL
 
         let panel = NSSavePanel()
@@ -351,7 +359,7 @@ struct AnnotationEditorWindow: View {
 
     private func uploadAnnotation(options: CloudUploadOptions) {
         clearInspectorFocus()
-        guard model.sourceURL != nil, !isUploading else { return }
+        guard model.sourceURL != nil, !isBusy else { return }
 
         isUploading = true
         Task {
@@ -360,8 +368,8 @@ struct AnnotationEditorWindow: View {
                 // Persist the current annotations first so the uploaded file
                 // matches what's saved in history, then upload that file. The
                 // editor stays open.
-                guard let sourceURL = model.sourceURL,
-                      let resultURL = try await model.commitEdits() else { return }
+                guard let sourceURL = model.sourceURL else { return }
+                let resultURL = try await model.commitEdits() ?? sourceURL
 
                 _ = ScreenshotPreviewStack.shared.applyAnnotation(
                     originalURL: sourceURL,
@@ -390,7 +398,7 @@ struct AnnotationEditorWindow: View {
         clearInspectorFocus()
         // Committing re-renders the composite, so a Cmd-S with nothing
         // changed should cost nothing.
-        guard model.sourceURL != nil, model.hasUnsavedChanges, !isFinishing, !isSaving else { return }
+        guard model.sourceURL != nil, model.hasUnsavedChanges, !isBusy else { return }
 
         isSaving = true
         Task {
@@ -416,7 +424,7 @@ struct AnnotationEditorWindow: View {
             return
         }
 
-        guard !isFinishing else { return }
+        guard !isBusy else { return }
 
         isFinishing = true
         Task {
@@ -430,6 +438,10 @@ struct AnnotationEditorWindow: View {
                         PreviewPanelPresenter.shared.show(displayID: nil)
                     }
                 }
+                guard !model.hasUnsavedChanges else {
+                    isFinishing = false
+                    return
+                }
                 model.releaseEditorResources()
                 dismissWindow()
             } catch {
@@ -440,6 +452,7 @@ struct AnnotationEditorWindow: View {
     }
 
     private func configureCloseGuard() {
+        closeGuard.canClose = { [weak model] in model?.isCommitting != true }
         closeGuard.hasUnsavedChanges = { [weak model] in model?.hasUnsavedChanges ?? false }
         // A screenshot is already in History whether or not it is annotated,
         // so there is no "delete the whole thing" case here.
@@ -459,6 +472,7 @@ struct AnnotationEditorWindow: View {
                                 historyURL: resultURL
                             )
                         }
+                        guard !model.hasUnsavedChanges else { return }
                         model.releaseEditorResources()
                         done()
                     } catch {

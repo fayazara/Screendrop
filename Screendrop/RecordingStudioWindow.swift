@@ -211,8 +211,7 @@ private struct RecordingStudioContent: View {
             guard let model else { return }
             switch decision {
             case .save:
-                model.saveProject()
-                done()
+                if model.saveProject() { done() }
             case .discard:
                 Task {
                     await model.discardChanges()

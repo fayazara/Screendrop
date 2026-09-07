@@ -240,9 +240,15 @@ final class AnnotationEditorModel {
     /// This is the only thing that puts annotations on disk, so every route
     /// out of the editor - Done, Save, Upload, the close prompt - goes
     /// through it.
+    private(set) var isCommitting = false
+
     @discardableResult
     func commitEdits() async throws -> URL? {
+        guard !isCommitting else { throw CocoaError(.userCancelled) }
         guard let sourceURL = self.sourceURL else { return nil }
+        isCommitting = true
+        defer { isCommitting = false }
+        var committedSnapshot = currentSnapshot()
 
         let baseURL = self.baseImageURL ?? sourceURL
         let shapes = self.shapes
@@ -269,7 +275,7 @@ final class AnnotationEditorModel {
                 bindings: bindings,
                 background: backgroundSettings
             )
-            resultURL = ScreenshotHistoryStore.shared.commitAnnotations(
+            resultURL = try ScreenshotHistoryStore.shared.commitAnnotations(
                 displayURL: sourceURL,
                 baseURL: baseURL,
                 renderedURL: annotatedURL,
@@ -279,11 +285,12 @@ final class AnnotationEditorModel {
         } else {
             // All annotations were cleared on a previously-edited image:
             // restore the untouched original.
-            resultURL = ScreenshotHistoryStore.shared.removeAnnotations(displayURL: sourceURL)
+            resultURL = try ScreenshotHistoryStore.shared.removeAnnotations(displayURL: sourceURL)
             self.baseImageURL = resultURL
         }
 
-        self.markSaved()
+        committedSnapshot.baseImageURL = self.baseImageURL
+        savedSnapshot = committedSnapshot
         return resultURL
     }
 

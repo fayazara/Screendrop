@@ -22,6 +22,7 @@ final class RecordingSourceCatalog {
     private init() {}
 
     func refresh() async {
+        guard !isLoading else { return }
         isLoading = true
         errorMessage = nil
 
@@ -30,6 +31,8 @@ final class RecordingSourceCatalog {
             displays = content.displays
             windows = Self.filteredWindows(from: content)
         } catch {
+            displays = []
+            windows = []
             errorMessage = error.localizedDescription
         }
 

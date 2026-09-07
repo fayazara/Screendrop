@@ -7,6 +7,7 @@ import AppKit
 import SwiftUI
 
 struct AnnotationKeyCommandHandler: NSViewRepresentable {
+    let isEnabled: () -> Bool
     let onDelete: () -> Void
     let onSave: () -> Void
     let onUndo: () -> Void
@@ -33,6 +34,7 @@ struct AnnotationKeyCommandHandler: NSViewRepresentable {
     }
 
     private func apply(to view: AnnotationKeyCommandHandlerView) {
+        view.isEnabled = isEnabled
         view.onDelete = onDelete
         view.onSave = onSave
         view.onUndo = onUndo
@@ -51,6 +53,7 @@ struct AnnotationKeyCommandHandler: NSViewRepresentable {
 }
 
 final class AnnotationKeyCommandHandlerView: NSView {
+    var isEnabled: (() -> Bool)?
     var onDelete: (() -> Void)?
     var onSave: (() -> Void)?
     var onUndo: (() -> Void)?
@@ -86,6 +89,8 @@ final class AnnotationKeyCommandHandlerView: NSView {
             guard let self, self.window?.isKeyWindow == true else {
                 return event
             }
+
+            guard self.isEnabled?() != false else { return nil }
 
             if Self.isSave(event) {
                 self.onSave?()

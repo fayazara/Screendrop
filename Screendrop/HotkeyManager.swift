@@ -6,9 +6,11 @@
 //
 
 import AppKit
+import Observation
 import Carbon.HIToolbox
 
 /// Registers system-wide global keyboard shortcuts for capture actions.
+@Observable
 final class HotkeyManager {
     
     static let shared = HotkeyManager()
@@ -16,7 +18,8 @@ final class HotkeyManager {
     private static let hotKeySignature = OSType(0x4F53_4854)
 
     private var eventHandlerRef: EventHandlerRef?
-    private var hotKeyRefs: [EventHotKeyRef] = []
+    private var hotKeyRefs: [CaptureHotkeyAction: EventHotKeyRef] = [:]
+    private(set) var registrationErrors: [CaptureHotkeyAction: String] = [:]
     
     private init() {}
 
@@ -35,6 +38,7 @@ final class HotkeyManager {
 
     func reloadHotkeys() {
         unregisterHotkeys()
+        registrationErrors.removeAll()
 
         var registeredShortcuts: Set<HotkeyShortcut> = []
         for action in CaptureHotkeyAction.allCases {
@@ -44,7 +48,11 @@ final class HotkeyManager {
                 continue
             }
 
-            registerHotKey(action: action, shortcut: shortcut)
+            do {
+                hotKeyRefs[action] = try registerHotKey(action: action, shortcut: shortcut)
+            } catch {
+                registrationErrors[action] = error.localizedDescription
+            }
         }
     }
 
@@ -73,27 +81,40 @@ final class HotkeyManager {
         }
     }
     
-    private func registerHotKey(action: CaptureHotkeyAction, shortcut: HotkeyShortcut) {
+    /// Register the replacement before releasing the working shortcut. A
+    /// rejected shortcut never changes either the preference or old binding.
+    func setShortcut(_ shortcut: HotkeyShortcut, for action: CaptureHotkeyAction) throws {
+        if shortcut == CaptureHotkeyPreferences.shortcut(for: action), hotKeyRefs[action] != nil { return }
+        installEventHandlerIfNeeded()
+        let newRef = try registerHotKey(action: action, shortcut: shortcut)
+        if let oldRef = hotKeyRefs[action] { UnregisterEventHotKey(oldRef) }
+        hotKeyRefs[action] = newRef
+        CaptureHotkeyPreferences.saveShortcut(shortcut, for: action)
+        registrationErrors[action] = nil
+    }
+
+    private func registerHotKey(action: CaptureHotkeyAction, shortcut: HotkeyShortcut) throws -> EventHotKeyRef {
+        guard eventHandlerRef != nil else {
+            throw NSError(domain: "Screendrop.Hotkeys", code: 1, userInfo: [
+                NSLocalizedDescriptionKey: "Keyboard shortcuts could not be initialized. Try reopening Screendrop."
+            ])
+        }
         let hotKeyID = EventHotKeyID(signature: Self.hotKeySignature, id: action.hotKeyID)
         var hotKeyRef: EventHotKeyRef?
-        
         let status = RegisterEventHotKey(
-            UInt32(shortcut.keyCode),
-            shortcut.modifiers.carbonEventModifiers,
-            hotKeyID,
-            GetApplicationEventTarget(), 0, &hotKeyRef
+            UInt32(shortcut.keyCode), shortcut.modifiers.carbonEventModifiers,
+            hotKeyID, GetApplicationEventTarget(), 0, &hotKeyRef
         )
-        
         guard status == noErr, let hotKeyRef else {
-            print("Failed to register \(action.title) hotkey \(shortcut.displayString), status=\(status)")
-            return
+            throw NSError(domain: NSOSStatusErrorDomain, code: Int(status), userInfo: [
+                NSLocalizedDescriptionKey: "\(shortcut.displayString) could not be registered. It may be used by another app. Choose a different shortcut."
+            ])
         }
-
-        hotKeyRefs.append(hotKeyRef)
+        return hotKeyRef
     }
 
     private func unregisterHotkeys() {
-        for hotKeyRef in hotKeyRefs {
+        for hotKeyRef in hotKeyRefs.values {
             UnregisterEventHotKey(hotKeyRef)
         }
 
