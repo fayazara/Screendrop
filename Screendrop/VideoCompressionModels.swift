@@ -96,7 +96,7 @@ enum VideoExportContainer: String, CaseIterable, Identifiable, Codable, Sendable
     /// Costs a container rewrite when the source is a QuickTime master.
     case mp4 = "MP4"
 
-    static let `default` = VideoExportContainer.mov
+    nonisolated static let `default` = VideoExportContainer.mov
 
     var id: String { rawValue }
 
@@ -110,7 +110,15 @@ enum VideoExportContainer: String, CaseIterable, Identifiable, Codable, Sendable
     }
 }
 
-struct VideoCompressionSettings: Codable, Equatable, Sendable {
+nonisolated enum VideoExportFrameRate: String, CaseIterable, Identifiable, Codable, Sendable {
+    case fps30 = "30 fps"
+    case fps60 = "60 fps"
+
+    var id: String { rawValue }
+    var framesPerSecond: Double { self == .fps30 ? 30 : 60 }
+}
+
+nonisolated struct VideoCompressionSettings: Codable, Equatable, Sendable {
     var quality: VideoCompressionQuality = .medium
     var speed: VideoCompressionSpeed = .fast
     var codec: VideoCompressionCodec = .h264
@@ -121,8 +129,22 @@ struct VideoCompressionSettings: Codable, Equatable, Sendable {
     /// on a missing key, and `loadEditDocument` swallows that with `try?` -
     /// a non-optional field here would silently discard the whole project.
     var container: VideoExportContainer?
+    /// Studio delivery options. Missing keys preserve the historical render
+    /// for existing projects, preferences, and cached-deliverable stamps.
+    var frameRate: VideoExportFrameRate?
+    var motionBlurEnabled: Bool?
 
     var effectiveContainer: VideoExportContainer { container ?? .default }
+    var effectiveFrameRate: VideoExportFrameRate { frameRate ?? .fps60 }
+    var effectiveMotionBlurEnabled: Bool { motionBlurEnabled ?? true }
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.quality == rhs.quality && lhs.speed == rhs.speed && lhs.codec == rhs.codec
+            && lhs.resolution == rhs.resolution && lhs.removeAudio == rhs.removeAudio
+            && lhs.container == rhs.container
+            && lhs.effectiveFrameRate == rhs.effectiveFrameRate
+            && lhs.effectiveMotionBlurEnabled == rhs.effectiveMotionBlurEnabled
+    }
 }
 
 struct VideoCompressionResult: Sendable {

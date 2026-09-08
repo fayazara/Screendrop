@@ -1,6 +1,17 @@
 # Recording Studio export performance
 
-Studio accelerates the screen's motion-blur pass with Metal. `RecordingStudioExporter` still computes the existing viewport geometry, 60 fps output cadence, one-frame shutter, adaptive 1–24 sample count, and running-average sample weights. It does not reduce the blur samples, output resolution, bitrate, or frame rate to gain speed.
+Studio accelerates the screen's motion-blur pass with Metal. Export Options offers independent **30 / 60 fps** and **Motion blur** controls. Defaults remain **60 fps with blur enabled**, preserving the existing viewport geometry, one-frame shutter, adaptive 1–24 sample count, and running-average sample weights.
+
+## Frame rate and motion blur
+
+`RecordingExportTiming` supplies the actual output clock, frame count, and shutter samples to `RecordingStudioExporter`; the encoder's expected-frame-rate hint uses the same value. Writer timestamps use integer frame ticks to avoid floating-point conversion jitter. A one-minute export produces 1,800 frames at 30 fps or 3,600 at 60 fps. Duration, clip speed, audio timing, output resolution, and bitrate selection are independent of this choice. Capture and interactive Studio preview remain at their existing cadence.
+
+- **Blur enabled:** the shutter spans one output frame, about 16.7 ms at 60 fps or 33.3 ms at 30 fps. The existing adaptive sampler can therefore choose more samples per moving frame at 30 fps. The Metal/Core Graphics selection policy remains the same.
+- **Blur disabled:** the screen is drawn once at the exact output frame time, without shutter sampling. Zooms, pans, cursor effects, camera, and captions continue to animate at the selected output rate. This does not remove motion blur already baked into source footage.
+
+Both choices are stored in the project's export settings, inherited by Share and on-demand Library rendering, and remembered for new recordings after confirmation. Missing settings fields decode as 60 fps and blur enabled. Equality treats omitted and explicit defaults identically, so old render stamps remain valid when the rendered settings are unchanged. A different frame rate or blur choice invalidates cached deliverables, including the container-only reuse path.
+
+30 fps halves output-frame submissions, not every stage of the export. Source decoding, audio processing, and file delivery still do work; speedups for these options require measurement on representative recordings. With the existing bitrate policy, 30 fps does not inherently halve the file size.
 
 ## Rendering policy
 
@@ -17,7 +28,7 @@ Metal and Core Graphics spatial filtering are **not pixel-identical**. Keeping t
 
 ## Settled screen reuse
 
-Sparse screen recordings often hold one decoded frame for several output ticks. `StudioScreenLayerCache` retains one byte-exact snapshot of the settled screen and backdrop, taken **before** drawing the cursor, press effects, camera, keystrokes, subtitles, or karaoke. Those overlays still render on every 60 fps tick. A different source buffer, viewport rectangle, output size, or a motion-blurred frame prevents reuse.
+Sparse screen recordings often hold one decoded frame for several output ticks. `StudioScreenLayerCache` retains one byte-exact snapshot of the settled screen and backdrop, taken **before** drawing the cursor, press effects, camera, keystrokes, subtitles, or karaoke. Those overlays still render on every output tick at the selected 30 or 60 fps. A different source buffer, viewport rectangle, output size, or a motion-blurred frame prevents reuse.
 
 The exporter only takes a snapshot when the next tick can reuse it. This avoids an extra copy on continuously changing footage and moving viewports. Snapshots have a hard **64 MiB** limit; larger canvases render normally. The cache also retains its decoded source buffer to prevent a recycled buffer from producing a false hit. Both belong to the current export and are released with the compositor. This optimization does not alter filtering, blur samples, frame rate, or encoding settings; its complete-export speedup has not yet been measured on representative recordings.
 
@@ -56,6 +67,8 @@ It also writes and decodes six frames each through H.264 and HEVC, exercising th
 
 ## Compare complete exports
 
+For the frame-rate/blur options, compare the same saved recording in all four combinations: 30/off, 30/on, 60/off, and 60/on, keeping resolution, quality, and codec fixed. Check smoothness, blur trails, captions, clip boundaries, and audio synchronization in the resulting files; the interactive preview does not simulate the export's blur or frame-rate selection.
+
 In **Edit Scheme → Run → Arguments → Environment Variables**, set:
 
 | Variable | Value | Purpose |
@@ -69,9 +82,23 @@ Run the same recording, edits, codec, resolution, and quality once with the CPU 
 Filter the Xcode console or Console.app by `StudioExport`. The log reports:
 
 - `frames` and `Metal blur frames`: how much of the export actually used the accelerated path.
+- `fps` and `motionBlur`: the selected output cadence and shutter-sampling policy.
 - `reusedScreenFrames`: output ticks that reused settled screen/backdrop pixels; overlays still rendered.
 - `renderSeconds`: cumulative screen composition plus existing overlays, including first-use GPU setup.
 - `writerWaitSeconds`: time waiting for the encoder input to accept a frame. Encoding also proceeds concurrently, so this is not total encoding time.
 - `totalSeconds`: successful exporter duration including preparation, decoding, rendering, audio work, and writer finalization. It excludes the subsequent save/copy to the user's destination or cloud upload.
 
 Compare zooms and pans, small text, rounded edges, crops/reframing, camera placement, cursor effects, subtitles, audio synchronization, and cancellation on representative projects. A successful build and the isolated checks do not establish complete-export performance or visual parity on those projects.
+
+## Frame-rate and blur option checks
+
+This standalone harness uses the production settings decoder and timing/sampling policy. It checks legacy settings, all four option combinations, cached-settings equality, the unchanged 60 fps shutter samples on analytical fixtures, and blur-off's single sample. It also writes and decodes synthetic H.264 and HEVC movies to verify frame counts, timestamps, nominal frame rates, and one-second playback duration. It does not launch Screendrop, exercise the complete Studio composition, or claim end-to-end export performance.
+
+```bash
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcrun swiftc \
+  -O -swift-version 6 -strict-concurrency=complete -default-isolation MainActor \
+  -module-cache-path /tmp/screendrop-metal-module-cache -parse-as-library \
+  Screendrop/VideoCompressionModels.swift Screendrop/RecordingExportTiming.swift \
+  scripts/check-recording-export-options.swift -o /tmp/screendrop-export-options-check
+/tmp/screendrop-export-options-check
+```

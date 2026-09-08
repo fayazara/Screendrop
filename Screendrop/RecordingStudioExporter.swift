@@ -25,10 +25,6 @@ import OSLog
 import SwiftUI
 
 nonisolated final class RecordingStudioExporter: @unchecked Sendable {
-    /// Fixed output cadence for both the writer's frame clock and the
-    /// compositor's motion-blur shutter - kept as one constant so they can
-    /// never drift apart.
-    private static let outputFrameRate: Double = 60
     private static let logger = Logger(subsystem: "com.fayazahmed.Screendrop", category: "StudioExport")
 
     struct Configuration: Sendable {
@@ -160,6 +156,7 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
         cancelFlag: CancelFlag,
         progress: @escaping @Sendable (Double) -> Void
     ) async throws -> URL {
+        let timing = RecordingExportTiming(settings: configuration.exportSettings)
         let sourceAsset = AVURLAsset(url: configuration.screenURL)
         let sourceDuration = try await sourceAsset.load(.duration).seconds
         let clipTimeline = configuration.clipTimeline.normalized(to: sourceDuration)
@@ -264,7 +261,7 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
                     height: canvasHeight,
                     quality: configuration.exportSettings.quality
                 ),
-                AVVideoExpectedSourceFrameRateKey: 60
+                AVVideoExpectedSourceFrameRateKey: timing.framesPerSecond
             ] as [String: Any]
         ]
         let videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: videoSettings)
@@ -320,7 +317,7 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
             subtitleStyle: configuration.subtitleStyle,
             karaokeTimeline: configuration.karaokeTimeline,
             includeBubble: cameraFeed != nil,
-            outputFrameInterval: 1 / Self.outputFrameRate,
+            timing: timing,
             reframe: configuration.reframe,
             fitContentAspect: configuration.fitContentAspect
         )
@@ -336,6 +333,7 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
                 compositor: compositor,
                 cameraFeed: cameraFeed,
                 clipTimeline: clipTimeline,
+                timing: timing,
                 cancelFlag: cancelFlag,
                 progress: progress
             )
@@ -376,6 +374,7 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
         compositor: StudioFrameCompositor,
         cameraFeed: CameraFrameFeed?,
         clipTimeline: RecordingClipTimeline,
+        timing: RecordingExportTiming,
         cancelFlag: CancelFlag,
         progress: @escaping @Sendable (Double) -> Void
     ) async throws {
@@ -386,9 +385,8 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
         // the last click). Each tick re-renders the newest source frame at
         // or before it; only writing on source arrivals would hold the last
         // zoomed frame through the move and then visibly jump.
-        let frameRate = Self.outputFrameRate
         let duration = clipTimeline.duration
-        let frameCount = max(1, Int((duration * frameRate).rounded()))
+        let frameCount = timing.frameCount(for: duration)
 
         func nextSourceFrame() -> (buffer: CVPixelBuffer, time: TimeInterval)? {
             while let sampleBuffer = output.copyNextSampleBuffer() {
@@ -405,12 +403,12 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
         var writerWaitSeconds = 0.0
         var renderedFrames = 0
         defer {
-            Self.logger.info("Export frames=\(renderedFrames) Metal blur frames=\(compositor.metalFrameCount) reusedScreenFrames=\(compositor.reusedScreenFrameCount) renderSeconds=\(renderSeconds) writerWaitSeconds=\(writerWaitSeconds)")
+            Self.logger.info("Export frames=\(renderedFrames) fps=\(timing.framesPerSecond) motionBlur=\(timing.motionBlurEnabled) Metal blur frames=\(compositor.metalFrameCount) reusedScreenFrames=\(compositor.reusedScreenFrameCount) renderSeconds=\(renderSeconds) writerWaitSeconds=\(writerWaitSeconds)")
         }
 
         for frame in 0..<frameCount {
             if cancelFlag.isCancelled { throw ExportError.cancelled }
-            let editorTime = Double(frame) / frameRate
+            let editorTime = timing.time(forFrame: frame)
             guard let location = clipTimeline.location(at: editorTime) else { break }
             let sourceTime = location.sourceTime
 
@@ -450,7 +448,7 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
             }
 
             let cameraBuffer = cameraFeed?.latestFrame(at: sourceTime)
-            let nextTime = Double(frame + 1) / frameRate
+            let nextTime = timing.time(forFrame: frame + 1)
             let sourceRepeats = (pending == nil || pending!.time > nextTime)
                 && clipTimeline.location(at: nextTime)?.segmentID == location.segmentID
             let renderStart = CFAbsoluteTimeGetCurrent()
@@ -467,7 +465,7 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
             renderSeconds += CFAbsoluteTimeGetCurrent() - renderStart
             renderedFrames += 1
 
-            let pts = CMTime(seconds: editorTime, preferredTimescale: 600)
+            let pts = timing.presentationTime(forFrame: frame)
             if !adaptor.append(destinationBuffer, withPresentationTime: pts) {
                 throw ExportError.writerFailed(nil)
             }
@@ -626,11 +624,7 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
     private let pointerScale: CGFloat
     private let colorSpace: CGColorSpace
     private let backdrop: CGImage?
-    /// Fixed output cadence, matching `pumpVideo`'s frame clock. Since the
-    /// output timeline is gapless by construction, the shutter window for
-    /// motion-blur supersampling is always exactly one output frame - no
-    /// need to measure elapsed time between calls.
-    private let outputFrameInterval: TimeInterval
+    private let timing: RecordingExportTiming
     private var metalRenderer: StudioMetalScreenRenderer?
     private var metalFailed = false
     private(set) var metalFrameCount = 0
@@ -653,7 +647,7 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
         subtitleStyle: SubtitleBarStyle = SubtitleBarStyle(),
         karaokeTimeline: KaraokeTimeline? = nil,
         includeBubble: Bool,
-        outputFrameInterval: TimeInterval = 1.0 / 60.0,
+        timing: RecordingExportTiming,
         reframe: ReframeTrack? = nil,
         fitContentAspect: CGFloat? = nil
     ) {
@@ -676,7 +670,7 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
         self.subtitleStyle = subtitleStyle
         self.karaokeTimeline = karaokeTimeline
         self.reframe = reframe
-        self.outputFrameInterval = outputFrameInterval
+        self.timing = timing
         self.pointerScale = style.cursorScale
         self.colorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
         self.backdrop = Self.renderBackdrop(
@@ -702,15 +696,11 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
         sourceRepeatsOnNextFrame: Bool,
         into destination: CVPixelBuffer
     ) throws {
-        // Preserve the original shutter times and adaptive sample count.
         // Metal completes before the CPU locks this IOSurface for overlays.
-        let shutter = outputFrameInterval
-        let sampleCount = blurSampleCount(at: editorTime, shutter: shutter)
-        let sampleRects = (0..<sampleCount).map { sample in
-            let sampleTime = editorTime - shutter / 2
-                + shutter * (Double(sample) + 0.5) / Double(sampleCount)
-            return layout.frameRect(for: viewportFrame(at: sampleTime))
+        let sampleRects = timing.screenSampleRects(at: editorTime) { time in
+            layout.frameRect(for: viewportFrame(at: time))
         }
+        let sampleCount = sampleRects.count
         let reusedScreen = !bypassScreenCache && sampleCount == 1 && screenLayerCache.restore(
             source: screenFrame, rect: sampleRects[0], into: destination
         )
@@ -719,7 +709,7 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
         // Cache only a settled layer that can be reused on the next tick.
         // Moving frames and continuously changing video avoid the extra copy.
         let shouldCacheScreen = !bypassScreenCache && sourceRepeatsOnNextFrame && sampleCount == 1
-            && sampleRects[0] == layout.frameRect(for: viewportFrame(at: editorTime + outputFrameInterval))
+            && sampleRects[0] == layout.frameRect(for: viewportFrame(at: editorTime + timing.frameInterval))
         var renderedWithMetal = false
         if !reusedScreen, !forceCoreGraphics, !metalFailed,
            StudioMetalScreenRenderer.shouldAccelerate(screenFrame: screenFrame, sampleRects: sampleRects) {
@@ -843,20 +833,6 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
         // The subtitle bar lives in canvas space - over the background too,
         // not just the card - and above everything else, camera included.
         drawSubtitleBar(at: sourceTime, in: context)
-    }
-
-    /// How many shutter sub-samples this frame needs: one when the camera is
-    /// still, up to twenty-four when it sweeps, spaced so consecutive samples
-    /// land roughly two output pixels apart.
-    private func blurSampleCount(at editorTime: TimeInterval, shutter: TimeInterval) -> Int {
-        let a = layout.frameRect(for: viewportFrame(at: editorTime - shutter / 2))
-        let b = layout.frameRect(for: viewportFrame(at: editorTime + shutter / 2))
-        let displacement = max(
-            max(abs(a.minX - b.minX), abs(a.minY - b.minY)),
-            max(abs(a.maxX - b.maxX), abs(a.maxY - b.maxY))
-        )
-        guard displacement > 1.5 else { return 1 }
-        return min(24, max(2, Int((displacement / 2).rounded(.up))))
     }
 
     private func drawPointer(editorTime: TimeInterval, in context: CGContext) {

@@ -321,9 +321,11 @@ Transcript cuts update the video timeline and captions together and remain undoa
 
 Studio exports the complete composition-screen, camera, backgrounds, zooms, cursor, click effects, keystrokes, captions, edits, speed changes, and selected audio-in one render.
 
-You can choose quality, codec, resolution, and whether to include audio. Export and Share show progress, can be cancelled, and report completion. Renders are cached against the project state, so exporting or sharing the same edit again can reuse finished work.
+Export Options includes quality, codec, resolution, format, **30 / 60 fps**, **Motion blur**, and audio. The defaults remain 60 fps with motion blur enabled. Choose 30 fps and turn motion blur off to reduce rendering work, or keep either feature independently. Confirmed options are remembered for new recordings and saved with the project; Share uses the same project settings. Existing projects retain their original 60 fps and blur behavior until you change them.
 
-Studio uses Metal to accelerate eligible motion-blur frames while retaining the existing shutter timing and temporal samples. Core Graphics remains available for unsupported frames and devices. See [export performance](docs/export-performance.md) for the rendering policy, benchmarks, and comparison workflow.
+Export and Share show progress, can be cancelled, and report completion. Renders are cached against the project state, including frame rate and motion blur, so exporting or sharing the same edit again can reuse finished work.
+
+Studio uses Metal to accelerate eligible motion-blur frames. Blur-on uses a one-frame shutter at the selected frame rate; blur-off draws the screen once at each frame's camera position. Core Graphics remains available for unsupported frames and devices. See [export performance](docs/export-performance.md) for the rendering policy, benchmarks, and comparison workflow.
 
 Screendrop also includes a lightweight trim-and-compress editor for regular video files. FFmpeg enables its conversion and compression options:
 

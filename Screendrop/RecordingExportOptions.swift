@@ -35,7 +35,7 @@ enum RecordingExportPreferences {
 }
 
 /// The options form shown from the Export button: quality, codec, resolution,
-/// container, and whether to keep audio. Confirming hands back the settings
+/// container, frame rate, motion blur, and audio. Confirming hands back the settings
 /// and remembers them.
 struct RecordingExportOptionsPopover: View {
     let initialSettings: VideoCompressionSettings
@@ -63,6 +63,20 @@ struct RecordingExportOptionsPopover: View {
             segmented("Quality", options: VideoCompressionQuality.allCases, selection: $settings.quality)
             segmented("Codec", options: VideoCompressionCodec.allCases, selection: $settings.codec)
             segmented("Resolution", options: VideoCompressionResolution.allCases, selection: $settings.resolution)
+            segmented(
+                "Frame rate",
+                options: VideoExportFrameRate.allCases,
+                selection: Binding(
+                    get: { settings.effectiveFrameRate },
+                    set: { settings.frameRate = $0 }
+                )
+            )
+
+            toggle("Motion blur", isOn: Binding(
+                get: { settings.effectiveMotionBlurEnabled },
+                set: { settings.motionBlurEnabled = $0 }
+            ))
+            .help("Soften motion during zooms and pans. Turn off for faster exports with sharper motion.")
 
             // `container` is optional on disk for backwards compatibility,
             // but the control always shows a concrete choice.
@@ -80,21 +94,10 @@ struct RecordingExportOptionsPopover: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            HStack(spacing: 8) {
-                Text("Include audio")
-                    .font(.inspectorLabel)
-                    .foregroundStyle(.primary.opacity(0.82))
-
-                Spacer(minLength: 8)
-
-                Toggle("Include audio", isOn: Binding(
-                    get: { !settings.removeAudio },
-                    set: { settings.removeAudio = !$0 }
-                ))
-                .labelsHidden()
-                .toggleStyle(.switch)
-                .controlSize(.small)
-            }
+            toggle("Include audio", isOn: Binding(
+                get: { !settings.removeAudio },
+                set: { settings.removeAudio = !$0 }
+            ))
             .padding(.top, 2)
 
             HStack(spacing: 8) {
@@ -130,9 +133,22 @@ struct RecordingExportOptionsPopover: View {
     private var formatHint: String {
         switch settings.effectiveContainer {
         case .mov:
-            "The recording's native format. Exports without re-writing the file."
+            "Native QuickTime format for Apple apps."
         case .mp4:
             "Plays on more platforms, including Windows, browsers, and Slack."
+        }
+    }
+
+    private func toggle(_ title: String, isOn: Binding<Bool>) -> some View {
+        HStack(spacing: 8) {
+            Text(title)
+                .font(.inspectorLabel)
+                .foregroundStyle(.primary.opacity(0.82))
+            Spacer(minLength: 8)
+            Toggle(title, isOn: isOn)
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .controlSize(.small)
         }
     }
 

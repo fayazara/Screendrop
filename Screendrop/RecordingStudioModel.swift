@@ -420,6 +420,12 @@ final class RecordingStudioModel {
         // A project that never chose its own settings inherits whatever
         // was picked last, so "export as MP4" sticks across recordings.
         exportSettings = document.exportSettings ?? RecordingExportPreferences.lastSettings
+        if document.exportSettings == nil {
+            // Old projects without export settings may inherit quality/codec
+            // preferences, but keep their original cadence and blur policy.
+            exportSettings.frameRate = nil
+            exportSettings.motionBlurEnabled = nil
+        }
         showsClickEffects = document.showsClickEffects ?? showsClickEffects
         showsKeystrokes = document.showsKeystrokes ?? true
         keystrokePlacement = document.keystrokePlacement ?? .bottomCenter
