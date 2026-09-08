@@ -111,6 +111,7 @@ final class CaptureCoordinator {
         // The self-timer is handled by screencapture's `-T` so the delay
         // happens *after* the area is drawn, not before.
         guard let url = await ScreenshotManager.shared.captureArea(
+            includeShadow: ScreendropPreferences.captureWindowShadow,
             delaySeconds: ScreendropPreferences.captureDelaySeconds
         ) else { return nil }
         let displayID = ActiveDisplayResolver.activeDisplayID(preferPointer: true)

@@ -72,10 +72,16 @@ final class ScreenshotManager {
     // MARK: - Area Capture
     
     /// Uses the native macOS screencapture tool for interactive area drag selection.
-    /// `-s` = drag to select area, `-t png` = lossless PNG. `delaySeconds` maps
-    /// to `-T`, firing after the area has been drawn.
-    func captureArea(delaySeconds: Int = 0) async -> URL? {
-        return await runScreencapture(args: ["-s"] + delayArguments(delaySeconds))
+    /// `-i` = interactive mode (starts in area selection mode and supports pressing Space to switch to window selection),
+    /// `-o` = no shadow, `-t png` = lossless PNG. `delaySeconds` maps
+    /// to `-T`, firing after the area/window has been chosen.
+    func captureArea(includeShadow: Bool = false, delaySeconds: Int = 0) async -> URL? {
+        var args = ["-i"]
+        if !includeShadow {
+            args.append("-o")
+        }
+        args.append(contentsOf: delayArguments(delaySeconds))
+        return await runScreencapture(args: args)
     }
 
     /// Builds the `-T <seconds>` delay arguments, or none when the timer is off.
