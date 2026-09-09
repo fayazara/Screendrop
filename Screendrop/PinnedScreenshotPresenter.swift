@@ -103,12 +103,14 @@ private final class PinnedPanel: NSPanel {
 
         // Trackpads report pixel deltas; discrete wheels report lines, which
         // Apple docs say to scale by a line height for parity.
+        // https://developer.apple.com/documentation/appkit/nsevent/scrollingdeltay
         let rawDelta = event.scrollingDeltaY
         guard rawDelta != 0 else { return }
         let points = event.hasPreciseScrollingDeltas ? rawDelta : rawDelta * 20
 
         // `scrollingDeltaY` follows the user's Natural Scroll setting, so
         // un-invert it: physical scroll-up must always restore opacity.
+        // https://developer.apple.com/documentation/appkit/nsevent/isdirectioninvertedfromdevice
         let physicalUp = event.isDirectionInvertedFromDevice ? -points : points
 
         let sensitivity: CGFloat = 0.002
