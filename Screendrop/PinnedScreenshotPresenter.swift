@@ -107,8 +107,12 @@ private final class PinnedPanel: NSPanel {
         guard rawDelta != 0 else { return }
         let points = event.hasPreciseScrollingDeltas ? rawDelta : rawDelta * 20
 
+        // `scrollingDeltaY` follows the user's Natural Scroll setting, so
+        // un-invert it: physical scroll-up must always restore opacity.
+        let physicalUp = event.isDirectionInvertedFromDevice ? -points : points
+
         let sensitivity: CGFloat = 0.002
-        alphaValue = min(1, max(0.2, alphaValue + points * sensitivity))
+        alphaValue = min(1, max(0.2, alphaValue + physicalUp * sensitivity))
     }
 }
 
