@@ -92,6 +92,24 @@ final class PinnedScreenshotPresenter {
 private final class PinnedPanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
+
+    /// Scroll over a pin to fade it in/out. Handled at the window level so it
+    /// only fires when the cursor is over the pin, and applied via
+    /// `alphaValue` so the compositor blends the existing buffer without
+    /// re-rendering the SwiftUI image view.
+    override func scrollWheel(with event: NSEvent) {
+        // Ignore momentum coasting so a flick doesn't keep fading after release.
+        guard event.momentumPhase.isEmpty else { return }
+
+        // Trackpads report pixel deltas; discrete wheels report lines, which
+        // Apple docs say to scale by a line height for parity.
+        let rawDelta = event.scrollingDeltaY
+        guard rawDelta != 0 else { return }
+        let points = event.hasPreciseScrollingDeltas ? rawDelta : rawDelta * 20
+
+        let sensitivity: CGFloat = 0.002
+        alphaValue = min(1, max(0.2, alphaValue + points * sensitivity))
+    }
 }
 
 private struct PinnedScreenshotView: View {
