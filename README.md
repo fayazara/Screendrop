@@ -140,6 +140,7 @@ New captures appear as floating cards on the active display. From a card you can
 - Save it to disk.
 - Create a smaller JPEG.
 - Pin a screenshot as an always-on-top reference.
+- Scroll over a pinned screenshot to adjust its opacity.
 - Open Quick Look.
 - Annotate a screenshot or edit a recording.
 - Upload to your cloud and copy the link.
