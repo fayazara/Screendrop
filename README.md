@@ -146,6 +146,8 @@ New captures appear as floating cards on the active display. From a card you can
 - Delete the file or dismiss only the preview.
 - Copy recognized text from a screenshot using on-device OCR.
 
+Click a pinned screenshot and press `1`–`9` to set its opacity from 10%–90%, or press `0` to restore 100% opacity. These number-key controls are scoped to the focused pinned screenshot.
+
 The overlay can appear on the left or right, close automatically after a chosen delay, and dismiss after a drag. Its actions are completely rearrangeable: drag actions between four corner slots, the center buttons, and a hidden-actions tray in **Settings → Overlay**.
 
 Opening Save keeps a screenshot preview available if you cancel or saving fails. If a screenshot cannot be written to the configured export folder, choose another location or retry from the error dialog.
