@@ -43,6 +43,7 @@ struct OverlaySettingsPane: View {
     @AppStorage(ScreendropPreferences.previewPositionKey) private var previewPositionRaw = PreviewOverlayPosition.right.rawValue
     @AppStorage(ScreendropPreferences.previewAutoCloseSecondsKey) private var autoCloseSeconds = 0
     @AppStorage(ScreendropPreferences.previewCloseAfterDraggingKey) private var closeAfterDragging = true
+    @AppStorage(ScreendropPreferences.previewCloseAfterCopyingKey) private var closeAfterCopying = true
 
     private let autoCloseOptions: [Int] = [0, 5, 10, 30, 60]
 
@@ -76,6 +77,16 @@ struct OverlaySettingsPane: View {
                         "Close after dragging",
                         detail: "Dismiss the preview once you drag it out to another app."
                     )
+                }
+                .toggleStyle(.switch)
+
+                Toggle(isOn: $closeAfterCopying) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Close after Ctrl+C")
+                        Text("Copy and dismiss the focused preview when you press Ctrl+C.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 .toggleStyle(.switch)
             }
