@@ -114,7 +114,7 @@ final class ScreenshotPreviewStack {
         }
 
         if AfterCaptureActions.isEnabled(.upload, for: type) {
-            autoUpload(itemID: itemID, url: url)
+            autoUpload(type: type, itemID: itemID, url: url)
         }
 
         switch type {
@@ -134,7 +134,7 @@ final class ScreenshotPreviewStack {
         }
     }
 
-    private func autoUpload(itemID: UUID, url: URL) {
+    private func autoUpload(type: AfterCaptureType, itemID: UUID, url: URL) {
         guard CloudUploader.shared.isConfigured else { return }
         Task {
             do {
@@ -145,8 +145,10 @@ final class ScreenshotPreviewStack {
                     fileURL: url,
                     socialEnabled: CloudUploadPreferences.lastSocialEnabled
                 )
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(result.url, forType: .string)
+                if AfterCaptureActions.isEnabled(.copyShareLink, for: type) {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(result.url, forType: .string)
+                }
                 ScreenshotHistoryStore.shared.setCloudURL(for: url, cloudURL: result.url)
             } catch {
                 print("Auto cloud upload failed: \(error)")
