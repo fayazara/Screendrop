@@ -3205,6 +3205,18 @@ private struct StudioInspector: View {
 
     private var cameraControls: some View {
         VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
+            InspectorGroupLabel("Aspect")
+            InspectorSegmented(
+                options: RecordingCameraAspectRatio.allCases,
+                isSelected: { $0 == model.style.camera.aspectRatio },
+                onTap: { model.style.camera.aspectRatio = $0 },
+                label: { aspect in
+                    Text(aspect.title)
+                        .font(.inspectorLabel)
+                        .help(aspect.help)
+                }
+            )
+
             InspectorSlider(
                 "Size",
                 value: $model.style.camera.size,

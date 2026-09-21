@@ -10,6 +10,30 @@
 import CoreGraphics
 import Foundation
 
+nonisolated enum RecordingCameraAspectRatio: String, Codable, CaseIterable, Sendable {
+    case square = "1:1"
+    case portrait3x4 = "3:4"
+    case landscape4x3 = "4:3"
+
+    var title: String { rawValue }
+
+    var help: String {
+        switch self {
+        case .square: "Square 1:1"
+        case .portrait3x4: "Portrait 3:4"
+        case .landscape4x3: "Landscape 4:3"
+        }
+    }
+
+    var ratio: CGFloat {
+        switch self {
+        case .square: 1.0
+        case .portrait3x4: 3.0 / 4.0
+        case .landscape4x3: 4.0 / 3.0
+        }
+    }
+}
+
 /// The floating talking-head bubble composited over the recording.
 struct RecordingCameraBubbleSettings: Equatable {
     var isVisible = true
@@ -19,6 +43,7 @@ struct RecordingCameraBubbleSettings: Equatable {
     var size: CGFloat = 0.26
     /// 0.5 = circle, smaller values square the bubble off.
     var roundness: CGFloat = 0.25
+    var aspectRatio: RecordingCameraAspectRatio = .square
 }
 
 struct RecordingEditDocument: Codable, Equatable {
@@ -277,6 +302,7 @@ struct StoredRecordingStudioStyle: Codable, Equatable {
     var cameraCenterY: Double
     var cameraSize: Double
     var cameraRoundness: Double
+    var cameraAspectRatio: String?
 
     init(_ style: RecordingStudioStyle) {
         switch style.background {
@@ -298,6 +324,7 @@ struct StoredRecordingStudioStyle: Codable, Equatable {
         cameraCenterY = Double(style.camera.center.y)
         cameraSize = Double(style.camera.size)
         cameraRoundness = Double(style.camera.roundness)
+        cameraAspectRatio = style.camera.aspectRatio.rawValue
     }
 
     var value: RecordingStudioStyle {
@@ -323,7 +350,8 @@ struct StoredRecordingStudioStyle: Codable, Equatable {
                 isVisible: cameraIsVisible,
                 center: CGPoint(x: cameraCenterX, y: cameraCenterY),
                 size: CGFloat(cameraSize),
-                roundness: CGFloat(cameraRoundness)
+                roundness: CGFloat(cameraRoundness),
+                aspectRatio: cameraAspectRatio.flatMap(RecordingCameraAspectRatio.init(rawValue:)) ?? .square
             )
         )
     }
@@ -504,20 +532,23 @@ nonisolated struct RecordingStudioLayout: Sendable {
         var bubbleRect = CGRect.zero
         var bubbleCornerRadius: CGFloat = 0
         if includeBubble, style.camera.isVisible {
-            let diameter = max(24, style.camera.size * minDimension)
+            let baseSize = max(24, style.camera.size * minDimension)
+            let ratio = style.camera.aspectRatio.ratio
+            let bubbleWidth = (baseSize * sqrt(ratio)).rounded()
+            let bubbleHeight = (baseSize / sqrt(ratio)).rounded()
             var center = CGPoint(
                 x: style.camera.center.x * canvasSize.width,
                 y: style.camera.center.y * canvasSize.height
             )
-            center.x = min(max(center.x, diameter / 2), canvasSize.width - diameter / 2)
-            center.y = min(max(center.y, diameter / 2), canvasSize.height - diameter / 2)
+            center.x = min(max(center.x, bubbleWidth / 2), canvasSize.width - bubbleWidth / 2)
+            center.y = min(max(center.y, bubbleHeight / 2), canvasSize.height - bubbleHeight / 2)
             bubbleRect = CGRect(
-                x: center.x - diameter / 2,
-                y: center.y - diameter / 2,
-                width: diameter,
-                height: diameter
+                x: center.x - bubbleWidth / 2,
+                y: center.y - bubbleHeight / 2,
+                width: bubbleWidth,
+                height: bubbleHeight
             )
-            bubbleCornerRadius = max(4, style.camera.roundness * diameter)
+            bubbleCornerRadius = max(4, style.camera.roundness * min(bubbleWidth, bubbleHeight))
         }
 
         var contentFillSize = cardRect.size
