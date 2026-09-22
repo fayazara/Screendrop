@@ -1,0 +1,19 @@
+appcast.xml
+  s_d5ac45c103c12b::t_ffaa30037a37d0 29-50
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "eb2e4e265ce0ffd87931e891f204983a7c4e3482",
+  "prompts": {},
+  "sessions": {
+    "s_d5ac45c103c12b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0c83a-b917-73e0-a57f-7aea935802a7",
+        "model": "unknown"
+      },
+      "human_author": "fayazara <fayazara@gmail.com>"
+    }
+  }
+}
