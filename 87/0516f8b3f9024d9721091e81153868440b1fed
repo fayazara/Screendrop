@@ -1,0 +1,19 @@
+Screendrop.xcodeproj/project.pbxproj
+  s_d5ac45c103c12b::t_7ea189ad670a2d 270,290,312,332,418,438
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "870516f8b3f9024d9721091e81153868440b1fed",
+  "prompts": {},
+  "sessions": {
+    "s_d5ac45c103c12b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0c83a-b917-73e0-a57f-7aea935802a7",
+        "model": "unknown"
+      },
+      "human_author": "fayazara <fayazara@gmail.com>"
+    }
+  }
+}
