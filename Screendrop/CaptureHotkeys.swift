@@ -152,6 +152,7 @@ enum CaptureHotkeyAction: String, CaseIterable, Identifiable {
     case area
     case screenRecording
     case textCapture
+    case timedCapture
 
     var id: Self { self }
 
@@ -162,6 +163,7 @@ enum CaptureHotkeyAction: String, CaseIterable, Identifiable {
         case .area: 3
         case .screenRecording: 4
         case .textCapture: 5
+        case .timedCapture: 6
         }
     }
 
@@ -172,6 +174,7 @@ enum CaptureHotkeyAction: String, CaseIterable, Identifiable {
         case .area: "Area"
         case .screenRecording: "Screen Recording"
         case .textCapture: "Capture Text"
+        case .timedCapture: "Capture on Timer"
         }
     }
 
@@ -187,6 +190,8 @@ enum CaptureHotkeyAction: String, CaseIterable, Identifiable {
             HotkeyShortcut(modifiers: [.option], keyCode: Int(kVK_ANSI_4))
         case .textCapture:
             HotkeyShortcut(modifiers: [.option], keyCode: Int(kVK_ANSI_5))
+        case .timedCapture:
+            HotkeyShortcut(modifiers: [.option], keyCode: Int(kVK_ANSI_6))
         }
     }
 
@@ -202,6 +207,8 @@ enum CaptureHotkeyAction: String, CaseIterable, Identifiable {
             ScreendropPreferences.screenRecordingHotkeyKey
         case .textCapture:
             ScreendropPreferences.textCaptureHotkeyKey
+        case .timedCapture:
+            ScreendropPreferences.timedCaptureHotkeyKey
         }
     }
 
@@ -227,6 +234,8 @@ enum CaptureHotkeyAction: String, CaseIterable, Identifiable {
             }
         case .textCapture:
             CaptureCoordinator.shared.captureText()
+        case .timedCapture:
+            CaptureCoordinator.shared.captureOnTimer()
         }
     }
 }

@@ -11,10 +11,12 @@ struct ScreenshotsSettingsPane: View {
     @AppStorage(ScreendropPreferences.compressionQualityKey) private var compressionQuality = 0.8
     @AppStorage(ScreendropPreferences.captureWindowShadowKey) private var captureWindowShadow = false
     @AppStorage(ScreendropPreferences.captureDelaySecondsKey) private var captureDelaySeconds = 0
+    @AppStorage(ScreendropPreferences.timedCaptureDelaySecondsKey) private var timedCaptureDelaySeconds = 5
     @AppStorage(ScreendropPreferences.lowResolutionEditorPreviewKey) private var lowResolutionEditorPreview = true
     @AppStorage(ScreendropPreferences.trimFullscreenMenuBarKey) private var trimFullscreenMenuBar = true
 
     private let delayOptions: [Int] = [0, 3, 5, 10]
+    private let timedCaptureDelayOptions: [Int] = [3, 5, 10]
 
     private var exportFormat: ScreenshotExportFormat {
         get {
@@ -28,7 +30,7 @@ struct ScreenshotsSettingsPane: View {
 
     var body: some View {
         Form {
-            CaptureHotkeySettingsSection(actions: [.fullscreen, .window, .area, .textCapture])
+            CaptureHotkeySettingsSection(actions: [.fullscreen, .window, .area, .textCapture, .timedCapture])
 
             Section("Capture") {
                 Picker(selection: $captureDelaySeconds) {
@@ -39,6 +41,17 @@ struct ScreenshotsSettingsPane: View {
                     SettingsControlLabel(
                         "Self-timer",
                         detail: "Show a countdown before the capture is taken."
+                    )
+                }
+
+                Picker(selection: $timedCaptureDelaySeconds) {
+                    ForEach(timedCaptureDelayOptions, id: \.self) { seconds in
+                        Text("\(seconds) seconds").tag(seconds)
+                    }
+                } label: {
+                    SettingsControlLabel(
+                        "Capture on Timer",
+                        detail: "How long Capture on Timer counts down before capturing the screen under the pointer. Other capture modes aren't affected."
                     )
                 }
 

@@ -49,6 +49,10 @@ final class CaptureCoordinator {
         Task { await performCaptureText() }
     }
 
+    func captureOnTimer() {
+        Task { await performCaptureOnTimer() }
+    }
+
     // MARK: - Awaitable Capture Actions
 
     /// Awaitable variants for callers (App Intents / Shortcuts) that need the
@@ -153,6 +157,25 @@ final class CaptureCoordinator {
             CaptureFeedbackSound.play()
         }
         return .copied(text)
+    }
+
+    /// Capture on Timer counts down first, then captures the whole display
+    /// with no selection UI, so menus, hover states, and tooltips opened
+    /// during the countdown are still on screen for the shot. It uses its own
+    /// delay and never the self-timer, so the two never stack.
+    @discardableResult
+    private func performCaptureOnTimer() async -> URL? {
+        guard await CaptureCountdownPresenter.shared.runIfNeeded(
+            seconds: ScreendropPreferences.timedCaptureDelaySeconds,
+            displayID: ActiveDisplayResolver.activeDisplayID(preferPointer: true)
+        ) else { return nil }
+
+        // Resolved after the countdown: the pointer is on whatever the user
+        // just opened, which may be on a different display by now.
+        let displayID = ActiveDisplayResolver.activeDisplayID(preferPointer: true)
+        PreviewWindowPlacement.shared.setTargetDisplayID(displayID)
+        guard let url = await ScreenshotManager.shared.captureFullscreen(displayID: displayID) else { return nil }
+        return finishCapture(url: url, displayID: displayID)
     }
 
     func recordFullscreen(_ display: SCDisplay) {
