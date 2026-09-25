@@ -135,6 +135,12 @@ private struct HotkeyShortcutDisplay: View {
                 HotkeyKeyCap(token: token)
             }
         }
+        // Expose the shortcut as one static text element. A label on the bare
+        // HStack is pushed onto each key cap Text, and on macOS 27 SwiftUI
+        // recurses reading it back when an accessibility client inspects
+        // Settings, crashing the app.
+        .accessibilityElement(children: .ignore)
+        .accessibilityAddTraits(.isStaticText)
         .accessibilityLabel(shortcut.displayString)
     }
 }
