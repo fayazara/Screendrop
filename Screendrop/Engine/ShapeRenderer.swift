@@ -80,15 +80,30 @@ enum AnnoShapeRenderer {
 
     private static func textElements(_ props: TextProps) -> [RenderElement] {
         guard !props.text.isEmpty else { return [] }
-        return [RenderElement(
-            content: .glyphs(TextMeasure.glyphPath(props)),
+        let glyphs = TextMeasure.glyphPath(props)
+        var elements: [RenderElement] = []
+
+        // The outline goes first, as its own element, so the fill lands on top of it and only the
+        // outer half of the stroke shows (see `TextMeasure.outlineStrokeWidth`).
+        if let outline = props.activeOutline {
+            elements.append(RenderElement(
+                content: .glyphs(glyphs),
+                fill: nil,
+                stroke: outline.swatch.nsColor,
+                strokeWidth: TextMeasure.outlineStrokeWidth(props)
+            ))
+        }
+
+        elements.append(RenderElement(
+            content: .glyphs(glyphs),
             fill: props.swatch.nsColor,
             stroke: nil,
             // Non-zero, not even-odd. OpenType contours are wound so that counters (the hole in an
             // "o") come out hollow under non-zero anyway, and even-odd additionally punches a hole
             // wherever two glyphs overlap - which at bold weights is most of a sentence.
             usesEvenOddFill: false
-        )]
+        ))
+        return elements
     }
 
     // MARK: - Draw
