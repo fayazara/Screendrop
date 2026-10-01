@@ -21,12 +21,14 @@ enum ScreendropPreferences {
     static let windowHotkeyKey = "captureHotkey.window"
     static let areaHotkeyKey = "captureHotkey.area"
     static let textCaptureHotkeyKey = "captureHotkey.textCapture"
+    static let timedCaptureHotkeyKey = "captureHotkey.timedCapture"
     static let screenRecordingHotkeyKey = "captureHotkey.screenRecording"
     static let playSoundsKey = "playSounds"
     static let showMenuBarIconKey = "showMenuBarIcon"
     static let includeAppWindowsInCapturesKey = "includeAppWindowsInCaptures"
     static let captureWindowShadowKey = "captureWindowShadow"
     static let captureDelaySecondsKey = "captureDelaySeconds"
+    static let timedCaptureDelaySecondsKey = "timedCaptureDelaySeconds"
     static let previewPositionKey = "previewPosition"
     static let previewAutoCloseSecondsKey = "previewAutoCloseSeconds"
     static let previewCloseAfterDraggingKey = "previewCloseAfterDragging"
@@ -170,6 +172,16 @@ enum ScreendropPreferences {
     /// Countdown delay (in seconds) before a capture is taken. 0 means off.
     static var captureDelaySeconds: Int {
         max(0, UserDefaults.standard.integer(forKey: captureDelaySecondsKey))
+    }
+
+    /// Countdown (in seconds) for the Capture on Timer action. Separate from
+    /// `captureDelaySeconds`, so it never delays the other capture modes.
+    /// Defaults to 5.
+    static var timedCaptureDelaySeconds: Int {
+        if UserDefaults.standard.object(forKey: timedCaptureDelaySecondsKey) == nil {
+            return 5
+        }
+        return max(1, UserDefaults.standard.integer(forKey: timedCaptureDelaySecondsKey))
     }
 
     /// Which screen corner the preview overlay docks to.

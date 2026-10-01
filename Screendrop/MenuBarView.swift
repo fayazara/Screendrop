@@ -42,6 +42,12 @@ struct MenuBarView: View {
             }
 
             Button {
+                CaptureCoordinator.shared.captureOnTimer()
+            } label: {
+                Label("Capture on Timer", systemImage: "timer")
+            }
+
+            Button {
                 RecordingPickerPresenter.shared.show()
             } label: {
                 Label("Record Screen", systemImage: "record.circle")

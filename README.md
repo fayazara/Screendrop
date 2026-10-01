@@ -83,8 +83,9 @@ Screendrop can be controlled from its menu bar item or with global hotkeys.
 | `Option + 3` | Capture an area |
 | `Option + 4` | Open the screen-recording picker |
 | `Option + 5` | Capture text (OCR) to the clipboard |
+| `Option + 6` | Capture the screen after a countdown |
 
-All five shortcuts are customizable under **Settings → Screenshots** and **Settings → Screen Recordings**. If a replacement shortcut cannot be registered, Settings explains the failure and keeps your previous working shortcut.
+All six shortcuts are customizable under **Settings → Screenshots** and **Settings → Screen Recordings**. If a replacement shortcut cannot be registered, Settings explains the failure and keeps your previous working shortcut.
 
 You can also:
 
@@ -118,6 +119,18 @@ no preview card appears - a brief toast confirms what was copied.
 Recognized lines are returned in reading order, so multi-column screenshots
 paste in the order you read them rather than the order Vision happened to find
 them.
+
+### Capture on Timer
+
+**Capture on Timer** (`Option + 6`, or the menu bar) shows a countdown, then
+captures the whole display under the pointer. Use the countdown to open a menu,
+hover a control, or bring up a tooltip: Screendrop stays in the background, so
+those states are still on screen when the shot is taken. The capture then goes
+through the normal preview and after-capture flow, and can be cropped in the
+editor.
+
+Choose a 3, 5, or 10 second countdown in **Settings → Screenshots**. It is
+separate from the self-timer, which delays every capture mode.
 
 ### After-Capture Automation
 
