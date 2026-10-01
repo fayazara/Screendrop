@@ -10,6 +10,7 @@ struct AnnotationKeyCommandHandler: NSViewRepresentable {
     let isEnabled: () -> Bool
     let onDelete: () -> Void
     let onSave: () -> Void
+    let onFinishEditing: () -> Void
     let onUndo: () -> Void
     let onRedo: () -> Void
     let onSelectAll: () -> Void
@@ -37,6 +38,7 @@ struct AnnotationKeyCommandHandler: NSViewRepresentable {
         view.isEnabled = isEnabled
         view.onDelete = onDelete
         view.onSave = onSave
+        view.onFinishEditing = onFinishEditing
         view.onUndo = onUndo
         view.onRedo = onRedo
         view.onSelectAll = onSelectAll
@@ -56,6 +58,7 @@ final class AnnotationKeyCommandHandlerView: NSView {
     var isEnabled: (() -> Bool)?
     var onDelete: (() -> Void)?
     var onSave: (() -> Void)?
+    var onFinishEditing: (() -> Void)?
     var onUndo: (() -> Void)?
     var onRedo: (() -> Void)?
     var onSelectAll: (() -> Void)?
@@ -116,6 +119,14 @@ final class AnnotationKeyCommandHandlerView: NSView {
                 if Self.isUndo(event) || Self.isRedo(event) {
                     return event
                 }
+                return nil
+            }
+
+            // Ctrl+C is the editor's keyboard equivalent of the finish
+            // checkmark. Keep it after the text and crop guards so it never
+            // steals copy from an inspector field or bypasses crop controls.
+            if Self.isFinishEditing(event) {
+                self.onFinishEditing?()
                 return nil
             }
 
@@ -203,6 +214,14 @@ final class AnnotationKeyCommandHandlerView: NSView {
             && !event.modifierFlags.contains(.shift)
             && !event.modifierFlags.contains(.option)
             && event.charactersIgnoringModifiers?.lowercased() == "s"
+    }
+
+    /// Recognizes Ctrl+C for finishing annotation editing using the logical
+    /// character from the active keyboard layout instead of a fixed key code.
+    private static func isFinishEditing(_ event: NSEvent) -> Bool {
+        event.modifierFlags.contains(.control)
+            && event.modifierFlags.intersection([.command, .option, .shift]).isEmpty
+            && event.charactersIgnoringModifiers?.lowercased() == "c"
     }
 
     private static func isUndo(_ event: NSEvent) -> Bool {
