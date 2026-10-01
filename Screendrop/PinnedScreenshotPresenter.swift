@@ -92,6 +92,33 @@ final class PinnedScreenshotPresenter {
 private final class PinnedPanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
+
+    /// Scroll over a pin to fade it in/out. Handled at the window level so it
+    /// only fires when the cursor is over the pin, and applied via
+    /// `alphaValue` so the compositor blends the existing buffer without
+    /// re-rendering the SwiftUI image view.
+    override func scrollWheel(with event: NSEvent) {
+        // Ignore momentum coasting so a flick doesn't keep fading after release.
+        guard event.momentumPhase.isEmpty else { return }
+
+        // Trackpads report pixel deltas; discrete wheels report lines, which
+        // Apple docs say to scale by a line height for parity.
+        // https://developer.apple.com/documentation/appkit/nsevent/scrollingdeltay
+        // One line ≈ 40pt, matching Chromium's kScrollbarPixelsPerCocoaTick.
+        // https://codereview.chromium.org/2226933004/patch/160001/170001
+        // At 0.002 sensitivity that's 0.08/notch (~10 clicks, full range).
+        let rawDelta = event.scrollingDeltaY
+        guard rawDelta != 0 else { return }
+        let points = event.hasPreciseScrollingDeltas ? rawDelta : rawDelta * 40
+
+        // `scrollingDeltaY` follows the user's Natural Scroll setting, so
+        // un-invert it: physical scroll-up must always restore opacity.
+        // https://developer.apple.com/documentation/appkit/nsevent/isdirectioninvertedfromdevice
+        let physicalUp = event.isDirectionInvertedFromDevice ? -points : points
+
+        let sensitivity: CGFloat = 0.002
+        alphaValue = min(1, max(0.2, alphaValue + physicalUp * sensitivity))
+    }
 }
 
 private struct PinnedScreenshotView: View {
