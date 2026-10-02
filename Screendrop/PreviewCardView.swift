@@ -8,6 +8,8 @@ import SwiftUI
 
 struct PreviewCardView: View {
     let item: ScreenshotPreviewItem
+    let previewCardSize: CGSize
+    let controlScale: CGFloat
     let isHidden: Bool
     let isDismissing: Bool
     let isCompressing: Bool
@@ -218,7 +220,7 @@ struct PreviewCardView: View {
         } else {
             let actions = layout.center.filter { isAvailable($0) }
             if !actions.isEmpty {
-                VStack(spacing: 6) {
+                VStack(spacing: 6 * controlScale) {
                     ForEach(actions) { action in
                         centerPill(for: action)
                     }
@@ -369,12 +371,18 @@ struct PreviewCardView: View {
         isPresented && !isDismissing ? 0 : previewCardSlideOffset * slideDirection
     }
 
+    /// Far enough to push the card fully past the screen edge, so larger cards
+    /// slide further.
+    private var previewCardSlideOffset: CGFloat {
+        previewCardSize.width + previewTrailingPadding + 48
+    }
+
     private func cornerButton(systemImage: String, help: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .font(.system(size: 10, weight: .bold))
+                .font(.system(size: 10 * controlScale, weight: .bold))
                 .foregroundStyle(.black)
-                .frame(width: 20, height: 20)
+                .frame(width: 20 * controlScale, height: 20 * controlScale)
                 .background(.white, in: .circle)
                 .shadow(color: .black.opacity(0.22), radius: 2.5, x: 0, y: 1)
         }
@@ -385,10 +393,10 @@ struct PreviewCardView: View {
     private func actionPill(_ title: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: 12 * controlScale, weight: .semibold))
                 .foregroundStyle(.primary)
-                .padding(.horizontal, 13)
-                .padding(.vertical, 7)
+                .padding(.horizontal, 13 * controlScale)
+                .padding(.vertical, 7 * controlScale)
                 .background(.background.opacity(0.85), in: .capsule)
                 .shadow(color: .black.opacity(0.22), radius: 2.5, x: 0, y: 1)
                 // Always render the pill in light mode (white capsule, dark text)

@@ -28,6 +28,7 @@ enum ScreendropPreferences {
     static let captureWindowShadowKey = "captureWindowShadow"
     static let captureDelaySecondsKey = "captureDelaySeconds"
     static let previewPositionKey = "previewPosition"
+    static let previewSizeKey = "previewSize"
     static let previewAutoCloseSecondsKey = "previewAutoCloseSeconds"
     static let previewCloseAfterDraggingKey = "previewCloseAfterDragging"
     static let overlayCardLayoutKey = "overlayCardLayout"
@@ -250,6 +251,50 @@ enum PreviewOverlayPosition: String, CaseIterable, Identifiable {
         switch self {
         case .left: "Bottom left"
         case .right: "Bottom right"
+        }
+    }
+}
+
+/// Floating preview card sizes, ordered smallest to largest - the settings
+/// slider maps its steps onto `allCases` indices.
+enum PreviewOverlaySize: String, CaseIterable, Identifiable {
+    /// The original fixed card size. Nothing goes below it, since smaller
+    /// cards stop being legible.
+    case small
+    case medium
+    case large
+    case xLarge
+    case xxLarge
+
+    static let defaultSize = PreviewOverlaySize.small
+
+    var id: String { rawValue }
+
+    /// Every size scales the original 165x124 card, so the aspect ratio never
+    /// changes between sizes.
+    var cardScale: CGFloat {
+        switch self {
+        case .small: 1
+        case .medium: 1.25
+        case .large: 1.5
+        case .xLarge: 1.75
+        case .xxLarge: 2
+        }
+    }
+
+    var cardSize: CGSize {
+        CGSize(width: (165 * cardScale).rounded(), height: (124 * cardScale).rounded())
+    }
+
+    /// How much the card's buttons grow. Slower than the card itself, so they
+    /// don't look lost on larger sizes without turning oversized.
+    var controlScale: CGFloat {
+        switch self {
+        case .small: 1
+        case .medium: 1.1
+        case .large: 1.2
+        case .xLarge: 1.3
+        case .xxLarge: 1.4
         }
     }
 }

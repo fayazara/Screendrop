@@ -88,10 +88,6 @@ extension View {
     }
 }
 
-/// Width of the peek tab - matched to the card width so the pill lines up
-/// exactly under the card column.
-let previewPeekTabWidth: CGFloat = previewCardSize.width
-
 /// The collapsed "peek" representation of the overlay: a small tab tucked
 /// against the bottom edge, the same width and x-position as the cards. The
 /// leading end shows an up-chevron + count and expands the stack; the trailing
@@ -107,6 +103,9 @@ struct PreviewPeekTab: View {
     static let pillHeight: CGFloat = contentHeight + 18
 
     let title: String
+    /// Width of the peek tab - matched to the card width so the pill lines up
+    /// exactly under the card column.
+    let previewPeekTabWidth: CGFloat
     let onExpand: () -> Void
     let onDismissAll: () -> Void
 
