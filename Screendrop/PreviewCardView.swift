@@ -8,6 +8,7 @@ import SwiftUI
 
 struct PreviewCardView: View {
     let item: ScreenshotPreviewItem
+    let previewCardSize: CGSize
     let isHidden: Bool
     let isDismissing: Bool
     let isCompressing: Bool
@@ -367,6 +368,12 @@ struct PreviewCardView: View {
 
     private var horizontalOffset: CGFloat {
         isPresented && !isDismissing ? 0 : previewCardSlideOffset * slideDirection
+    }
+
+    /// Far enough to push the card fully past the screen edge, so larger cards
+    /// slide further.
+    private var previewCardSlideOffset: CGFloat {
+        previewCardSize.width + previewTrailingPadding + 48
     }
 
     private func cornerButton(systemImage: String, help: String, action: @escaping () -> Void) -> some View {

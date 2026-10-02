@@ -10,12 +10,10 @@
 import AppKit
 import SwiftUI
 
-let previewCardSize = CGSize(width: 165, height: 124)
 let previewTrailingPadding: CGFloat = 28
 let previewStackSpacing: CGFloat = 15
 let previewStackEdgePadding: CGFloat = 32
 let previewStackAnimation = Animation.smooth(duration: 0.3, extraBounce: 0)
-let previewCardSlideOffset = previewCardSize.width + previewTrailingPadding + 48
 
 struct PreviewWindowView: View {
     private let onRequestClose: (() -> Void)?
@@ -31,11 +29,16 @@ struct PreviewWindowView: View {
     @State private var stackHeight: CGFloat = 500
     @State private var peekHeight: CGFloat = 64
     @AppStorage(ScreendropPreferences.previewPositionKey) private var previewPositionRaw = PreviewOverlayPosition.right.rawValue
+    @AppStorage(ScreendropPreferences.previewSizeKey) private var previewSizeRaw = PreviewOverlaySize.defaultSize.rawValue
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismiss) private var dismissWindow
 
     private var previewPosition: PreviewOverlayPosition {
         PreviewOverlayPosition(rawValue: previewPositionRaw) ?? .right
+    }
+
+    private var previewCardSize: CGSize {
+        (PreviewOverlaySize(rawValue: previewSizeRaw) ?? .defaultSize).cardSize
     }
 
     private var stackAlignment: Alignment {
@@ -151,6 +154,7 @@ struct PreviewWindowView: View {
             ForEach(previewStack.items) { item in
                 PreviewCardView(
                     item: item,
+                    previewCardSize: previewCardSize,
                     isHidden: previewStack.draggingItemID == item.id,
                     isDismissing: previewStack.dismissingItemIDs.contains(item.id),
                     isCompressing: previewStack.compressingItemIDs.contains(item.id),
@@ -255,6 +259,7 @@ struct PreviewWindowView: View {
     private var peekTab: some View {
         PreviewPeekTab(
             title: peekTitle,
+            previewPeekTabWidth: previewCardSize.width,
             onExpand: {
                 withAnimation(previewStackAnimation) {
                     previewStack.expand()

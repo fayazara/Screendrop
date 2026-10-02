@@ -41,10 +41,24 @@ struct VideoSettingsPane: View {
 
 struct OverlaySettingsPane: View {
     @AppStorage(ScreendropPreferences.previewPositionKey) private var previewPositionRaw = PreviewOverlayPosition.right.rawValue
+    @AppStorage(ScreendropPreferences.previewSizeKey) private var previewSizeRaw = PreviewOverlaySize.defaultSize.rawValue
     @AppStorage(ScreendropPreferences.previewAutoCloseSecondsKey) private var autoCloseSeconds = 0
     @AppStorage(ScreendropPreferences.previewCloseAfterDraggingKey) private var closeAfterDragging = true
 
     private let autoCloseOptions: [Int] = [0, 5, 10, 30, 60]
+
+    private var previewSize: PreviewOverlaySize {
+        PreviewOverlaySize(rawValue: previewSizeRaw) ?? .defaultSize
+    }
+
+    /// Bridges the stored raw value to the slider's discrete steps.
+    private var previewSizeStep: Binding<Double> {
+        let sizes = PreviewOverlaySize.allCases
+        return Binding(
+            get: { Double(sizes.firstIndex(of: previewSize) ?? 0) },
+            set: { previewSizeRaw = sizes[Int($0.rounded())].rawValue }
+        )
+    }
 
     var body: some View {
         Form {
@@ -57,6 +71,22 @@ struct OverlaySettingsPane: View {
                     SettingsControlLabel(
                         "Position on screen",
                         detail: "Where the floating preview cards appear after a capture."
+                    )
+                }
+
+                LabeledContent {
+                    Slider(
+                        value: previewSizeStep,
+                        in: 0...Double(PreviewOverlaySize.allCases.count - 1),
+                        step: 1
+                    )
+                    .frame(width: 180)
+                    .accessibilityLabel("Preview size")
+                    .accessibilityValue(previewSize.scale.formatted(.percent))
+                } label: {
+                    SettingsControlLabel(
+                        "Preview size",
+                        detail: "How large the floating preview cards appear."
                     )
                 }
 
