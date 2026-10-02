@@ -82,7 +82,7 @@ struct OverlaySettingsPane: View {
                     )
                     .frame(width: 180)
                     .accessibilityLabel("Preview size")
-                    .accessibilityValue(previewSize.scale.formatted(.percent))
+                    .accessibilityValue(Double(previewSize.cardScale).formatted(.percent))
                 } label: {
                     SettingsControlLabel(
                         "Preview size",

@@ -37,8 +37,12 @@ struct PreviewWindowView: View {
         PreviewOverlayPosition(rawValue: previewPositionRaw) ?? .right
     }
 
+    private var previewSize: PreviewOverlaySize {
+        PreviewOverlaySize(rawValue: previewSizeRaw) ?? .defaultSize
+    }
+
     private var previewCardSize: CGSize {
-        (PreviewOverlaySize(rawValue: previewSizeRaw) ?? .defaultSize).cardSize
+        previewSize.cardSize
     }
 
     private var stackAlignment: Alignment {
@@ -155,6 +159,7 @@ struct PreviewWindowView: View {
                 PreviewCardView(
                     item: item,
                     previewCardSize: previewCardSize,
+                    controlScale: previewSize.controlScale,
                     isHidden: previewStack.draggingItemID == item.id,
                     isDismissing: previewStack.dismissingItemIDs.contains(item.id),
                     isCompressing: previewStack.compressingItemIDs.contains(item.id),

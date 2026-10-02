@@ -272,7 +272,7 @@ enum PreviewOverlaySize: String, CaseIterable, Identifiable {
 
     /// Every size scales the original 165x124 card, so the aspect ratio never
     /// changes between sizes.
-    var scale: Double {
+    var cardScale: CGFloat {
         switch self {
         case .small: 1
         case .medium: 1.25
@@ -283,7 +283,19 @@ enum PreviewOverlaySize: String, CaseIterable, Identifiable {
     }
 
     var cardSize: CGSize {
-        CGSize(width: (165 * scale).rounded(), height: (124 * scale).rounded())
+        CGSize(width: (165 * cardScale).rounded(), height: (124 * cardScale).rounded())
+    }
+
+    /// How much the card's buttons grow. Slower than the card itself, so they
+    /// don't look lost on larger sizes without turning oversized.
+    var controlScale: CGFloat {
+        switch self {
+        case .small: 1
+        case .medium: 1.1
+        case .large: 1.2
+        case .xLarge: 1.3
+        case .xxLarge: 1.4
+        }
     }
 }
 
