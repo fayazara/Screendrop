@@ -28,25 +28,25 @@ enum AfterCaptureAction: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .showOverlay: "Show preview overlay"
-        case .copy: "Copy to clipboard"
-        case .save: "Save to folder"
-        case .upload: "Upload to Cloud & copy link"
-        case .annotate: "Open annotation editor"
-        case .pin: "Pin to screen"
-        case .openVideoEditor: "Open recording editor"
+        case .showOverlay: String(localized: "Show preview overlay")
+        case .copy: String(localized: "Copy to clipboard")
+        case .save: String(localized: "Save to folder")
+        case .upload: String(localized: "Upload to Cloud & copy link")
+        case .annotate: String(localized: "Open annotation editor")
+        case .pin: String(localized: "Pin to screen")
+        case .openVideoEditor: String(localized: "Open recording editor")
         }
     }
 
     var subtitle: String {
         switch self {
-        case .showOverlay: "Show the floating preview card after capturing."
-        case .copy: "Copy the capture to the clipboard."
-        case .save: "Automatically save the capture to the export folder."
-        case .upload: "Upload to your cloud and copy the share link."
-        case .annotate: "Jump straight into the annotation editor."
-        case .pin: "Pin the screenshot on top of everything for reference."
-        case .openVideoEditor: "Edit the clip, background, camera, audio, and zooms in one place."
+        case .showOverlay: String(localized: "Show the floating preview card after capturing.")
+        case .copy: String(localized: "Copy the capture to the clipboard.")
+        case .save: String(localized: "Automatically save the capture to the export folder.")
+        case .upload: String(localized: "Upload to your cloud and copy the share link.")
+        case .annotate: String(localized: "Jump straight into the annotation editor.")
+        case .pin: String(localized: "Pin the screenshot on top of everything for reference.")
+        case .openVideoEditor: String(localized: "Edit the clip, background, camera, audio, and zooms in one place.")
         }
     }
 

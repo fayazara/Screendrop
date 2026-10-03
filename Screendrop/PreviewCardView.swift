@@ -230,7 +230,7 @@ struct PreviewCardView: View {
     @ViewBuilder
     private func centerPill(for action: OverlayCardAction) -> some View {
         if action == .upload, cloudUploader.uploadedURLs[item.id] != nil {
-            actionPill("Copy Link", action: copyUploadedURL)
+            actionPill(String(localized: "Copy Link"), action: copyUploadedURL)
         } else {
             actionPill(action.label(for: item.kind), action: handler(for: action))
         }
@@ -341,13 +341,13 @@ struct PreviewCardView: View {
         if cloudUploader.uploadingItems.contains(item.id) {
             cornerButton(
                 systemImage: "stop.fill",
-                help: "Cancel upload",
+                help: String(localized: "Cancel upload"),
                 action: { cloudUploader.cancelUpload(for: item.id) }
             )
         } else if cloudUploader.uploadedURLs[item.id] != nil {
-            cornerButton(systemImage: "link", help: "Copy share link", action: copyUploadedURL)
+            cornerButton(systemImage: "link", help: String(localized: "Copy share link"), action: copyUploadedURL)
         } else {
-            cornerButton(systemImage: "cloud", help: "Upload to cloud", action: onUpload)
+            cornerButton(systemImage: "cloud", help: String(localized: "Upload to cloud"), action: onUpload)
         }
     }
 

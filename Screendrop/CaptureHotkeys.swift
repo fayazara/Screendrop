@@ -67,7 +67,7 @@ struct HotkeyShortcut: Codable, Equatable, Hashable {
         switch keyCode {
         case kVK_Return: return "↩"
         case kVK_Tab: return "⇥"
-        case kVK_Space: return "Space"
+        case kVK_Space: return String(localized: "Space")
         case kVK_Delete: return "⌫"
         case kVK_ForwardDelete: return "⌦"
         case kVK_Escape: return "⎋"
@@ -88,7 +88,7 @@ struct HotkeyShortcut: Codable, Equatable, Hashable {
         case kVK_F11: return "F11"
         case kVK_F12: return "F12"
         default:
-            return ansiKeyLabel(for: keyCode) ?? "Key \(keyCode)"
+            return ansiKeyLabel(for: keyCode) ?? String(localized: "Key \(keyCode)")
         }
     }
 
@@ -167,11 +167,11 @@ enum CaptureHotkeyAction: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .fullscreen: "Fullscreen"
-        case .window: "Window"
-        case .area: "Area"
-        case .screenRecording: "Screen Recording"
-        case .textCapture: "Capture Text"
+        case .fullscreen: String(localized: "Fullscreen")
+        case .window: String(localized: "Window")
+        case .area: String(localized: "Area")
+        case .screenRecording: String(localized: "Screen Recording")
+        case .textCapture: String(localized: "Capture Text")
         }
     }
 

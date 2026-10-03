@@ -29,7 +29,7 @@ extension CaptureLibraryModel {
             renamingItem = item
             renameText = item.name
         case .copy:
-            run("Copying \(selected.count == 1 ? "capture" : "captures")…") {
+            run(selected.count == 1 ? "Copying capture…" : "Copying captures…") {
                 StudioProjectRegistry.shared.flushDrafts()
                 if selected.count == 1, let item = selected.first, !item.isVideo {
                     try ScreenshotFileActions.copyImageToClipboard(from: item.fileURL)
@@ -77,7 +77,7 @@ extension CaptureLibraryModel {
             var failures: [String] = []
             for item in targets {
                 guard !CaptureLibraryOpenEditors.contains(item.ownedURL) else {
-                    failures.append("\(item.name): close its editor before moving it to Trash.")
+                    failures.append(String(localized: "\(item.name): close its editor before moving it to Trash."))
                     continue
                 }
                 do {
@@ -137,9 +137,11 @@ extension CaptureLibraryModel {
 
     private func export(_ items: [CaptureLibraryItem]) {
         let panel = NSOpenPanel()
-        panel.title = "Export Captures"
-        panel.message = "Choose a folder for \(items.count == 1 ? "this capture" : "these \(items.count) captures")."
-        panel.prompt = "Export"
+        panel.title = String(localized: "Export Captures")
+        panel.message = items.count == 1
+            ? String(localized: "Choose a folder for this capture.")
+            : String(localized: "Choose a folder for these \(items.count) captures.")
+        panel.prompt = String(localized: "Export")
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.canCreateDirectories = true
@@ -167,9 +169,9 @@ extension CaptureLibraryModel {
         }
     }
 
-    private func run(_ title: String, operation: @escaping @MainActor () async throws -> Void) {
+    private func run(_ title: LocalizedStringResource, operation: @escaping @MainActor () async throws -> Void) {
         guard !isBusy else { return }
-        operationTitle = title
+        operationTitle = String(localized: title)
         Task {
             defer { operationTitle = nil }
             do { try await operation() }
@@ -184,7 +186,7 @@ nonisolated enum CaptureLibraryFiles {
         let ext = source.pathExtension
         let stem = (safe as NSString).pathExtension.lowercased() == ext.lowercased()
             ? (safe as NSString).deletingPathExtension : safe
-        let base = stem.isEmpty ? "Capture" : stem
+        let base = stem.isEmpty ? String(localized: "Capture") : stem
         for suffix in 0..<10_000 {
             let name = suffix == 0 ? base : "\(base) \(suffix)"
             let destination = directory.appendingPathComponent(name).appendingPathExtension(ext)

@@ -187,7 +187,7 @@ nonisolated enum VideoContainerRemuxer {
         var errorDescription: String? {
             switch self {
             case let .unsupported(container):
-                "This recording could not be converted to \(container.rawValue)."
+                String(localized: "This recording could not be converted to \(container.rawValue).")
             }
         }
     }

@@ -439,7 +439,7 @@ private struct AnnotationPresetPopUpButton: NSViewRepresentable {
             )
             displayItem.isEnabled = parent.isEnabled
             (button.cell as? NSPopUpButtonCell)?.menuItem = displayItem
-            button.setAccessibilityLabel("Background preset")
+            button.setAccessibilityLabel(String(localized: "Background preset"))
             button.setAccessibilityValue(parent.accessibilityValue)
         }
 

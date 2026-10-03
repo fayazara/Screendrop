@@ -6,9 +6,9 @@ nonisolated enum CaptureLibraryFilter: String, CaseIterable, Identifiable {
     var id: Self { self }
     var title: String {
         switch self {
-        case .all: "All Captures"
-        case .screenshots: "Screenshots"
-        case .recordings: "Recordings"
+        case .all: String(localized: "All Captures")
+        case .screenshots: String(localized: "Screenshots")
+        case .recordings: String(localized: "Recordings")
         }
     }
     var symbol: String {
@@ -25,10 +25,10 @@ nonisolated enum CaptureLibrarySort: String, CaseIterable, Identifiable {
     var id: Self { self }
     var title: String {
         switch self {
-        case .newest: "Newest First"
-        case .oldest: "Oldest First"
-        case .name: "Name"
-        case .modified: "Recently Modified"
+        case .newest: String(localized: "Newest First")
+        case .oldest: String(localized: "Oldest First")
+        case .name: String(localized: "Name")
+        case .modified: String(localized: "Recently Modified")
         }
     }
 }
@@ -58,9 +58,9 @@ nonisolated struct CaptureLibraryItem: Identifiable, Equatable, Sendable {
 
     var ownedURL: URL { session?.directoryURL ?? fileURL }
     var dimensions: String {
-        pixelWidth > 0 && pixelHeight > 0 ? "\(pixelWidth) × \(pixelHeight)" : "Unknown"
+        pixelWidth > 0 && pixelHeight > 0 ? "\(pixelWidth) × \(pixelHeight)" : String(localized: "Unknown")
     }
-    var kindTitle: String { session != nil ? "Recording Project" : isVideo ? "Video" : "Screenshot" }
+    var kindTitle: String { session != nil ? String(localized: "Recording Project") : isVideo ? String(localized: "Video") : String(localized: "Screenshot") }
     var subtitle: String {
         let date = createdAt.formatted(date: .abbreviated, time: .omitted)
         return isVideo ? "\(date) · \(durationText)" : "\(date) · \(dimensions)"

@@ -417,15 +417,15 @@ enum CloudUploadError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .notConfigured:
-            "Cloud upload is not configured. Set your worker URL and upload token in Settings."
+            String(localized: "Cloud upload is not configured. Set your worker URL and upload token in Settings.")
         case .invalidURL:
-            "Invalid worker URL."
+            String(localized: "Invalid worker URL.")
         case .networkError(let error):
-            "Network error: \(error.localizedDescription)"
+            String(localized: "Network error: \(error.localizedDescription)")
         case .serverError(let code, let body):
-            "Server error (\(code)): \(body)"
+            String(localized: "Server error (\(code)): \(body)")
         case .invalidResponse:
-            "Invalid response from server."
+            String(localized: "Invalid response from server.")
         }
     }
 }

@@ -195,12 +195,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
             let alert = NSAlert()
             alert.alertStyle = .warning
-            alert.messageText = "A screen recording is still in progress"
-            alert.informativeText = unsavedCount > 0
-                ? "Screendrop will finish and save the recording before quitting. You also have \(unsavedCount) unsaved capture\(unsavedCount == 1 ? "" : "s") that will be discarded."
-                : "Screendrop will finish and save the recording before quitting. This can take a moment for a long recording."
-            alert.addButton(withTitle: "Cancel")
-            alert.addButton(withTitle: "Finish Recording and Quit")
+            alert.messageText = String(localized: "A screen recording is still in progress")
+            if unsavedCount == 1 {
+                alert.informativeText = String(localized: "Screendrop will finish and save the recording before quitting. You also have 1 unsaved capture that will be discarded.")
+            } else if unsavedCount > 1 {
+                alert.informativeText = String(localized: "Screendrop will finish and save the recording before quitting. You also have \(unsavedCount) unsaved captures that will be discarded.")
+            } else {
+                alert.informativeText = String(localized: "Screendrop will finish and save the recording before quitting. This can take a moment for a long recording.")
+            }
+            alert.addButton(withTitle: String(localized: "Cancel"))
+            alert.addButton(withTitle: String(localized: "Finish Recording and Quit"))
 
             guard alert.runModal() == .alertSecondButtonReturn else {
                 return .terminateCancel
@@ -224,26 +228,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = unsavedCount == 1
-            ? "You have 1 unsaved capture"
-            : "You have \(unsavedCount) unsaved captures"
-        var informativeText = """
+            ? String(localized: "You have 1 unsaved capture")
+            : String(localized: "You have \(unsavedCount) unsaved captures")
+        var informativeText = String(localized: """
         These captures haven't been saved to your Mac and will be lost if you quit. \
         Turn on Auto Save in Settings to keep every capture automatically.
-        """
+        """)
         if unsavedProjectCount > 0 {
             // Unlike captures, these are safe - say so, so the warning above
             // doesn't read as covering them too.
-            informativeText += """
-            \n\n\(unsavedProjectCount) recording project\(unsavedProjectCount == 1 ? " has" : "s have") \
-            unsaved edits. Those are kept and restored the next time you open them.
-            """
+            informativeText += "\n\n" + (unsavedProjectCount == 1
+                ? String(localized: "1 recording project has unsaved edits. Those are kept and restored the next time you open them.")
+                : String(localized: "\(unsavedProjectCount) recording projects have unsaved edits. Those are kept and restored the next time you open them."))
         }
         alert.informativeText = informativeText
 
         // Cancel is the default (and leftmost-safe) action so an accidental
         // Return never discards work.
-        alert.addButton(withTitle: "Cancel")
-        alert.addButton(withTitle: "Quit Anyway")
+        alert.addButton(withTitle: String(localized: "Cancel"))
+        alert.addButton(withTitle: String(localized: "Quit Anyway"))
 
         return alert.runModal() == .alertSecondButtonReturn ? .terminateNow : .terminateCancel
     }

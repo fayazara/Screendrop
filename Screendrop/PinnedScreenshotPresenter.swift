@@ -136,16 +136,16 @@ private struct PinnedScreenshotView: View {
 
     private var toolbar: some View {
         HStack(spacing: 6) {
-            toolbarButton(systemImage: "xmark", help: "Close pin", action: onClose)
+            toolbarButton(systemImage: "xmark", help: String(localized: "Close pin"), action: onClose)
 
             Spacer(minLength: 0)
 
             toolbarButton(
                 systemImage: didCopy ? "checkmark" : "doc.on.doc",
-                help: "Copy to clipboard",
+                help: String(localized: "Copy to clipboard"),
                 action: copy
             )
-            toolbarButton(systemImage: "square.and.arrow.down", help: "Save…", action: save)
+            toolbarButton(systemImage: "square.and.arrow.down", help: String(localized: "Save…"), action: save)
         }
         .padding(.horizontal, 8)
         .frame(height: 30)
@@ -193,7 +193,7 @@ private struct PinnedScreenshotView: View {
         panel.allowedContentTypes = [ScreenshotFileActions.exportContentType]
         panel.nameFieldStringValue = ScreenshotFileActions.exportFileName(for: url)
         panel.canCreateDirectories = true
-        panel.title = "Save Screenshot"
+        panel.title = String(localized: "Save Screenshot")
         panel.begin { response in
             guard response == .OK, let destURL = panel.url else { return }
             do {
