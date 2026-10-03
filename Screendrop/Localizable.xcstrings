@@ -228,7 +228,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%lld 个捕获"
+            "value" : "%lld 项"
           }
         }
       }
@@ -238,7 +238,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%lld 个捕获"
+            "value" : "%lld 项"
           }
         }
       }
@@ -248,7 +248,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "已选择 %lld 个捕获"
+            "value" : "已选择 %lld 项"
           }
         }
       }
@@ -341,7 +341,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "1 个捕获"
+            "value" : "1 项"
           }
         }
       }
@@ -351,7 +351,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "1 个捕获"
+            "value" : "1 项"
           }
         }
       }
@@ -620,7 +620,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "所有捕获"
+            "value" : "全部"
           }
         }
       }
@@ -930,7 +930,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "自动将捕获存储到导出文件夹。"
+            "value" : "自动存储到导出文件夹。"
           }
         }
       }
@@ -1260,7 +1260,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "捕获"
+            "value" : "截取"
           }
         }
       }
@@ -1270,7 +1270,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "捕获操作"
+            "value" : "操作"
           }
         }
       }
@@ -1290,7 +1290,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "捕获详细信息"
+            "value" : "详细信息"
           }
         }
       }
@@ -1320,7 +1320,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "捕获可见性"
+            "value" : "截图与录屏中的可见性"
           }
         }
       }
@@ -1350,7 +1350,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "捕获"
+            "value" : "截图与录屏"
           }
         }
       }
@@ -1480,7 +1480,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "为这 %lld 个捕获选取文件夹。"
+            "value" : "为这 %lld 项选取文件夹。"
           }
         }
       }
@@ -1490,7 +1490,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "为此捕获选取文件夹。"
+            "value" : "为此项选取文件夹。"
           }
         }
       }
@@ -1990,7 +1990,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "将捕获拷贝到剪贴板"
+            "value" : "拷贝到剪贴板"
           }
         }
       }
@@ -2000,7 +2000,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "将捕获拷贝到剪贴板。"
+            "value" : "拷贝到剪贴板。"
           }
         }
       }
@@ -2050,7 +2050,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "正在拷贝捕获…"
+            "value" : "正在拷贝…"
           }
         }
       }
@@ -2060,7 +2060,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "正在拷贝捕获…"
+            "value" : "正在拷贝…"
           }
         }
       }
@@ -3080,7 +3080,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "导出捕获"
+            "value" : "导出"
           }
         }
       }
@@ -3820,7 +3820,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "在捕获中包含 Screendrop 窗口"
+            "value" : "在截图和录屏中包含 Screendrop 窗口"
           }
         }
       }
@@ -4320,7 +4320,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "更多捕获操作"
+            "value" : "更多操作"
           }
         }
       }
@@ -4340,7 +4340,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "要将 %lld 个捕获移到废纸篓吗？"
+            "value" : "要将这 %lld 项移到废纸篓吗？"
           }
         }
       }
@@ -4350,7 +4350,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "要将捕获移到废纸篓吗？"
+            "value" : "要将此项移到废纸篓吗？"
           }
         }
       }
@@ -4440,7 +4440,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "新建捕获"
+            "value" : "新建"
           }
         }
       }
@@ -4450,7 +4450,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "新建捕获"
+            "value" : "新建"
           }
         }
       }
@@ -4490,7 +4490,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "没有捕获"
+            "value" : "暂无截图或录屏"
           }
         }
       }
@@ -4500,7 +4500,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "没有捕获"
+            "value" : "暂无内容"
           }
         }
       }
@@ -4896,7 +4896,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "打开共享的捕获"
+            "value" : "打开共享页面"
           }
         }
       }
@@ -5496,7 +5496,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "最近的捕获"
+            "value" : "最近的截图与录屏"
           }
         }
       }
@@ -5866,7 +5866,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "重新命名捕获"
+            "value" : "重新命名"
           }
         }
       }
@@ -6336,7 +6336,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "将捕获存储到导出文件夹"
+            "value" : "存储到导出文件夹"
           }
         }
       }
@@ -6616,7 +6616,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Screendrop 会在退出前完成并存储录制。另有 %lld 个未存储的捕获将被丢弃。"
+            "value" : "Screendrop 会在退出前完成并存储录制。另有 %lld 项未存储的内容将被丢弃。"
           }
         }
       }
@@ -6626,7 +6626,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Screendrop 会在退出前完成并存储录制。另有 1 个未存储的捕获将被丢弃。"
+            "value" : "Screendrop 会在退出前完成并存储录制。另有 1 项未存储的内容将被丢弃。"
           }
         }
       }
@@ -6636,7 +6636,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Screendrop 窗口将被捕获"
+            "value" : "Screendrop 窗口会出现在截图和录屏中"
           }
         }
       }
@@ -6706,7 +6706,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "搜索捕获"
+            "value" : "搜索"
           }
         }
       }
@@ -6972,7 +6972,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "显示所有捕获…"
+            "value" : "显示所有截图与录屏…"
           }
         }
       }
@@ -7042,7 +7042,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "显示最近的捕获"
+            "value" : "显示最近的截图与录屏"
           }
         }
       }
@@ -7232,7 +7232,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "排序捕获"
+            "value" : "排序"
           }
         }
       }
@@ -7692,7 +7692,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "无法存储捕获"
+            "value" : "无法存储"
           }
         }
       }
@@ -7912,7 +7912,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "这些捕获尚未存储到你的 Mac，退出后将会丢失。在“设置”中打开“自动存储”即可自动保留每次捕获。"
+            "value" : "这些内容尚未存储到你的 Mac，退出后将会丢失。在“设置”中打开“自动存储”即可自动保留每一项。"
           }
         }
       }
@@ -7952,7 +7952,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "此操作会永久移除云端副本，其共享链接将失效。本地捕获仍保留在资料库中。"
+            "value" : "此操作会永久移除云端副本，其共享链接将失效。本地文件仍保留在资料库中。"
           }
         }
       }
@@ -9000,7 +9000,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "你有 %lld 个未存储的捕获"
+            "value" : "你有 %lld 项未存储的内容"
           }
         }
       }
@@ -9010,7 +9010,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "你有 1 个未存储的捕获"
+            "value" : "你有 1 项未存储的内容"
           }
         }
       }
