@@ -168,7 +168,7 @@ struct CaptureLibraryView: View {
                 ProgressView().controlSize(.mini)
                 Text(title)
             } else {
-                Text("\(model.visibleItems.count) \(model.visibleItems.count == 1 ? "capture" : "captures")")
+                Text(model.visibleItems.count == 1 ? "1 capture" : "\(model.visibleItems.count) captures")
                 if !model.selection.isEmpty { Text("· \(model.selection.count) selected") }
             }
             Spacer()
