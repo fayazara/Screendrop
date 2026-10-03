@@ -1295,6 +1295,24 @@
         }
       }
     },
+    "Capture file name" : {
+      "comment" : "Fallback file name when an exported capture has no name",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Capture"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未命名"
+          }
+        }
+      }
+    },
     "Capture Fullscreen" : {
       "localizations" : {
         "zh-Hans" : {

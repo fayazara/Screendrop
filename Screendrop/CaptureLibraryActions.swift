@@ -186,7 +186,13 @@ nonisolated enum CaptureLibraryFiles {
         let ext = source.pathExtension
         let stem = (safe as NSString).pathExtension.lowercased() == ext.lowercased()
             ? (safe as NSString).deletingPathExtension : safe
-        let base = stem.isEmpty ? String(localized: "Capture") : stem
+        let base = stem.isEmpty
+            ? String(
+                localized: "Capture file name",
+                defaultValue: "Capture",
+                comment: "Fallback file name when an exported capture has no name"
+            )
+            : stem
         for suffix in 0..<10_000 {
             let name = suffix == 0 ? base : "\(base) \(suffix)"
             let destination = directory.appendingPathComponent(name).appendingPathExtension(ext)
