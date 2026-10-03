@@ -86,3 +86,20 @@ struct AnnotationSwatch: Identifiable, Equatable, Hashable {
         )
     }
 }
+
+// The title is a localized display label; saved swatches keep the title they
+// were written with, so identity is the id and color components alone.
+extension AnnotationSwatch {
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.id == rhs.id && lhs.red == rhs.red && lhs.green == rhs.green
+            && lhs.blue == rhs.blue && lhs.alpha == rhs.alpha
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(red)
+        hasher.combine(green)
+        hasher.combine(blue)
+        hasher.combine(alpha)
+    }
+}

@@ -664,3 +664,38 @@ enum AnnotationBackgroundAlignment: String, CaseIterable, Identifiable {
         }
     }
 }
+
+// Titles are display labels localized at construction, while saved documents
+// and preset files keep whatever title they were written with. Identity is the
+// id and the color components alone, so a saved color still matches its preset
+// in any language.
+extension AnnotationBackgroundColor {
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.id == rhs.id && lhs.red == rhs.red && lhs.green == rhs.green
+            && lhs.blue == rhs.blue && lhs.alpha == rhs.alpha
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(red)
+        hasher.combine(green)
+        hasher.combine(blue)
+        hasher.combine(alpha)
+    }
+}
+
+extension AnnotationBackgroundGradient {
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.id == rhs.id && lhs.colors == rhs.colors
+            && lhs.startPoint == rhs.startPoint && lhs.endPoint == rhs.endPoint
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(colors)
+        hasher.combine(startPoint.x)
+        hasher.combine(startPoint.y)
+        hasher.combine(endPoint.x)
+        hasher.combine(endPoint.y)
+    }
+}
