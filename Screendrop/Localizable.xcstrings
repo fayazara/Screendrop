@@ -1,0 +1,1102 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "" : {
+
+    },
+    " / %@" : {
+
+    },
+    "· %lld selected" : {
+
+    },
+    "“%@” will be removed from your saved presets. The current canvas settings won’t change." : {
+
+    },
+    "“%@” will be removed from your saved presets. The current recording won’t change." : {
+
+    },
+    "%@ %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ %2$@"
+          }
+        }
+      }
+    },
+    "%@ %lld%%" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ %2$lld%%"
+          }
+        }
+      }
+    },
+    "%@ alignment" : {
+
+    },
+    "%@ value" : {
+
+    },
+    "%@, %@, %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@, %2$@, %3$@"
+          }
+        }
+      }
+    },
+    "%@: %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@: %2$@"
+          }
+        }
+      }
+    },
+    "%lld" : {
+
+    },
+    "%lld %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld %2$@"
+          }
+        }
+      }
+    },
+    "%lld × %lld px" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld × %2$lld px"
+          }
+        }
+      }
+    },
+    "%lld annotations selected" : {
+
+    },
+    "%lld captures selected" : {
+
+    },
+    "%lld pixels" : {
+
+    },
+    "%lld px" : {
+
+    },
+    "%lld seconds" : {
+
+    },
+    "%lld%%" : {
+
+    },
+    "50%" : {
+
+    },
+    "100%" : {
+
+    },
+    "200%" : {
+
+    },
+    "A native screenshot and recording tool for macOS." : {
+
+    },
+    "A preset with this name already exists." : {
+
+    },
+    "Actions" : {
+
+    },
+    "Add a zoom at the playhead, or drag across the zoom lane" : {
+
+    },
+    "Add watermark" : {
+
+    },
+    "Add Zoom at Playhead" : {
+
+    },
+    "After Export" : {
+
+    },
+    "Aim the zoom at the pointer's position under the playhead" : {
+
+    },
+    "All changes saved" : {
+
+    },
+    "Allow comments & likes" : {
+
+    },
+    "Annotation Editor" : {
+
+    },
+    "Approve Screendrop in System Settings → General → Login Items." : {
+
+    },
+    "Aspect ratio" : {
+
+    },
+    "Aspect Ratio" : {
+
+    },
+    "Audio speeds up with the clip" : {
+
+    },
+    "Automatic uploads are paused until Cloud is set up." : {
+
+    },
+    "Automatically check for updates" : {
+
+    },
+    "Blur focus position" : {
+
+    },
+    "Blur only the screenshot content inside its frame" : {
+
+    },
+    "Blur the transformed screenshot together with its background" : {
+
+    },
+    "Built by Fayaz Ahmed" : {
+
+    },
+    "Cancel" : {
+
+    },
+    "Cancel countdown (Esc)" : {
+
+    },
+    "Cancel Export" : {
+
+    },
+    "Cancel Share" : {
+
+    },
+    "Capture" : {
+
+    },
+    "Capture actions" : {
+
+    },
+    "Capture Area" : {
+
+    },
+    "Capture details" : {
+
+    },
+    "Capture Fullscreen" : {
+
+    },
+    "Capture Text" : {
+
+    },
+    "Capture Visibility" : {
+
+    },
+    "Capture Window" : {
+
+    },
+    "Captures a region you drag out and adds it to Screendrop's history." : {
+
+    },
+    "Captures a window you click and adds it to Screendrop's history." : {
+
+    },
+    "Captures the entire screen and adds it to Screendrop's history." : {
+
+    },
+    "Card Actions" : {
+
+    },
+    "Check for Updates..." : {
+
+    },
+    "Choose a drawing tool or select an annotation to change its style." : {
+
+    },
+    "Choose Folder…" : {
+
+    },
+    "Choose the size of the sharp area across the scene" : {
+
+    },
+    "Choose the size of the sharp area inside the frame" : {
+
+    },
+    "Choose wallpaper" : {
+
+    },
+    "Clear Search" : {
+
+    },
+    "Click a timestamp to jump there. Edit any line to fix the transcription." : {
+
+    },
+    "Close" : {
+
+    },
+    "Close Pin" : {
+
+    },
+    "Collapse section" : {
+
+    },
+    "Compressing" : {
+
+    },
+    "Compression quality" : {
+
+    },
+    "Connection" : {
+
+    },
+    "Copied" : {
+
+    },
+    "Copy" : {
+
+    },
+    "Copy Cloud Link" : {
+
+    },
+    "Copy Text from Image" : {
+
+    },
+    "Copy the share link again" : {
+
+    },
+    "Copy Token" : {
+
+    },
+    "Could not load windows: %@" : {
+
+    },
+    "Couldn't open recording" : {
+
+    },
+    "Credits" : {
+
+    },
+    "Crop" : {
+
+    },
+    "Crop aspect ratio" : {
+
+    },
+    "Crop size" : {
+
+    },
+    "Crop the finished video canvas" : {
+
+    },
+    "Crop the screenshot" : {
+
+    },
+    "Custom color" : {
+
+    },
+    "Customize the preview card" : {
+
+    },
+    "Cut every filler word, like “um” and “uh”" : {
+
+    },
+    "Delete" : {
+
+    },
+    "Delete from cloud?" : {
+
+    },
+    "Delete from Cloud…" : {
+
+    },
+    "Delete Preset?" : {
+
+    },
+    "Deploy to Cloudflare" : {
+
+    },
+    "Dismiss all" : {
+
+    },
+    "Display - choose which screen to record" : {
+
+    },
+    "Download %@" : {
+
+    },
+    "Drag actions here to hide them" : {
+
+    },
+    "Drag actions into the corners or the center. Drop them in the tray to hide." : {
+
+    },
+    "Drag here to add a zoom" : {
+
+    },
+    "Drag horizontally to adjust, or edit the value field" : {
+
+    },
+    "Drag the camera directly on the canvas to place it" : {
+
+    },
+    "Drag to aim this zoom" : {
+
+    },
+    "Drag to move the sharp focal area. Double-click to center." : {
+
+    },
+    "Drag to move the target. Double-click to center." : {
+
+    },
+    "Drag to place the camera" : {
+
+    },
+    "Drag to position the fixed camera target. The outline shows the visible area. Double-click to center." : {
+
+    },
+    "Edit" : {
+
+    },
+    "Edit watermark text" : {
+
+    },
+    "Enter an exact value for %@" : {
+
+    },
+    "Every split, trim, deletion and speed change goes back to the original recording. You can undo this." : {
+
+    },
+    "Expand section" : {
+
+    },
+    "Export" : {
+
+    },
+    "Export Again" : {
+
+    },
+    "Export Audio" : {
+
+    },
+    "Export Failed" : {
+
+    },
+    "Export folder" : {
+
+    },
+    "Export just the soundtrack of the current cut" : {
+
+    },
+    "Export Options" : {
+
+    },
+    "Export…" : {
+
+    },
+    "Exporting %lld%%" : {
+
+    },
+    "File Format" : {
+
+    },
+    "Find sensitive content and blur it" : {
+
+    },
+    "Find sensitive content and pixelate it" : {
+
+    },
+    "Finding screens and windows" : {
+
+    },
+    "Finding screens and windows…" : {
+
+    },
+    "Finish editing and save" : {
+
+    },
+    "Fit Canvas" : {
+
+    },
+    "Fixed camera target" : {
+
+    },
+    "Follow on Twitter" : {
+
+    },
+    "Font family" : {
+
+    },
+    "Format" : {
+
+    },
+    "GitHub" : {
+
+    },
+    "Go Back" : {
+
+    },
+    "Go Forward" : {
+
+    },
+    "Grid view" : {
+
+    },
+    "Grid View" : {
+
+    },
+    "HIDDEN ACTIONS" : {
+
+    },
+    "Hide Inspector" : {
+
+    },
+    "Hide token" : {
+
+    },
+    "How much of the frame's edge stays in view while zoomed" : {
+
+    },
+    "How to update" : {
+
+    },
+    "https://…workers.dev" : {
+
+    },
+    "Image alignment" : {
+
+    },
+    "Include Screendrop windows in captures" : {
+
+    },
+    "JPG ready" : {
+
+    },
+    "Jump to this subtitle" : {
+
+    },
+    "Keyboard Shortcuts" : {
+
+    },
+    "Lay an audio file over this silent recording" : {
+
+    },
+    "Library" : {
+
+    },
+    "Lines shown" : {
+
+    },
+    "Link copied" : {
+
+    },
+    "Link Copied" : {
+
+    },
+    "List view" : {
+
+    },
+    "List View" : {
+
+    },
+    "Loading Library…" : {
+
+    },
+    "Low-res preview to save memory - exports stay full quality" : {
+
+    },
+    "Lower values produce smaller files with reduced image quality." : {
+
+    },
+    "More capture actions" : {
+
+    },
+    "Move %@ to Trash?" : {
+
+    },
+    "Move to Trash" : {
+
+    },
+    "Move to Trash…" : {
+
+    },
+    "Name" : {
+
+    },
+    "Never" : {
+
+    },
+    "New capture" : {
+
+    },
+    "New Capture" : {
+
+    },
+    "New Preset" : {
+
+    },
+    "No %@" : {
+
+    },
+    "No app windows found" : {
+
+    },
+    "No captures" : {
+
+    },
+    "No clicks were recorded" : {
+
+    },
+    "No display was available to record." : {
+
+    },
+    "No matches for “%@” in %@." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "No matches for “%1$@” in %2$@."
+          }
+        }
+      }
+    },
+    "No recordings" : {
+
+    },
+    "No Results" : {
+
+    },
+    "No text was recognized in the captured area." : {
+
+    },
+    "Off" : {
+
+    },
+    "OK" : {
+
+    },
+    "On" : {
+
+    },
+    "Open %@ on X" : {
+
+    },
+    "Open a large preview" : {
+
+    },
+    "Open in the screenshot or recording editor" : {
+
+    },
+    "Open Library" : {
+
+    },
+    "Open Recordings Library…" : {
+
+    },
+    "Open Screen Recording Settings…" : {
+
+    },
+    "Open Screenshots Folder" : {
+
+    },
+    "Open Share Link" : {
+
+    },
+    "Open Shared Capture" : {
+
+    },
+    "Open the share link in your browser" : {
+
+    },
+    "Orbit the camera around the card center, then roll the view" : {
+
+    },
+    "Paste this token as the **UPLOAD_TOKEN** secret when you deploy the worker to Cloudflare." : {
+
+    },
+    "Paste your token" : {
+
+    },
+    "Pause" : {
+
+    },
+    "Pause (Space)" : {
+
+    },
+    "Play" : {
+
+    },
+    "Play (Space)" : {
+
+    },
+    "Preparing" : {
+
+    },
+    "Preset name" : {
+
+    },
+    "Press a key combination with at least one modifier. Press Esc to cancel." : {
+
+    },
+    "Press keys..." : {
+
+    },
+    "Preview Overlay" : {
+
+    },
+    "Project" : {
+
+    },
+    "Projects" : {
+
+    },
+    "Quick Look" : {
+
+    },
+    "Quick Look (Space)" : {
+
+    },
+    "Quick Look %@" : {
+
+    },
+    "Quit Screendrop" : {
+
+    },
+    "Recent Captures" : {
+
+    },
+    "Recognizes the text inside a region you drag out, copies it to the clipboard, and returns it." : {
+
+    },
+    "Record" : {
+
+    },
+    "Record Screen" : {
+
+    },
+    "Recording paused at %@" : {
+
+    },
+    "Recording sources unavailable - retry or open permissions" : {
+
+    },
+    "Recording, %@ elapsed" : {
+
+    },
+    "Recordings" : {
+
+    },
+    "Refresh" : {
+
+    },
+    "Refresh Windows" : {
+
+    },
+    "Refreshing Library" : {
+
+    },
+    "Regenerate" : {
+
+    },
+    "Remove the selected zoom" : {
+
+    },
+    "Remove the subtitles" : {
+
+    },
+    "Remove this part of the video" : {
+
+    },
+    "Remove Zoom" : {
+
+    },
+    "Rename" : {
+
+    },
+    "Rename Capture" : {
+
+    },
+    "Rename…" : {
+
+    },
+    "Reset" : {
+
+    },
+    "Reset all clip edits?" : {
+
+    },
+    "Reset Camera to use alignment" : {
+
+    },
+    "Reset Clips" : {
+
+    },
+    "Reset the selection to the whole image" : {
+
+    },
+    "Reset the selection to the whole video" : {
+
+    },
+    "Reset to default" : {
+
+    },
+    "Retry" : {
+
+    },
+    "Reveal" : {
+
+    },
+    "Reveal exported recording in Finder" : {
+
+    },
+    "Reveal in Finder" : {
+
+    },
+    "Reveal token" : {
+
+    },
+    "Rotate the card around its own horizontal and vertical center axes" : {
+
+    },
+    "Runs %@ longer than the cut - the tail is dropped" : {
+
+    },
+    "Runs %@ shorter than the cut - the end plays silent" : {
+
+    },
+    "Save" : {
+
+    },
+    "Save a copy to a location of your choice" : {
+
+    },
+    "Save annotations (⌘S)" : {
+
+    },
+    "Save As" : {
+
+    },
+    "Save Location" : {
+
+    },
+    "Save the current background, layout, camera, blur, border, and watermark settings. It will be used for new screenshots." : {
+
+    },
+    "Save the current background, layout, cursor size, and camera settings. It will be used for new recordings." : {
+
+    },
+    "Save this project (⌘S)" : {
+
+    },
+    "Save…" : {
+
+    },
+    "Saved" : {
+
+    },
+    "Scanning screenshot…" : {
+
+    },
+    "Screendrop" : {
+
+    },
+    "Screendrop Annotate" : {
+
+    },
+    "Screendrop is a lightweight opensource app for capturing screenshots and screen recordings on macOS." : {
+
+    },
+    "Screendrop is already recording." : {
+
+    },
+    "Screendrop isn't currently recording." : {
+
+    },
+    "Screendrop Library" : {
+
+    },
+    "Screendrop Recording Editor" : {
+
+    },
+    "Screendrop windows will be captured" : {
+
+    },
+    "Screenshot and recording tool running in the menu bar." : {
+
+    },
+    "Search captures" : {
+
+    },
+    "Select a screenshot or recording\nto take a closer look." : {
+
+    },
+    "Selected" : {
+
+    },
+    "Set up Cloud to enable automatic uploads." : {
+
+    },
+    "Set Up Cloud…" : {
+
+    },
+    "Settings" : {
+
+    },
+    "Settings…" : {
+
+    },
+    "Setup Guide" : {
+
+    },
+    "Setup steps & demo" : {
+
+    },
+    "Share" : {
+
+    },
+    "Share Again" : {
+
+    },
+    "Share Failed" : {
+
+    },
+    "Share Options" : {
+
+    },
+    "Shortcuts you pressed while recording appear as a caption" : {
+
+    },
+    "Show %lld lines in the notch" : {
+
+    },
+    "Show All Captures…" : {
+
+    },
+    "Show All Recordings…" : {
+
+    },
+    "Show Inspector" : {
+
+    },
+    "Show Library" : {
+
+    },
+    "Show recent captures" : {
+
+    },
+    "Show while recording" : {
+
+    },
+    "Soften motion during zooms and pans. Turn off for faster exports with sharper motion." : {
+
+    },
+    "Sort" : {
+
+    },
+    "Sort By" : {
+
+    },
+    "Sort captures" : {
+
+    },
+    "Start Screen Recording" : {
+
+    },
+    "Starts a full screen recording if Screendrop is idle, or stops the current one." : {
+
+    },
+    "Starts recording the active display in Screendrop." : {
+
+    },
+    "Stop Screen Recording" : {
+
+    },
+    "Stops the current Screendrop screen recording." : {
+
+    },
+    "Subtitle" : {
+
+    },
+    "Swap in an audio file, aligned to the start of the edited timeline" : {
+
+    },
+    "Switch between grid and list" : {
+
+    },
+    "Switch Camera Focus to Fixed to aim this zoom by hand" : {
+
+    },
+    "System" : {
+
+    },
+    "Take Area Screenshot" : {
+
+    },
+    "Take Full Screen Screenshot" : {
+
+    },
+    "Take Window Screenshot" : {
+
+    },
+    "Teleprompter" : {
+
+    },
+    "Teleprompter will appear in the notch while recording" : {
+
+    },
+    "The Library action could not be completed" : {
+
+    },
+    "The local files and their edits will move to Trash. Exported copies and cloud links will remain available." : {
+
+    },
+    "The screenshot was cancelled before it could be captured." : {
+
+    },
+    "The selected wallpaper can’t be found. Choose it again before saving." : {
+
+    },
+    "This permanently removes the cloud copy and breaks its share link. Your local capture stays in the Library." : {
+
+    },
+    "This subtitle's audio was cut out" : {
+
+    },
+    "Title" : {
+
+    },
+    "Toggle Screen Recording" : {
+
+    },
+    "Trim long pauses in the narration" : {
+
+    },
+    "Turn off to hide Screendrop windows from screenshots and recordings" : {
+
+    },
+    "Turn on to show the script in the notch while recording" : {
+
+    },
+    "Turn the %@ into smooth camera moves" : {
+
+    },
+    "Turn your microphone narration into subtitles, transcribed on this Mac" : {
+
+    },
+    "Type or paste your script…" : {
+
+    },
+    "Untitled" : {
+
+    },
+    "Updates" : {
+
+    },
+    "Upload" : {
+
+    },
+    "Upload failed" : {
+
+    },
+    "Upload this recording and copy the share link" : {
+
+    },
+    "Upload to the cloud and copy the link" : {
+
+    },
+    "Upload Token" : {
+
+    },
+    "Uploading..." : {
+
+    },
+    "Use a lower FOV for a calmer lens, then frame with Zoom and Pan" : {
+
+    },
+    "Use Default" : {
+
+    },
+    "v%@ → v%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "v%1$@ → v%2$@"
+          }
+        }
+      }
+    },
+    "Verify Connection" : {
+
+    },
+    "View" : {
+
+    },
+    "View on GitHub" : {
+
+    },
+    "Wallpapers by %@" : {
+
+    },
+    "Watermark text" : {
+
+    },
+    "Why is this preview low resolution?" : {
+
+    },
+    "Window - choose an app window to record" : {
+
+    },
+    "Worker update available" : {
+
+    },
+    "Worker URL" : {
+
+    },
+    "X %lld, Y %lld, %@ times zoom" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "X %1$lld, Y %2$lld, %3$@ times zoom"
+          }
+        }
+      }
+    },
+    "X %lld, Y %lld, size %lld percent" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "X %1$lld, Y %2$lld, size %3$lld percent"
+          }
+        }
+      }
+    },
+    "Zoom" : {
+
+    },
+    "Zoom In" : {
+
+    },
+    "Zoom Out" : {
+
+    }
+  },
+  "version" : "1.0"
+}
