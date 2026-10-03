@@ -2368,7 +2368,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "剪掉所有口头填充词，例如“嗯”和“呃”"
+            "value" : "剪掉所有英文口头填充词，例如“um”和“uh”"
           }
         }
       }
