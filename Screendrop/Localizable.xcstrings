@@ -4966,7 +4966,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "浮层"
+            "value" : "悬浮窗口"
           }
         }
       }
@@ -5356,7 +5356,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "预览浮层"
+            "value" : "预览悬浮窗口"
           }
         }
       }
@@ -7032,7 +7032,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "显示预览浮层"
+            "value" : "显示预览悬浮窗口"
           }
         }
       }
