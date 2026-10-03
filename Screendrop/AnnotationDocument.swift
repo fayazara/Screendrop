@@ -308,6 +308,24 @@ struct StoredGradient: Codable, Equatable {
     }
 }
 
+// Same identity as the runtime color types: the stored title is whatever
+// language it was written in, so comparisons leave it out. Recording style
+// presets are matched in this stored form.
+extension StoredColor {
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.id == rhs.id && lhs.red == rhs.red && lhs.green == rhs.green
+            && lhs.blue == rhs.blue && lhs.alpha == rhs.alpha
+    }
+}
+
+extension StoredGradient {
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.id == rhs.id && lhs.colors == rhs.colors
+            && lhs.startX == rhs.startX && lhs.startY == rhs.startY
+            && lhs.endX == rhs.endX && lhs.endY == rhs.endY
+    }
+}
+
 struct StoredWatermark: Codable, Equatable {
     var isEnabled: Bool
     var text: String
