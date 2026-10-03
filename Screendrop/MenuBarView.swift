@@ -126,7 +126,7 @@ struct MenuBarView: View {
 
     private func projectMenuTitle(for project: RecordingProjectSummary) -> String {
         let name = truncatedMenuTitle(project.displayName)
-        return project.hasUnsavedDraft ? "\(name) - Unsaved" : name
+        return project.hasUnsavedDraft ? String(localized: "\(name) - Unsaved") : name
     }
 
     @ViewBuilder
@@ -183,10 +183,10 @@ struct MenuBarView: View {
 
     private func showOpenScreenshotsFolderError(directory: URL, errorDescription: String?) {
         let alert = NSAlert()
-        alert.messageText = "Could not open screenshots folder."
+        alert.messageText = String(localized: "Could not open screenshots folder.")
         alert.informativeText = errorDescription ?? directory.path
         alert.alertStyle = .warning
-        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: String(localized: "OK"))
         alert.runModal()
     }
 

@@ -274,8 +274,12 @@ struct PreviewWindowView: View {
     private var peekTitle: String {
         let count = previewStack.items.count
         let hasVideo = previewStack.items.contains { $0.kind == .video }
-        let noun = hasVideo ? "Capture" : "Screenshot"
-        return count == 1 ? "1 \(noun)" : "\(count) \(noun)s"
+        switch (hasVideo, count == 1) {
+        case (true, true): return String(localized: "1 Capture")
+        case (true, false): return String(localized: "\(count) Captures")
+        case (false, true): return String(localized: "1 Screenshot")
+        case (false, false): return String(localized: "\(count) Screenshots")
+        }
     }
 
     /// The peek tab matches the card width, so it uses the same edge inset as

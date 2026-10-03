@@ -23,7 +23,7 @@ enum FailureAlert {
         alert.informativeText = [detail, error.localizedDescription]
             .compactMap { $0 }
             .joined(separator: " ")
-        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: String(localized: "OK"))
         alert.runModal()
     }
 }

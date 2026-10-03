@@ -88,8 +88,10 @@ nonisolated enum CloudSidecarUploader {
     /// instead of a timestamped filename.
     private static func defaultTitle(for date: Date) -> String {
         let formatter = DateFormatter()
-        formatter.dateFormat = "MMM d 'at' h:mm a"
-        return "Screen Recording - \(formatter.string(from: date))"
+        // A template, so other locales get their own date order and clock.
+        formatter.setLocalizedDateFormatFromTemplate("MMMdjmm")
+        let timestamp = formatter.string(from: date)
+        return String(localized: "Screen Recording - \(timestamp)")
     }
 
     // MARK: - Poster

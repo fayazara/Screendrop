@@ -24,7 +24,7 @@ struct RecordingStudioStylePresetBar: View {
     }
 
     private var displayTitle: String {
-        appliedPreset?.name ?? "Presets…"
+        appliedPreset?.name ?? String(localized: "Presets…")
     }
 
     private var isAppliedPresetModified: Bool {
@@ -123,18 +123,18 @@ struct RecordingStudioStylePresetBar: View {
 
     private var presetHelp: String {
         if let activePreset = presetStore.activePreset {
-            return "Choose a preset. \(activePreset.name) is applied to new recordings."
+            return String(localized: "Choose a preset. \(activePreset.name) is applied to new recordings.")
         }
-        return "Choose a background, layout, cursor, and camera preset"
+        return String(localized: "Choose a background, layout, cursor, and camera preset")
     }
 
     private var presetAccessibilityValue: String {
         var details = [displayTitle]
         if isAppliedPresetModified {
-            details.append("modified")
+            details.append(String(localized: "modified"))
         }
         if appliedPreset?.hasMissingWallpaper == true {
-            details.append("wallpaper missing")
+            details.append(String(localized: "wallpaper missing"))
         }
         return details.joined(separator: ", ")
     }
@@ -266,7 +266,7 @@ private struct RecordingStudioStylePresetPopUpButton: NSViewRepresentable {
                 keyEquivalent: ""
             )
             (button.cell as? NSPopUpButtonCell)?.menuItem = displayItem
-            button.setAccessibilityLabel("Studio style preset")
+            button.setAccessibilityLabel(String(localized: "Studio style preset"))
             button.setAccessibilityValue(parent.accessibilityValue)
         }
 
@@ -278,17 +278,17 @@ private struct RecordingStudioStylePresetPopUpButton: NSViewRepresentable {
             let missingPresets = parent.presets.filter(\.hasMissingWallpaper)
 
             if availablePresets.isEmpty && missingPresets.isEmpty {
-                let emptyItem = NSMenuItem(title: "No Saved Presets", action: nil, keyEquivalent: "")
+                let emptyItem = NSMenuItem(title: String(localized: "No Saved Presets"), action: nil, keyEquivalent: "")
                 emptyItem.isEnabled = false
                 menu.addItem(emptyItem)
                 return menu
             }
 
             if !availablePresets.isEmpty {
-                menu.addItem(.sectionHeader(title: "Saved Presets"))
+                menu.addItem(.sectionHeader(title: String(localized: "Saved Presets")))
 
                 let currentItem = NSMenuItem(
-                    title: "Current Settings",
+                    title: String(localized: "Current Settings"),
                     action: #selector(selectCurrentSettings(_:)),
                     keyEquivalent: ""
                 )
@@ -310,7 +310,7 @@ private struct RecordingStudioStylePresetPopUpButton: NSViewRepresentable {
                 if !availablePresets.isEmpty {
                     menu.addItem(.separator())
                 }
-                menu.addItem(.sectionHeader(title: "Wallpaper Missing"))
+                menu.addItem(.sectionHeader(title: String(localized: "Wallpaper Missing")))
 
                 for preset in missingPresets {
                     let item = presetItem(
@@ -318,7 +318,7 @@ private struct RecordingStudioStylePresetPopUpButton: NSViewRepresentable {
                         action: #selector(deletePreset(_:)),
                         isSelected: false
                     )
-                    item.title = "Delete “\(preset.name)”…"
+                    item.title = String(localized: "Delete “\(preset.name)”…")
                     item.image = NSImage(systemSymbolName: "trash", accessibilityDescription: nil)
                     menu.addItem(item)
                 }
@@ -327,7 +327,7 @@ private struct RecordingStudioStylePresetPopUpButton: NSViewRepresentable {
             if !availablePresets.isEmpty {
                 menu.addItem(.separator())
 
-                let defaultItem = NSMenuItem(title: "Default Preset", action: nil, keyEquivalent: "")
+                let defaultItem = NSMenuItem(title: String(localized: "Default Preset"), action: nil, keyEquivalent: "")
                 defaultItem.submenu = makeDefaultMenu(presets: availablePresets)
                 menu.addItem(defaultItem)
             }
@@ -336,11 +336,11 @@ private struct RecordingStudioStylePresetPopUpButton: NSViewRepresentable {
         }
 
         private func makeDefaultMenu(presets: [RecordingStudioStylePreset]) -> NSMenu {
-            let menu = NSMenu(title: "Default Preset")
+            let menu = NSMenu(title: String(localized: "Default Preset"))
             menu.autoenablesItems = false
 
             let noneItem = NSMenuItem(
-                title: "None",
+                title: String(localized: "None"),
                 action: #selector(clearDefaultPreset(_:)),
                 keyEquivalent: ""
             )

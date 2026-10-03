@@ -200,7 +200,7 @@ private struct RecordingStudioContent: View {
     /// says it in words for anyone who reads the title bar first.
     private var windowTitle: String {
         let name = Self.friendlyTitle(for: model.projectDisplayName)
-        return model.hasUnsavedChanges ? "\(name) - Edited" : name
+        return model.hasUnsavedChanges ? String(localized: "\(name) - Edited") : name
     }
 
     /// Length of the edited cut and the source resolution.
@@ -221,13 +221,13 @@ private struct RecordingStudioContent: View {
         formatter.dateFormat = "yyyy-MM-dd-HH-mm-ss"
         formatter.locale = Locale(identifier: "en_US_POSIX")
         guard let date = formatter.date(from: String(parts[1])) else { return name }
-        return "Recording · \(date.formatted(date: .abbreviated, time: .shortened))"
+        return String(localized: "Recording · \(date.formatted(date: .abbreviated, time: .shortened))")
     }
 
     private func configureCloseGuard() {
         closeGuard.hasUnsavedChanges = { [weak model] in model?.hasUnsavedChanges ?? false }
         closeGuard.offersDelete = { [weak model] in model?.hasNeverBeenSaved ?? false }
-        closeGuard.projectName = { [weak model] in model?.projectDisplayName ?? "this recording" }
+        closeGuard.projectName = { [weak model] in model?.projectDisplayName ?? String(localized: "this recording") }
         closeGuard.onDecision = { [weak model] decision, done in
             guard let model else { return }
             switch decision {
@@ -285,12 +285,12 @@ private struct RecordingStudioContent: View {
             .disabled(!model.isLoaded || model.exportState.isExporting)
             .help("Upload this recording and copy the share link")
         case .rendering(let progress):
-            SharePill(stage: "Rendering", progress: progress) {
+            SharePill(stage: String(localized: "Rendering"), progress: progress) {
                 model.cancelShare()
             }
         case .uploading:
             SharePill(
-                stage: "Uploading",
+                stage: String(localized: "Uploading"),
                 progress: model.shareItemID.flatMap {
                     CloudUploader.shared.uploadProgress[$0]
                 } ?? 0
@@ -531,7 +531,7 @@ private struct StudioCanvas: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                         .allowsHitTesting(false)
                 } else if let skimTime {
-                    StudioCanvasBadge(text: "Previewing \(studioPreciseTimecode(skimTime))")
+                    StudioCanvasBadge(text: String(localized: "Previewing \(studioPreciseTimecode(skimTime))"))
                         .padding(10)
                         .allowsHitTesting(false)
                         .transition(.opacity)
@@ -801,7 +801,7 @@ private struct StudioZoomTargetOverlay: View {
                     StudioCanvasBadge(
                         text: isMovable
                             ? InspectorValueFormat.magnification(fractionDigits: 1).displayString(for: magnification)
-                            : "Follows pointer"
+                            : String(localized: "Follows pointer")
                     )
                     .padding(6)
                     .allowsHitTesting(false)
@@ -839,7 +839,7 @@ private struct StudioZoomTargetOverlay: View {
             }
             .onEnded { _ in
                 dragStartPoint = nil
-                model.endZoomCueEdit(actionName: "Aim Zoom")
+                model.endZoomCueEdit(actionName: String(localized: "Aim Zoom"))
             }
     }
 }
@@ -2052,7 +2052,7 @@ private struct StudioTimelineEditor: View {
     }
 
     private func timelineButton(
-        _ help: String,
+        _ help: LocalizedStringResource,
         systemImage: String,
         action: @escaping () -> Void
     ) -> some View {
@@ -2063,8 +2063,8 @@ private struct StudioTimelineEditor: View {
                 .contentShape(RoundedRectangle(cornerRadius: StudioTransportMetrics.buttonRadius, style: .continuous))
         }
         .buttonStyle(TransportIconButtonStyle())
-        .help(help)
-        .accessibilityLabel(help)
+        .help(Text(help))
+        .accessibilityLabel(Text(help))
     }
 }
 
@@ -2692,7 +2692,7 @@ private struct StudioZoomCueBlock: View {
                     }
                     .onEnded { _ in
                         dragBase = nil
-                        model.endZoomCueEdit(actionName: "Move Zoom")
+                        model.endZoomCueEdit(actionName: String(localized: "Move Zoom"))
                     }
             )
             .onTapGesture {
@@ -2753,7 +2753,7 @@ private struct StudioZoomCueBlock: View {
                     }
                     .onEnded { _ in
                         dragBase = nil
-                        model.endZoomCueEdit(actionName: "Resize Zoom")
+                        model.endZoomCueEdit(actionName: String(localized: "Resize Zoom"))
                     }
             )
     }
@@ -2764,9 +2764,9 @@ private struct StudioZoomCueBlock: View {
 private extension ZoomAnchorMode {
     var inspectorTitle: String {
         switch self {
-        case .pointerAnchor: "Pointer"
-        case .smartAnchor: "Smart"
-        case .pinnedAnchor: "Fixed"
+        case .pointerAnchor: String(localized: "Pointer")
+        case .smartAnchor: String(localized: "Smart")
+        case .pinnedAnchor: String(localized: "Fixed")
         }
     }
 }
@@ -2806,8 +2806,8 @@ private enum StudioTranscriptTab: CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .captions: "Captions"
-        case .edit: "Edit Video"
+        case .captions: String(localized: "Captions")
+        case .edit: String(localized: "Edit Video")
         }
     }
 }
@@ -2879,7 +2879,7 @@ private struct StudioInspector: View {
 
                 InspectorDisclosureSection(
                     title: "Layout",
-                    summary: usesDefaultLayout ? nil : "Custom",
+                    summary: usesDefaultLayout ? nil : String(localized: "Custom"),
                     isExpanded: expansionBinding(for: .layout),
                     accessory: {
                         if !usesDefaultLayout {
@@ -2909,7 +2909,7 @@ private struct StudioInspector: View {
                     InspectorDisclosureSection(
                         title: "Cursor",
                         summary: model.style.hidesCursor
-                            ? "Hidden"
+                            ? String(localized: "Hidden")
                             : InspectorValueFormat.magnification(fractionDigits: 1)
                                 .displayString(for: model.style.cursorScale),
                         isExpanded: expansionBinding(for: .cursor),
@@ -3095,7 +3095,7 @@ private struct StudioInspector: View {
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
-        panel.title = "Choose Video Background Wallpaper"
+        panel.title = String(localized: "Choose Video Background Wallpaper")
         panel.begin { response in
             guard response == .OK, let url = panel.url else { return }
             wallpaperStore.addRecentWallpaper(url)
@@ -3142,11 +3142,7 @@ private struct StudioInspector: View {
                     model.resynthesizeZoomCues()
                 }
                 .disabled(pressCount == 0)
-                .help(
-                    pressCount == 0
-                        ? "No clicks were recorded"
-                        : "Turn the \(pressCount == 1 ? "recorded click" : "\(pressCount) recorded clicks") into smooth camera moves"
-                )
+                .help(autoZoomHelp(pressCount: pressCount))
 
                 InspectorActionButton("Add Zoom", systemImage: "plus.magnifyingglass") {
                     model.addZoomCue(at: model.currentTime)
@@ -3612,7 +3608,7 @@ private struct StudioInspector: View {
                 }
             }
         case .exporting(let progress):
-            audioExportChrome(help: "Cancel") {
+            audioExportChrome(help: String(localized: "Cancel")) {
                 model.cancelAudioExport()
             } label: {
                 StudioProgressRing(progress: progress, size: 12)
@@ -3621,7 +3617,7 @@ private struct StudioInspector: View {
                     .contentTransition(.numericText())
             }
         case .finished(let url):
-            audioExportChrome(help: "Reveal \(url.lastPathComponent) in Finder") {
+            audioExportChrome(help: String(localized: "Reveal \(url.lastPathComponent) in Finder")) {
                 NSWorkspace.shared.activateFileViewerSelecting([url])
             } label: {
                 Image(systemName: "checkmark.circle.fill")
@@ -3702,7 +3698,7 @@ private struct StudioInspector: View {
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
-        panel.title = "Choose Replacement Audio"
+        panel.title = String(localized: "Choose Replacement Audio")
         panel.begin { response in
             guard response == .OK, let url = panel.url else { return }
             model.replaceAudio(with: url)
@@ -3720,24 +3716,32 @@ private struct StudioInspector: View {
         return value < 60 ? String(format: "%.1fs", value) : clockText(value)
     }
 
+    private func autoZoomHelp(pressCount: Int) -> String {
+        switch pressCount {
+        case 0: String(localized: "No clicks were recorded")
+        case 1: String(localized: "Turn the recorded click into smooth camera moves")
+        default: String(localized: "Turn the \(pressCount) recorded clicks into smooth camera moves")
+        }
+    }
+
     // MARK: Summaries
 
     private var zoomSummary: String? {
         guard model.zoomEnabled else { return nil }
         let count = model.zoomCues.count
-        return count == 1 ? "1 zoom" : "\(count) zooms"
+        return count == 1 ? String(localized: "1 zoom") : String(localized: "\(count) zooms")
     }
 
     private var transcriptionSummary: String? {
         switch model.transcriptionState {
         case .transcribing:
-            return "Transcribing…"
+            return String(localized: "Transcribing…")
         case .failed:
-            return "Failed"
+            return String(localized: "Failed")
         case .idle:
             guard model.hasSubtitles, model.showsSubtitles else { return nil }
             let count = model.subtitleCues.count
-            return count == 1 ? "1 line" : "\(count) lines"
+            return count == 1 ? String(localized: "1 line") : String(localized: "\(count) lines")
         }
     }
 
@@ -3746,7 +3750,7 @@ private struct StudioInspector: View {
             return replacement.displayName
         }
         guard model.hasAudio, abs(model.audioVolume - 1) > 0.001 else { return nil }
-        return "Volume \(InspectorValueFormat.percent().displayString(for: model.audioVolume))"
+        return String(localized: "Volume \(InspectorValueFormat.percent().displayString(for: model.audioVolume))")
     }
 
     // MARK: Helpers
@@ -3827,12 +3831,12 @@ private enum StudioInspectorSummary {
 
     static func keystrokePlacement(_ placement: RecordingKeystrokePlacement) -> String {
         switch placement {
-        case .topLeft: "Top left"
-        case .topCenter: "Top"
-        case .topRight: "Top right"
-        case .bottomLeft: "Bottom left"
-        case .bottomCenter: "Bottom"
-        case .bottomRight: "Bottom right"
+        case .topLeft: String(localized: "Top left")
+        case .topCenter: String(localized: "Top")
+        case .topRight: String(localized: "Top right")
+        case .bottomLeft: String(localized: "Bottom left")
+        case .bottomCenter: String(localized: "Bottom")
+        case .bottomRight: String(localized: "Bottom right")
         }
     }
 }

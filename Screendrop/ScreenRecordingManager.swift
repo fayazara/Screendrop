@@ -38,11 +38,11 @@ enum ScreenRecordingSourceMode: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .fullscreen:
-            "Full Screen"
+            String(localized: "Full Screen")
         case .window:
-            "Window"
+            String(localized: "Window")
         case .area:
-            "Area"
+            String(localized: "Area")
         }
     }
 
@@ -229,7 +229,7 @@ final class ScreenRecordingManager {
                     guard isStarting(session: session) else { return }
                     if !cameraStarted {
                         Self.presentInputWarnings([
-                            "The selected camera could not start. The screen and selected audio will still be recorded."
+                            String(localized: "The selected camera could not start. The screen and selected audio will still be recorded.")
                         ])
                     }
                 }
@@ -393,12 +393,12 @@ final class ScreenRecordingManager {
                 } catch {
                     NSLog("[Screendrop] Failed to save recording input timeline: \(error)")
                     metadataWarnings.append(
-                        "The screen footage was saved, but its cursor and click data could not be saved."
+                        String(localized: "The screen footage was saved, but its cursor and click data could not be saved.")
                     )
                 }
             } else {
                 metadataWarnings.append(
-                    "The screen footage was saved, but its cursor timeline could not be aligned to the video."
+                    String(localized: "The screen footage was saved, but its cursor timeline could not be aligned to the video.")
                 )
             }
             do {
@@ -406,7 +406,7 @@ final class ScreenRecordingManager {
             } catch {
                 NSLog("[Screendrop] Failed to save recording manifest: \(error)")
                 metadataWarnings.append(
-                    "The screen footage was saved, but some Studio metadata could not be saved."
+                    String(localized: "The screen footage was saved, but some Studio metadata could not be saved.")
                 )
             }
         }
@@ -417,8 +417,8 @@ final class ScreenRecordingManager {
             if let session {
                 RecordingSessionStore.deleteSession(session)
             }
-            errorMessage = result.error.map { "Recording failed: \($0.localizedDescription)" }
-                ?? "Failed to finish recording."
+            errorMessage = result.error.map { String(localized: "Recording failed: \($0.localizedDescription)") }
+                ?? String(localized: "Failed to finish recording.")
             RecordingControlPresenter.shared.hide()
             RecordingAreaHighlightPresenter.shared.hide()
             if action == .terminate {
@@ -439,7 +439,7 @@ final class ScreenRecordingManager {
         if let error = result.error {
             // The writer hit trouble mid-flight but the fragmented file is
             // playable up to that point - deliver it instead of losing it.
-            let warning = "Recording ended early (\(error.localizedDescription)). Everything captured so far was saved."
+            let warning = String(localized: "Recording ended early (\(error.localizedDescription)). Everything captured so far was saved.")
             errorMessage = [errorMessage, warning]
                 .compactMap { $0 }
                 .joined(separator: "\n\n")
@@ -477,10 +477,10 @@ final class ScreenRecordingManager {
         guard state == .recording || state == .paused || state == .starting else { return }
 
         if state == .starting {
-            errorMessage = "Screen recording failed to start: \(error.localizedDescription)"
+            errorMessage = String(localized: "Screen recording failed to start: \(error.localizedDescription)")
             finishAction = .discard
         } else {
-            errorMessage = "Recording stopped (\(error.localizedDescription)). Everything captured so far was saved."
+            errorMessage = String(localized: "Recording stopped (\(error.localizedDescription)). Everything captured so far was saved.")
             finishAction = .preview
         }
         stopCaptureAndFinish()
@@ -489,7 +489,7 @@ final class ScreenRecordingManager {
     private func handleWriterFailure(_ error: Error) {
         guard state == .recording || state == .paused else { return }
 
-        errorMessage = "Recording stopped (\(error.localizedDescription)). Everything captured so far was saved."
+        errorMessage = String(localized: "Recording stopped (\(error.localizedDescription)). Everything captured so far was saved.")
         finishAction = .preview
         terminationCompletion = nil
         stopCaptureAndFinish()
@@ -506,7 +506,7 @@ final class ScreenRecordingManager {
             RecordingSessionStore.deleteSession(session)
         }
         cleanupAfterRecording()
-        errorMessage = "Failed to start screen recording: \(error.localizedDescription)"
+        errorMessage = String(localized: "Failed to start screen recording: \(error.localizedDescription)")
         RecordingControlPresenter.shared.hide()
         RecordingAreaHighlightPresenter.shared.hide()
         Self.presentStartFailureAlert(error: error)
@@ -529,11 +529,11 @@ final class ScreenRecordingManager {
             if RecordingDeviceCatalog.microphone(withID: microphoneID) == nil {
                 resolved.microphoneDeviceID = nil
                 ScreendropPreferences.recordingMicrophoneDeviceID = ""
-                warnings.append("The selected microphone is no longer available, so it was turned off.")
+                warnings.append(String(localized: "The selected microphone is no longer available, so it was turned off."))
             } else if !(await RecordingInputAuthorization.requestAccess(for: .microphone)) {
                 resolved.microphoneDeviceID = nil
                 ScreendropPreferences.recordingMicrophoneDeviceID = ""
-                warnings.append("Microphone access is not allowed, so this recording will not include narration.")
+                warnings.append(String(localized: "Microphone access is not allowed, so this recording will not include narration."))
             }
         }
 
@@ -541,11 +541,11 @@ final class ScreenRecordingManager {
             if RecordingDeviceCatalog.camera(withID: cameraID) == nil {
                 resolved.cameraDeviceID = nil
                 ScreendropPreferences.recordingCameraDeviceID = ""
-                warnings.append("The selected camera is no longer available, so it was turned off.")
+                warnings.append(String(localized: "The selected camera is no longer available, so it was turned off."))
             } else if !(await RecordingInputAuthorization.requestAccess(for: .camera)) {
                 resolved.cameraDeviceID = nil
                 ScreendropPreferences.recordingCameraDeviceID = ""
-                warnings.append("Camera access is not allowed, so this recording will not include a camera bubble.")
+                warnings.append(String(localized: "Camera access is not allowed, so this recording will not include a camera bubble."))
             }
         }
 
@@ -557,9 +557,9 @@ final class ScreenRecordingManager {
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = "Some recording inputs are unavailable"
+        alert.messageText = String(localized: "Some recording inputs are unavailable")
         alert.informativeText = warnings.joined(separator: "\n\n")
-        alert.addButton(withTitle: "Continue")
+        alert.addButton(withTitle: String(localized: "Continue"))
         alert.runModal()
     }
 
@@ -568,10 +568,10 @@ final class ScreenRecordingManager {
         let alert = NSAlert()
         alert.alertStyle = footageWasSaved ? .informational : .critical
         alert.messageText = footageWasSaved
-            ? "The recording ended early, but your footage was saved"
-            : "The recording could not be saved"
+            ? String(localized: "The recording ended early, but your footage was saved")
+            : String(localized: "The recording could not be saved")
         alert.informativeText = message
-        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: String(localized: "OK"))
         alert.runModal()
     }
 
@@ -590,14 +590,14 @@ final class ScreenRecordingManager {
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = "Screen Recording permission needed"
-        alert.informativeText = """
+        alert.messageText = String(localized: "Screen Recording permission needed")
+        alert.informativeText = String(localized: """
         Screendrop can't record until it's allowed under Privacy & Security > \
         Screen & System Audio Recording. After turning it on, quit and reopen \
         Screendrop - macOS applies the permission on relaunch.
-        """
-        alert.addButton(withTitle: "Open System Settings")
-        alert.addButton(withTitle: "Cancel")
+        """)
+        alert.addButton(withTitle: String(localized: "Open System Settings"))
+        alert.addButton(withTitle: String(localized: "Cancel"))
         if alert.runModal() == .alertFirstButtonReturn,
            let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
             NSWorkspace.shared.open(url)
@@ -611,9 +611,9 @@ final class ScreenRecordingManager {
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = "Couldn't start the recording"
+        alert.messageText = String(localized: "Couldn't start the recording")
         alert.informativeText = error.localizedDescription
-        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: String(localized: "OK"))
         alert.runModal()
     }
 

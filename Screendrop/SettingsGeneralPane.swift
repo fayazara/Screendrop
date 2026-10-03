@@ -130,8 +130,8 @@ struct GeneralSettingsPane: View {
 
     private func chooseExportDirectory() {
         let panel = NSOpenPanel()
-        panel.title = "Choose Save Location"
-        panel.prompt = "Choose"
+        panel.title = String(localized: "Choose Save Location")
+        panel.prompt = String(localized: "Choose")
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
@@ -155,7 +155,7 @@ struct GeneralSettingsPane: View {
             launchAtLoginError = nil
             try LaunchAtLoginController.setEnabled(isEnabled)
         } catch {
-            launchAtLoginError = "Could not update Launch at Login: \(error.localizedDescription)"
+            launchAtLoginError = String(localized: "Could not update Launch at Login: \(error.localizedDescription)")
         }
 
         refreshLaunchAtLoginStatus()

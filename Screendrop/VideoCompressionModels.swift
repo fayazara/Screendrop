@@ -5,12 +5,26 @@
 
 import Foundation
 
+/// An export option with a display title. Raw values are persisted in saved
+/// settings and projects, so they stay fixed while the title is localized.
+protocol VideoExportOptionTitled {
+    var title: String { get }
+}
+
 enum VideoCompressionQuality: String, CaseIterable, Identifiable, Codable, Sendable {
     case high = "High"
     case medium = "Medium"
     case low = "Low"
 
     var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .high: String(localized: "High")
+        case .medium: String(localized: "Medium")
+        case .low: String(localized: "Low")
+        }
+    }
 
     var crf: Int {
         switch self {
@@ -54,6 +68,8 @@ enum VideoCompressionCodec: String, CaseIterable, Identifiable, Codable, Sendabl
 
     var id: String { rawValue }
 
+    var title: String { rawValue }
+
     var encoder: String {
         switch self {
         case .h264:
@@ -71,6 +87,10 @@ enum VideoCompressionResolution: String, CaseIterable, Identifiable, Codable, Se
     case p480 = "480p"
 
     var id: String { rawValue }
+
+    var title: String {
+        self == .original ? String(localized: "Original") : rawValue
+    }
 
     var scaleFilter: String? {
         switch self {
@@ -100,6 +120,8 @@ enum VideoExportContainer: String, CaseIterable, Identifiable, Codable, Sendable
 
     var id: String { rawValue }
 
+    var title: String { rawValue }
+
     var fileExtension: String { rawValue.lowercased() }
 
     init?(fileExtension: String) {
@@ -115,8 +137,15 @@ nonisolated enum VideoExportFrameRate: String, CaseIterable, Identifiable, Codab
     case fps60 = "60 fps"
 
     var id: String { rawValue }
+    var title: String { rawValue }
     var framesPerSecond: Double { self == .fps30 ? 30 : 60 }
 }
+
+extension VideoCompressionQuality: VideoExportOptionTitled {}
+extension VideoCompressionCodec: VideoExportOptionTitled {}
+extension VideoCompressionResolution: VideoExportOptionTitled {}
+extension VideoExportContainer: VideoExportOptionTitled {}
+extension VideoExportFrameRate: VideoExportOptionTitled {}
 
 nonisolated struct VideoCompressionSettings: Codable, Equatable, Sendable {
     var quality: VideoCompressionQuality = .medium

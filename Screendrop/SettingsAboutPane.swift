@@ -15,11 +15,11 @@ struct SettingsAboutPane: View {
 
         switch (version, build) {
         case let (version?, build?):
-            return "Version \(version) (\(build))"
+            return String(localized: "Version \(version) (\(build))")
         case let (version?, nil):
-            return "Version \(version)"
+            return String(localized: "Version \(version)")
         default:
-            return "Version 1.0"
+            return String(localized: "Version 1.0")
         }
     }
 

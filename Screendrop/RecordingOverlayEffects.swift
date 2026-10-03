@@ -83,9 +83,9 @@ enum RecordingKeystrokePlacement: String, Codable, CaseIterable, Identifiable, S
 
     var title: String {
         switch self {
-        case .topLeft, .bottomLeft: "Left"
-        case .topCenter, .bottomCenter: "Center"
-        case .topRight, .bottomRight: "Right"
+        case .topLeft, .bottomLeft: String(localized: "Left")
+        case .topCenter, .bottomCenter: String(localized: "Center")
+        case .topRight, .bottomRight: String(localized: "Right")
         }
     }
 }

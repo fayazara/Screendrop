@@ -1,0 +1,161 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "Capture text with ${applicationName}" : {
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringSet" : {
+            "state" : "new",
+            "values" : [
+              "Capture text with ${applicationName}",
+              "Copy text from the screen with ${applicationName}"
+            ]
+          }
+        },
+        "zh-Hans" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "用 ${applicationName} 识别文字",
+              "用 ${applicationName} 拷贝屏幕上的文字"
+            ]
+          }
+        }
+      }
+    },
+    "Start recording with ${applicationName}" : {
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringSet" : {
+            "state" : "new",
+            "values" : [
+              "Start recording with ${applicationName}",
+              "Start a screen recording with ${applicationName}"
+            ]
+          }
+        },
+        "zh-Hans" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "用 ${applicationName} 开始录制",
+              "用 ${applicationName} 开始屏幕录制"
+            ]
+          }
+        }
+      }
+    },
+    "Stop recording with ${applicationName}" : {
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringSet" : {
+            "state" : "new",
+            "values" : [
+              "Stop recording with ${applicationName}",
+              "Stop the screen recording with ${applicationName}"
+            ]
+          }
+        },
+        "zh-Hans" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "用 ${applicationName} 停止录制",
+              "用 ${applicationName} 停止屏幕录制"
+            ]
+          }
+        }
+      }
+    },
+    "Take a screenshot with ${applicationName}" : {
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringSet" : {
+            "state" : "new",
+            "values" : [
+              "Take a screenshot with ${applicationName}",
+              "Capture the screen with ${applicationName}"
+            ]
+          }
+        },
+        "zh-Hans" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "用 ${applicationName} 截图",
+              "用 ${applicationName} 截取屏幕"
+            ]
+          }
+        }
+      }
+    },
+    "Take a window screenshot with ${applicationName}" : {
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringSet" : {
+            "state" : "new",
+            "values" : [
+              "Take a window screenshot with ${applicationName}"
+            ]
+          }
+        },
+        "zh-Hans" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "用 ${applicationName} 截取窗口"
+            ]
+          }
+        }
+      }
+    },
+    "Take an area screenshot with ${applicationName}" : {
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringSet" : {
+            "state" : "new",
+            "values" : [
+              "Take an area screenshot with ${applicationName}"
+            ]
+          }
+        },
+        "zh-Hans" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "用 ${applicationName} 截取区域"
+            ]
+          }
+        }
+      }
+    },
+    "Toggle screen recording with ${applicationName}" : {
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringSet" : {
+            "state" : "new",
+            "values" : [
+              "Toggle screen recording with ${applicationName}"
+            ]
+          }
+        },
+        "zh-Hans" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "用 ${applicationName} 开始或停止屏幕录制"
+            ]
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.3"
+}

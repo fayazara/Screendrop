@@ -167,8 +167,11 @@ struct CaptureLibraryInspector: View {
         }
     }
 
-    private func actionButton(_ action: CaptureLibraryAction, id: BarTooltipID, title: String, symbol: String) -> some View {
-        Button {
+    private func actionButton(
+        _ action: CaptureLibraryAction, id: BarTooltipID, title: LocalizedStringResource, symbol: String
+    ) -> some View {
+        let title = String(localized: title)
+        return Button {
             tooltip.dismiss()
             model.perform(action)
         } label: {
@@ -182,7 +185,7 @@ struct CaptureLibraryInspector: View {
     private var cloudAction: some View {
         let item = items.count == 1 ? items.first : nil
         let isShared = item?.cloudURL != nil
-        let title = isShared ? "Copy Cloud Link" : "Share to Cloud"
+        let title = isShared ? String(localized: "Copy Cloud Link") : String(localized: "Share to Cloud")
         return Button {
             tooltip.dismiss()
             guard let item else { return }
@@ -275,7 +278,7 @@ struct CaptureLibraryInspector: View {
             Button("Move to Trash…", systemImage: "trash", role: .destructive) { model.perform(.trash) }
         } label: {
             actionIcon("ellipsis")
-                .modifier(LibraryInspectorActionChrome(id: .libraryMore, title: "More Actions"))
+                .modifier(LibraryInspectorActionChrome(id: .libraryMore, title: String(localized: "More Actions")))
         }
         .menuStyle(.button)
         .buttonStyle(BarButtonStyle())
@@ -284,13 +287,13 @@ struct CaptureLibraryInspector: View {
         .accessibilityLabel("More capture actions")
     }
 
-    private func sectionTitle(_ title: String) -> some View {
+    private func sectionTitle(_ title: LocalizedStringResource) -> some View {
         Text(title)
             .font(.system(size: 11, weight: .semibold))
             .foregroundStyle(.secondary)
     }
 
-    private func detailRow(_ title: String, value: String) -> some View {
+    private func detailRow(_ title: LocalizedStringResource, value: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             Text(title).foregroundStyle(.secondary).fixedSize(horizontal: true, vertical: false)
             Spacer(minLength: 0)
@@ -299,8 +302,8 @@ struct CaptureLibraryInspector: View {
         .font(.system(size: 12))
     }
 
-    private func statusBadge(_ title: String, symbol: String) -> some View {
-        Label(title, systemImage: symbol)
+    private func statusBadge(_ title: LocalizedStringResource, symbol: String) -> some View {
+        Label { Text(title) } icon: { Image(systemName: symbol) }
             .font(.system(size: 10, weight: .medium))
             .foregroundStyle(.secondary)
             .padding(.horizontal, 7)
@@ -309,7 +312,7 @@ struct CaptureLibraryInspector: View {
     }
 
     private var sizeText: String {
-        byteCount.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) } ?? "Calculating…"
+        byteCount.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) } ?? String(localized: "Calculating…")
     }
 }
 

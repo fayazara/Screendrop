@@ -103,7 +103,7 @@ struct CaptureHotkeySettingsSection: View {
 
     private func apply(_ shortcut: HotkeyShortcut, to action: CaptureHotkeyAction) {
         if let conflict = CaptureHotkeyPreferences.conflictingAction(for: shortcut, excluding: action) {
-            errorMessage = "\(shortcut.displayString) is already assigned to \(conflict.title)."
+            errorMessage = String(localized: "\(shortcut.displayString) is already assigned to \(conflict.title).")
             NSSound.beep()
             recorder.stop()
             recordingAction = nil
@@ -115,7 +115,7 @@ struct CaptureHotkeySettingsSection: View {
             shortcuts[action] = shortcut
             errorMessage = nil
         } catch {
-            errorMessage = "\(error.localizedDescription) Your previous shortcut has been kept."
+            errorMessage = String(localized: "\(error.localizedDescription) Your previous shortcut has been kept.")
             NSSound.beep()
         }
         recordingAction = nil

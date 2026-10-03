@@ -33,8 +33,8 @@ final class CaptureTextFeedbackPresenter {
     func showCopied(text: String, displayID: CGDirectDisplayID?) {
         let lines = text.split(separator: "\n", omittingEmptySubsequences: true)
         let title = lines.count == 1
-            ? "Copied 1 line"
-            : "Copied \(lines.count) lines"
+            ? String(localized: "Copied 1 line")
+            : String(localized: "Copied \(lines.count) lines")
         present(
             symbol: "text.viewfinder",
             title: title,
@@ -48,8 +48,8 @@ final class CaptureTextFeedbackPresenter {
     func showNoTextFound(displayID: CGDirectDisplayID?) {
         present(
             symbol: "text.viewfinder",
-            title: "No text found",
-            detail: "Nothing was recognized in that area.",
+            title: String(localized: "No text found"),
+            detail: String(localized: "Nothing was recognized in that area."),
             displayID: displayID
         )
     }

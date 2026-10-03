@@ -130,23 +130,23 @@ struct RecordingExportOptionsPopover: View {
     private var formatHint: String {
         switch settings.effectiveContainer {
         case .mov:
-            "Native QuickTime format for Apple apps."
+            String(localized: "Native QuickTime format for Apple apps.")
         case .mp4:
-            "Plays on more platforms, including Windows, browsers, and Slack."
+            String(localized: "Plays on more platforms, including Windows, browsers, and Slack.")
         }
     }
 
-    private func toggle(_ title: String, isOn: Binding<Bool>) -> some View {
+    private func toggle(_ title: LocalizedStringResource, isOn: Binding<Bool>) -> some View {
         InspectorToggleRow(title, isOn: isOn)
     }
 
     /// Segmented row matching the inspector's group-label-above-control
     /// rhythm, so the popover reads as the same control system as the panel.
-    private func segmented<Option: Hashable & RawRepresentable>(
-        _ title: String,
+    private func segmented<Option: Hashable & VideoExportOptionTitled>(
+        _ title: LocalizedStringResource,
         options: [Option],
         selection: Binding<Option>
-    ) -> some View where Option.RawValue == String {
+    ) -> some View {
         VStack(alignment: .leading, spacing: InspectorMetrics.groupLabelSpacing) {
             InspectorGroupLabel(title)
             InspectorSegmented(
@@ -154,7 +154,7 @@ struct RecordingExportOptionsPopover: View {
                 isSelected: { $0 == selection.wrappedValue },
                 onTap: { selection.wrappedValue = $0 },
                 label: {
-                    Text($0.rawValue)
+                    Text($0.title)
                         .font(.inspectorSegment)
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)

@@ -27,7 +27,7 @@ nonisolated enum ExportAspectPreset: String, Codable, CaseIterable, Sendable {
 
     var title: String {
         switch self {
-        case .original: "Original"
+        case .original: String(localized: "Original")
         case .wide16x9: "16:9"
         case .vertical9x16: "9:16"
         case .square: "1:1"
@@ -37,11 +37,11 @@ nonisolated enum ExportAspectPreset: String, Codable, CaseIterable, Sendable {
 
     var help: String {
         switch self {
-        case .original: "Keep the recording's own aspect ratio"
-        case .wide16x9: "Landscape 16:9 - YouTube"
-        case .vertical9x16: "Vertical 9:16 - Shorts, Reels, TikTok"
-        case .square: "Square 1:1"
-        case .portrait4x5: "Portrait 4:5 - feed posts"
+        case .original: String(localized: "Keep the recording's own aspect ratio")
+        case .wide16x9: String(localized: "Landscape 16:9 - YouTube")
+        case .vertical9x16: String(localized: "Vertical 9:16 - Shorts, Reels, TikTok")
+        case .square: String(localized: "Square 1:1")
+        case .portrait4x5: String(localized: "Portrait 4:5 - feed posts")
         }
     }
 
@@ -82,15 +82,15 @@ nonisolated enum ExportAspectContentMode: String, Codable, CaseIterable, Sendabl
 
     var title: String {
         switch self {
-        case .fill: "Fill"
-        case .fit: "Fit"
+        case .fill: String(localized: "Fill")
+        case .fit: String(localized: "Fit")
         }
     }
 
     var help: String {
         switch self {
-        case .fill: "Crop into the recording; the camera follows your cursor and zooms"
-        case .fit: "Show the full recording framed on the background"
+        case .fill: String(localized: "Crop into the recording; the camera follows your cursor and zooms")
+        case .fit: String(localized: "Show the full recording framed on the background")
         }
     }
 }

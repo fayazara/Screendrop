@@ -49,7 +49,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     private func configureWindow() {
         guard let window else { return }
 
-        window.title = "Settings"
+        window.title = String(localized: "Settings")
         window.titleVisibility = .visible
         window.titlebarAppearsTransparent = false
         window.toolbarStyle = .automatic

@@ -142,6 +142,25 @@ struct InspectorSection<Content: View, Accessory: View>: View {
     @ViewBuilder var accessory: () -> Accessory
     @ViewBuilder var content: () -> Content
 
+    init(
+        title: LocalizedStringResource,
+        @ViewBuilder accessory: @escaping () -> Accessory,
+        @ViewBuilder content: @escaping () -> Content
+    ) {
+        self.init(title: String(localized: title), accessory: accessory, content: content)
+    }
+
+    @_disfavoredOverload
+    init<Title: StringProtocol>(
+        title: Title,
+        @ViewBuilder accessory: @escaping () -> Accessory,
+        @ViewBuilder content: @escaping () -> Content
+    ) {
+        self.title = String(title)
+        self.accessory = accessory
+        self.content = content
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: InspectorMetrics.headerSpacing) {
             HStack(spacing: 6) {
@@ -163,7 +182,7 @@ struct InspectorSection<Content: View, Accessory: View>: View {
 }
 
 extension InspectorSection where Accessory == EmptyView {
-    init(_ title: String, @ViewBuilder content: @escaping () -> Content) {
+    init(_ title: LocalizedStringResource, @ViewBuilder content: @escaping () -> Content) {
         self.init(title: title, accessory: { EmptyView() }, content: content)
     }
 }
@@ -179,6 +198,20 @@ struct InspectorDisclosureSection<Content: View, Accessory: View>: View {
     @Binding var isExpanded: Bool
     @ViewBuilder var accessory: () -> Accessory
     @ViewBuilder var content: () -> Content
+
+    init(
+        title: LocalizedStringResource,
+        summary: String? = nil,
+        isExpanded: Binding<Bool>,
+        @ViewBuilder accessory: @escaping () -> Accessory,
+        @ViewBuilder content: @escaping () -> Content
+    ) {
+        self.title = String(localized: title)
+        self.summary = summary
+        self._isExpanded = isExpanded
+        self.accessory = accessory
+        self.content = content
+    }
 
     @State private var isHeaderHovering = false
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
@@ -210,7 +243,7 @@ struct InspectorDisclosureSection<Content: View, Accessory: View>: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel(title)
                 .accessibilityValue(accessibilityValue)
-                .accessibilityHint(isExpanded ? "Collapse section" : "Expand section")
+                .accessibilityHint(isExpanded ? Text("Collapse section") : Text("Expand section"))
 
                 accessory()
 
@@ -250,9 +283,9 @@ struct InspectorDisclosureSection<Content: View, Accessory: View>: View {
     }
 
     private var accessibilityValue: String {
-        let state = isExpanded ? "Expanded" : "Collapsed"
+        let state = isExpanded ? String(localized: "Expanded") : String(localized: "Collapsed")
         guard let summary else { return state }
-        return "\(state), \(summary)"
+        return String(localized: "\(state), \(summary)", comment: "Accessibility value: section expansion state, then its summary")
     }
 
     private func toggleExpansion() {
@@ -264,7 +297,7 @@ struct InspectorDisclosureSection<Content: View, Accessory: View>: View {
 
 extension InspectorDisclosureSection where Accessory == EmptyView {
     init(
-        _ title: String,
+        _ title: LocalizedStringResource,
         summary: String? = nil,
         isExpanded: Binding<Bool>,
         @ViewBuilder content: @escaping () -> Content
@@ -287,6 +320,17 @@ struct InspectorClearButton: View {
     let help: String
     let action: () -> Void
 
+    init(help: LocalizedStringResource, action: @escaping () -> Void) {
+        self.help = String(localized: help)
+        self.action = action
+    }
+
+    @_disfavoredOverload
+    init<Help: StringProtocol>(help: Help, action: @escaping () -> Void) {
+        self.help = String(help)
+        self.action = action
+    }
+
     var body: some View {
         InspectorIconButton(systemName: "xmark", help: help, action: action)
     }
@@ -296,6 +340,17 @@ struct InspectorClearButton: View {
 struct InspectorResetButton: View {
     let help: String
     let action: () -> Void
+
+    init(help: LocalizedStringResource, action: @escaping () -> Void) {
+        self.help = String(localized: help)
+        self.action = action
+    }
+
+    @_disfavoredOverload
+    init<Help: StringProtocol>(help: Help, action: @escaping () -> Void) {
+        self.help = String(help)
+        self.action = action
+    }
 
     var body: some View {
         InspectorIconButton(systemName: "arrow.counterclockwise", help: help, action: action)
@@ -316,8 +371,13 @@ struct InspectorToggle: View {
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @State private var isHovering = false
 
-    init(_ title: String, isOn: Binding<Bool>) {
-        self.title = title
+    init(_ title: LocalizedStringResource, isOn: Binding<Bool>) {
+        self.init(String(localized: title), isOn: isOn)
+    }
+
+    @_disfavoredOverload
+    init<Title: StringProtocol>(_ title: Title, isOn: Binding<Bool>) {
+        self.title = String(title)
         self._isOn = isOn
     }
 
@@ -351,7 +411,7 @@ struct InspectorToggle: View {
         .onHover { isHovering = $0 }
         .help(title)
         .accessibilityLabel(title)
-        .accessibilityValue(isOn ? "On" : "Off")
+        .accessibilityValue(isOn ? Text("On") : Text("Off"))
         .accessibilityAddTraits(.isToggle)
     }
 
@@ -368,8 +428,13 @@ struct InspectorToggleRow: View {
     let title: String
     @Binding var isOn: Bool
 
-    init(_ title: String, isOn: Binding<Bool>) {
-        self.title = title
+    init(_ title: LocalizedStringResource, isOn: Binding<Bool>) {
+        self.init(String(localized: title), isOn: isOn)
+    }
+
+    @_disfavoredOverload
+    init<Title: StringProtocol>(_ title: Title, isOn: Binding<Bool>) {
+        self.title = String(title)
         self._isOn = isOn
     }
 
@@ -400,13 +465,24 @@ struct InspectorActionButton: View {
     @State private var isHovering = false
 
     init(
-        _ title: String,
+        _ title: LocalizedStringResource,
         systemImage: String,
         role: ButtonRole? = nil,
         isBusy: Bool = false,
         action: @escaping () -> Void
     ) {
-        self.title = title
+        self.init(String(localized: title), systemImage: systemImage, role: role, isBusy: isBusy, action: action)
+    }
+
+    @_disfavoredOverload
+    init<Title: StringProtocol>(
+        _ title: Title,
+        systemImage: String,
+        role: ButtonRole? = nil,
+        isBusy: Bool = false,
+        action: @escaping () -> Void
+    ) {
+        self.title = String(title)
         self.systemImage = systemImage
         self.role = role
         self.isBusy = isBusy
@@ -445,8 +521,13 @@ struct InspectorHint: View {
     let text: String
     var tint: Color? = nil
 
-    init(_ text: String, tint: Color? = nil) {
-        self.text = text
+    init(_ text: LocalizedStringResource, tint: Color? = nil) {
+        self.init(String(localized: text), tint: tint)
+    }
+
+    @_disfavoredOverload
+    init<Text: StringProtocol>(_ text: Text, tint: Color? = nil) {
+        self.text = String(text)
         self.tint = tint
     }
 
@@ -480,8 +561,8 @@ struct InspectorIconButton: View {
 /// The screenshot and recording preset bars use the same action treatment.
 struct PresetBarIconButton: View {
     let systemImage: String
-    let accessibilityLabel: String
-    let help: String
+    let accessibilityLabel: LocalizedStringResource
+    let help: LocalizedStringResource
     let action: () -> Void
 
     var body: some View {
@@ -492,8 +573,8 @@ struct PresetBarIconButton: View {
                 .contentShape(Circle())
         }
         .buttonStyle(InspectorIconButtonStyle())
-        .help(help)
-        .accessibilityLabel(accessibilityLabel)
+        .help(Text(help))
+        .accessibilityLabel(Text(accessibilityLabel))
     }
 }
 
@@ -519,7 +600,10 @@ private struct InspectorIconButtonStyle: ButtonStyle {
 struct InspectorGroupLabel: View {
     let title: String
 
-    init(_ title: String) { self.title = title }
+    init(_ title: LocalizedStringResource) { self.title = String(localized: title) }
+
+    @_disfavoredOverload
+    init<Title: StringProtocol>(_ title: Title) { self.title = String(title) }
 
     var body: some View {
         Text(title)
@@ -533,8 +617,8 @@ struct InspectorRow<Content: View>: View {
     let title: String
     @ViewBuilder let content: () -> Content
 
-    init(_ title: String, @ViewBuilder content: @escaping () -> Content) {
-        self.title = title
+    init(_ title: LocalizedStringResource, @ViewBuilder content: @escaping () -> Content) {
+        self.title = String(localized: title)
         self.content = content
     }
 
@@ -653,6 +737,34 @@ struct InspectorTile<Content: View>: View {
     let isSelected: Bool
     let action: () -> Void
     @ViewBuilder let content: () -> Content
+
+    init(
+        title: LocalizedStringResource,
+        aspectRatio: CGFloat = 1,
+        isSelected: Bool,
+        action: @escaping () -> Void,
+        @ViewBuilder content: @escaping () -> Content
+    ) {
+        self.init(
+            title: String(localized: title), aspectRatio: aspectRatio,
+            isSelected: isSelected, action: action, content: content
+        )
+    }
+
+    @_disfavoredOverload
+    init<Title: StringProtocol>(
+        title: Title,
+        aspectRatio: CGFloat = 1,
+        isSelected: Bool,
+        action: @escaping () -> Void,
+        @ViewBuilder content: @escaping () -> Content
+    ) {
+        self.title = String(title)
+        self.aspectRatio = aspectRatio
+        self.isSelected = isSelected
+        self.action = action
+        self.content = content
+    }
 
     private let cornerRadius = InspectorMetrics.tileRadius
     @Environment(\.isEnabled) private var isEnabled

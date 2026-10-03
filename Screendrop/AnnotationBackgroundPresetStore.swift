@@ -199,7 +199,7 @@ final class AnnotationBackgroundPresetStore {
 
         for transferPreset in transferPresets {
             let normalized = Self.normalizedName(transferPreset.name)
-            let baseName = normalized.isEmpty ? "Untitled Preset" : normalized
+            let baseName = normalized.isEmpty ? String(localized: "Untitled Preset") : normalized
             let name = Self.uniqueSanitizedName(
                 baseName,
                 existingNames: presets.map(\.name) + importedPresets.map(\.name)
@@ -317,7 +317,7 @@ final class AnnotationBackgroundPresetStore {
 
             let normalized = normalizedName(preset.name)
             let name = uniqueSanitizedName(
-                normalized.isEmpty ? "Untitled Preset" : normalized,
+                normalized.isEmpty ? String(localized: "Untitled Preset") : normalized,
                 existingNames: seenNames
             )
             seenNames.append(name)

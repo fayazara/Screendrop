@@ -196,7 +196,7 @@ final class AnnotationEditorModel {
         smartRedactionMessage = nil
 
         if previewImage == nil || imageSize == .zero {
-            errorMessage = "Unable to load screenshot."
+            errorMessage = String(localized: "Unable to load screenshot.")
         }
 
         markSaved()
@@ -565,7 +565,7 @@ final class AnnotationEditorModel {
         }
 
         guard !renderable.isEmpty else {
-            smartRedactionMessage = "No sensitive text found."
+            smartRedactionMessage = String(localized: "No sensitive text found.")
             return
         }
 
@@ -575,7 +575,9 @@ final class AnnotationEditorModel {
         selectedTool = tool
         engine.tool = tool
         engine.notifyChanged()
-        smartRedactionMessage = "Added \(renderable.count) redaction\(renderable.count == 1 ? "" : "s")."
+        smartRedactionMessage = renderable.count == 1
+                ? String(localized: "Added 1 redaction.")
+                : String(localized: "Added \(renderable.count) redactions.")
     }
 
     // MARK: - Bounds
@@ -738,13 +740,13 @@ extension AnnotationEditorModel {
 
         guard let baseURL = baseImageURL,
               let result = AnnotationImageCropper.crop(url: baseURL, normalizedRect: crop) else {
-            errorMessage = "Unable to crop the image."
+            errorMessage = String(localized: "Unable to crop the image.")
             return
         }
 
         guard let snapshot = currentCropSnapshot() else {
             try? FileManager.default.removeItem(at: result.url)
-            errorMessage = "Unable to preserve the image for crop undo."
+            errorMessage = String(localized: "Unable to preserve the image for crop undo.")
             return
         }
 
@@ -819,7 +821,7 @@ extension AnnotationEditorModel {
     private func undoCrop() {
         guard let previous = cropUndoStack.last else { return }
         guard let current = currentCropSnapshot() else {
-            errorMessage = "Unable to preserve the image for crop redo."
+            errorMessage = String(localized: "Unable to preserve the image for crop redo.")
             return
         }
         cropUndoStack.removeLast()
@@ -830,7 +832,7 @@ extension AnnotationEditorModel {
     private func redoCrop() {
         guard let next = cropRedoStack.last else { return }
         guard let current = currentCropSnapshot() else {
-            errorMessage = "Unable to preserve the image for crop undo."
+            errorMessage = String(localized: "Unable to preserve the image for crop undo.")
             return
         }
         cropRedoStack.removeLast()

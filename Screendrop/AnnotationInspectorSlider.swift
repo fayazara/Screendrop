@@ -170,12 +170,22 @@ struct InspectorSlider: View {
     }
 
     init(
-        _ title: String,
+        _ title: LocalizedStringResource,
         value: Binding<CGFloat>,
         range: ClosedRange<CGFloat>,
         format: InspectorValueFormat
     ) {
-        self.title = title
+        self.init(String(localized: title), value: value, range: range, format: format)
+    }
+
+    @_disfavoredOverload
+    init<Title: StringProtocol>(
+        _ title: Title,
+        value: Binding<CGFloat>,
+        range: ClosedRange<CGFloat>,
+        format: InspectorValueFormat
+    ) {
+        self.title = String(title)
         self._value = value
         self.range = range
         self.format = format

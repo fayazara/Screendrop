@@ -568,11 +568,11 @@ final class ScreenshotPreviewStack {
             } catch {
                 let alert = NSAlert()
                 alert.alertStyle = .warning
-                alert.messageText = "The screenshot could not be saved"
+                alert.messageText = String(localized: "The screenshot could not be saved")
                 alert.informativeText = error.localizedDescription
-                alert.addButton(withTitle: "Choose Another Location…")
-                alert.addButton(withTitle: "Retry")
-                alert.addButton(withTitle: "Cancel")
+                alert.addButton(withTitle: String(localized: "Choose Another Location…"))
+                alert.addButton(withTitle: String(localized: "Retry"))
+                alert.addButton(withTitle: String(localized: "Cancel"))
                 alert.buttons[2].keyEquivalent = "\u{1b}"
                 NSApp.activate(ignoringOtherApps: true)
                 switch alert.runModal() {
@@ -593,7 +593,7 @@ final class ScreenshotPreviewStack {
             : [ScreenshotFileActions.exportContentType]
         panel.nameFieldStringValue = kind == .video ? VideoFileActions.exportFileName(for: url) : ScreenshotFileActions.exportFileName(for: url)
         panel.canCreateDirectories = true
-        panel.title = kind == .video ? "Save Recording" : "Save Screenshot"
+        panel.title = kind == .video ? String(localized: "Save Recording") : String(localized: "Save Screenshot")
 
         panel.begin { [weak self] response in
             guard response == .OK, let destURL = panel.url else { return }
@@ -612,7 +612,7 @@ final class ScreenshotPreviewStack {
                     }
                     self?.dismiss(id: id)
                 } catch {
-                    FailureAlert.present(message: "The capture could not be saved", error: error)
+                    FailureAlert.present(message: String(localized: "The capture could not be saved"), error: error)
                 }
             }
         }
@@ -846,7 +846,7 @@ final class ScreenshotPreviewStack {
             try VideoFileActions.copyToClipboard(from: deliverableURL)
             return true
         } catch {
-            presentRecordingFailure("The recording could not be copied", error: error)
+            presentRecordingFailure(String(localized: "The recording could not be copied"), error: error)
             return false
         }
     }
@@ -856,7 +856,7 @@ final class ScreenshotPreviewStack {
             let deliverableURL = try await prepareDeliverable(from: url, itemID: itemID)
             return try await VideoFileActions.saveToDefaultLocation(from: deliverableURL)
         } catch {
-            presentRecordingFailure("The recording could not be saved", error: error)
+            presentRecordingFailure(String(localized: "The recording could not be saved"), error: error)
             return nil
         }
     }
@@ -884,7 +884,7 @@ final class ScreenshotPreviewStack {
         FailureAlert.present(
             message: message,
             error: error,
-            detail: "Your recording is safe in its project."
+            detail: String(localized: "Your recording is safe in its project.")
         )
     }
 }

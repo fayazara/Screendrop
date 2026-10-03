@@ -10,6 +10,7 @@
 //
 
 import CoreGraphics
+import Foundation
 
 /// Aspect ratio presets offered while cropping.
 enum CropAspectRatio: String, CaseIterable, Identifiable {
@@ -25,8 +26,8 @@ enum CropAspectRatio: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .freeform: "Freeform"
-        case .original: "Original"
+        case .freeform: String(localized: "Freeform")
+        case .original: String(localized: "Original")
         case .square: "1:1"
         case .sixteenNine: "16:9"
         case .nineSixteen: "9:16"

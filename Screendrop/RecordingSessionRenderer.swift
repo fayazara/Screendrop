@@ -17,7 +17,7 @@ enum RecordingSessionRenderer {
         case missingCameraTrack
 
         var errorDescription: String? {
-            "The camera recording does not contain a readable video track."
+            String(localized: "The camera recording does not contain a readable video track.")
         }
     }
 
@@ -189,9 +189,9 @@ enum RecordingSessionRenderer {
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = "The camera video could not be added"
-        alert.informativeText = "Your screen, camera, and audio masters are safe in the recording project, but Screendrop could not create the combined video: \(error.localizedDescription)"
-        alert.addButton(withTitle: "OK")
+        alert.messageText = String(localized: "The camera video could not be added")
+        alert.informativeText = String(localized: "Your screen, camera, and audio masters are safe in the recording project, but Screendrop could not create the combined video: \(error.localizedDescription)")
+        alert.addButton(withTitle: String(localized: "OK"))
         alert.runModal()
     }
 

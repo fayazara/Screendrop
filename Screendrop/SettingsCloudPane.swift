@@ -340,7 +340,7 @@ struct CloudSettingsPane: View {
 
         guard let setupURL = URL(string: "\(base)/api/setup"),
               let pingURL = URL(string: "\(base)/api/ping") else {
-            workerStatus = .failed("Invalid URL")
+            workerStatus = .failed(String(localized: "Invalid URL"))
             return
         }
 
@@ -358,10 +358,10 @@ struct CloudSettingsPane: View {
                 case 200, 404:
                     break
                 case 401, 403:
-                    workerStatus = .failed("Invalid token")
+                    workerStatus = .failed(String(localized: "Invalid token"))
                     return
                 default:
-                    workerStatus = .failed("Setup failed (HTTP \(http.statusCode))")
+                    workerStatus = .failed(String(localized: "Setup failed (HTTP \(http.statusCode))"))
                     return
                 }
             }
@@ -379,7 +379,7 @@ struct CloudSettingsPane: View {
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
             guard let http = response as? HTTPURLResponse else {
-                workerStatus = .failed("No response")
+                workerStatus = .failed(String(localized: "No response"))
                 return
             }
 
@@ -389,7 +389,7 @@ struct CloudSettingsPane: View {
                 deployedWorkerVersion = Self.decodeVersion(from: data)
                 await fetchLatestWorkerInfo()
             case 401, 403:
-                workerStatus = .failed("Invalid token")
+                workerStatus = .failed(String(localized: "Invalid token"))
             default:
                 workerStatus = .failed("HTTP \(http.statusCode)")
             }
@@ -459,12 +459,12 @@ struct CloudSettingsPane: View {
 
     private var overallStatusText: String {
         if !isWorkerConfigured {
-            return "Not configured"
+            return String(localized: "Not configured")
         }
         if workerStatus == .connected {
-            return "Connected"
+            return String(localized: "Connected")
         }
-        return "Not verified"
+        return String(localized: "Not verified")
     }
 
     @ViewBuilder
@@ -508,7 +508,7 @@ private struct WorkerVersionManifest: Decodable {
 
 private struct SetupStepView: View {
     let number: Int
-    let text: String
+    let text: LocalizedStringResource
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {

@@ -248,8 +248,8 @@ enum PreviewOverlayPosition: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .left: "Bottom left"
-        case .right: "Bottom right"
+        case .left: String(localized: "Bottom left")
+        case .right: String(localized: "Bottom right")
         }
     }
 }

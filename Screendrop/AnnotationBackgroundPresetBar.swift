@@ -27,7 +27,7 @@ struct AnnotationBackgroundPresetBar: View {
     }
 
     private var displayTitle: String {
-        appliedPreset?.name ?? "Presets…"
+        appliedPreset?.name ?? String(localized: "Presets…")
     }
 
     private var isAppliedPresetModified: Bool {
@@ -147,18 +147,18 @@ struct AnnotationBackgroundPresetBar: View {
 
     private var presetHelp: String {
         if let activePreset = presetStore.activePreset {
-            return "Choose a preset. \(activePreset.name) is applied to new screenshots."
+            return String(localized: "Choose a preset. \(activePreset.name) is applied to new screenshots.")
         }
-        return "Choose a background, layout, camera, blur, border, and watermark preset"
+        return String(localized: "Choose a background, layout, camera, blur, border, and watermark preset")
     }
 
     private var presetAccessibilityValue: String {
         var details = [displayTitle]
         if isAppliedPresetModified {
-            details.append("modified")
+            details.append(String(localized: "modified"))
         }
         if appliedPreset?.hasMissingWallpaper == true {
-            details.append("wallpaper missing")
+            details.append(String(localized: "wallpaper missing"))
         }
         return details.joined(separator: ", ")
     }
@@ -253,8 +253,8 @@ struct AnnotationBackgroundPresetBar: View {
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
-        panel.title = "Import Screenshot Presets"
-        panel.prompt = "Import"
+        panel.title = String(localized: "Import Screenshot Presets")
+        panel.prompt = String(localized: "Import")
 
         panel.begin { response in
             guard response == .OK else { return }
@@ -304,8 +304,8 @@ struct AnnotationBackgroundPresetBar: View {
             panel.allowedContentTypes = [.screendropPreset]
             panel.canCreateDirectories = true
             panel.isExtensionHidden = false
-            panel.title = "Export Screenshot Preset"
-            panel.prompt = "Export"
+            panel.title = String(localized: "Export Screenshot Preset")
+            panel.prompt = String(localized: "Export")
             panel.nameFieldStringValue = "\(Self.safeFilename(for: preset.name)).\(AnnotationBackgroundPresetTransferFile.filenameExtension)"
 
             panel.begin { response in
@@ -317,14 +317,14 @@ struct AnnotationBackgroundPresetBar: View {
                         try data.write(to: url, options: .atomic)
                         let omittedWallpaper = transferFile.presets.first?.omitted.contains(.wallpaper) == true
                         transferAlert = PresetTransferAlert(
-                            title: "Preset Exported",
+                            title: String(localized: "Preset Exported"),
                             message: omittedWallpaper
-                                ? "The local wallpaper was not included. The imported preset will use no background."
-                                : "“\(preset.name)” is ready to share."
+                                ? String(localized: "The local wallpaper was not included. The imported preset will use no background.")
+                                : String(localized: "“\(preset.name)” is ready to share.")
                         )
                     } catch {
                         transferAlert = PresetTransferAlert(
-                            title: "Export Failed",
+                            title: String(localized: "Export Failed"),
                             message: error.localizedDescription
                         )
                     }
@@ -332,7 +332,7 @@ struct AnnotationBackgroundPresetBar: View {
             }
         } catch {
             transferAlert = PresetTransferAlert(
-                title: "Export Failed",
+                title: String(localized: "Export Failed"),
                 message: error.localizedDescription
             )
         }
@@ -345,24 +345,29 @@ struct AnnotationBackgroundPresetBar: View {
     ) -> PresetTransferAlert {
         guard importedCount > 0 else {
             return PresetTransferAlert(
-                title: "Import Failed",
+                title: String(localized: "Import Failed"),
                 message: failures.joined(separator: "\n")
             )
         }
 
-        let presetNoun = importedCount == 1 ? "preset" : "presets"
-        var messages = ["Imported \(importedCount) \(presetNoun)."]
+        var messages = [
+            importedCount == 1
+                ? String(localized: "Imported 1 preset.")
+                : String(localized: "Imported \(importedCount) presets.")
+        ]
         if omittedWallpaperCount > 0 {
-            let wallpaperNoun = omittedWallpaperCount == 1 ? "wallpaper was" : "wallpapers were"
             messages.append(
-                "\(omittedWallpaperCount) local \(wallpaperNoun) not included and will use no background."
+                omittedWallpaperCount == 1
+                    ? String(localized: "1 local wallpaper was not included and will use no background.")
+                    : String(localized: "\(omittedWallpaperCount) local wallpapers were not included and will use no background.")
             )
         }
         if !failures.isEmpty {
-            messages.append("Some files could not be imported:\n\(failures.joined(separator: "\n"))")
+            let failureList = failures.joined(separator: "\n")
+            messages.append(String(localized: "Some files could not be imported:\n\(failureList)"))
         }
         return PresetTransferAlert(
-            title: importedCount == 1 ? "Preset Imported" : "Presets Imported",
+            title: importedCount == 1 ? String(localized: "Preset Imported") : String(localized: "Presets Imported"),
             message: messages.joined(separator: "\n\n")
         )
     }
@@ -371,7 +376,7 @@ struct AnnotationBackgroundPresetBar: View {
         let forbiddenCharacters = CharacterSet(charactersIn: "/:\n\r")
         let components = presetName.components(separatedBy: forbiddenCharacters)
         let sanitized = components.filter { !$0.isEmpty }.joined(separator: "-")
-        return sanitized.isEmpty ? "Screenshot Preset" : sanitized
+        return sanitized.isEmpty ? String(localized: "Screenshot Preset") : sanitized
     }
 }
 
@@ -434,7 +439,7 @@ private struct AnnotationPresetPopUpButton: NSViewRepresentable {
             )
             displayItem.isEnabled = parent.isEnabled
             (button.cell as? NSPopUpButtonCell)?.menuItem = displayItem
-            button.setAccessibilityLabel("Background preset")
+            button.setAccessibilityLabel(String(localized: "Background preset"))
             button.setAccessibilityValue(parent.accessibilityValue)
         }
 
@@ -446,16 +451,16 @@ private struct AnnotationPresetPopUpButton: NSViewRepresentable {
             let missingPresets = parent.presets.filter(\.hasMissingWallpaper)
 
             if availablePresets.isEmpty && missingPresets.isEmpty {
-                let emptyItem = NSMenuItem(title: "No Saved Presets", action: nil, keyEquivalent: "")
+                let emptyItem = NSMenuItem(title: String(localized: "No Saved Presets"), action: nil, keyEquivalent: "")
                 emptyItem.isEnabled = false
                 menu.addItem(emptyItem)
             }
 
             if !availablePresets.isEmpty {
-                menu.addItem(.sectionHeader(title: "Saved Presets"))
+                menu.addItem(.sectionHeader(title: String(localized: "Saved Presets")))
 
                 let currentItem = NSMenuItem(
-                    title: "Current Settings",
+                    title: String(localized: "Current Settings"),
                     action: #selector(selectCurrentSettings(_:)),
                     keyEquivalent: ""
                 )
@@ -477,7 +482,7 @@ private struct AnnotationPresetPopUpButton: NSViewRepresentable {
                 if !availablePresets.isEmpty {
                     menu.addItem(.separator())
                 }
-                menu.addItem(.sectionHeader(title: "Wallpaper Missing"))
+                menu.addItem(.sectionHeader(title: String(localized: "Wallpaper Missing")))
 
                 for preset in missingPresets {
                     let item = presetItem(
@@ -485,7 +490,7 @@ private struct AnnotationPresetPopUpButton: NSViewRepresentable {
                         action: #selector(deletePreset(_:)),
                         isSelected: false
                     )
-                    item.title = "Delete “\(preset.name)”…"
+                    item.title = String(localized: "Delete “\(preset.name)”…")
                     item.image = NSImage(systemSymbolName: "trash", accessibilityDescription: nil)
                     menu.addItem(item)
                 }
@@ -494,7 +499,7 @@ private struct AnnotationPresetPopUpButton: NSViewRepresentable {
             if !availablePresets.isEmpty {
                 menu.addItem(.separator())
 
-                let defaultItem = NSMenuItem(title: "Default Preset", action: nil, keyEquivalent: "")
+                let defaultItem = NSMenuItem(title: String(localized: "Default Preset"), action: nil, keyEquivalent: "")
                 defaultItem.submenu = makeDefaultMenu(presets: availablePresets)
                 menu.addItem(defaultItem)
             }
@@ -502,7 +507,7 @@ private struct AnnotationPresetPopUpButton: NSViewRepresentable {
             menu.addItem(.separator())
 
             let importItem = NSMenuItem(
-                title: "Import Preset…",
+                title: String(localized: "Import Preset…"),
                 action: #selector(importPreset(_:)),
                 keyEquivalent: ""
             )
@@ -514,7 +519,7 @@ private struct AnnotationPresetPopUpButton: NSViewRepresentable {
             menu.addItem(importItem)
 
             if !parent.presets.isEmpty {
-                let exportItem = NSMenuItem(title: "Export Preset", action: nil, keyEquivalent: "")
+                let exportItem = NSMenuItem(title: String(localized: "Export Preset"), action: nil, keyEquivalent: "")
                 exportItem.image = NSImage(
                     systemSymbolName: "square.and.arrow.up",
                     accessibilityDescription: nil
@@ -527,7 +532,7 @@ private struct AnnotationPresetPopUpButton: NSViewRepresentable {
         }
 
         private func makeExportMenu(presets: [AnnotationBackgroundPreset]) -> NSMenu {
-            let menu = NSMenu(title: "Export Preset")
+            let menu = NSMenu(title: String(localized: "Export Preset"))
             menu.autoenablesItems = false
 
             for preset in presets {
@@ -543,11 +548,11 @@ private struct AnnotationPresetPopUpButton: NSViewRepresentable {
         }
 
         private func makeDefaultMenu(presets: [AnnotationBackgroundPreset]) -> NSMenu {
-            let menu = NSMenu(title: "Default Preset")
+            let menu = NSMenu(title: String(localized: "Default Preset"))
             menu.autoenablesItems = false
 
             let noneItem = NSMenuItem(
-                title: "None",
+                title: String(localized: "None"),
                 action: #selector(clearDefaultPreset(_:)),
                 keyEquivalent: ""
             )

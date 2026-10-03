@@ -49,7 +49,7 @@ struct RecordingSessionControls: View {
 
             BarActionButton(
                 id: .pauseResume,
-                title: isPaused ? "Resume recording" : "Pause recording",
+                title: isPaused ? String(localized: "Resume recording") : String(localized: "Pause recording"),
                 systemImage: isPaused ? "play.fill" : "pause.fill"
             ) {
                 if isPaused {
@@ -62,9 +62,9 @@ struct RecordingSessionControls: View {
 
             BarActionButton(
                 id: .restart,
-                title: "Start over",
+                title: String(localized: "Start over"),
                 systemImage: "arrow.counterclockwise",
-                accessibility: "Restart - discard what's recorded and start again"
+                accessibility: String(localized: "Restart - discard what's recorded and start again")
             ) {
                 manager.restartRecording()
             }
@@ -72,10 +72,10 @@ struct RecordingSessionControls: View {
 
             BarActionButton(
                 id: .stop,
-                title: "Stop and save",
+                title: String(localized: "Stop and save"),
                 systemImage: "stop.fill",
                 tint: BarMetrics.recordTint,
-                accessibility: "Stop and save the recording"
+                accessibility: String(localized: "Stop and save the recording")
             ) {
                 manager.stopRecording()
             }
@@ -83,9 +83,9 @@ struct RecordingSessionControls: View {
 
             BarActionButton(
                 id: .discard,
-                title: "Discard recording",
+                title: String(localized: "Discard recording"),
                 systemImage: "trash.fill",
-                accessibility: "Discard - delete this recording without saving"
+                accessibility: String(localized: "Discard - delete this recording without saving")
             ) {
                 manager.deleteRecording()
             }
@@ -114,8 +114,8 @@ struct RecordingSessionControls: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(
             isPaused
-                ? "Recording paused at \(manager.formattedElapsedTime)"
-                : "Recording, \(manager.formattedElapsedTime) elapsed"
+                ? String(localized: "Recording paused at \(manager.formattedElapsedTime)")
+                : String(localized: "Recording, \(manager.formattedElapsedTime) elapsed")
         )
     }
 }

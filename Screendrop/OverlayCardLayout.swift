@@ -46,45 +46,45 @@ enum OverlayCardAction: String, CaseIterable, Codable, Identifiable {
     /// "Edit" for recordings.
     func label(for kind: PreviewMediaKind = .image) -> String {
         switch self {
-        case .copy: "Copy"
-        case .compress: "Compress"
-        case .save: "Save"
-        case .pin: "Pin"
-        case .annotate: kind == .video ? "Edit" : "Annotate"
-        case .view: "View"
-        case .upload: "Upload"
-        case .delete: "Delete"
-        case .close: "Dismiss"
+        case .copy: String(localized: "Copy")
+        case .compress: String(localized: "Compress")
+        case .save: String(localized: "Save")
+        case .pin: String(localized: "Pin")
+        case .annotate: kind == .video ? String(localized: "Edit") : String(localized: "Annotate")
+        case .view: String(localized: "View")
+        case .upload: String(localized: "Upload")
+        case .delete: String(localized: "Delete")
+        case .close: String(localized: "Dismiss")
         }
     }
 
     /// Help/tooltip text for the live card.
     func help(for kind: PreviewMediaKind = .image) -> String {
         switch self {
-        case .copy: "Copy to clipboard"
-        case .compress: "Copy a compressed JPG"
-        case .save: "Save to disk"
-        case .pin: "Pin to screen"
-        case .annotate: kind == .video ? "Edit recording" : "Annotate screenshot"
-        case .view: "Quick Look"
-        case .upload: "Upload to cloud"
-        case .delete: kind == .video ? "Delete recording" : "Delete screenshot"
-        case .close: "Dismiss preview"
+        case .copy: String(localized: "Copy to clipboard")
+        case .compress: String(localized: "Copy a compressed JPG")
+        case .save: String(localized: "Save to disk")
+        case .pin: String(localized: "Pin to screen")
+        case .annotate: kind == .video ? String(localized: "Edit recording") : String(localized: "Annotate screenshot")
+        case .view: String(localized: "Quick Look")
+        case .upload: String(localized: "Upload to cloud")
+        case .delete: kind == .video ? String(localized: "Delete recording") : String(localized: "Delete screenshot")
+        case .close: String(localized: "Dismiss preview")
         }
     }
 
     /// A one-line description shown in the editor.
     var detail: String {
         switch self {
-        case .copy: "Copy the capture to the clipboard"
-        case .compress: "Copy a smaller JPG to the clipboard"
-        case .save: "Save the capture to your export folder"
-        case .pin: "Pin the screenshot as a floating window"
-        case .annotate: "Open the annotation / video editor"
-        case .view: "Open a Quick Look preview"
-        case .upload: "Upload to the cloud and copy a share link"
-        case .delete: "Delete the file from disk"
-        case .close: "Dismiss the preview (keeps the file)"
+        case .copy: String(localized: "Copy the capture to the clipboard")
+        case .compress: String(localized: "Copy a smaller JPG to the clipboard")
+        case .save: String(localized: "Save the capture to your export folder")
+        case .pin: String(localized: "Pin the screenshot as a floating window")
+        case .annotate: String(localized: "Open the annotation / video editor")
+        case .view: String(localized: "Open a Quick Look preview")
+        case .upload: String(localized: "Upload to the cloud and copy a share link")
+        case .delete: String(localized: "Delete the file from disk")
+        case .close: String(localized: "Dismiss the preview (keeps the file)")
         }
     }
 }

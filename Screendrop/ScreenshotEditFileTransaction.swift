@@ -50,7 +50,7 @@ nonisolated enum ScreenshotEditFileTransaction {
             }
             if keepBackup {
                 throw NSError(domain: "Screendrop.ScreenshotSave", code: 1, userInfo: [
-                    NSLocalizedDescriptionKey: "The screenshot could not be saved or fully restored. Recovery files are kept at \(staging.path).",
+                    NSLocalizedDescriptionKey: String(localized: "The screenshot could not be saved or fully restored. Recovery files are kept at \(staging.path)."),
                     NSUnderlyingErrorKey: saveError
                 ])
             }

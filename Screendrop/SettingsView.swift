@@ -18,12 +18,12 @@ enum SettingsTab: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .general: "General"
-        case .screenshots: "Screenshots"
-        case .video: "Screen Recordings"
-        case .overlay: "Overlay"
-        case .cloud: "Cloud"
-        case .about: "About"
+        case .general: String(localized: "General")
+        case .screenshots: String(localized: "Screenshots")
+        case .video: String(localized: "Screen Recordings")
+        case .overlay: String(localized: "Overlay")
+        case .cloud: String(localized: "Cloud")
+        case .about: String(localized: "About")
         }
     }
 
@@ -53,7 +53,7 @@ private enum AppVersion {
     static let displayString: String = {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0"
         let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
-        return "Version \(version) (\(build))"
+        return String(localized: "Version \(version) (\(build))")
     }()
 }
 
@@ -235,9 +235,14 @@ struct SettingsControlLabel: View {
     let title: String
     let detail: String
 
-    init(_ title: String, detail: String) {
-        self.title = title
-        self.detail = detail
+    init(_ title: LocalizedStringResource, detail: LocalizedStringResource) {
+        self.init(String(localized: title), detail: String(localized: detail))
+    }
+
+    @_disfavoredOverload
+    init<Title: StringProtocol, Detail: StringProtocol>(_ title: Title, detail: Detail) {
+        self.title = String(title)
+        self.detail = String(detail)
     }
 
     var body: some View {

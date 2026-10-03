@@ -295,7 +295,7 @@ final class RecordingStudioModel {
             hasRecordedAudio = tracks.contains { $0.mediaType == .audio }
         } catch {
             guard !isTornDown, !Task.isCancelled else { return }
-            loadError = "Could not open the recording: \(error.localizedDescription)"
+            loadError = String(localized: "Could not open the recording: \(error.localizedDescription)")
             return
         }
 
@@ -392,7 +392,7 @@ final class RecordingStudioModel {
         do {
             try rebuildScreenPlayerItem(preserving: 0)
         } catch {
-            loadError = "Could not prepare the recording timeline: \(error.localizedDescription)"
+            loadError = String(localized: "Could not prepare the recording timeline: \(error.localizedDescription)")
             return
         }
         rebuildPointerTimeline()
@@ -692,7 +692,7 @@ final class RecordingStudioModel {
             result.timeline,
             selectedID: result.selectedID,
             playheadTime: min(max(editorTime, 0), duration),
-            actionName: "Split Clip"
+            actionName: String(localized: "Split Clip")
         )
     }
 
@@ -714,7 +714,7 @@ final class RecordingStudioModel {
             next,
             selectedID: nextSelection,
             playheadTime: seekTime,
-            actionName: "Delete Clip"
+            actionName: String(localized: "Delete Clip")
         )
     }
 
@@ -726,7 +726,7 @@ final class RecordingStudioModel {
             next,
             selectedID: replacement.id,
             playheadTime: min(currentTime, next.duration),
-            actionName: "Trim Clip",
+            actionName: String(localized: "Trim Clip"),
             hoverTime: editorTime
         )
     }
@@ -742,7 +742,7 @@ final class RecordingStudioModel {
             next,
             selectedID: id,
             playheadTime: min(currentTime, next.duration),
-            actionName: "Change Clip Speed"
+            actionName: String(localized: "Change Clip Speed")
         )
     }
 
@@ -753,7 +753,7 @@ final class RecordingStudioModel {
             full,
             selectedID: full.segments.first?.id,
             playheadTime: 0,
-            actionName: "Reset Clips"
+            actionName: String(localized: "Reset Clips")
         )
     }
 
@@ -799,7 +799,7 @@ final class RecordingStudioModel {
                 hoverPreviewTime = min(max(hoverTime, 0), duration)
             }
         } catch {
-            loadError = "Could not update the recording timeline: \(error.localizedDescription)"
+            loadError = String(localized: "Could not update the recording timeline: \(error.localizedDescription)")
         }
         updateActiveTranscriptWord()
         scheduleProjectSave()
@@ -927,7 +927,7 @@ final class RecordingStudioModel {
         }
     }
 
-    func endZoomCueEdit(actionName: String = "Edit Zoom") {
+    func endZoomCueEdit(actionName: String = String(localized: "Edit Zoom")) {
         guard let previous = zoomEditSnapshot else { return }
         zoomEditSnapshot = nil
         guard previous != zoomCues else { return }
@@ -939,7 +939,7 @@ final class RecordingStudioModel {
     func resynthesizeZoomCues() {
         applyZoomCues(
             ZoomCueSynthesizer.cues(from: pointerCapture, duration: sourceDuration),
-            actionName: "Reset Zooms"
+            actionName: String(localized: "Reset Zooms")
         )
     }
 
@@ -1012,13 +1012,13 @@ final class RecordingStudioModel {
         )
         var cues = zoomCues
         cues.append(cue)
-        applyZoomCues(cues, actionName: "Add Zoom")
+        applyZoomCues(cues, actionName: String(localized: "Add Zoom"))
         selectedCueID = cue.id
         selectedClipID = nil
     }
 
     func removeZoomCue(id: UUID) {
-        applyZoomCues(zoomCues.filter { $0.id != id }, actionName: "Remove Zoom")
+        applyZoomCues(zoomCues.filter { $0.id != id }, actionName: String(localized: "Remove Zoom"))
         if selectedCueID == id {
             selectedCueID = nil
         }
@@ -1232,8 +1232,8 @@ final class RecordingStudioModel {
             flashSaveConfirmation()
             return true
         } catch {
-            FailureAlert.present(message: "The recording project could not be saved", error: error,
-                                 detail: "Your editor will stay open. Try saving again after resolving the problem.")
+            FailureAlert.present(message: String(localized: "The recording project could not be saved"), error: error,
+                                 detail: String(localized: "Your editor will stay open. Try saving again after resolving the problem."))
             return false
         }
     }
@@ -1499,20 +1499,20 @@ final class RecordingStudioModel {
             in: transcriptWords,
             sourceDuration: sourceDuration
         ) else { return }
-        cutSourceRanges([cut], actionName: range.count == 1 ? "Cut Word" : "Cut Words")
+        cutSourceRanges([cut], actionName: range.count == 1 ? String(localized: "Cut Word") : String(localized: "Cut Words"))
     }
 
     func removeFillerWords() {
         cutSourceRanges(
             TranscriptEditPlanner.fillerCutRanges(in: transcriptWords, sourceDuration: sourceDuration),
-            actionName: "Remove Filler Words"
+            actionName: String(localized: "Remove Filler Words")
         )
     }
 
     func trimNarrationSilences() {
         cutSourceRanges(
             TranscriptEditPlanner.silenceCutRanges(in: transcriptWords, sourceDuration: sourceDuration),
-            actionName: "Trim Silences"
+            actionName: String(localized: "Trim Silences")
         )
     }
 
@@ -1733,7 +1733,7 @@ final class RecordingStudioModel {
         isCroppingVideo = false
         videoCropAspect = .freeform
         workingVideoCropRect = next
-        applyVideoCrop(next, actionName: "Crop Video")
+        applyVideoCrop(next, actionName: String(localized: "Crop Video"))
     }
 
     private func applyVideoCrop(_ requested: CGRect, actionName: String) {
@@ -2091,7 +2091,7 @@ final class RecordingStudioModel {
                 removeStoredReplacementAudio(in: session)
                 try FileManager.default.copyItem(at: pickedURL, to: destination)
             } catch {
-                replacementAudioError = "Could not import that file: \(error.localizedDescription)"
+                replacementAudioError = String(localized: "Could not import that file: \(error.localizedDescription)")
                 clearReplacementAudio()
                 return
             }
@@ -2112,7 +2112,7 @@ final class RecordingStudioModel {
                 if let session = self.session {
                     self.removeStoredReplacementAudio(in: session)
                 }
-                self.replacementAudioError = "That file has no audio track."
+                self.replacementAudioError = String(localized: "That file has no audio track.")
                 self.clearReplacementAudio()
                 return
             }
@@ -2145,7 +2145,7 @@ final class RecordingStudioModel {
         do {
             try rebuildScreenPlayerItem(preserving: currentTime)
         } catch {
-            loadError = "Could not update the recording timeline: \(error.localizedDescription)"
+            loadError = String(localized: "Could not update the recording timeline: \(error.localizedDescription)")
         }
         scheduleProjectSave()
     }

@@ -9,6 +9,18 @@ enum CaptureLibraryAction: String {
     case export = "Export…"
     case reveal = "Reveal in Finder"
     case trash = "Move to Trash"
+
+    var title: String {
+        switch self {
+        case .preview: String(localized: "Quick Look")
+        case .edit: String(localized: "Edit")
+        case .rename: String(localized: "Rename…")
+        case .copy: String(localized: "Copy")
+        case .export: String(localized: "Export…")
+        case .reveal: String(localized: "Reveal in Finder")
+        case .trash: String(localized: "Move to Trash")
+        }
+    }
 }
 
 /// Both layouts use NSCollectionView's reuse queue. Changing selection doesn't
@@ -29,7 +41,7 @@ struct CaptureLibraryCollection: NSViewRepresentable {
         scrollView.drawsBackground = false
         let collection = LibraryCollectionView()
         collection.autoresizingMask = [.width]
-        collection.setAccessibilityLabel("Captures")
+        collection.setAccessibilityLabel(String(localized: "Captures"))
         collection.backgroundColors = [.clear]
         collection.isSelectable = true
         collection.allowsMultipleSelection = true
@@ -127,7 +139,7 @@ struct CaptureLibraryCollection: NSViewRepresentable {
             menu.autoenablesItems = false
             for action in [CaptureLibraryAction.preview, .edit, .rename, .copy, .export, .reveal, .trash] {
                 if action == .copy || action == .trash { menu.addItem(.separator()) }
-                let item = NSMenuItem(title: action.rawValue, action: #selector(performMenuAction(_:)), keyEquivalent: "")
+                let item = NSMenuItem(title: action.title, action: #selector(performMenuAction(_:)), keyEquivalent: "")
                 item.target = self
                 item.representedObject = action.rawValue
                 item.isEnabled = !parent.isBusy && (!(action == .rename || action == .edit || action == .preview) || count == 1)

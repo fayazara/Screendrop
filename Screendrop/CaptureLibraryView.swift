@@ -89,7 +89,7 @@ struct CaptureLibraryView: View {
                 .disabled(model.renameText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             Button("Cancel", role: .cancel) { model.renamingItem = nil }
         }
-        .alert("Move \(model.pendingTrash.count == 1 ? "capture" : "\(model.pendingTrash.count) captures") to Trash?", isPresented: Binding(
+        .alert(trashAlertTitle, isPresented: Binding(
             get: { !model.pendingTrash.isEmpty },
             set: { if !$0 { model.pendingTrash = [] } }
         )) {
@@ -120,7 +120,7 @@ struct CaptureLibraryView: View {
                 }
             } else {
                 ContentUnavailableView {
-                    Label("No \(activeFilter == .all ? "Captures" : activeFilter.title)", systemImage: activeFilter.symbol)
+                    Label(emptyLibraryTitle, systemImage: activeFilter.symbol)
                 } description: {
                     Text(emptyLibraryDescription)
                 } actions: {
@@ -139,11 +139,26 @@ struct CaptureLibraryView: View {
         }
     }
 
+    private var trashAlertTitle: String {
+        let count = model.pendingTrash.count
+        return count == 1
+            ? String(localized: "Move capture to Trash?")
+            : String(localized: "Move \(count) captures to Trash?")
+    }
+
+    private var emptyLibraryTitle: String {
+        switch activeFilter {
+        case .all: String(localized: "No Captures")
+        case .screenshots: String(localized: "No Screenshots")
+        case .recordings: String(localized: "No Recordings")
+        }
+    }
+
     private var emptyLibraryDescription: String {
         switch activeFilter {
-        case .all: "Screenshots and recordings you capture will appear here."
-        case .screenshots: "Take a screenshot to start your screenshot library."
-        case .recordings: "Record your screen to start your recording library."
+        case .all: String(localized: "Screenshots and recordings you capture will appear here.")
+        case .screenshots: String(localized: "Take a screenshot to start your screenshot library.")
+        case .recordings: String(localized: "Record your screen to start your recording library.")
         }
     }
 
@@ -153,7 +168,7 @@ struct CaptureLibraryView: View {
                 ProgressView().controlSize(.mini)
                 Text(title)
             } else {
-                Text("\(model.visibleItems.count) \(model.visibleItems.count == 1 ? "capture" : "captures")")
+                Text(model.visibleItems.count == 1 ? "1 capture" : "\(model.visibleItems.count) captures")
                 if !model.selection.isEmpty { Text("· \(model.selection.count) selected") }
             }
             Spacer()

@@ -13,9 +13,9 @@ private enum AnnotationBackgroundFillLibrary: CaseIterable, Hashable {
 
     var title: String {
         switch self {
-        case .color: "Color"
-        case .gradient: "Gradient"
-        case .wallpaper: "Wallpaper"
+        case .color: String(localized: "Color")
+        case .gradient: String(localized: "Gradient")
+        case .wallpaper: String(localized: "Wallpaper")
         }
     }
 }
@@ -449,7 +449,7 @@ struct AnnotationWatermarkInspector: View {
                     .foregroundStyle(.secondary)
                     .frame(width: 12)
 
-                Text(hasWatermarkText ? settings.text : "Add watermark")
+                Text(hasWatermarkText ? settings.text : String(localized: "Add watermark"))
                     .font(.inspectorValue)
                     .foregroundColor(hasWatermarkText ? Color.primary.opacity(0.85) : Color.secondary)
                     .lineLimit(1)
@@ -507,7 +507,7 @@ private struct AnnotationWallpaperSourceOption: Identifiable, Hashable {
 
     static let recent = AnnotationWallpaperSourceOption(
         id: AnnotationWallpaperSource.recentID,
-        title: "Recent"
+        title: String(localized: "Recent")
     )
 }
 
