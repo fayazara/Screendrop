@@ -235,9 +235,14 @@ struct SettingsControlLabel: View {
     let title: String
     let detail: String
 
-    init(_ title: String, detail: String) {
-        self.title = title
-        self.detail = detail
+    init(_ title: LocalizedStringResource, detail: LocalizedStringResource) {
+        self.init(String(localized: title), detail: String(localized: detail))
+    }
+
+    @_disfavoredOverload
+    init<Title: StringProtocol, Detail: StringProtocol>(_ title: Title, detail: Detail) {
+        self.title = String(title)
+        self.detail = String(detail)
     }
 
     var body: some View {
