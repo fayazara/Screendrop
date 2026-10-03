@@ -9,13 +9,15 @@ import SwiftUI
 /// capture type (screenshot or recording).
 struct AfterCaptureActionsSection: View {
     let type: AfterCaptureType
-    let title: String
+    let title: LocalizedStringResource
 
     var body: some View {
-        Section(title) {
+        Section {
             ForEach(AfterCaptureAction.actions(for: type)) { action in
                 AfterCaptureToggleRow(action: action, type: type)
             }
+        } header: {
+            Text(title)
         }
     }
 }

@@ -18,12 +18,12 @@ enum SettingsTab: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .general: "General"
-        case .screenshots: "Screenshots"
-        case .video: "Screen Recordings"
-        case .overlay: "Overlay"
-        case .cloud: "Cloud"
-        case .about: "About"
+        case .general: String(localized: "General")
+        case .screenshots: String(localized: "Screenshots")
+        case .video: String(localized: "Screen Recordings")
+        case .overlay: String(localized: "Overlay")
+        case .cloud: String(localized: "Cloud")
+        case .about: String(localized: "About")
         }
     }
 
@@ -53,7 +53,7 @@ private enum AppVersion {
     static let displayString: String = {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0"
         let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
-        return "Version \(version) (\(build))"
+        return String(localized: "Version \(version) (\(build))")
     }()
 }
 
