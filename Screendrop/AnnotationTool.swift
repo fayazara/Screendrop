@@ -3,6 +3,8 @@
 //  Screendrop
 //
 
+import Foundation
+
 enum AnnotationTool: String, CaseIterable, Identifiable, Codable {
     case select
     case rectangle
@@ -22,29 +24,29 @@ enum AnnotationTool: String, CaseIterable, Identifiable, Codable {
     var title: String {
         switch self {
         case .select:
-            "Select"
+            String(localized: "Select")
         case .rectangle:
-            "Rectangle"
+            String(localized: "Rectangle")
         case .filledRectangle:
-            "Solid rectangle"
+            String(localized: "Solid rectangle")
         case .ellipse:
-            "Circle"
+            String(localized: "Circle")
         case .line:
-            "Straight line"
+            String(localized: "Straight line")
         case .arrow:
-            "Arrow"
+            String(localized: "Arrow")
         case .freehand:
-            "Freehand"
+            String(localized: "Freehand")
         case .numberedCircle:
-            "Numbered circle"
+            String(localized: "Numbered circle")
         case .pixelate:
-            "Pixelate"
+            String(localized: "Pixelate")
         case .blur:
-            "Blur"
+            String(localized: "Blur")
         case .text:
-            "Text"
+            String(localized: "Text")
         case .highlight:
-            "Highlight"
+            String(localized: "Highlight")
         }
     }
 
@@ -79,7 +81,7 @@ enum AnnotationTool: String, CaseIterable, Identifiable, Codable {
 
     var helpText: String {
         if self == .highlight {
-            return "Draw an area to keep visible; everything outside is dimmed"
+            return String(localized: "Draw an area to keep visible; everything outside is dimmed")
         }
         return title
     }

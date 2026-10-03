@@ -324,19 +324,19 @@ enum AnnotationBackgroundPresetTransferError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .presetNotFound:
-            "The selected preset no longer exists."
+            String(localized: "The selected preset no longer exists.")
         case .invalidJSON:
-            "This is not a valid Screendrop preset file."
+            String(localized: "This is not a valid Screendrop preset file.")
         case .invalidFormat:
-            "This JSON file is not a Screendrop screenshot preset."
+            String(localized: "This JSON file is not a Screendrop screenshot preset.")
         case .unsupportedVersion(let version):
-            "This preset uses unsupported format version \(version)."
+            String(localized: "This preset uses unsupported format version \(version).")
         case .emptyFile:
-            "This preset file does not contain any presets."
+            String(localized: "This preset file does not contain any presets.")
         case .tooManyPresets:
-            "This preset file contains too many presets."
+            String(localized: "This preset file contains too many presets.")
         case .fileTooLarge:
-            "This preset file is larger than 1 MB."
+            String(localized: "This preset file is larger than 1 MB.")
         }
     }
 }

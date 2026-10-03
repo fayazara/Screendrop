@@ -18,7 +18,7 @@ struct AnnotationWallpaperPack: Identifiable, Equatable, Hashable {
         AnnotationWallpaperPack(
             id: "uihssn",
             title: "UIHSSN",
-            subtitle: "Wallpaper Pack",
+            subtitle: String(localized: "Wallpaper Pack"),
             remoteURL: URL(string: "https://static.fayazahmed.com/uihssn-wallpaper-pack.zip")!,
             authorName: "Ahmed Hassan",
             authorURL: URL(string: "https://x.com/uihssn")!
@@ -26,7 +26,7 @@ struct AnnotationWallpaperPack: Identifiable, Equatable, Hashable {
         AnnotationWallpaperPack(
             id: "fayaz",
             title: "Fayazara",
-            subtitle: "Author Picks",
+            subtitle: String(localized: "Author Picks"),
             remoteURL: URL(string: "https://static.fayazahmed.com/fayaz-wallpaper-pack.zip")!,
             authorName: "Fayaz Ahmed",
             authorURL: URL(string: "https://x.com/fayazara")!
@@ -281,14 +281,14 @@ nonisolated private enum AnnotationWallpaperStoreError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .downloadFailed(let statusCode):
-            "Download failed with HTTP \(statusCode)."
+            String(localized: "Download failed with HTTP \(statusCode).")
         case .emptyPack:
-            "No supported images were found in this pack."
+            String(localized: "No supported images were found in this pack.")
         case .extractionFailed(let output):
             if let output, !output.isEmpty {
-                "Could not unpack the wallpaper pack. \(output)"
+                String(localized: "Could not unpack the wallpaper pack. \(output)")
             } else {
-                "Could not unpack the wallpaper pack."
+                String(localized: "Could not unpack the wallpaper pack.")
             }
         }
     }

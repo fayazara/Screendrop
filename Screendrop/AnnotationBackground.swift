@@ -140,8 +140,8 @@ enum AnnotationProgressiveBlurMode: String, CaseIterable, Identifiable, Sendable
 
     var title: String {
         switch self {
-        case .radial: "Radial"
-        case .directional: "Directional"
+        case .radial: String(localized: "Radial")
+        case .directional: String(localized: "Directional")
         }
     }
 }
@@ -154,8 +154,8 @@ enum AnnotationProgressiveBlurEdgeMode: String, CaseIterable, Identifiable, Send
 
     var title: String {
         switch self {
-        case .clipped: "Screenshot"
-        case .bleed: "Scene"
+        case .clipped: String(localized: "Screenshot")
+        case .bleed: String(localized: "Scene")
         }
     }
 }
@@ -207,7 +207,7 @@ struct AnnotationBackgroundColor: Identifiable, Equatable, Hashable {
 
     init(custom color: Color) {
         let rgb = NSColor(color).usingColorSpace(.sRGB) ?? .black
-        self.init("custom", title: "Custom", red: rgb.redComponent,
+        self.init("custom", title: String(localized: "Custom"), red: rgb.redComponent,
                   green: rgb.greenComponent, blue: rgb.blueComponent)
     }
 
@@ -219,22 +219,22 @@ struct AnnotationBackgroundColor: Identifiable, Equatable, Hashable {
         NSColor(srgbRed: red, green: green, blue: blue, alpha: alpha)
     }
 
-    static let black = AnnotationBackgroundColor("black", title: "Black", red: 0.02, green: 0.02, blue: 0.024)
-    static let white = AnnotationBackgroundColor("white", title: "White", red: 0.96, green: 0.96, blue: 0.94)
-    static let graphite = AnnotationBackgroundColor("graphite", title: "Graphite", red: 0.17, green: 0.18, blue: 0.21)
-    static let red = AnnotationBackgroundColor("red", title: "Red", red: 0.94, green: 0.23, blue: 0.28)
-    static let orange = AnnotationBackgroundColor("orange", title: "Orange", red: 0.97, green: 0.52, blue: 0.16)
-    static let yellow = AnnotationBackgroundColor("yellow", title: "Yellow", red: 0.96, green: 0.73, blue: 0.23)
-    static let green = AnnotationBackgroundColor("green", title: "Green", red: 0.23, green: 0.61, blue: 0.36)
-    static let blue = AnnotationBackgroundColor("blue", title: "Blue", red: 0.16, green: 0.50, blue: 0.88)
-    static let purple = AnnotationBackgroundColor("purple", title: "Purple", red: 0.48, green: 0.26, blue: 0.91)
-    static let blush = AnnotationBackgroundColor("blush", title: "Blush", red: 0.93, green: 0.66, blue: 0.62)
-    static let mint = AnnotationBackgroundColor("mint", title: "Mint", red: 0.66, green: 0.90, blue: 0.73)
-    static let sky = AnnotationBackgroundColor("sky", title: "Sky", red: 0.63, green: 0.79, blue: 0.94)
-    static let lavender = AnnotationBackgroundColor("lavender", title: "Lavender", red: 0.80, green: 0.76, blue: 0.92)
-    static let peach = AnnotationBackgroundColor("peach", title: "Peach", red: 0.98, green: 0.80, blue: 0.69)
-    static let sage = AnnotationBackgroundColor("sage", title: "Sage", red: 0.74, green: 0.82, blue: 0.70)
-    static let sand = AnnotationBackgroundColor("sand", title: "Sand", red: 0.91, green: 0.87, blue: 0.76)
+    static let black = AnnotationBackgroundColor("black", title: String(localized: "Black"), red: 0.02, green: 0.02, blue: 0.024)
+    static let white = AnnotationBackgroundColor("white", title: String(localized: "White"), red: 0.96, green: 0.96, blue: 0.94)
+    static let graphite = AnnotationBackgroundColor("graphite", title: String(localized: "Graphite"), red: 0.17, green: 0.18, blue: 0.21)
+    static let red = AnnotationBackgroundColor("red", title: String(localized: "Red"), red: 0.94, green: 0.23, blue: 0.28)
+    static let orange = AnnotationBackgroundColor("orange", title: String(localized: "Orange"), red: 0.97, green: 0.52, blue: 0.16)
+    static let yellow = AnnotationBackgroundColor("yellow", title: String(localized: "Yellow"), red: 0.96, green: 0.73, blue: 0.23)
+    static let green = AnnotationBackgroundColor("green", title: String(localized: "Green"), red: 0.23, green: 0.61, blue: 0.36)
+    static let blue = AnnotationBackgroundColor("blue", title: String(localized: "Blue"), red: 0.16, green: 0.50, blue: 0.88)
+    static let purple = AnnotationBackgroundColor("purple", title: String(localized: "Purple"), red: 0.48, green: 0.26, blue: 0.91)
+    static let blush = AnnotationBackgroundColor("blush", title: String(localized: "Blush"), red: 0.93, green: 0.66, blue: 0.62)
+    static let mint = AnnotationBackgroundColor("mint", title: String(localized: "Mint"), red: 0.66, green: 0.90, blue: 0.73)
+    static let sky = AnnotationBackgroundColor("sky", title: String(localized: "Sky"), red: 0.63, green: 0.79, blue: 0.94)
+    static let lavender = AnnotationBackgroundColor("lavender", title: String(localized: "Lavender"), red: 0.80, green: 0.76, blue: 0.92)
+    static let peach = AnnotationBackgroundColor("peach", title: String(localized: "Peach"), red: 0.98, green: 0.80, blue: 0.69)
+    static let sage = AnnotationBackgroundColor("sage", title: String(localized: "Sage"), red: 0.74, green: 0.82, blue: 0.70)
+    static let sand = AnnotationBackgroundColor("sand", title: String(localized: "Sand"), red: 0.91, green: 0.87, blue: 0.76)
 
     static let plainPresets: [AnnotationBackgroundColor] = [
         .black, .white, .graphite, .red, .orange, .yellow,
@@ -253,7 +253,7 @@ struct AnnotationBackgroundGradient: Identifiable, Equatable, Hashable {
     static let presets: [AnnotationBackgroundGradient] = [
         AnnotationBackgroundGradient(
             id: "aurora",
-            title: "Aurora",
+            title: String(localized: "Aurora"),
             colors: [
                 AnnotationBackgroundColor("aurora-a", title: "Aurora A", red: 0.98, green: 0.31, blue: 0.58),
                 AnnotationBackgroundColor("aurora-b", title: "Aurora B", red: 0.40, green: 0.32, blue: 0.95),
@@ -264,7 +264,7 @@ struct AnnotationBackgroundGradient: Identifiable, Equatable, Hashable {
         ),
         AnnotationBackgroundGradient(
             id: "cobalt",
-            title: "Cobalt",
+            title: String(localized: "Cobalt"),
             colors: [
                 AnnotationBackgroundColor("cobalt-a", title: "Cobalt A", red: 0.04, green: 0.05, blue: 0.50),
                 AnnotationBackgroundColor("cobalt-b", title: "Cobalt B", red: 0.26, green: 0.19, blue: 0.93),
@@ -275,7 +275,7 @@ struct AnnotationBackgroundGradient: Identifiable, Equatable, Hashable {
         ),
         AnnotationBackgroundGradient(
             id: "peach",
-            title: "Peach",
+            title: String(localized: "Peach"),
             colors: [
                 AnnotationBackgroundColor("peach-a", title: "Peach A", red: 0.98, green: 0.38, blue: 0.36),
                 AnnotationBackgroundColor("peach-b", title: "Peach B", red: 0.99, green: 0.71, blue: 0.36),
@@ -286,7 +286,7 @@ struct AnnotationBackgroundGradient: Identifiable, Equatable, Hashable {
         ),
         AnnotationBackgroundGradient(
             id: "glass",
-            title: "Glass",
+            title: String(localized: "Glass"),
             colors: [
                 AnnotationBackgroundColor("glass-a", title: "Glass A", red: 0.87, green: 0.95, blue: 0.94),
                 AnnotationBackgroundColor("glass-b", title: "Glass B", red: 0.46, green: 0.77, blue: 0.86),
@@ -297,7 +297,7 @@ struct AnnotationBackgroundGradient: Identifiable, Equatable, Hashable {
         ),
         AnnotationBackgroundGradient(
             id: "plasma",
-            title: "Plasma",
+            title: String(localized: "Plasma"),
             colors: [
                 AnnotationBackgroundColor("plasma-a", title: "Plasma A", red: 0.08, green: 0.02, blue: 0.22),
                 AnnotationBackgroundColor("plasma-b", title: "Plasma B", red: 0.35, green: 0.12, blue: 0.84),
@@ -308,7 +308,7 @@ struct AnnotationBackgroundGradient: Identifiable, Equatable, Hashable {
         ),
         AnnotationBackgroundGradient(
             id: "mango",
-            title: "Mango",
+            title: String(localized: "Mango"),
             colors: [
                 AnnotationBackgroundColor("mango-a", title: "Mango A", red: 0.99, green: 0.75, blue: 0.20),
                 AnnotationBackgroundColor("mango-b", title: "Mango B", red: 0.96, green: 0.33, blue: 0.21),
@@ -319,7 +319,7 @@ struct AnnotationBackgroundGradient: Identifiable, Equatable, Hashable {
         ),
         AnnotationBackgroundGradient(
             id: "mist",
-            title: "Mist",
+            title: String(localized: "Mist"),
             colors: [
                 AnnotationBackgroundColor("mist-a", title: "Mist A", red: 0.94, green: 0.94, blue: 0.92),
                 AnnotationBackgroundColor("mist-b", title: "Mist B", red: 0.80, green: 0.88, blue: 0.94),
@@ -330,7 +330,7 @@ struct AnnotationBackgroundGradient: Identifiable, Equatable, Hashable {
         ),
         AnnotationBackgroundGradient(
             id: "lagoon",
-            title: "Lagoon",
+            title: String(localized: "Lagoon"),
             colors: [
                 AnnotationBackgroundColor("lagoon-a", title: "Lagoon A", red: 0.08, green: 0.30, blue: 0.54),
                 AnnotationBackgroundColor("lagoon-b", title: "Lagoon B", red: 0.25, green: 0.64, blue: 0.72),
@@ -341,7 +341,7 @@ struct AnnotationBackgroundGradient: Identifiable, Equatable, Hashable {
         ),
         AnnotationBackgroundGradient(
             id: "ember",
-            title: "Ember",
+            title: String(localized: "Ember"),
             colors: [
                 AnnotationBackgroundColor("ember-a", title: "Ember A", red: 0.18, green: 0.03, blue: 0.08),
                 AnnotationBackgroundColor("ember-b", title: "Ember B", red: 0.86, green: 0.17, blue: 0.18),
@@ -352,7 +352,7 @@ struct AnnotationBackgroundGradient: Identifiable, Equatable, Hashable {
         ),
         AnnotationBackgroundGradient(
             id: "violet",
-            title: "Violet",
+            title: String(localized: "Violet"),
             colors: [
                 AnnotationBackgroundColor("violet-a", title: "Violet A", red: 0.24, green: 0.08, blue: 0.51),
                 AnnotationBackgroundColor("violet-b", title: "Violet B", red: 0.59, green: 0.22, blue: 0.94),
@@ -363,7 +363,7 @@ struct AnnotationBackgroundGradient: Identifiable, Equatable, Hashable {
         ),
         AnnotationBackgroundGradient(
             id: "seaglass",
-            title: "Sea Glass",
+            title: String(localized: "Sea Glass"),
             colors: [
                 AnnotationBackgroundColor("seaglass-a", title: "Sea Glass A", red: 0.43, green: 0.86, blue: 0.75),
                 AnnotationBackgroundColor("seaglass-b", title: "Sea Glass B", red: 0.25, green: 0.62, blue: 0.80),
@@ -374,7 +374,7 @@ struct AnnotationBackgroundGradient: Identifiable, Equatable, Hashable {
         ),
         AnnotationBackgroundGradient(
             id: "citrus",
-            title: "Citrus",
+            title: String(localized: "Citrus"),
             colors: [
                 AnnotationBackgroundColor("citrus-a", title: "Citrus A", red: 0.99, green: 0.91, blue: 0.30),
                 AnnotationBackgroundColor("citrus-b", title: "Citrus B", red: 0.44, green: 0.78, blue: 0.29),
@@ -385,7 +385,7 @@ struct AnnotationBackgroundGradient: Identifiable, Equatable, Hashable {
         ),
         AnnotationBackgroundGradient(
             id: "amethyst",
-            title: "Amethyst",
+            title: String(localized: "Amethyst"),
             colors: [
                 AnnotationBackgroundColor("amethyst-a", title: "Amethyst A", red: 0.10, green: 0.08, blue: 0.28),
                 AnnotationBackgroundColor("amethyst-b", title: "Amethyst B", red: 0.35, green: 0.15, blue: 0.65),
@@ -396,7 +396,7 @@ struct AnnotationBackgroundGradient: Identifiable, Equatable, Hashable {
         ),
         AnnotationBackgroundGradient(
             id: "sorbet",
-            title: "Sorbet",
+            title: String(localized: "Sorbet"),
             colors: [
                 AnnotationBackgroundColor("sorbet-a", title: "Sorbet A", red: 1.00, green: 0.49, blue: 0.51),
                 AnnotationBackgroundColor("sorbet-b", title: "Sorbet B", red: 1.00, green: 0.74, blue: 0.48),
@@ -407,7 +407,7 @@ struct AnnotationBackgroundGradient: Identifiable, Equatable, Hashable {
         ),
         AnnotationBackgroundGradient(
             id: "mineral",
-            title: "Mineral",
+            title: String(localized: "Mineral"),
             colors: [
                 AnnotationBackgroundColor("mineral-a", title: "Mineral A", red: 0.93, green: 0.96, blue: 0.95),
                 AnnotationBackgroundColor("mineral-b", title: "Mineral B", red: 0.64, green: 0.72, blue: 0.82),
@@ -418,7 +418,7 @@ struct AnnotationBackgroundGradient: Identifiable, Equatable, Hashable {
         ),
         AnnotationBackgroundGradient(
             id: "dawn",
-            title: "Dawn",
+            title: String(localized: "Dawn"),
             colors: [
                 AnnotationBackgroundColor("dawn-a", title: "Dawn A", red: 0.98, green: 0.62, blue: 0.77),
                 AnnotationBackgroundColor("dawn-b", title: "Dawn B", red: 0.98, green: 0.82, blue: 0.47),
@@ -539,7 +539,7 @@ enum AnnotationBackgroundAspectRatio: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .auto: "Auto"
+        case .auto: String(localized: "Auto")
         case .square: "1:1"
         case .fourThree: "4:3"
         case .threeTwo: "3:2"
@@ -573,15 +573,15 @@ enum AnnotationBackgroundAlignment: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .topLeading: "Top left"
-        case .top: "Top"
-        case .topTrailing: "Top right"
-        case .leading: "Left"
-        case .center: "Center"
-        case .trailing: "Right"
-        case .bottomLeading: "Bottom left"
-        case .bottom: "Bottom"
-        case .bottomTrailing: "Bottom right"
+        case .topLeading: String(localized: "Top left")
+        case .top: String(localized: "Top")
+        case .topTrailing: String(localized: "Top right")
+        case .leading: String(localized: "Left")
+        case .center: String(localized: "Center")
+        case .trailing: String(localized: "Right")
+        case .bottomLeading: String(localized: "Bottom left")
+        case .bottom: String(localized: "Bottom")
+        case .bottomTrailing: String(localized: "Bottom right")
         }
     }
 

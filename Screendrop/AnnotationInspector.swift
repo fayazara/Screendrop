@@ -271,7 +271,7 @@ struct AnnotationEditorInspector: View {
     /// Header switch for sections with an on/off state. Turning one on opens
     /// its controls; turning it off folds them away.
     private func sectionToggle(
-        _ title: String,
+        _ title: LocalizedStringResource,
         isOn keyPath: WritableKeyPath<AnnotationBackgroundSettings, Bool>,
         section: AnnotationInspectorAdvancedSection
     ) -> some View {
@@ -435,16 +435,16 @@ private enum AnnotationInspectorSummary {
             settings.rotationXDegrees, settings.rotationYDegrees
         ]
         if angles.contains(where: { abs($0) > 0.0001 }) {
-            parts.append("Angled")
+            parts.append(String(localized: "Angled"))
         }
         if abs(settings.zoom - 1) > 0.0001 {
             parts.append(InspectorValueFormat.magnification(fractionDigits: 2).displayString(for: settings.zoom))
         }
         if abs(settings.panX) > 0.0001 || abs(settings.panY) > 0.0001 {
-            parts.append("Panned")
+            parts.append(String(localized: "Panned"))
         }
         if parts.isEmpty {
-            parts.append("FOV \(InspectorValueFormat.degrees().displayString(for: settings.fieldOfViewDegrees))")
+            parts.append(String(localized: "FOV \(InspectorValueFormat.degrees().displayString(for: settings.fieldOfViewDegrees))"))
         }
         return parts.joined(separator: " · ")
     }

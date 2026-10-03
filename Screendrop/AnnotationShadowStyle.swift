@@ -21,10 +21,10 @@ enum AnnotationShadowStyle: String, CaseIterable, Identifiable, Codable {
 
     var title: String {
         switch self {
-        case .soft: "Soft"
-        case .long: "Long"
-        case .glow: "Glow"
-        case .crisp: "Crisp"
+        case .soft: String(localized: "Soft")
+        case .long: String(localized: "Long")
+        case .glow: String(localized: "Glow")
+        case .crisp: String(localized: "Crisp")
         }
     }
 

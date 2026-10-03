@@ -318,7 +318,7 @@ struct AnnotationEditorWindow: View {
         panel.allowedContentTypes = [ScreenshotFileActions.exportContentType]
         panel.nameFieldStringValue = ScreenshotFileActions.exportFileName(for: sourceURL)
         panel.canCreateDirectories = true
-        panel.title = "Save Annotated Screenshot"
+        panel.title = String(localized: "Save Annotated Screenshot")
 
         panel.begin { response in
             guard response == .OK, let destinationURL = panel.url else { return }
@@ -333,7 +333,7 @@ struct AnnotationEditorWindow: View {
                         contentType: ScreenshotFileActions.exportContentType
                     )
                 } catch {
-                    model.errorMessage = "Failed to save annotation: \(error.localizedDescription)"
+                    model.errorMessage = String(localized: "Failed to save annotation: \(error.localizedDescription)")
                 }
             }
         }
@@ -346,7 +346,7 @@ struct AnnotationEditorWindow: View {
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
-        panel.title = "Choose Background Wallpaper"
+        panel.title = String(localized: "Choose Background Wallpaper")
 
         panel.begin { response in
             guard response == .OK, let url = panel.url else { return }
@@ -387,7 +387,7 @@ struct AnnotationEditorWindow: View {
                 ScreenshotHistoryStore.shared.setCloudURL(for: resultURL, cloudURL: result.url)
                 withAnimation(.snappy(duration: 0.2)) { didCopyLink = true }
             } catch {
-                model.errorMessage = "Upload failed: \(error.localizedDescription)"
+                model.errorMessage = String(localized: "Upload failed: \(error.localizedDescription)")
             }
         }
     }
@@ -411,7 +411,7 @@ struct AnnotationEditorWindow: View {
                     historyURL: resultURL
                 )
             } catch {
-                model.errorMessage = "Failed to save annotation: \(error.localizedDescription)"
+                model.errorMessage = String(localized: "Failed to save annotation: \(error.localizedDescription)")
             }
         }
     }
@@ -446,7 +446,7 @@ struct AnnotationEditorWindow: View {
                 dismissWindow()
             } catch {
                 isFinishing = false
-                model.errorMessage = "Failed to finish annotation: \(error.localizedDescription)"
+                model.errorMessage = String(localized: "Failed to finish annotation: \(error.localizedDescription)")
             }
         }
     }
@@ -457,7 +457,7 @@ struct AnnotationEditorWindow: View {
         // A screenshot is already in History whether or not it is annotated,
         // so there is no "delete the whole thing" case here.
         closeGuard.offersDelete = { false }
-        closeGuard.projectName = { [weak model] in model?.sourceURL?.lastPathComponent ?? "this screenshot" }
+        closeGuard.projectName = { [weak model] in model?.sourceURL?.lastPathComponent ?? String(localized: "this screenshot") }
         // Capture only the model, not this view and its @State close guard.
         closeGuard.onDecision = { [weak model] decision, done in
             guard let model else { return }
@@ -476,7 +476,7 @@ struct AnnotationEditorWindow: View {
                         model.releaseEditorResources()
                         done()
                     } catch {
-                        model.errorMessage = "Failed to save annotation: \(error.localizedDescription)"
+                        model.errorMessage = String(localized: "Failed to save annotation: \(error.localizedDescription)")
                     }
                 }
             case .discard:

@@ -78,8 +78,8 @@ struct AnnotationCameraInspector: View {
 
     /// X/Y companions share one row so the section reads as axis pairs.
     private func sliderPair(
-        _ first: (title: String, keyPath: WritableKeyPath<AnnotationCameraSettings, CGFloat>),
-        _ second: (title: String, keyPath: WritableKeyPath<AnnotationCameraSettings, CGFloat>),
+        _ first: (title: LocalizedStringResource, keyPath: WritableKeyPath<AnnotationCameraSettings, CGFloat>),
+        _ second: (title: LocalizedStringResource, keyPath: WritableKeyPath<AnnotationCameraSettings, CGFloat>),
         range: ClosedRange<CGFloat>,
         format: InspectorValueFormat
     ) -> some View {
