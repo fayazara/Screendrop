@@ -25,12 +25,31 @@ enum RecordingInputAuthorization {
             }
         }
 
-        fileprivate var title: String {
+        // Whole sentences per input, so each reads naturally once translated.
+        fileprivate var accessNeededTitle: String {
             switch self {
             case .camera:
-                "Camera"
+                String(localized: "Camera access needed")
             case .microphone:
-                "Microphone"
+                String(localized: "Microphone access needed")
+            }
+        }
+
+        fileprivate var restrictedMessage: String {
+            switch self {
+            case .camera:
+                String(localized: "Screendrop can't use the camera because access is restricted on this Mac.")
+            case .microphone:
+                String(localized: "Screendrop can't use the microphone because access is restricted on this Mac.")
+            }
+        }
+
+        fileprivate var deniedMessage: String {
+            switch self {
+            case .camera:
+                String(localized: "Allow Screendrop to use the camera in Privacy & Security, then select it again.")
+            case .microphone:
+                String(localized: "Allow Screendrop to use the microphone in Privacy & Security, then select it again.")
             }
         }
 
@@ -82,18 +101,18 @@ enum RecordingInputAuthorization {
 
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = "\(input.title) access needed"
+        alert.messageText = input.accessNeededTitle
 
         if isRestricted {
-            alert.informativeText = "Screendrop can't use the \(input.title.lowercased()) because access is restricted on this Mac."
-            alert.addButton(withTitle: "OK")
+            alert.informativeText = input.restrictedMessage
+            alert.addButton(withTitle: String(localized: "OK"))
             alert.runModal()
             return
         }
 
-        alert.informativeText = "Allow Screendrop to use the \(input.title.lowercased()) in Privacy & Security, then select it again."
-        alert.addButton(withTitle: "Open System Settings")
-        alert.addButton(withTitle: "Cancel")
+        alert.informativeText = input.deniedMessage
+        alert.addButton(withTitle: String(localized: "Open System Settings"))
+        alert.addButton(withTitle: String(localized: "Cancel"))
 
         if alert.runModal() == .alertFirstButtonReturn,
            let settingsURL = input.settingsURL {

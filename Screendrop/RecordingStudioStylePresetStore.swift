@@ -183,7 +183,7 @@ final class RecordingStudioStylePresetStore {
 
             let normalized = normalizedName(preset.name)
             let name = uniqueSanitizedName(
-                normalized.isEmpty ? "Untitled Preset" : normalized,
+                normalized.isEmpty ? String(localized: "Untitled Preset") : normalized,
                 existingNames: seenNames
             )
             seenNames.append(name)

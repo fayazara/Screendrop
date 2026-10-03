@@ -41,12 +41,12 @@ final class RecordingSourceCatalog {
 
     static func displayTitle(_ display: SCDisplay, index: Int) -> String {
         let resolution = "\(display.width)x\(display.height)"
-        let name = displayName(for: display.displayID) ?? "Display \(index + 1)"
+        let name = displayName(for: display.displayID) ?? String(localized: "Display \(index + 1)")
         return "\(name) (\(resolution))"
     }
 
     static func windowTitle(_ window: SCWindow) -> String {
-        let appName = window.owningApplication?.applicationName ?? "Unknown"
+        let appName = window.owningApplication?.applicationName ?? String(localized: "Unknown")
         guard let title = window.title, !title.isEmpty else {
             return appName
         }

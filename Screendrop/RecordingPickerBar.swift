@@ -53,9 +53,9 @@ struct RecordingPickerControls: View {
             windowSource.disabled(CaptureCountdownPresenter.shared.isRunning || sources.isLoading)
             BarActionButton(
                 id: .area,
-                title: "Drag to select a region",
+                title: String(localized: "Drag to select a region"),
                 systemImage: "rectangle.dashed",
-                accessibility: "Area - drag to select the region to record"
+                accessibility: String(localized: "Area - drag to select the region to record")
             ) {
                 startAreaRecording()
             }
@@ -66,7 +66,7 @@ struct RecordingPickerControls: View {
 
             inputToggle(
                 id: .camera,
-                title: cameraID.isEmpty ? "Camera off" : "Camera on",
+                title: cameraID.isEmpty ? String(localized: "Camera off") : String(localized: "Camera on"),
                 isOn: !cameraID.isEmpty,
                 onIcon: "video.fill",
                 offIcon: "video.slash",
@@ -82,26 +82,26 @@ struct RecordingPickerControls: View {
 
             inputToggle(
                 id: .systemAudio,
-                title: systemAudio ? "System audio on" : "System audio off",
+                title: systemAudio ? String(localized: "System audio on") : String(localized: "System audio off"),
                 isOn: systemAudio,
                 onIcon: "speaker.wave.2.fill",
                 offIcon: "speaker.slash",
                 accessibility: systemAudio
-                    ? "System audio on - click to stop capturing what you hear"
-                    : "System audio off - click to capture what you hear"
+                    ? String(localized: "System audio on - click to stop capturing what you hear")
+                    : String(localized: "System audio off - click to capture what you hear")
             ) {
                 systemAudio.toggle()
             }
 
             inputToggle(
                 id: .teleprompter,
-                title: teleprompterEnabled ? "Teleprompter on" : "Teleprompter off",
+                title: teleprompterEnabled ? String(localized: "Teleprompter on") : String(localized: "Teleprompter off"),
                 isOn: teleprompterEnabled,
                 onIcon: "text.pad.header",
                 offIcon: "text.pad.header",
                 accessibility: teleprompterEnabled
-                    ? "Teleprompter on - click to edit the script"
-                    : "Teleprompter off - click to write a script"
+                    ? String(localized: "Teleprompter on - click to edit the script")
+                    : String(localized: "Teleprompter off - click to write a script")
             ) {
                 TeleprompterComposerPresenter.shared.toggle()
             }
@@ -110,9 +110,9 @@ struct RecordingPickerControls: View {
 
             BarActionButton(
                 id: .close,
-                title: "Close",
+                title: String(localized: "Close"),
                 systemImage: "xmark",
-                accessibility: "Close the recorder - Esc"
+                accessibility: String(localized: "Close the recorder - Esc")
             ) {
                 dismissPicker()
             }
@@ -138,7 +138,7 @@ struct RecordingPickerControls: View {
                 .accessibilityLabel("Finding screens and windows")
         } else if sources.errorMessage != nil || sources.displays.isEmpty {
             Menu {
-                Text(sources.errorMessage ?? "No screens are available.")
+                Text(sources.errorMessage ?? String(localized: "No screens are available."))
                 Button("Retry") { Task { await sources.refresh() } }
                 if !CGPreflightScreenCaptureAccess() {
                     Button("Open Screen Recording Settings…") {
@@ -148,7 +148,7 @@ struct RecordingPickerControls: View {
                     }
                 }
             } label: {
-                BarActionLabel(id: .display, title: "Recording sources unavailable - click to retry",
+                BarActionLabel(id: .display, title: String(localized: "Recording sources unavailable - click to retry"),
                                systemImage: "exclamationmark.triangle")
             }
             .menuStyle(.button)
@@ -167,7 +167,7 @@ struct RecordingPickerControls: View {
             } label: {
                 BarActionLabel(
                     id: .display,
-                    title: "Pick a screen to record",
+                    title: String(localized: "Pick a screen to record"),
                     systemImage: "menubar.rectangle"
                 )
             }
@@ -178,9 +178,9 @@ struct RecordingPickerControls: View {
         } else {
             BarActionButton(
                 id: .display,
-                title: "Record the whole screen",
+                title: String(localized: "Record the whole screen"),
                 systemImage: "menubar.rectangle",
-                accessibility: "Display - record the whole screen"
+                accessibility: String(localized: "Display - record the whole screen")
             ) {
                 guard let display = sources.displays.first else { return }
                 startRecording {
@@ -215,7 +215,7 @@ struct RecordingPickerControls: View {
         } label: {
             BarActionLabel(
                 id: .window,
-                title: "Pick an app window",
+                title: String(localized: "Pick an app window"),
                 systemImage: "macwindow"
             )
         }
@@ -265,33 +265,33 @@ struct RecordingPickerControls: View {
 
     private var cameraAccessibilityLabel: String {
         guard !cameraID.isEmpty else {
-            return "Camera off - click to record your camera, right-click to pick one"
+            return String(localized: "Camera off - click to record your camera, right-click to pick one")
         }
         guard let camera = RecordingDeviceCatalog.cameras().first(where: { $0.uniqueID == cameraID }) else {
-            return "Camera unavailable - right-click to choose another camera"
+            return String(localized: "Camera unavailable - right-click to choose another camera")
         }
-        return "Camera on - \(camera.localizedName), right-click to switch"
+        return String(localized: "Camera on - \(camera.localizedName), right-click to switch")
     }
 
     /// The pill only has room for the state, so an attached-but-missing
     /// device is worth calling out there - it's the one case where the icon
     /// alone is misleading.
     private var microphoneTooltip: String {
-        guard !microphoneID.isEmpty else { return "Microphone off" }
+        guard !microphoneID.isEmpty else { return String(localized: "Microphone off") }
         guard RecordingDeviceCatalog.microphone(withID: microphoneID) != nil else {
-            return "Microphone unavailable"
+            return String(localized: "Microphone unavailable")
         }
-        return "Microphone on"
+        return String(localized: "Microphone on")
     }
 
     private var microphoneAccessibilityLabel: String {
         guard !microphoneID.isEmpty else {
-            return "Microphone off - click to choose an input"
+            return String(localized: "Microphone off - click to choose an input")
         }
         guard let microphone = RecordingDeviceCatalog.microphone(withID: microphoneID) else {
-            return "Microphone unavailable - choose another input"
+            return String(localized: "Microphone unavailable - choose another input")
         }
-        return "Microphone on - \(microphone.localizedName)"
+        return String(localized: "Microphone on - \(microphone.localizedName)")
     }
 
     @ViewBuilder
@@ -318,7 +318,7 @@ struct RecordingPickerControls: View {
             Button {
                 microphoneID = ""
             } label: {
-                menuSelectionLabel("Off", isSelected: microphoneID.isEmpty)
+                menuSelectionLabel(String(localized: "Off"), isSelected: microphoneID.isEmpty)
             }
 
             Divider()
@@ -374,17 +374,21 @@ struct RecordingPickerControls: View {
     }
 
     private func timerLabel(_ seconds: Int) -> String {
-        seconds == 0 ? "None" : "\(seconds) second\(seconds == 1 ? "" : "s")"
+        switch seconds {
+        case 0: String(localized: "None")
+        case 1: String(localized: "1 second")
+        default: String(localized: "\(seconds) seconds")
+        }
     }
 
     private var timerTooltip: String {
-        startDelaySeconds == 0 ? "Timer off" : "Timer \(startDelaySeconds)s"
+        startDelaySeconds == 0 ? String(localized: "Timer off") : String(localized: "Timer \(startDelaySeconds)s")
     }
 
     private var timerAccessibilityLabel: String {
         startDelaySeconds == 0
-            ? "Timer off - click to add a countdown before recording starts"
-            : "Timer: \(timerLabel(startDelaySeconds)) before recording starts"
+            ? String(localized: "Timer off - click to add a countdown before recording starts")
+            : String(localized: "Timer: \(timerLabel(startDelaySeconds)) before recording starts")
     }
 
     @ViewBuilder

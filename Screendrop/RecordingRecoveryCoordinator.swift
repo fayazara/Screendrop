@@ -42,10 +42,10 @@ enum RecordingRecoveryCoordinator {
             let alert = NSAlert()
             alert.alertStyle = .informational
             alert.messageText = recoveredCount == 1
-                ? "Recovered an interrupted recording"
-                : "Recovered \(recoveredCount) interrupted recordings"
-            alert.informativeText = "The playable footage was preserved in History and can be reopened in Screendrop Studio."
-            alert.addButton(withTitle: "OK")
+                ? String(localized: "Recovered an interrupted recording")
+                : String(localized: "Recovered \(recoveredCount) interrupted recordings")
+            alert.informativeText = String(localized: "The playable footage was preserved in History and can be reopened in Screendrop Studio.")
+            alert.addButton(withTitle: String(localized: "OK"))
             alert.runModal()
         }
     }

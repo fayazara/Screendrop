@@ -122,11 +122,11 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
         var errorDescription: String? {
             switch self {
             case .noVideoTrack:
-                "The recording has no video track."
+                String(localized: "The recording has no video track.")
             case .writerFailed(let error):
-                error?.localizedDescription ?? "Writing the exported video failed."
+                error?.localizedDescription ?? String(localized: "Writing the exported video failed.")
             case .cancelled:
-                "Export cancelled."
+                String(localized: "Export cancelled.")
             }
         }
     }

@@ -91,9 +91,9 @@ nonisolated final class RecordingAudioExporter: @unchecked Sendable {
         var errorDescription: String? {
             switch self {
             case .noAudioTrack:
-                "This recording has no audio to export."
+                String(localized: "This recording has no audio to export.")
             case .writerFailed(let error):
-                error?.localizedDescription ?? "Writing the exported audio failed."
+                error?.localizedDescription ?? String(localized: "Writing the exported audio failed.")
             }
         }
     }
