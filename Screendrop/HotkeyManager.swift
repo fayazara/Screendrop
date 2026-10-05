@@ -44,7 +44,7 @@ final class HotkeyManager {
         for action in CaptureHotkeyAction.allCases {
             let shortcut = CaptureHotkeyPreferences.shortcut(for: action)
             guard registeredShortcuts.insert(shortcut).inserted else {
-                print("Skipping duplicate hotkey for \(action.title): \(shortcut.displayString)")
+                registrationErrors[action] = "\(shortcut.displayString) is already used by another action."
                 continue
             }
 

@@ -28,7 +28,7 @@ struct ScreenshotsSettingsPane: View {
 
     var body: some View {
         Form {
-            CaptureHotkeySettingsSection(actions: [.fullscreen, .window, .area, .textCapture])
+            CaptureHotkeySettingsSection(actions: [.fullscreen, .window, .area, .textCapture, .scrollingCapture])
 
             Section("Capture") {
                 Picker(selection: $captureDelaySeconds) {

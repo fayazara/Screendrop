@@ -146,6 +146,29 @@ final class ScreenshotManager {
         CGImageDestinationFinalize(destination)
     }
 
+    // MARK: - Composed Captures
+
+    /// Writes an image Screendrop composed itself, such as a stitched
+    /// scrolling capture, to a temp PNG alongside the `screencapture` ones.
+    /// Records the display scale as DPI, as `screencapture` does, so a Retina
+    /// capture keeps its real size.
+    func writeCapture(_ image: CGImage, scale: CGFloat) -> URL? {
+        let url = URL(fileURLWithPath: generateTempPath(extension: "png"))
+        guard let destination = CGImageDestinationCreateWithURL(
+            url as CFURL,
+            "public.png" as CFString,
+            1,
+            nil
+        ) else {
+            return nil
+        }
+
+        let dpi = 72 * scale
+        let properties = [kCGImagePropertyDPIWidth: dpi, kCGImagePropertyDPIHeight: dpi] as CFDictionary
+        CGImageDestinationAddImage(destination, image, properties)
+        return CGImageDestinationFinalize(destination) ? url : nil
+    }
+
     // MARK: - Helpers
     
     /// Generates a unique temp file path for screenshots.

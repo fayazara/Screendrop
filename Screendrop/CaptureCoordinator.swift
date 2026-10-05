@@ -49,6 +49,17 @@ final class CaptureCoordinator {
         Task { await performCaptureText() }
     }
 
+    /// Starts a scrolling capture, or finishes the one in progress: the app
+    /// being scrolled has the keyboard, so pressing the shortcut again is the
+    /// keyboard way to say Done.
+    func captureScrolling() {
+        if ScrollingCapturePresenter.shared.isRunning {
+            ScrollingCapturePresenter.shared.finish()
+        } else {
+            Task { await performCaptureScrolling() }
+        }
+    }
+
     // MARK: - Awaitable Capture Actions
 
     /// Awaitable variants for callers (App Intents / Shortcuts) that need the
@@ -115,6 +126,17 @@ final class CaptureCoordinator {
         ) else { return nil }
         let displayID = ActiveDisplayResolver.activeDisplayID(preferPointer: true)
         return finishCapture(url: url, displayID: displayID)
+    }
+
+    /// No self-timer: the capture runs for as long as the user scrolls.
+    @discardableResult
+    private func performCaptureScrolling() async -> URL? {
+        guard let capture = await ScrollingCapturePresenter.shared.run() else { return nil }
+        guard let url = ScreenshotManager.shared.writeCapture(capture.image, scale: capture.scale) else {
+            FailureAlert.present(message: "Scrolling capture couldn't be saved", error: CocoaError(.fileWriteUnknown))
+            return nil
+        }
+        return finishCapture(url: url, displayID: capture.displayID)
     }
 
     /// Capture Text is the odd one out: it recognizes the text inside the drawn

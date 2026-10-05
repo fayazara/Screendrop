@@ -42,6 +42,15 @@ struct MenuBarView: View {
             }
 
             Button {
+                CaptureCoordinator.shared.captureScrolling()
+            } label: {
+                Label(
+                    ScrollingCapturePresenter.shared.isRunning ? "Finish Scrolling Capture" : "Scrolling Capture",
+                    systemImage: "rectangle.expand.vertical"
+                )
+            }
+
+            Button {
                 RecordingPickerPresenter.shared.show()
             } label: {
                 Label("Record Screen", systemImage: "record.circle")

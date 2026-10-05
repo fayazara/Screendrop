@@ -147,6 +147,11 @@ final class ScreenRecordingManager {
 
     func startRecording(source: ScreenRecordingSource) {
         guard state == .idle else { return }
+        // A scrolling capture is using the region highlight.
+        guard !ScrollingCapturePresenter.shared.isRunning else {
+            NSSound.beep()
+            return
+        }
         guard Self.ensureScreenCapturePermission() else { return }
 
         let targetDisplayID = source.displayID ?? ActiveDisplayResolver.activeDisplayID(preferPointer: true) ?? CGMainDisplayID()
@@ -579,7 +584,7 @@ final class ScreenRecordingManager {
     /// missing grant otherwise fails with a silent -3801. Trigger the system
     /// prompt on first use and route the user to System Settings after that
     /// (macOS only shows the prompt once per app).
-    private static func ensureScreenCapturePermission() -> Bool {
+    static func ensureScreenCapturePermission() -> Bool {
         if CGPreflightScreenCaptureAccess() {
             return true
         }
@@ -780,7 +785,7 @@ final class ScreenRecordingManager {
         )
     }
 
-    private static func sourceRect(
+    static func sourceRect(
         forAppKitSelectionRect selectionRect: CGRect,
         screenFrame: CGRect?,
         contentRect: CGRect

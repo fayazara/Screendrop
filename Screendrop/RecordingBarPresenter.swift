@@ -56,6 +56,11 @@ final class RecordingBarPresenter {
     }
 
     func showPicker() {
+        // A scrolling capture is using the region highlight.
+        guard !ScrollingCapturePresenter.shared.isRunning else {
+            NSSound.beep()
+            return
+        }
         let panel = panel ?? makePanel()
         PreviewWindowCaptureExclusion.shared.register(window: panel)
         Task {
