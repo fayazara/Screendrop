@@ -181,9 +181,16 @@ final class LibraryCollectionView: NSCollectionView {
 
 final class LibraryCollectionLayout: NSCollectionViewFlowLayout {
     var displayLayout: CaptureLibraryLayout = .grid
+    /// The width the cells were last sized for.
+    private var preparedWidth: CGFloat?
+
+    private var availableWidth: CGFloat {
+        max(200, collectionView?.enclosingScrollView?.contentSize.width ?? 800)
+    }
 
     override func prepare() {
-        let width = max(200, collectionView?.enclosingScrollView?.contentSize.width ?? 800)
+        let width = availableWidth
+        preparedWidth = width
         sectionInset = NSEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
         minimumInteritemSpacing = 16
         minimumLineSpacing = displayLayout == .grid ? 16 : 6
@@ -197,8 +204,20 @@ final class LibraryCollectionLayout: NSCollectionViewFlowLayout {
         super.prepare()
     }
 
+    /// Compared with the width the cells were sized for, not the collection
+    /// view's own bounds: by the time a window resize asks, those already
+    /// have the new size.
     override func shouldInvalidateLayout(forBoundsChange newBounds: NSRect) -> Bool {
-        newBounds.width != collectionView?.bounds.width
+        availableWidth != preparedWidth
+    }
+
+    /// The flow layout keeps the item sizes it measured, so a new `itemSize`
+    /// from `prepare()` only took effect on the next data reload, such as
+    /// switching to list and back.
+    override func invalidationContext(forBoundsChange newBounds: NSRect) -> NSCollectionViewLayoutInvalidationContext {
+        let context = super.invalidationContext(forBoundsChange: newBounds)
+        (context as? NSCollectionViewFlowLayoutInvalidationContext)?.invalidateFlowLayoutDelegateMetrics = true
+        return context
     }
 }
 
