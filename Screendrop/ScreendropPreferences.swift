@@ -30,6 +30,7 @@ enum ScreendropPreferences {
     static let previewPositionKey = "previewPosition"
     static let previewAutoCloseSecondsKey = "previewAutoCloseSeconds"
     static let previewCloseAfterDraggingKey = "previewCloseAfterDragging"
+    static let previewCloseAfterPastingKey = "previewCloseAfterPasting"
     static let overlayCardLayoutKey = "overlayCardLayout"
     static let lowResolutionEditorPreviewKey = "lowResolutionEditorPreview"
     static let trimFullscreenMenuBarKey = "trimFullscreenMenuBar"
@@ -192,6 +193,12 @@ enum ScreendropPreferences {
             return true
         }
         return UserDefaults.standard.bool(forKey: previewCloseAfterDraggingKey)
+    }
+
+    /// Whether Ctrl+V closes a preview after an automatic image copy. Defaults
+    /// to off because it observes paste shortcuts outside Screendrop.
+    static var previewCloseAfterPasting: Bool {
+        UserDefaults.standard.bool(forKey: previewCloseAfterPastingKey)
     }
 
     /// Whether the annotation editor displays a downscaled preview of the
