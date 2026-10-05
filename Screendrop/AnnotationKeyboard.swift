@@ -10,6 +10,7 @@ struct AnnotationKeyCommandHandler: NSViewRepresentable {
     let isEnabled: () -> Bool
     let onDelete: () -> Void
     let onSave: () -> Void
+    let onCopy: () -> Void
     let onUndo: () -> Void
     let onRedo: () -> Void
     let onSelectAll: () -> Void
@@ -37,6 +38,7 @@ struct AnnotationKeyCommandHandler: NSViewRepresentable {
         view.isEnabled = isEnabled
         view.onDelete = onDelete
         view.onSave = onSave
+        view.onCopy = onCopy
         view.onUndo = onUndo
         view.onRedo = onRedo
         view.onSelectAll = onSelectAll
@@ -56,6 +58,7 @@ final class AnnotationKeyCommandHandlerView: NSView {
     var isEnabled: (() -> Bool)?
     var onDelete: (() -> Void)?
     var onSave: (() -> Void)?
+    var onCopy: (() -> Void)?
     var onUndo: (() -> Void)?
     var onRedo: (() -> Void)?
     var onSelectAll: (() -> Void)?
@@ -116,6 +119,11 @@ final class AnnotationKeyCommandHandlerView: NSView {
                 if Self.isUndo(event) || Self.isRedo(event) {
                     return event
                 }
+                return nil
+            }
+
+            if Self.isCopy(event) {
+                self.onCopy?()
                 return nil
             }
 
@@ -203,6 +211,14 @@ final class AnnotationKeyCommandHandlerView: NSView {
             && !event.modifierFlags.contains(.shift)
             && !event.modifierFlags.contains(.option)
             && event.charactersIgnoringModifiers?.lowercased() == "s"
+    }
+
+    /// Only reached when no text is being edited, so Cmd-C in a text
+    /// annotation or an inspector field still copies the text.
+    private static func isCopy(_ event: NSEvent) -> Bool {
+        event.modifierFlags.contains(.command)
+            && event.modifierFlags.intersection([.shift, .option, .control]).isEmpty
+            && event.charactersIgnoringModifiers?.lowercased() == "c"
     }
 
     private static func isUndo(_ event: NSEvent) -> Bool {

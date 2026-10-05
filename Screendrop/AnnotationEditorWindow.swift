@@ -87,6 +87,7 @@ struct AnnotationEditorWindow: View {
                 isEnabled: { !model.isCommitting },
                 onDelete: model.deleteSelectedAnnotation,
                 onSave: saveEdits,
+                onCopy: copyAndFinishEditing,
                 onUndo: model.undo,
                 onRedo: model.redo,
                 onSelectAll: model.selectAllAnnotations,
@@ -172,7 +173,7 @@ struct AnnotationEditorWindow: View {
         Button(action: finishEditing) {
             Image(systemName: "checkmark.circle")
         }
-        .help("Finish editing and save")
+        .help("Finish editing and save (⌘C also copies the image)")
 
         Button {
             clearInspectorFocus()
@@ -417,6 +418,17 @@ struct AnnotationEditorWindow: View {
     }
 
     private func finishEditing() {
+        finishEditing(copyingResult: false)
+    }
+
+    /// Cmd-C: finishes like Done, then puts the finished image - annotations
+    /// included - on the clipboard whatever the auto-copy setting, for a
+    /// capture, mark up, paste loop that never touches the mouse.
+    private func copyAndFinishEditing() {
+        finishEditing(copyingResult: true)
+    }
+
+    private func finishEditing(copyingResult: Bool) {
         clearInspectorFocus()
         guard let sourceURL = model.sourceURL else {
             model.releaseEditorResources()
@@ -429,7 +441,8 @@ struct AnnotationEditorWindow: View {
         isFinishing = true
         Task {
             do {
-                if let resultURL = try await model.commitEdits() {
+                let resultURL = try await model.commitEdits()
+                if let resultURL {
                     let updatedExistingPreview = ScreenshotPreviewStack.shared.applyAnnotation(
                         originalURL: sourceURL,
                         historyURL: resultURL
@@ -437,6 +450,10 @@ struct AnnotationEditorWindow: View {
                     if !updatedExistingPreview {
                         PreviewPanelPresenter.shared.show(displayID: nil)
                     }
+                }
+                // No result means nothing was drawn: the original is the image.
+                if copyingResult {
+                    try ScreenshotFileActions.copyImageToClipboard(from: resultURL ?? sourceURL)
                 }
                 guard !model.hasUnsavedChanges else {
                     isFinishing = false
