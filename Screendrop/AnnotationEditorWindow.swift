@@ -172,7 +172,8 @@ struct AnnotationEditorWindow: View {
         Button(action: finishEditing) {
             Image(systemName: "checkmark.circle")
         }
-        .help("Finish editing and save")
+        .keyboardShortcut(.return, modifiers: .command)
+        .help("Finish editing and save (⌘↩)")
 
         Button {
             clearInspectorFocus()
