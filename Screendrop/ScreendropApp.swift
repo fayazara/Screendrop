@@ -75,14 +75,14 @@ struct ScreendropApp: App {
         // through this opener.
         RecordingProjectOpener.shared.openHandler = openVideoEditor
 
-        CaptureCoordinator.shared.onShowPreview = { [openWindow] url, displayID in
+        CaptureCoordinator.shared.onShowPreview = { [openWindow] url, displayID, naming in
             // Set the editor openers first so auto-annotate can fire during add.
             PreviewPanelPresenter.shared.onAnnotate = { url in
                 openWindow(id: "ANNOTATION_EDITOR", value: url)
             }
             PreviewPanelPresenter.shared.onEditVideo = openVideoEditor
 
-            let historyURL = ScreenshotHistoryStore.shared.importScreenshot(from: url)
+            let historyURL = ScreenshotHistoryStore.shared.importScreenshot(from: url, naming: naming)
             ScreenshotPreviewStack.shared.add(url: historyURL)
 
             if AfterCaptureActions.isEnabled(.showOverlay, for: .screenshot) {

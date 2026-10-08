@@ -139,7 +139,9 @@ private struct HotkeyShortcutDisplay: View {
     }
 }
 
-private struct HotkeyKeyCap: View {
+/// A small key-cap chip. Shared with the file name template tokens so the
+/// two settings sections read as one family.
+struct HotkeyKeyCap: View {
     let token: String
 
     var body: some View {

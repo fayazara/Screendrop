@@ -153,11 +153,15 @@ final class ScreenshotHistoryStore {
         load()
     }
 
+    /// Copies a capture into history under a name rendered from the file name
+    /// template. `naming` supplies the window and app tokens; imports that
+    /// did not come from a capture (opened files, editor commits) use the
+    /// default context and only get the date-based tokens.
     @discardableResult
-    func importScreenshot(from sourceURL: URL) -> URL {
+    func importScreenshot(from sourceURL: URL, naming: CaptureNamingContext = CaptureNamingContext()) -> URL {
         do {
             try FileManager.default.createDirectory(at: Self.historyDirectory, withIntermediateDirectories: true)
-            let destinationURL = uniqueHistoryURL(for: sourceURL)
+            let destinationURL = uniqueHistoryURL(for: sourceURL, naming: naming)
 
             if sourceURL != destinationURL {
                 if FileManager.default.fileExists(atPath: destinationURL.path) {
@@ -188,7 +192,7 @@ final class ScreenshotHistoryStore {
     func importVideo(from sourceURL: URL) async -> URL {
         do {
             try FileManager.default.createDirectory(at: Self.historyDirectory, withIntermediateDirectories: true)
-            let destinationURL = uniqueHistoryURL(for: sourceURL)
+            let destinationURL = uniqueHistoryURL(for: sourceURL, naming: CaptureNamingContext())
 
             if sourceURL != destinationURL {
                 if FileManager.default.fileExists(atPath: destinationURL.path) {
@@ -480,9 +484,9 @@ final class ScreenshotHistoryStore {
         }
     }
 
-    private func uniqueHistoryURL(for sourceURL: URL) -> URL {
+    private func uniqueHistoryURL(for sourceURL: URL, naming: CaptureNamingContext) -> URL {
         let pathExtension = sourceURL.pathExtension.isEmpty ? "png" : sourceURL.pathExtension
-        let fileName = ScreenshotFileNaming.fileName(extension: pathExtension)
+        let fileName = ScreenshotFileNaming.captureFileName(for: naming, extension: pathExtension)
         let initialURL = Self.historyDirectory.appendingPathComponent(fileName)
 
         guard FileManager.default.fileExists(atPath: initialURL.path) else {

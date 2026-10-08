@@ -41,6 +41,9 @@ enum ScreendropPreferences {
     static let recordingTeleprompterScriptKey = "recordingTeleprompterScript"
     static let recordingTeleprompterLineCountKey = "recordingTeleprompterLineCount"
     static let revealExportInFinderKey = "revealExportInFinder"
+    static let fileNameTemplateKey = "captureFileNameTemplate"
+    static let fileNameUsesUTCKey = "captureFileNameUsesUTC"
+    static let fileNameSequenceNumberKey = "captureFileNameSequenceNumber"
 
     private static let defaultCompressionQuality = 0.8
 
@@ -222,6 +225,29 @@ enum ScreendropPreferences {
             return true
         }
         return UserDefaults.standard.bool(forKey: trimFullscreenMenuBarKey)
+    }
+
+    // MARK: - File names
+
+    /// The template new captures are named from. A blank template means the
+    /// default, so clearing the field in Settings never produces empty names.
+    static var fileNameTemplate: String {
+        let stored = UserDefaults.standard.string(forKey: fileNameTemplateKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return stored.isEmpty ? CaptureFileNameTemplate.defaultTemplate : stored
+    }
+
+    /// Whether date tokens in file names use UTC instead of the local zone.
+    static var fileNameUsesUTC: Bool {
+        UserDefaults.standard.bool(forKey: fileNameUsesUTCKey)
+    }
+
+    /// Draws the next value for the `%i` token. Only called when a template
+    /// actually uses it, so unrelated captures do not burn numbers.
+    static func nextFileNameSequenceNumber() -> Int {
+        let next = max(0, UserDefaults.standard.integer(forKey: fileNameSequenceNumberKey)) + 1
+        UserDefaults.standard.set(next, forKey: fileNameSequenceNumberKey)
+        return next
     }
 
     // MARK: - Cloud

@@ -71,6 +71,8 @@ struct ScreenshotsSettingsPane: View {
 
             AfterCaptureActionsSection(type: .screenshot, title: "After Capture")
 
+            FileNameSettingsSection()
+
             Section("File Format") {
                 Picker("Format", selection: Binding(
                     get: { exportFormat },

@@ -26,8 +26,9 @@ final class CaptureCoordinator {
     
     /// Set by the App to open the preview window. Returns the URL the
     /// capture was imported to in history, so awaitable capture callers
-    /// (App Intents) can hand the finished file to their result.
-    var onShowPreview: ((URL, CGDirectDisplayID?) -> URL)?
+    /// (App Intents) can hand the finished file to their result. The naming
+    /// context carries the captured window and app for the file name.
+    var onShowPreview: ((URL, CGDirectDisplayID?, CaptureNamingContext) -> URL)?
     
     private init() {}
     
@@ -91,7 +92,8 @@ final class CaptureCoordinator {
             displayID: displayID
         ) else { return nil }
         guard let url = await ScreenshotManager.shared.captureFullscreen(displayID: displayID) else { return nil }
-        return finishCapture(url: url, displayID: displayID)
+        let naming = CaptureSourceResolver.namingContextForFrontmostWindow()
+        return finishCapture(url: url, displayID: displayID, naming: naming)
     }
 
     @discardableResult
@@ -103,7 +105,9 @@ final class CaptureCoordinator {
             delaySeconds: ScreendropPreferences.captureDelaySeconds
         ) else { return nil }
         let displayID = ActiveDisplayResolver.activeDisplayID(preferPointer: true)
-        return finishCapture(url: url, displayID: displayID)
+        // The pointer is still over the window the user clicked to pick it.
+        let naming = CaptureSourceResolver.namingContextUnderPointer()
+        return finishCapture(url: url, displayID: displayID, naming: naming)
     }
 
     @discardableResult
@@ -114,7 +118,8 @@ final class CaptureCoordinator {
             delaySeconds: ScreendropPreferences.captureDelaySeconds
         ) else { return nil }
         let displayID = ActiveDisplayResolver.activeDisplayID(preferPointer: true)
-        return finishCapture(url: url, displayID: displayID)
+        let naming = CaptureSourceResolver.namingContextUnderPointer()
+        return finishCapture(url: url, displayID: displayID, naming: naming)
     }
 
     /// Capture Text is the odd one out: it recognizes the text inside the drawn
@@ -195,17 +200,17 @@ final class CaptureCoordinator {
 
     @discardableResult
     @MainActor
-    private func finishCapture(url: URL, displayID: CGDirectDisplayID?) -> URL {
+    private func finishCapture(url: URL, displayID: CGDirectDisplayID?, naming: CaptureNamingContext) -> URL {
         if ScreendropPreferences.playSounds {
             CaptureFeedbackSound.play()
         }
-        return showPreview(url: url, displayID: displayID)
+        return showPreview(url: url, displayID: displayID, naming: naming)
     }
 
     @discardableResult
-    private func showPreview(url: URL, displayID: CGDirectDisplayID?) -> URL {
+    private func showPreview(url: URL, displayID: CGDirectDisplayID?, naming: CaptureNamingContext) -> URL {
         guard let onShowPreview else {
-            let historyURL = ScreenshotHistoryStore.shared.importScreenshot(from: url)
+            let historyURL = ScreenshotHistoryStore.shared.importScreenshot(from: url, naming: naming)
             ScreenshotPreviewStack.shared.add(url: historyURL)
             if AfterCaptureActions.isEnabled(.showOverlay, for: .screenshot) {
                 PreviewPanelPresenter.shared.show(displayID: displayID)
@@ -213,7 +218,7 @@ final class CaptureCoordinator {
             return historyURL
         }
 
-        return onShowPreview(url, displayID)
+        return onShowPreview(url, displayID, naming)
     }
 }
 
