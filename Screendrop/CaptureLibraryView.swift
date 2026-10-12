@@ -9,6 +9,7 @@ struct CaptureLibraryView: View {
     @State private var columnVisibility = NavigationSplitViewVisibility.automatic
     @AppStorage("captureLibrary.layout") private var layout: CaptureLibraryLayout = .grid
     @AppStorage("captureLibrary.inspectorVisible") private var inspectorVisible = true
+    @AppStorage("captureLibrary.cardWidth") private var cardWidth = 220.0
     @AppStorage("captureLibrary.sort") private var savedSort: CaptureLibrarySort = .newest
 
     private var activeFilter: CaptureLibraryFilter { model.filter ?? .all }
@@ -135,7 +136,7 @@ struct CaptureLibraryView: View {
             }
         } else {
             CaptureLibraryCollection(items: model.visibleItems, revision: model.contentRevision, layout: layout,
-                selection: $model.selection, isBusy: model.isBusy, onAction: model.perform)
+                cardWidth: cardWidth, selection: $model.selection, isBusy: model.isBusy, onAction: model.perform)
         }
     }
 
@@ -158,11 +159,29 @@ struct CaptureLibraryView: View {
             }
             Spacer()
             if model.isLoading { ProgressView().controlSize(.mini).help("Refreshing Library") }
+            if layout == .grid {
+                // Capped where the 640 px thumbnails stay sharp on Retina.
+                Slider(value: $cardWidth, in: 140...320) {
+                    EmptyView()
+                } minimumValueLabel: {
+                    Image(systemName: "photo").imageScale(.small)
+                } maximumValueLabel: {
+                    Image(systemName: "photo").imageScale(.large)
+                }
+                .controlSize(.mini)
+                .frame(width: 150)
+                .accessibilityLabel("Card size")
+                .help("Card size")
+            }
         }
         .font(.caption)
         .monospacedDigit()
         .foregroundStyle(.secondary)
         .padding(.horizontal, 16)
+        // Keep the status bar out of the column's minimum width. With the card
+        // size slider counted in it, resizing the window looped in AppKit's
+        // constraint pass until it crashed.
+        .frame(minWidth: 0, maxWidth: .infinity)
         .frame(height: 30)
     }
 

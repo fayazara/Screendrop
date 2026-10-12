@@ -17,6 +17,7 @@ struct CaptureLibraryCollection: NSViewRepresentable {
     let items: [CaptureLibraryItem]
     let revision: Int
     let layout: CaptureLibraryLayout
+    let cardWidth: CGFloat
     @Binding var selection: Set<String>
     let isBusy: Bool
     let onAction: (CaptureLibraryAction) -> Void
@@ -62,6 +63,10 @@ struct CaptureLibraryCollection: NSViewRepresentable {
             (collection.collectionViewLayout as? LibraryCollectionLayout)?.displayLayout = layout
             collection.reloadData()
             collection.collectionViewLayout?.invalidateLayout()
+        }
+        if let flow = collection.collectionViewLayout as? LibraryCollectionLayout, flow.cardWidth != cardWidth {
+            flow.cardWidth = cardWidth
+            flow.invalidateLayout()
         }
         let paths = Set(selection.compactMap { id in
             coordinator.indices[id].map { IndexPath(item: $0, section: 0) }
@@ -181,24 +186,52 @@ final class LibraryCollectionView: NSCollectionView {
 
 final class LibraryCollectionLayout: NSCollectionViewFlowLayout {
     var displayLayout: CaptureLibraryLayout = .grid
+    /// Grid cell width, from the Library's card size slider.
+    var cardWidth: CGFloat = 220
+    /// The width the cells were last sized for.
+    private var preparedWidth: CGFloat?
+
+    private var availableWidth: CGFloat {
+        max(200, collectionView?.enclosingScrollView?.contentSize.width ?? 800)
+    }
 
     override func prepare() {
-        let width = max(200, collectionView?.enclosingScrollView?.contentSize.width ?? 800)
+        let width = availableWidth
+        preparedWidth = width
         sectionInset = NSEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
         minimumInteritemSpacing = 16
         minimumLineSpacing = displayLayout == .grid ? 16 : 6
         if displayLayout == .grid {
-            let columns = min(3, max(1, floor((width - 16) / 236)))
-            let cellWidth = floor((width - 32 - (columns - 1) * 16) / columns)
+            // Finder-style: cells keep one size and a wider window fits more
+            // columns. Rows start at the left with fixed gaps; the leftover
+            // width goes to the right margin rather than between the cells,
+            // where two large cards would sit far apart.
+            let cellWidth = min(cardWidth, width - 32)
             itemSize = CGSize(width: cellWidth, height: floor(cellWidth * 0.625) + 62)
+            let columns = max(1, floor((width - 32 + 16) / (cellWidth + 16)))
+            let rowWidth = columns * cellWidth + (columns - 1) * 16
+            // A point of slack so rounding can't push the last column to the next row.
+            sectionInset.right = max(16, width - 16 - rowWidth - 1)
         } else {
             itemSize = CGSize(width: width - 32, height: 76)
         }
         super.prepare()
     }
 
+    /// Compared with the width the cells were sized for, not the collection
+    /// view's own bounds: by the time a window resize asks, those already
+    /// have the new size.
     override func shouldInvalidateLayout(forBoundsChange newBounds: NSRect) -> Bool {
-        newBounds.width != collectionView?.bounds.width
+        availableWidth != preparedWidth
+    }
+
+    /// The flow layout keeps the item sizes it measured, so a new `itemSize`
+    /// from `prepare()` only took effect on the next data reload, such as
+    /// switching to list and back.
+    override func invalidationContext(forBoundsChange newBounds: NSRect) -> NSCollectionViewLayoutInvalidationContext {
+        let context = super.invalidationContext(forBoundsChange: newBounds)
+        (context as? NSCollectionViewFlowLayoutInvalidationContext)?.invalidateFlowLayoutDelegateMetrics = true
+        return context
     }
 }
 
