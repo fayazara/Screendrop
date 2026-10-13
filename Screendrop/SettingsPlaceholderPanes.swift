@@ -79,7 +79,7 @@ struct OverlaySettingsPane: View {
                     )
                     .frame(width: 180)
                     .accessibilityLabel("Card size")
-                    .accessibilityValue(previewSize.scale.formatted(.percent))
+                    .accessibilityValue(Double(previewSize.cardScale).formatted(.percent))
                 } label: {
                     SettingsControlLabel(
                         "Card size",

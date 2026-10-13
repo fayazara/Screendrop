@@ -184,13 +184,13 @@ struct CaptureShelfCard: View {
             corner(layout.bottomLeading, .bottomLeading)
             corner(layout.bottomTrailing, .bottomTrailing)
 
-            VStack(spacing: 6) {
+            VStack(spacing: 6 * controlScale) {
                 ForEach(layout.center.filter(isAvailable)) { action in
-                    ShelfChipButton(help: centerHelp(for: action), width: Self.centerButtonWidth) {
+                    ShelfChipButton(help: centerHelp(for: action), width: Self.centerButtonWidth, scale: controlScale) {
                         perform(action)
                     } label: {
                         Text(centerTitle(for: action))
-                            .font(.system(size: 12, weight: .semibold))
+                            .font(.system(size: 12 * controlScale, weight: .semibold))
                             .lineLimit(1)
                             .minimumScaleFactor(0.75)
                     }
@@ -208,16 +208,20 @@ struct CaptureShelfCard: View {
             }
             .disabled(isBlocked(action))
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: alignment)
-            .padding(7)
+            .padding(7 * controlScale)
         }
     }
 
     private func cornerButton(_ systemImage: String, help: String, action: @escaping () -> Void) -> some View {
-        ShelfChipButton(help: help, width: 26, action: action) {
+        ShelfChipButton(help: help, width: 26, scale: controlScale, action: action) {
             Image(systemName: systemImage)
-                .font(.system(size: 10.5, weight: .bold))
+                .font(.system(size: 10.5 * controlScale, weight: .bold))
         }
     }
+
+    /// The buttons grow with the card, but more slowly - see
+    /// `PreviewOverlaySize.controlScale`.
+    private var controlScale: CGFloat { size.controlScale }
 
     /// Every middle button is this wide whatever its label, so a column of
     /// them lines up however the layout is customised.
@@ -316,7 +320,9 @@ struct CaptureShelfCard: View {
 /// Light on any screenshot, so it stays the same in dark mode.
 private struct ShelfChipButton<Label: View>: View {
     let help: String
+    /// The width at the default card size; `scale` grows it with the card.
     let width: CGFloat
+    let scale: CGFloat
     let action: () -> Void
     @ViewBuilder let label: () -> Label
 
@@ -330,8 +336,8 @@ private struct ShelfChipButton<Label: View>: View {
         Button(action: action) {
             label()
                 .foregroundStyle(.black.opacity(isEnabled ? 0.85 : 0.3))
-                .padding(.horizontal, isCircle ? 0 : 8)
-                .frame(width: width, height: height)
+                .padding(.horizontal, isCircle ? 0 : 8 * scale)
+                .frame(width: width * scale, height: height * scale)
                 .background(.white.opacity(isEnabled ? (isHovered ? 1 : 0.88) : 0.6), in: Capsule())
                 .shadow(color: .black.opacity(0.18), radius: 3, y: 1)
                 .scaleEffect(isHovered && isEnabled ? 1.04 : 1)
