@@ -20,6 +20,7 @@ import SwiftUI
 struct CaptureShelfCard: View {
     let item: ShelfItem
     let shelf: CaptureShelf
+    let size: PreviewOverlaySize
 
     @State private var isHovered = false
     @State private var layoutStore = OverlayCardLayoutStore.shared
@@ -33,7 +34,7 @@ struct CaptureShelfCard: View {
         Image(nsImage: item.thumbnail)
             .resizable()
             .aspectRatio(contentMode: .fill)
-            .frame(width: CaptureShelfMetrics.cardSize.width, height: CaptureShelfMetrics.cardSize.height)
+            .frame(width: size.cardSize.width, height: size.cardSize.height)
             // Frosted under the controls, so they read on any screenshot.
             .blur(radius: isFrosted ? 6 : 0, opaque: true)
             .overlay { overlay }
@@ -58,7 +59,7 @@ struct CaptureShelfCard: View {
                 Image(nsImage: item.thumbnail)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
-                    .frame(width: CaptureShelfMetrics.cardSize.width)
+                    .frame(width: size.cardSize.width)
                     .clipShape(shape)
             }
             .onDragSessionUpdated { session in

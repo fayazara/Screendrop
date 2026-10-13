@@ -24,6 +24,11 @@ struct CaptureShelfView: View {
     @State private var hasEntered = false
     @AppStorage(ScreendropPreferences.previewPositionKey) private var positionRaw = PreviewOverlayPosition.right.rawValue
     @AppStorage(ScreendropPreferences.shelfHandlePositionKey) private var handlePosition = 0.5
+    /// Read here so cards already on the shelf resize as soon as the
+    /// setting changes.
+    @AppStorage(ScreendropPreferences.previewSizeKey) private var sizeRaw = PreviewOverlaySize.defaultSize.rawValue
+
+    private var size: PreviewOverlaySize { PreviewOverlaySize(rawValue: sizeRaw) ?? .defaultSize }
 
     private var isLeft: Bool { positionRaw == PreviewOverlayPosition.left.rawValue }
     /// +1 when docked right, -1 when docked left: the direction of "out".
@@ -64,6 +69,10 @@ struct CaptureShelfView: View {
             .onChange(of: proxy.size.height) { _, height in
                 shelf.capacity = CaptureShelfMetrics.capacity(forHeight: height)
             }
+            .onChange(of: sizeRaw) { _, _ in
+                CaptureShelfPresenter.shared.applyPlacement()
+                shelf.capacity = CaptureShelfMetrics.capacity(forHeight: proxy.size.height)
+            }
         }
         .onChange(of: positionRaw) { _, _ in
             CaptureShelfPresenter.shared.applyPlacement()
@@ -85,11 +94,11 @@ struct CaptureShelfView: View {
             }
 
             ForEach(shelf.items) { item in
-                CaptureShelfCard(item: item, shelf: shelf)
+                CaptureShelfCard(item: item, shelf: shelf, size: size)
                     .transition(cardTransition)
             }
         }
-        .frame(width: CaptureShelfMetrics.cardSize.width)
+        .frame(width: size.cardSize.width)
         // The gaps between cards are clear, so the pointer briefly leaves the
         // shelf crossing one. Hold the hover a moment so the header doesn't
         // blink.

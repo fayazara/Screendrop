@@ -151,7 +151,8 @@ final class CaptureShelfPresenter {
 }
 
 enum CaptureShelfMetrics {
-    static let cardSize = CGSize(width: 168, height: 118)
+    /// Set in Settings → Overlay, so the panel width and capacity follow it.
+    static var cardSize: CGSize { ScreendropPreferences.previewSize.cardSize }
     static let cardRadius: CGFloat = 14
     static let cardSpacing: CGFloat = 12
     /// Gap between the cards and the screen edge.

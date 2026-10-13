@@ -28,6 +28,7 @@ enum ScreendropPreferences {
     static let captureWindowShadowKey = "captureWindowShadow"
     static let captureDelaySecondsKey = "captureDelaySeconds"
     static let previewPositionKey = "previewPosition"
+    static let previewSizeKey = "previewSize"
     static let previewAutoCloseSecondsKey = "previewAutoCloseSeconds"
     static let previewCloseAfterDraggingKey = "previewCloseAfterDragging"
     /// Where the tucked shelf's handle sits along the screen edge, from 0
@@ -188,6 +189,11 @@ enum ScreendropPreferences {
         return position
     }
 
+    /// How large the capture shelf's cards are.
+    static var previewSize: PreviewOverlaySize {
+        UserDefaults.standard.string(forKey: previewSizeKey).flatMap(PreviewOverlaySize.init) ?? .defaultSize
+    }
+
     /// Seconds before the preview overlay auto-dismisses. 0 means never.
     static var previewAutoCloseSeconds: Int {
         max(0, UserDefaults.standard.integer(forKey: previewAutoCloseSecondsKey))
@@ -258,6 +264,38 @@ enum PreviewOverlayPosition: String, CaseIterable, Identifiable {
         case .left: "Bottom left"
         case .right: "Bottom right"
         }
+    }
+}
+
+/// Capture shelf card sizes, ordered smallest to largest - the settings
+/// slider maps its steps onto `allCases` indices.
+enum PreviewOverlaySize: String, CaseIterable, Identifiable {
+    /// The original fixed card size. Nothing goes below it, since smaller
+    /// cards stop being legible.
+    case small
+    case medium
+    case large
+    case xLarge
+    case xxLarge
+
+    static let defaultSize = PreviewOverlaySize.small
+
+    var id: String { rawValue }
+
+    /// Every size scales the original 168x118 card, so the aspect ratio never
+    /// changes between sizes.
+    var scale: Double {
+        switch self {
+        case .small: 1
+        case .medium: 1.25
+        case .large: 1.5
+        case .xLarge: 1.75
+        case .xxLarge: 2
+        }
+    }
+
+    var cardSize: CGSize {
+        CGSize(width: (168 * scale).rounded(), height: (118 * scale).rounded())
     }
 }
 
