@@ -610,11 +610,13 @@ final class RecordingClipTimelineControl: NSView {
             : Metrics.splitGap / 2
         let minX = rawMinX + leadingInset
         let maxX = rawMaxX - trailingInset
+        let height = timelineRect.height - Metrics.trackInset * 2
+        guard minX.isFinite, maxX.isFinite, height > 0 else { return nil }
         return CGRect(
             x: minX,
             y: timelineRect.minY + Metrics.trackInset,
             width: max(1, maxX - minX),
-            height: timelineRect.height - Metrics.trackInset * 2
+            height: height
         )
     }
 
@@ -632,7 +634,7 @@ final class RecordingClipTimelineControl: NSView {
 
     private func drawTrack() {
         NSColor.labelColor.withAlphaComponent(0.055).setFill()
-        NSBezierPath(
+        Self.roundedPath(
             roundedRect: timelineRect,
             xRadius: Metrics.trackRadius,
             yRadius: Metrics.trackRadius
@@ -643,7 +645,7 @@ final class RecordingClipTimelineControl: NSView {
         for clip in timeline.segments {
             guard let rect = clipRect(for: clip.id), rect.intersects(dirtyRect) else { continue }
             NSGraphicsContext.saveGraphicsState()
-            NSBezierPath(
+            Self.roundedPath(
                 roundedRect: rect,
                 xRadius: clipRadius(for: rect),
                 yRadius: clipRadius(for: rect)
@@ -660,7 +662,7 @@ final class RecordingClipTimelineControl: NSView {
             // A hairline inner edge so neighbouring clips and the track read
             // apart even where the thumbnails are dark.
             NSColor.white.withAlphaComponent(isSelected ? 0.0 : 0.10).setStroke()
-            let edge = NSBezierPath(
+            let edge = Self.roundedPath(
                 roundedRect: rect.insetBy(dx: 0.5, dy: 0.5),
                 xRadius: max(0, clipRadius(for: rect) - 0.5),
                 yRadius: max(0, clipRadius(for: rect) - 0.5)
@@ -839,7 +841,7 @@ final class RecordingClipTimelineControl: NSView {
     private func drawBadge(_ badge: BadgeLayout) {
         let frame = badge.frame
         NSColor.black.withAlphaComponent(0.62).setFill()
-        NSBezierPath(roundedRect: frame, xRadius: frame.height / 2, yRadius: frame.height / 2).fill()
+        Self.roundedPath(roundedRect: frame, xRadius: frame.height / 2, yRadius: frame.height / 2).fill()
 
         var x = frame.minX + Self.badgePadding
         if let symbol = badge.symbol,
@@ -893,6 +895,24 @@ final class RecordingClipTimelineControl: NSView {
         .controlAccentColor
     }
 
+    /// AppKit raises (and crashes the app) when a rounded rect is built from
+    /// non-finite geometry, so degenerate rects draw nothing and radii are
+    /// clamped to what the rect can actually hold.
+    private static func roundedPath(
+        roundedRect rect: CGRect,
+        xRadius: CGFloat,
+        yRadius: CGFloat
+    ) -> NSBezierPath {
+        let rect = rect.standardized
+        guard !rect.isNull, !rect.isInfinite,
+              rect.minX.isFinite, rect.minY.isFinite,
+              rect.width.isFinite, rect.height.isFinite,
+              rect.width > 0, rect.height > 0 else { return NSBezierPath() }
+        let limit = min(rect.width, rect.height) / 2
+        let clamp = { (radius: CGFloat) in radius.isFinite ? min(max(radius, 0), limit) : 0 }
+        return NSBezierPath(roundedRect: rect, xRadius: clamp(xRadius), yRadius: clamp(yRadius))
+    }
+
     private func clipRadius(for rect: CGRect) -> CGFloat {
         min(Metrics.clipRadius, rect.width / 2, rect.height / 2)
     }
@@ -922,7 +942,7 @@ final class RecordingClipTimelineControl: NSView {
         guard let geometry = selectionGeometry() else { return }
 
         selectionColor.setFill()
-        NSBezierPath(
+        Self.roundedPath(
             roundedRect: geometry.outer,
             xRadius: geometry.radius,
             yRadius: geometry.radius
@@ -953,7 +973,7 @@ final class RecordingClipTimelineControl: NSView {
                 width: Metrics.selectionHandleGrooveWidth,
                 height: Metrics.selectionHandleGrooveHeight
             )
-            NSBezierPath(
+            Self.roundedPath(
                 roundedRect: grooveRect,
                 xRadius: Metrics.selectionHandleGrooveWidth / 2,
                 yRadius: Metrics.selectionHandleGrooveWidth / 2
