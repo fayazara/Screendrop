@@ -8,8 +8,9 @@ import ScreenCaptureKit
 
 /// Dims everything outside the selected region while an area recording is in
 /// progress, so the recording boundary stays visible under whatever windows
-/// the user brings to the front. Purely decorative: click-through, and
-/// excluded from the recording itself via `PreviewWindowCaptureExclusion`.
+/// the user brings to the front. Purely decorative and click-through. The panel
+/// registers with PreviewWindowCaptureExclusion, which keeps it out of captures
+/// unless the include-app-windows preference is enabled.
 @MainActor
 final class RecordingAreaHighlightPresenter {
     static let shared = RecordingAreaHighlightPresenter()
@@ -76,15 +77,20 @@ private final class RecordingAreaHighlightView: NSView {
         nil
     }
 
+    // The same dim as the area selection, so the region looks the same while
+    // capturing as while drawing it. A light tint in dark mode was invisible
+    // over light content. Leave a one-point gap so the centered two-point
+    // stroke's antialiasing stays clear of fractional selection edges.
     override func draw(_ dirtyRect: NSRect) {
-        let isDarkMode = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        let overlayColor = isDarkMode
-            ? NSColor.white.withAlphaComponent(0.16)
-            : NSColor.black.withAlphaComponent(0.28)
-        overlayColor.setFill()
+        NSColor.black.withAlphaComponent(0.28).setFill()
         bounds.fill()
 
         NSColor.clear.setFill()
         highlightRect.fill(using: .clear)
+
+        NSColor.white.withAlphaComponent(0.96).setStroke()
+        let border = NSBezierPath(rect: highlightRect.insetBy(dx: -2, dy: -2))
+        border.lineWidth = 2
+        border.stroke()
     }
 }
