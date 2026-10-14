@@ -39,6 +39,7 @@ struct CaptureLibraryCollection: NSViewRepresentable {
         collection.delegate = context.coordinator
         collection.command = { [weak coordinator = context.coordinator] action in
             guard let coordinator, !coordinator.parent.isBusy else { return }
+            if action == .edit { coordinator.selectionChanged() }
             coordinator.parent.onAction(action)
         }
         collection.contextMenuProvider = { [weak coordinator = context.coordinator] event in
@@ -108,7 +109,7 @@ struct CaptureLibraryCollection: NSViewRepresentable {
             }
         }
 
-        private func selectionChanged() {
+        fileprivate func selectionChanged() {
             guard !updating, let collection else { return }
             parent.selection = Set(collection.selectionIndexPaths.compactMap {
                 parent.items.indices.contains($0.item) ? parent.items[$0.item].id : nil
@@ -162,7 +163,10 @@ final class LibraryCollectionView: NSCollectionView {
 
     override func mouseDown(with event: NSEvent) {
         super.mouseDown(with: event)
-        if event.clickCount == 2, !selectionIndexPaths.isEmpty { command?(.preview) }
+        guard event.clickCount == 2,
+              let path = indexPathForItem(at: convert(event.locationInWindow, from: nil)) else { return }
+        selectionIndexPaths = [path]
+        command?(.edit)
     }
 
     override func keyDown(with event: NSEvent) {
