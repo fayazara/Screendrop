@@ -279,12 +279,17 @@ final class CloudUploader: NSObject {
         request.timeoutInterval = 300
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue(contentType, forHTTPHeaderField: "Content-Type")
-        request.setValue(filename, forHTTPHeaderField: "X-Filename")
+        let headerFilename = headerSafeFilename(filename)
+        request.setValue(headerFilename, forHTTPHeaderField: "X-Filename")
         request.setValue(mediaType, forHTTPHeaderField: "X-Media-Type")
 
         if let width { request.setValue(String(width), forHTTPHeaderField: "X-Width") }
         if let height { request.setValue(String(height), forHTTPHeaderField: "X-Height") }
         if let duration { request.setValue(String(duration), forHTTPHeaderField: "X-Duration") }
+        // The title header is percent-encoded and keeps any characters, so a
+        // file whose name had to be rewritten for X-Filename still shows its
+        // own name on the share page.
+        let title = title ?? (headerFilename == filename ? nil : (filename as NSString).deletingPathExtension)
         if let title, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             let encoded = title.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? title
             request.setValue(encoded, forHTTPHeaderField: "X-Title")
@@ -324,6 +329,26 @@ final class CloudUploader: NSObject {
     }
 
     // MARK: - Helpers
+
+    /// HTTP header values travel as Latin-1, and URLSession silently sends an
+    /// empty or truncated value for anything else: a Chinese file name arrives
+    /// empty and the Worker rejects the upload, and macOS's narrow no-break
+    /// space cuts a timestamped name short. Transliterate the name to ASCII,
+    /// replace whatever is left with spaces, and keep the extension.
+    nonisolated static func headerSafeFilename(_ filename: String) -> String {
+        let name = filename as NSString
+        let latin = name.deletingPathExtension
+            .applyingTransform(.toLatin, reverse: false)?
+            .applyingTransform(.stripDiacritics, reverse: false) ?? ""
+        let printable = String(latin.unicodeScalars.map { scalar in
+            (0x20...0x7E).contains(scalar.value) ? Character(scalar) : " "
+        })
+        let stem = printable.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        let ext = name.pathExtension
+        let safeExtension = ext.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber) } ? ext : ""
+        let safeStem = stem.isEmpty ? "upload" : stem
+        return safeExtension.isEmpty ? safeStem : "\(safeStem).\(safeExtension)"
+    }
 
     nonisolated private static func normalizeWorkerURL(_ raw: String) -> String {
         let trimmed = raw
