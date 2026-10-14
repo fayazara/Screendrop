@@ -1,8 +1,13 @@
 import CoreGraphics
 
 extension AnnotationEditorModel {
+    /// The screenshot plus any growth for annotations past its edge.
+    var canvasContentSize: CGSize {
+        displayedCanvasExpansion.grownSize(imageSize)
+    }
+
     var canvasPixelSize: CGSize {
-        AnnotationBackgroundLayout.make(contentSize: imageSize, settings: backgroundSettings).canvasSize
+        AnnotationBackgroundLayout.make(contentSize: canvasContentSize, settings: backgroundSettings).canvasSize
     }
 
     var zoomPercent: Int { canvasViewport.zoomPercent }

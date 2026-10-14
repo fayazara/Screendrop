@@ -42,17 +42,18 @@ struct AnnotationCanvas: View {
     var body: some View {
         GeometryReader { proxy in
             let backgroundLayout = AnnotationBackgroundLayout.make(
-                contentSize: model.imageSize,
+                contentSize: model.canvasContentSize,
                 settings: model.backgroundSettings
             )
             let viewport = configuredViewport(in: proxy.size)
             let canvasFrame = viewport.frame
             let displayLayout = backgroundLayout.scaled(to: canvasFrame)
-            let imageFrame = displayLayout.imageFrame
-            let boundaryFrame = model.backgroundSettings.usesCanvasLayout ? displayLayout.canvasFrame : imageFrame
+            // The layout's content is the grown canvas; the screenshot sits inside it.
+            let imageFrame = model.displayedCanvasExpansion.imageFrame(in: displayLayout.imageFrame, imageSize: model.imageSize)
+            let boundaryFrame = model.backgroundSettings.usesCanvasLayout ? displayLayout.canvasFrame : displayLayout.imageFrame
             let allowedBounds = model.annotationBounds(for: imageFrame, boundaryFrame: boundaryFrame)
             let screenshotGeometry = AnnotationScreenshotFrameGeometry(
-                imageRect: imageFrame,
+                imageRect: displayLayout.imageFrame,
                 cardRect: displayLayout.cardFrame,
                 settings: model.backgroundSettings
             )
@@ -391,19 +392,45 @@ struct AnnotationCanvas: View {
         clipCorners: RectangleCornerRadii,
         displayedImage: NSImage
     ) -> some View {
-        let imageFrame = screenshotGeometry.imageRect
+        let expansion = model.displayedCanvasExpansion
+        let canvasRect = screenshotGeometry.imageRect
+        let imageFrame = expansion.imageFrame(in: canvasRect, imageSize: model.imageSize)
 
         return ZStack(alignment: .topLeading) {
+            // The export flattens a grown canvas onto its edge color, rounded
+            // corners included, so they show that color here too.
+            if !expansion.isEmpty {
+                Rectangle()
+                    .fill(Color(cgColor: model.canvasGrowthFill))
+                    .frame(width: screenshotGeometry.cardRect.width, height: screenshotGeometry.cardRect.height)
+                    .position(x: screenshotGeometry.cardRect.midX, y: screenshotGeometry.cardRect.midY)
+            }
+
             screenshotFrameBacking(
                 geometry: screenshotGeometry,
                 imageCornerRadii: clipCorners
             )
 
-            screenshot(
-                displayedImage,
-                imageFrame: imageFrame,
-                clipCorners: clipCorners
-            )
+            if expansion.isEmpty {
+                screenshot(
+                    displayedImage,
+                    imageFrame: imageFrame,
+                    clipCorners: clipCorners
+                )
+            } else {
+                // The grown canvas takes the rounded corners, as one image
+                // with the screenshot inside it, the way the export clips it.
+                ZStack(alignment: .topLeading) {
+                    Color(cgColor: model.canvasGrowthFill)
+                    Image(nsImage: displayedImage)
+                        .resizable()
+                        .frame(width: imageFrame.width, height: imageFrame.height)
+                        .offset(x: imageFrame.minX - canvasRect.minX, y: imageFrame.minY - canvasRect.minY)
+                }
+                .frame(width: canvasRect.width, height: canvasRect.height)
+                .clipShape(UnevenRoundedRectangle(cornerRadii: clipCorners, style: .continuous))
+                .position(x: canvasRect.midX, y: canvasRect.midY)
+            }
 
             // One engine-drawn layer for every annotation: redactions under the spotlight,
             // then the spotlight, then the vector shapes and the selection chrome. Replaces the

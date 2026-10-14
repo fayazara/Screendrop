@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 /// The shape store: shapes in z-order (back to front), arrow bindings, and the derived geometry
@@ -47,6 +48,42 @@ final class AnnoDocument {
     func pageBounds(_ id: AnnoShapeID) -> Box? {
         guard let shape = shape(id), let geometry = geometry(id) else { return nil }
         return Box.fromPoints(shape.pageTransform.applyToPoints(geometry.vertices))
+    }
+
+    /// The page-space box covering everything drawn: each shape's rendered
+    /// paths and glyphs, outset by half their stroke, arrowheads included,
+    /// and its numbered callouts. Unlike `pageBounds`, which follows the
+    /// geometry's centerline, this is what actually lands on the image.
+    /// Redactions and spotlights act on the screenshot itself, so they don't
+    /// count. Nil when nothing is drawn.
+    func renderedPageBounds() -> CGRect? {
+        var union: CGRect?
+        for shape in shapes {
+            // The outlines themselves are moved into page space and measured
+            // there: rotating a local bounding box would overshoot for any
+            // rotated shape. The page transform only moves and rotates, so the
+            // stroke keeps its width.
+            var toPage = shape.pageTransform.cgAffineTransform
+            for element in renderElements(shape.id) {
+                var page: CGRect
+                switch element.content {
+                case let .path(path), let .glyphs(path):
+                    guard let pagePath = path.copy(using: &toPage) else { continue }
+                    page = pagePath.boundingBoxOfPath
+                    if element.stroke != nil {
+                        page = page.insetBy(dx: -element.strokeWidth / 2, dy: -element.strokeWidth / 2)
+                    }
+                case let .numbered(props):
+                    let disc = CGRect(x: 0, y: 0, width: props.diameter, height: props.diameter)
+                    page = CGPath(ellipseIn: disc, transform: &toPage).boundingBoxOfPath
+                case .redaction, .spotlight:
+                    continue
+                }
+                guard !page.isNull else { continue }
+                union = union.map { $0.union(page) } ?? page
+            }
+        }
+        return union
     }
 
     /// The shape's local bounds transformed into page space, kept as a rotated quad.

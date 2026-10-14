@@ -80,12 +80,33 @@ enum AnnotationRenderer {
         }
 
         try autoreleasepool {
-            let sourceImage = try loadSourceImage(sourceURL: sourceURL)
+            let source = try loadSourceImage(sourceURL: sourceURL)
+            var sourceImage = source.image
+            var shapes = shapes
             // Keep the screenshot's own (typically Display P3) color space so
             // wide-gamut colors survive the export instead of being pulled
             // down to device RGB. Previews already render this way.
             let colorSpace = exportColorSpace(for: sourceImage)
-            let renderedImage: CGImage
+            // Annotations past the screenshot's edge grow the canvas rather
+            // than being cut off. A background, camera or bleeding blur
+            // already gives them a stage to land on, so only without one.
+            var growthFill: CGColor?
+            if !backgroundSettings.usesCanvasLayout {
+                let expansion = AnnotationCanvasExpansion(
+                    shapes: shapes,
+                    imageSize: CGSize(width: sourceImage.width, height: sourceImage.height),
+                    pixelsPerPoint: source.pixelsPerPoint
+                )
+                if !expansion.isEmpty {
+                    let fill = AnnotationCanvasExpansion.edgeColor(of: sourceImage, colorSpace: colorSpace)
+                    if let grown = expansion.apply(to: sourceImage, fill: fill, colorSpace: colorSpace) {
+                        sourceImage = grown
+                        shapes = expansion.shifted(shapes)
+                        growthFill = fill
+                    }
+                }
+            }
+            var renderedImage: CGImage
             if backgroundSettings.hasRenderableContent {
                 renderedImage = try AnnotationBackgroundRenderer.compose(
                     contentImage: sourceImage,
@@ -112,6 +133,12 @@ enum AnnotationRenderer {
                 )
             } else {
                 renderedImage = try renderAnnotatedImage(sourceImage, shapes: shapes, colorSpace: colorSpace)
+            }
+            // A grown canvas stays opaque, as Shottr's does, even under a
+            // border with rounded corners.
+            if let growthFill, backgroundSettings.hasRenderableContent,
+               let flattened = AnnotationCanvasExpansion.flatten(renderedImage, onto: growthFill, colorSpace: colorSpace) {
+                renderedImage = flattened
             }
 
             if FileManager.default.fileExists(atPath: destinationURL.path) {
@@ -143,7 +170,9 @@ enum AnnotationRenderer {
 
     }
 
-    nonisolated private static func loadSourceImage(sourceURL: URL) throws -> CGImage {
+    /// The image, and its pixels per point from the DPI it was saved with
+    /// (144 for a Retina capture), or 1 when it records none.
+    nonisolated private static func loadSourceImage(sourceURL: URL) throws -> (image: CGImage, pixelsPerPoint: CGFloat) {
         guard let source = CGImageSourceCreateWithURL(
             sourceURL as CFURL,
             [kCGImageSourceShouldCache: false] as CFDictionary
@@ -156,10 +185,10 @@ enum AnnotationRenderer {
             throw CocoaError(.fileReadCorruptFile)
         }
 
-        return cgImage
+        return (cgImage, AnnotationCanvasExpansion.pixelsPerPoint(of: source))
     }
 
-    nonisolated private static func exportColorSpace(for image: CGImage) -> CGColorSpace {
+    nonisolated static func exportColorSpace(for image: CGImage) -> CGColorSpace {
         // Fall back to device RGB unless the source space can actually back
         // the 8-bit premultiplied contexts the render pipeline creates -
         // otherwise an exotic embedded profile would fail the whole export.

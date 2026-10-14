@@ -4,6 +4,7 @@
 //
 
 import AppKit
+import ImageIO
 import Observation
 import SwiftUI
 
@@ -27,10 +28,30 @@ final class AnnotationEditorModel {
     /// The untouched image the annotations are rendered on top of. When
     /// re-editing an existing document this is the preserved base image;
     /// otherwise it is the same as `sourceURL`.
-    var baseImageURL: URL?
+    var baseImageURL: URL? {
+        didSet {
+            imagePixelsPerPoint = baseImageURL
+                .flatMap { CGImageSourceCreateWithURL($0 as CFURL, nil) }
+                .map(AnnotationCanvasExpansion.pixelsPerPoint(of:)) ?? 1
+        }
+    }
     var previewImage: NSImage?
     /// The preview image's pixels, for the canvas's redaction passes to sample.
-    @ObservationIgnored private(set) var previewCGImage: CGImage?
+    @ObservationIgnored private(set) var previewCGImage: CGImage? {
+        didSet { cachedGrowthFill = nil }
+    }
+
+    /// How far annotations past the screenshot's edge grow the canvas, in
+    /// image pixels, worked out as the export does. It only changes while
+    /// nothing is being drawn, dragged or typed, so the canvas doesn't
+    /// rescale under the pointer.
+    private(set) var canvasExpansion = AnnotationCanvasExpansion()
+    @ObservationIgnored private var imagePixelsPerPoint: CGFloat = 1
+    /// Set for a whole press, from before mouse-down can commit a text
+    /// edit (the engine is still idle then) until mouse-up.
+    @ObservationIgnored private var isPointerDown = false
+    @ObservationIgnored private var expansionInputs: (shapes: [AnnoShape], imageSize: CGSize, pixelsPerPoint: CGFloat)?
+    @ObservationIgnored private var cachedGrowthFill: CGColor?
     /// Whether the currently displayed `previewImage` is a downscaled copy of
     /// the source (low-resolution preview preference). Exports are unaffected.
     var isPreviewDownscaled = false
@@ -100,7 +121,40 @@ final class AnnotationEditorModel {
     init() {
         engine.onChange = { [weak self] in
             self?.revision &+= 1
+            self?.updateCanvasExpansion()
         }
+    }
+
+    // MARK: - Canvas growth
+
+    /// The growth on show. None with a background, camera or bleeding blur,
+    /// which give annotations a stage already, matching the export.
+    var displayedCanvasExpansion: AnnotationCanvasExpansion {
+        backgroundSettings.usesCanvasLayout ? AnnotationCanvasExpansion() : canvasExpansion
+    }
+
+    /// The screenshot's edge color, which fills the grown area.
+    var canvasGrowthFill: CGColor {
+        if let cachedGrowthFill { return cachedGrowthFill }
+        guard let previewCGImage else { return CGColor(gray: 1, alpha: 1) }
+        let fill = AnnotationCanvasExpansion.edgeColor(
+            of: previewCGImage,
+            colorSpace: AnnotationRenderer.exportColorSpace(for: previewCGImage)
+        )
+        cachedGrowthFill = fill
+        return fill
+    }
+
+    private func updateCanvasExpansion() {
+        guard !isPointerDown, case .idle = engine.interaction, editingTextID == nil else { return }
+        let shapes = shapes
+        if let inputs = expansionInputs, inputs.shapes == shapes,
+           inputs.imageSize == imageSize, inputs.pixelsPerPoint == imagePixelsPerPoint {
+            return
+        }
+        expansionInputs = (shapes, imageSize, imagePixelsPerPoint)
+        let expansion = AnnotationCanvasExpansion(shapes: shapes, imageSize: imageSize, pixelsPerPoint: imagePixelsPerPoint)
+        if expansion != canvasExpansion { canvasExpansion = expansion }
     }
 
     // MARK: - Engine surface
@@ -370,6 +424,7 @@ final class AnnotationEditorModel {
 
     func beginInteraction(at location: CGPoint, imageFrame: CGRect, boundaryFrame: CGRect) {
         guard !isCropping else { return }
+        isPointerDown = true
         updateViewport(imageFrame: imageFrame)
         updatePageLimits(boundaryFrame: boundaryFrame)
         // Drawing tools only start on the image (or its canvas), which is all
@@ -393,6 +448,9 @@ final class AnnotationEditorModel {
     }
 
     func endInteraction(at location: CGPoint, imageFrame: CGRect, boundaryFrame: CGRect) {
+        // pointerUp's closing notification, once the engine is idle, then
+        // recomputes the growth.
+        isPointerDown = false
         guard !isCropping else { return }
         updateViewport(imageFrame: imageFrame)
         engine.pointerUp(pointer(at: drawingLocation(location, in: boundaryFrame)))
@@ -810,13 +868,23 @@ extension AnnotationEditorModel {
             return shape
         }
 
+        // Annotations the crop leaves entirely outside the image go with the
+        // part cut away; kept, they'd grow the canvas straight back out.
+        // Undoing the crop brings them back.
+        let cropped = AnnoDocument()
+        cropped.restore(AnnoDocument.Snapshot(shapes: moved, bindings: engine.document.bindings))
+        let image = Box(0, 0, Double(newImageSize.width), Double(newImageSize.height))
+        cropped.delete(Set(moved.compactMap { shape in
+            cropped.pageBounds(shape.id)?.collides(image) == false ? shape.id : nil
+        }))
+
         baseImageURL = result.url
         ownedCropURLs.insert(result.url)
         imageSize = newImageSize
         previewImage = makePreviewImage(from: result.url)
         previewCGImage = previewImage?.cgImage(forProposedRect: nil, context: nil, hints: nil)
         engine.viewport = AnnoViewport(imageFrame: engine.viewport.imageFrame, imageSize: imageSize)
-        engine.replaceDocument(shapes: moved, bindings: engine.document.bindings)
+        engine.replaceDocument(shapes: cropped.shapes, bindings: cropped.bindings)
 
         cropUndoStack.append(snapshot)
         cropRedoStack.removeAll()
