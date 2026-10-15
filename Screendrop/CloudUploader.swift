@@ -90,16 +90,6 @@ final class CloudUploader: NSObject {
 
         let creds = CloudCredentialStore.shared.snapshot()
         let fileName = fileURL.lastPathComponent
-        let fileData: Data
-        do {
-            fileData = try Data(contentsOf: fileURL, options: .mappedIfSafe)
-        } catch {
-            DockExportProgressCoordinator.shared.finish(dockProgressID)
-            uploadingItems.remove(itemID)
-            uploadProgress.removeValue(forKey: itemID)
-            failedItemIDs.insert(itemID)
-            throw error
-        }
         let mimeType = mimeTypeForFile(fileURL)
         let isVideo = mimeType.hasPrefix("video/")
         let dimensions: (width: Int, height: Int)?
@@ -119,7 +109,7 @@ final class CloudUploader: NSObject {
 
         let uploadTask = Task { [weak self] () throws -> CloudUploadResult in
             let result = try await Self.streamUpload(
-                data: fileData,
+                fileURL: fileURL,
                 filename: fileName,
                 contentType: mimeType,
                 mediaType: isVideo ? "video" : "image",
@@ -255,7 +245,7 @@ final class CloudUploader: NSObject {
     /// Metadata (filename, dimensions, etc.) is passed via headers so the
     /// Worker can stream the body directly to R2 without buffering.
     nonisolated private static func streamUpload(
-        data: Data,
+        fileURL: URL,
         filename: String,
         contentType: String,
         mediaType: String,
@@ -290,6 +280,13 @@ final class CloudUploader: NSObject {
             request.setValue(encoded, forHTTPHeaderField: "X-Title")
         }
         request.setValue(socialEnabled ? "true" : "false", forHTTPHeaderField: "X-Social-Enabled")
+
+        let size = try fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+        if size >= 32 * 1024 * 1024 {
+            let result = try await MultipartCloudUpload.upload(fileURL: fileURL, request: request, progress: progress)
+            return CloudUploadResult(id: result.id, url: result.url, filename: result.filename, size: result.size)
+        }
+        let data = try Data(contentsOf: fileURL, options: .mappedIfSafe)
 
         let progressDelegate = UploadProgressDelegate { sent, expected in
             guard expected > 0 else { return }
