@@ -37,6 +37,8 @@ nonisolated struct RecordingSession: Sendable, Equatable {
 
     var screenURL: URL { directoryURL.appendingPathComponent(Self.screenFileName) }
     var cameraURL: URL { directoryURL.appendingPathComponent(Self.cameraFileName) }
+    var cameraPartialURL: URL { cameraURL.deletingPathExtension().appendingPathExtension("partial.mov") }
+    var hasCameraRecoveryFile: Bool { FileManager.default.fileExists(atPath: cameraPartialURL.path) }
     /// The default flattened deliverable. The source screen/camera movies stay
     /// untouched so Studio can always re-render the project non-destructively.
     var finalURL: URL {

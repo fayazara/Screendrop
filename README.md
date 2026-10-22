@@ -301,6 +301,8 @@ Because the operating-system cursor is not baked into the source video, Studio c
 
 The camera remains a separate video track:
 
+Camera writer failures retain readable footage or a partial file for manual recovery and report a warning. See [camera recording recovery](docs/camera-recording-recovery.md) for details and regression checks.
+
 - Show or hide it at any time.
 - Drag it directly on the canvas.
 - Adjust its size and roundness.
