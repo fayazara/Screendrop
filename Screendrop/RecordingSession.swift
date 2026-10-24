@@ -407,6 +407,13 @@ nonisolated struct PointerArtwork: Codable, Sendable, Equatable {
     /// Anchor point in the captured artwork's reference-size coordinate space.
     var anchorPoint: Point
     var referenceSize: Size
+    /// Whether the drawn pointer leans as it moves. Only arrows do; it is
+    /// decided when the Studio styles the artwork, never stored.
+    var leans = false
+
+    private enum CodingKeys: String, CodingKey {
+        case artworkID, imageData, anchorPoint, referenceSize
+    }
 }
 
 extension PointerCaptureFile {

@@ -1979,7 +1979,7 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
                 material = (pointerMaterial, size.width * PointerShape.circleRadiusRatio * interactionScale)
             }
             let transform = CGAffineTransform(translationX: tip.x, y: tip.y)
-                .rotated(by: -CGFloat(pointer.tiltDegrees * .pi / 180))
+                .rotated(by: resolved.leans ? -CGFloat(pointer.tiltDegrees * .pi / 180) : 0)
                 .scaledBy(x: interactionScale, y: interactionScale)
             artworkPlacement = (
                 resolved.image,
@@ -2343,7 +2343,8 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
         anchor: CGPoint,
         aspectRatio: CGFloat,
         intrinsicScale: CGFloat,
-        material: PointerMaterial?
+        material: PointerMaterial?,
+        leans: Bool
     )? {
         if let resolved = timeline.artwork(id: pointer.artworkID),
            let image = artworkImage(for: resolved) {
@@ -2352,7 +2353,8 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
                 resolved.normalizedAnchor,
                 resolved.aspectRatio,
                 resolved.intrinsicScale,
-                PointerShape(artworkID: resolved.artworkID)?.material
+                PointerShape(artworkID: resolved.artworkID)?.material,
+                resolved.leans
             )
         }
         return nil

@@ -53,7 +53,7 @@ enum PointerArtworkCapture {
 extension PointerArtwork {
     /// What the Studio draws for this captured cursor: a circle for every
     /// cursor, or the chosen arrow in place of the macOS arrow and the vector
-    /// hand for any pointing hand.
+    /// hand for any pointing hand. Only the arrow leans as it moves.
     /// `inverted` turns a vector arrow, and the hand beside it, black inside
     /// a white outline; the macOS arrow stays as macOS drew it.
     @MainActor
@@ -63,7 +63,9 @@ extension PointerArtwork {
         }
         let inverts = inverted && style.shape != nil
         if imageData == SystemPointer.arrow {
-            return style.shape?.artwork(inverted: inverts) ?? self
+            var arrow = style.shape?.artwork(inverted: inverts) ?? self
+            arrow.leans = true
+            return arrow
         }
         if imageData == SystemPointer.pointingHand || SystemPointer.isBrowserHand(self) {
             return PointerShape.hand.artwork(inverted: inverts) ?? self

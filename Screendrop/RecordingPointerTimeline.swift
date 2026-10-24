@@ -42,6 +42,8 @@ nonisolated struct PointerTimeline: Sendable {
     private static let tiltSampleWindow: TimeInterval = 0.4
     private static let tiltGain = 0.03
     private static let tiltWeight = 0.5
+    /// A lean past this reads as the pointer wobbling, not being swung.
+    private static let maxTiltDegrees = 8.0
     private static let revealLeadWindow: TimeInterval = 0.25
 
     private let frames: [PointerFrame]
@@ -268,16 +270,21 @@ nonisolated struct PointerTimeline: Sendable {
             ))
         }
 
+        // The lean follows its target through a soft spring, so a change of
+        // direction swings the pointer back gently instead of rocking it.
         let tiltOffset = max(1, Int((tiltSampleWindow * stepRate).rounded()))
         let recordingWidth = max(Double(safeSize.width), 1)
+        var tiltSpring = DampedSpring(position: 0)
         for index in frames.indices {
             let previous = frames[max(0, index - tiltOffset)].location
             let current = frames[index].location
             let deltaInPoints = (current.x - previous.x) * recordingWidth
-            frames[index].tiltDegrees = min(max(
+            let target = min(max(
                 deltaInPoints * tiltGain * tiltWeight,
-                -20
-            ), 20)
+                -maxTiltDegrees
+            ), maxTiltDegrees)
+            tiltSpring.step(toward: target, using: PointerSpring.lean, dt: dt)
+            frames[index].tiltDegrees = tiltSpring.position
         }
 
         return PointerTimeline(
@@ -478,4 +485,5 @@ nonisolated private enum PointerSpring {
     static let intercept = SpringConstant(tension: 538, friction: 40, inertia: 1, clampsOvershoot: true)
     static let track = SpringConstant(tension: 1_000, friction: 40, inertia: 1, clampsOvershoot: true)
     static let settle = SpringConstant(tension: 300, friction: 30, inertia: 0.3)
+    static let lean = SpringConstant(tension: 60, friction: 14, inertia: 1)
 }

@@ -1091,7 +1091,7 @@ private struct StudioCursorOverlay: View {
                         anchor: UnitPoint(x: anchor.x, y: anchor.y)
                     )
                     .rotationEffect(
-                        .degrees(pointer.tiltDegrees),
+                        .degrees(artwork.leans ? pointer.tiltDegrees : 0),
                         anchor: UnitPoint(x: anchor.x, y: anchor.y)
                     )
                     .position(
