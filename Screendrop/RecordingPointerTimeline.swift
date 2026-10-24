@@ -104,6 +104,17 @@ nonisolated struct PointerTimeline: Sendable {
         return artworkByID[id] ?? fallbackArtwork
     }
 
+    /// The same motion with every artwork, the fallback included, replaced
+    /// by `transform`.
+    func mappingArtwork(_ transform: (PointerArtwork) -> PointerArtwork) -> PointerTimeline {
+        PointerTimeline(
+            frames: frames,
+            duration: duration,
+            artworkByID: artworkByID.mapValues(transform),
+            fallbackArtwork: fallbackArtwork.map(transform)
+        )
+    }
+
     static func build(
         capture: PointerCaptureFile,
         duration: TimeInterval,

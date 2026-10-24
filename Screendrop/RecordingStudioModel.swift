@@ -2419,7 +2419,7 @@ final class RecordingStudioModel {
     }
 
     func artwork(id: String?) -> PointerArtwork? {
-        pointerTimeline.artwork(id: id)
+        pointerTimeline.artwork(id: id)?.styled(style.cursorStyle, inverted: style.invertsCursor)
     }
 
     /// Legacy sessions may already contain baked-in press feedback; only
@@ -2864,7 +2864,11 @@ final class RecordingStudioModel {
             style: style,
             cameraLayoutTimeline: cameraLayoutTimeline,
             viewportTimeline: zoomEnabled ? viewportTimeline : .identity,
-            pointerTimeline: pointerIsSynthesized ? pointerTimeline : nil,
+            pointerTimeline: pointerIsSynthesized
+                ? pointerTimeline.mappingArtwork {
+                    $0.styled(style.cursorStyle, inverted: style.invertsCursor)
+                }
+                : nil,
             showsPressEffects: showsPressEffects,
             keystrokeTimeline: showsKeystrokes && hasKeystrokes ? keystrokeTimeline : nil,
             keystrokePlacement: keystrokePlacement,

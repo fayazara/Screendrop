@@ -920,6 +920,7 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
     private let mediaDirectory: URL?
     private let overlayImages = RecordingOverlayImageStore()
     private var artworkImageCache: [String: CGImage] = [:]
+    private lazy var pointerMaterialRenderer = PointerMaterialRenderer()
     private let pointerScale: CGFloat
     private let colorSpace: CGColorSpace
     /// The background alone, for frames inside a layout morph.
@@ -1966,6 +1967,7 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
             )
         }
         var artworkPlacement: (image: CGImage, rect: CGRect, transform: CGAffineTransform)?
+        var material: (material: PointerMaterial, radius: CGFloat)?
         if let resolved = artwork(for: pointer, in: pointerTimeline) {
             let height = layout.contentFillSize.height
                 * PointerArtworkMetrics.heightRatio
@@ -1973,6 +1975,9 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
                 * resolved.intrinsicScale
             let size = CGSize(width: height * resolved.aspectRatio, height: height)
             let interactionScale = CGFloat(max(pointer.magnification, 0.1))
+            if let pointerMaterial = resolved.material {
+                material = (pointerMaterial, size.width * PointerShape.circleRadiusRatio * interactionScale)
+            }
             let transform = CGAffineTransform(translationX: tip.x, y: tip.y)
                 .rotated(by: -CGFloat(pointer.tiltDegrees * .pi / 180))
                 .scaledBy(x: interactionScale, y: interactionScale)
@@ -2051,6 +2056,9 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
 
         if let artworkPlacement {
             context.setAlpha(CGFloat(min(max(pointer.opacity, 0), 1)) * overlayOpacity)
+            if let material {
+                pointerMaterialRenderer.draw(material.material, center: tip, radius: material.radius, in: context)
+            }
             context.concatenate(artworkPlacement.transform)
             context.draw(artworkPlacement.image, in: artworkPlacement.rect)
         }
@@ -2330,14 +2338,21 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
     private func artwork(
         for pointer: PointerFrame,
         in timeline: PointerTimeline
-    ) -> (image: CGImage, anchor: CGPoint, aspectRatio: CGFloat, intrinsicScale: CGFloat)? {
+    ) -> (
+        image: CGImage,
+        anchor: CGPoint,
+        aspectRatio: CGFloat,
+        intrinsicScale: CGFloat,
+        material: PointerMaterial?
+    )? {
         if let resolved = timeline.artwork(id: pointer.artworkID),
            let image = artworkImage(for: resolved) {
             return (
                 image,
                 resolved.normalizedAnchor,
                 resolved.aspectRatio,
-                resolved.intrinsicScale
+                resolved.intrinsicScale,
+                PointerShape(artworkID: resolved.artworkID)?.material
             )
         }
         return nil

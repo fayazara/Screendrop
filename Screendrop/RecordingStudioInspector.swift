@@ -819,6 +819,15 @@ struct StudioInspector: View {
 
     private var cursorControls: some View {
         VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
+            StudioCursorStylePicker(
+                selection: $model.style.cursorStyle,
+                inverted: model.style.invertsCursor
+            )
+
+            if let shape = model.style.cursorStyle.shape, !shape.isCircle {
+                InspectorToggleRow("Invert colors", isOn: $model.style.invertsCursor)
+            }
+
             InspectorHalfField {
                 InspectorSlider(
                     "Size",
@@ -1751,5 +1760,135 @@ private struct StudioAudioExportOptions: View {
                 )
             }
         }
+    }
+}
+
+/// One tile per arrow. Each pointer keeps its size relative to the others,
+/// so the tiles compare like the video, and sits centered by what it draws:
+/// the macOS arrow's image is mostly empty padding.
+private struct StudioCursorStylePicker: View {
+    @Binding var selection: RecordingCursorStyle
+    /// Shows the vector arrows black inside a white outline.
+    let inverted: Bool
+
+    private struct Preview {
+        var image: NSImage
+        var size: CGSize
+        /// The drawn part of the image, as fractions of its size.
+        var glyph: CGRect
+    }
+
+    private struct PreviewKey: Hashable {
+        var style: RecordingCursorStyle
+        var inverted: Bool
+    }
+
+    private static let previews: [PreviewKey: Preview] = {
+        var previews: [PreviewKey: Preview] = [:]
+        for style in RecordingCursorStyle.allCases {
+            for inverted in [false, true] {
+                let artwork = style.shape?.artwork(inverted: inverted) ?? PointerArtworkCapture.defaultArtwork()
+                if let artwork, let image = NSImage(data: artwork.imageData) {
+                    previews[PreviewKey(style: style, inverted: inverted)] = Preview(
+                        image: image,
+                        size: CGSize(width: artwork.referenceSize.width, height: artwork.referenceSize.height),
+                        glyph: opaqueBounds(of: image)
+                    )
+                }
+            }
+        }
+        return previews
+    }()
+
+    var body: some View {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 4), spacing: 4) {
+            ForEach(RecordingCursorStyle.allCases, id: \.self) { style in
+                InspectorTile(title: style.title, isSelected: selection == style) {
+                    selection = style
+                } content: {
+                    preview(style)
+                }
+            }
+        }
+    }
+
+    private func preview(_ style: RecordingCursorStyle) -> some View {
+        GeometryReader { proxy in
+            if let preview = Self.previews[PreviewKey(style: style, inverted: inverted)] {
+                let scale = proxy.size.width / 40
+                let size = CGSize(width: preview.size.width * scale, height: preview.size.height * scale)
+                let shape = style.shape
+                if shape?.isCircle == true {
+                    textLines(in: proxy.size)
+                }
+                Image(nsImage: preview.image)
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: size.width, height: size.height)
+                    .background {
+                        if let material = shape?.material {
+                            PointerMaterialView(
+                                material: material,
+                                diameter: size.width * PointerShape.circleRadiusRatio * 2
+                            )
+                        }
+                    }
+                    .offset(
+                        x: proxy.size.width / 2 - preview.glyph.midX * size.width,
+                        y: proxy.size.height / 2 - preview.glyph.midY * size.height
+                    )
+            }
+        }
+        .background(Color.primary.opacity(0.05))
+    }
+
+    /// Something for a see-through circle to show, blur, or bend.
+    private func textLines(in size: CGSize) -> some View {
+        VStack(alignment: .leading, spacing: size.height * 0.1) {
+            ForEach([0.62, 0.48, 0.56], id: \.self) { fraction in
+                Capsule()
+                    .fill(Color.primary.opacity(0.4))
+                    .frame(width: size.width * fraction, height: size.height * 0.08)
+            }
+        }
+        .frame(width: size.width, height: size.height)
+    }
+
+    private static func opaqueBounds(of image: NSImage) -> CGRect {
+        let full = CGRect(x: 0, y: 0, width: 1, height: 1)
+        guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil),
+              let context = CGContext(
+                data: nil,
+                width: cgImage.width,
+                height: cgImage.height,
+                bitsPerComponent: 8,
+                bytesPerRow: cgImage.width,
+                space: CGColorSpaceCreateDeviceGray(),
+                bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue
+              ) else {
+            return full
+        }
+        let width = cgImage.width
+        let height = cgImage.height
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+        guard let pixels = context.data?.assumingMemoryBound(to: UInt8.self) else { return full }
+
+        // Rows run top-down in memory, matching the view's top-left origin.
+        var minX = width, minY = height, maxX = -1, maxY = -1
+        for y in 0..<height {
+            for x in 0..<width where pixels[y * width + x] > 64 {
+                minX = min(minX, x)
+                maxX = max(maxX, x)
+                minY = min(minY, y)
+                maxY = max(maxY, y)
+            }
+        }
+        guard maxX >= minX, maxY >= minY else { return full }
+        return CGRect(
+            x: CGFloat(minX) / CGFloat(width),
+            y: CGFloat(minY) / CGFloat(height),
+            width: CGFloat(maxX - minX + 1) / CGFloat(width),
+            height: CGFloat(maxY - minY + 1) / CGFloat(height)
+        )
     }
 }

@@ -345,6 +345,11 @@ struct StoredRecordingStudioStyle: Codable, Equatable {
     /// current default.
     var cursorScale: Double?
     var hidesCursor: Bool?
+    /// Optional so projects saved before cursor styles decode to the macOS
+    /// arrow; nil while it is the macOS arrow.
+    var cursorStyle: RecordingCursorStyle?
+    /// Nil unless the vector pointers are inverted.
+    var invertsCursor: Bool?
     var cameraIsVisible: Bool
     var cameraCenterX: Double
     var cameraCenterY: Double
@@ -378,6 +383,8 @@ struct StoredRecordingStudioStyle: Codable, Equatable {
         shadow = Double(style.shadow)
         cursorScale = Double(style.cursorScale)
         hidesCursor = style.hidesCursor ? true : nil
+        cursorStyle = style.cursorStyle == .system ? nil : style.cursorStyle
+        invertsCursor = style.invertsCursor ? true : nil
         cameraIsVisible = style.camera.isVisible
         let legacyCenter = style.camera.layout.legacyCenter
         cameraCenterX = Double(legacyCenter.x)
@@ -413,6 +420,8 @@ struct StoredRecordingStudioStyle: Codable, Equatable {
             shadow: CGFloat(shadow),
             cursorScale: CGFloat(cursorScale ?? RecordingStudioStyle.defaultCursorScale),
             hidesCursor: hidesCursor ?? false,
+            cursorStyle: cursorStyle ?? .system,
+            invertsCursor: invertsCursor ?? false,
             camera: RecordingCameraBubbleSettings(
                 isVisible: cameraIsVisible,
                 // A legacy circle becomes the circle shape; rectangular
@@ -455,6 +464,9 @@ struct RecordingStudioStyle: Equatable {
     /// Synthetic cursor magnification (1 = natural size, up to 4).
     var cursorScale: CGFloat = RecordingStudioStyle.defaultCursorScale
     var hidesCursor = false
+    var cursorStyle = RecordingCursorStyle.system
+    /// Black vector pointers with a white outline.
+    var invertsCursor = false
     var camera = RecordingCameraBubbleSettings()
 }
 

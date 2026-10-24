@@ -1073,9 +1073,19 @@ private struct StudioCursorOverlay: View {
                     width: height * artwork.aspectRatio,
                     height: height
                 )
+                let material = PointerShape(artworkID: artwork.artworkID)?.material
                 Image(nsImage: image)
                     .resizable()
+                    .interpolation(.high)
                     .frame(width: size.width, height: size.height)
+                    .background {
+                        if let material {
+                            PointerMaterialView(
+                                material: material,
+                                diameter: size.width * PointerShape.circleRadiusRatio * 2
+                            )
+                        }
+                    }
                     .scaleEffect(
                         CGFloat(pointer.magnification),
                         anchor: UnitPoint(x: anchor.x, y: anchor.y)
@@ -1263,6 +1273,37 @@ private extension RecordingKeystrokePlacement {
         case .bottomRight: .bottomTrailing
         }
     }
+}
+
+/// A circle pointer's material in the preview: the light window-chrome
+/// material. Export draws its own match from the frame.
+struct PointerMaterialView: View {
+    let material: PointerMaterial
+    let diameter: CGFloat
+
+    var body: some View {
+        switch material {
+        case .frosted:
+            StudioChromeMaterial()
+                .frame(width: diameter, height: diameter)
+                .clipShape(Circle())
+        }
+    }
+}
+
+/// Blends within the window so it frosts the video, not the desktop, and
+/// stays light so it matches the export in either appearance.
+private struct StudioChromeMaterial: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = .menu
+        view.blendingMode = .withinWindow
+        view.state = .active
+        view.appearance = NSAppearance(named: .aqua)
+        return view
+    }
+
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
 }
 
 @MainActor

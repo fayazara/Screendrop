@@ -185,7 +185,11 @@ enum RecordingSessionRenderer {
             style: style,
             cameraLayoutTimeline: cameraLayoutTimeline,
             viewportTimeline: viewportTimeline,
-            pointerTimeline: pointerSynthesized ? pointerTimeline : nil,
+            pointerTimeline: pointerSynthesized
+                ? pointerTimeline?.mappingArtwork {
+                    $0.styled(style.cursorStyle, inverted: style.invertsCursor)
+                }
+                : nil,
             showsPressEffects: showsPressEffects,
             keystrokeTimeline: showsKeystrokes
                 ? KeystrokeCaptionTimeline(events: capture.keystrokes)
