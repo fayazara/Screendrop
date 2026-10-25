@@ -965,10 +965,10 @@ private struct StudioTimelinePlayhead: View {
             let isVisible = x >= -2 && x <= width + 2
             let isExpanded = isHovering || isDragging || isScrubbing
             let head = isExpanded ? Metrics.readoutSize : Metrics.headSize
-            // The stem stays on the true time and the head centred on it:
-            // at the start it overhangs the track gutter, and only at the
-            // trailing edge, where the tracks meet the inspector, does it
-            // slide inward so its readout is never cut off.
+            // The stem stays on the true time. At the start the head
+            // overhangs the track gutter; at the end the inspector column
+            // would clip it, so it stops at the edge and the stem slides
+            // across to its trailing side.
             let headX = min(x, width - head.width / 2)
             // The head hangs from the top of its lane, so the readout grows
             // downward toward the ruler rather than off the dock.
@@ -1033,11 +1033,11 @@ private struct StudioTimelinePlayhead: View {
 /// A playhead pin in one outline: a rounded head across the top of the
 /// rect, a stem down to the bottom, and concave fillets where the head's
 /// underside meets the stem so the two read as a single soft piece. The
-/// stem can sit off the head's center, for when the head is nudged inward
-/// at the ends of the timeline.
+/// stem can sit right of centre, up to the head's trailing edge; as it gets
+/// there that side's corners close up, so the pin becomes a flag.
 private struct PlayheadPinShape: Shape {
     var headHeight: CGFloat
-    var stemOffset: CGFloat
+    var stemOffset: CGFloat = 0
     var stemWidth: CGFloat = 2
     var cornerRadius: CGFloat = 4
     var filletRadius: CGFloat = 3.5
@@ -1048,42 +1048,57 @@ private struct PlayheadPinShape: Shape {
         let halfStem = stemWidth / 2
         let stemX = min(
             max(rect.midX + stemOffset, rect.minX + corner + halfStem),
-            rect.maxX - corner - halfStem
+            rect.maxX - halfStem
         )
-        // The fillet can't reach past the head's own rounded corners.
-        let fillet = max(0, min(
+        // Head left between the stem and the trailing edge. The trailing
+        // corners shrink with it, reaching square when the stem is flush.
+        let trailingRoom = rect.maxX - (stemX + halfStem)
+        let trailingCorner = min(corner, trailingRoom)
+        // A fillet can't reach past the head's own rounded corners.
+        let leadingFillet = max(0, min(
             filletRadius,
             stemX - halfStem - (rect.minX + corner),
-            rect.maxX - corner - (stemX + halfStem),
+            rect.height - head
+        ))
+        let trailingFillet = max(0, min(
+            filletRadius,
+            trailingRoom - trailingCorner,
             rect.height - head
         ))
         let headBottom = rect.minY + head
 
         var path = Path()
         path.move(to: CGPoint(x: rect.minX + corner, y: rect.minY))
-        path.addArc(
-            tangent1End: CGPoint(x: rect.maxX, y: rect.minY),
-            tangent2End: CGPoint(x: rect.maxX, y: headBottom),
-            radius: corner
-        )
-        path.addArc(
-            tangent1End: CGPoint(x: rect.maxX, y: headBottom),
-            tangent2End: CGPoint(x: stemX + halfStem, y: headBottom),
-            radius: corner
-        )
-        // Underside into the stem's right edge, curving down.
-        path.addArc(
-            tangent1End: CGPoint(x: stemX + halfStem, y: headBottom),
-            tangent2End: CGPoint(x: stemX + halfStem, y: rect.maxY),
-            radius: fillet
-        )
+        // Under a point of room the lip would read as a notch, so the
+        // pin is already a flag.
+        if trailingRoom > 1 {
+            path.addArc(
+                tangent1End: CGPoint(x: rect.maxX, y: rect.minY),
+                tangent2End: CGPoint(x: rect.maxX, y: headBottom),
+                radius: trailingCorner
+            )
+            path.addArc(
+                tangent1End: CGPoint(x: rect.maxX, y: headBottom),
+                tangent2End: CGPoint(x: stemX + halfStem, y: headBottom),
+                radius: trailingCorner
+            )
+            // Underside into the stem's right edge, curving down.
+            path.addArc(
+                tangent1End: CGPoint(x: stemX + halfStem, y: headBottom),
+                tangent2End: CGPoint(x: stemX + halfStem, y: rect.maxY),
+                radius: trailingFillet
+            )
+        } else {
+            // Flush: the top edge turns straight down into the stem.
+            path.addLine(to: CGPoint(x: stemX + halfStem, y: rect.minY))
+        }
         path.addLine(to: CGPoint(x: stemX + halfStem, y: rect.maxY))
         path.addLine(to: CGPoint(x: stemX - halfStem, y: rect.maxY))
         // Back up the stem's left edge and out along the underside.
         path.addArc(
             tangent1End: CGPoint(x: stemX - halfStem, y: headBottom),
             tangent2End: CGPoint(x: rect.minX, y: headBottom),
-            radius: fillet
+            radius: leadingFillet
         )
         path.addArc(
             tangent1End: CGPoint(x: rect.minX, y: headBottom),
