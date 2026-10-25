@@ -26,9 +26,11 @@ enum StudioBlockMetrics {
     /// The selection's handles, outside the block's ends.
     static let handleWidth: CGFloat = 8
     static let rimWidth: CGFloat = 2
-    /// The rim's outer corners: tighter than the block's, so the selection
-    /// reads as a frame rather than a pill.
-    static let selectionCornerRadius: CGFloat = 5
+    /// The rim's outer corners. A selected block's corners tighten to the
+    /// rim's inner edge, so the frame runs an even width all the way round
+    /// instead of bulging into rounder block corners.
+    static let selectionCornerRadius: CGFloat = 6
+    static let selectedCornerRadius: CGFloat = selectionCornerRadius - rimWidth
     /// How far past an unselected block's end a trim can still be grabbed.
     static let edgeOutset: CGFloat = 4
     /// How far into an unselected block its trim reaches, at most. Never
@@ -43,6 +45,26 @@ enum StudioBlockMetrics {
 
     static var shape: RoundedRectangle {
         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+    }
+}
+
+extension EnvironmentValues {
+    /// The corners of the block being drawn: tighter while it's selected.
+    @Entry var studioBlockCornerRadius: CGFloat = StudioBlockMetrics.cornerRadius
+}
+
+private struct StudioBlockClip: ViewModifier {
+    @Environment(\.studioBlockCornerRadius) private var cornerRadius
+
+    func body(content: Content) -> some View {
+        content.clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+    }
+}
+
+extension View {
+    /// Clips to the block's corners as they are drawn right now.
+    func studioBlockClip() -> some View {
+        modifier(StudioBlockClip())
     }
 }
 
@@ -313,7 +335,9 @@ where Item.ID == UUID {
             isSelected: isSelected,
             isHovered: activeTarget.blockID == block.id
         )
+        let cornerRadius = isSelected ? StudioBlockMetrics.selectedCornerRadius : StudioBlockMetrics.cornerRadius
         content(block, state)
+            .environment(\.studioBlockCornerRadius, cornerRadius)
             .frame(width: frame.width, height: blockHeight, alignment: .leading)
             .overlay {
                 // An unselected block shows which end the pointer would trim.
@@ -324,7 +348,7 @@ where Item.ID == UUID {
                         .allowsHitTesting(false)
                 }
             }
-            .contentShape(StudioBlockMetrics.shape)
+            .contentShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .contextMenu { menu(block) }
             .help(help(block))
             .offset(x: frame.minX, y: StudioBlockMetrics.inset)
@@ -578,9 +602,10 @@ struct StudioBlockStyle {
 /// rim, so neighbouring blocks and the track behind them stay apart.
 struct StudioBlockSurface<Fill: ShapeStyle>: View {
     let fill: Fill
+    @Environment(\.studioBlockCornerRadius) private var cornerRadius
 
     var body: some View {
-        let shape = StudioBlockMetrics.shape
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         shape.fill(fill)
             .overlay {
                 shape.fill(LinearGradient(
@@ -612,7 +637,7 @@ struct StudioBlockHatch: View {
             }
             context.stroke(path, with: .color(color), lineWidth: lineWidth)
         }
-        .clipShape(StudioBlockMetrics.shape)
+        .studioBlockClip()
     }
 }
 
@@ -718,16 +743,15 @@ struct StudioSelectionFrame: View {
     }
 }
 
-/// The rim's outline: the frame's rounded rect with the block cut out along
-/// the block's own corners.
+/// The rim's outline: the frame's rounded rect with the selected block cut
+/// out along its tightened corners, so the rim's two edges run parallel.
 private struct StudioSelectionFrameShape: Shape {
     func path(in rect: CGRect) -> Path {
-        let radius = StudioBlockMetrics.cornerRadius
         let rim = StudioBlockMetrics.rimWidth
         var path = Path(roundedRect: rect, cornerRadius: StudioBlockMetrics.selectionCornerRadius, style: .continuous)
         let block = rect.insetBy(dx: StudioBlockMetrics.handleWidth, dy: rim)
         if block.width > 0, block.height > 0 {
-            path.addPath(Path(roundedRect: block, cornerRadius: radius, style: .continuous))
+            path.addPath(Path(roundedRect: block, cornerRadius: StudioBlockMetrics.selectedCornerRadius, style: .continuous))
         }
         return path
     }

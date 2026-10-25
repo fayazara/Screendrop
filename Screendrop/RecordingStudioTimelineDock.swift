@@ -1607,7 +1607,7 @@ private struct StudioLayoutLane: View {
                         endPoint: .trailing
                     )
                     .frame(width: rampWidth)
-                    .clipShape(StudioBlockMetrics.shape)
+                    .studioBlockClip()
                 }
         }
     }
@@ -1999,7 +1999,7 @@ private struct StudioAudioLane: View {
         }
         .frame(width: state.width, height: state.height, alignment: .topLeading)
         .background { StudioBlockSurface(fill: style.fill(isHovering: state.isHovered)) }
-        .clipShape(StudioBlockMetrics.shape)
+        .studioBlockClip()
     }
 
     private func apply(_ edit: StudioBlockEdit<RecordingAudioClip>) {
