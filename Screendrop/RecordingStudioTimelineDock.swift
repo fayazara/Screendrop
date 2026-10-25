@@ -997,6 +997,7 @@ private struct StudioTimelinePlayhead: View {
                             .fixedSize()
                             .frame(width: head.width, height: head.height)
                             .frame(maxHeight: .infinity, alignment: .top)
+                            .transition(AnyTransition(.blurReplace))
                     }
                 }
                 .frame(width: head.width, height: max(0, proxy.size.height - headTop))
@@ -1027,6 +1028,9 @@ private struct StudioTimelinePlayhead: View {
             }
         }
         .coordinateSpace(name: Self.coordinateSpace)
+        // Opening into the readout and folding back is the one spring left
+        // on the timeline.
+        .motion(.morphQuick, value: isHovering || isDragging || isScrubbing)
     }
 }
 
@@ -1041,6 +1045,14 @@ private struct PlayheadPinShape: Shape {
     var stemWidth: CGFloat = 2
     var cornerRadius: CGFloat = 4
     var filletRadius: CGFloat = 3.5
+
+    var animatableData: AnimatablePair<CGFloat, CGFloat> {
+        get { AnimatablePair(headHeight, stemOffset) }
+        set {
+            headHeight = newValue.first
+            stemOffset = newValue.second
+        }
+    }
 
     func path(in rect: CGRect) -> Path {
         let head = min(headHeight, rect.height)
