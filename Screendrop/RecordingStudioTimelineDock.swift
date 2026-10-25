@@ -180,9 +180,7 @@ struct StudioTimelineDock: View {
         GlassEffectContainer(spacing: GlassMetrics.containerSpacing) {
             HStack(spacing: GlassMetrics.gap) {
                 GlassIconButton(systemImage: "scissors", help: "Split at Playhead (⌘B)") {
-                    withAnimation(.morphIfAllowed) {
-                        model.splitClip(at: model.currentTime)
-                    }
+                    model.splitClip(at: model.currentTime)
                 }
                 .keyboardShortcut("b", modifiers: .command)
                 .disabled(!model.isLoaded)
@@ -218,7 +216,7 @@ struct StudioTimelineDock: View {
             isPresented: $isResetClipsConfirmationPresented
         ) {
             Button("Reset Clips", role: .destructive) {
-                withAnimation(.morphIfAllowed) { model.resetClips() }
+                model.resetClips()
             }
         } message: {
             Text("Every split, trim, deletion and speed change goes back to the original recording. You can undo this.")
@@ -337,7 +335,7 @@ struct StudioTimelineDock: View {
                         title: String(format: "%.1f×", zoom),
                         systemImage: "arrow.left.and.right"
                     ) {
-                        withAnimation(.morphIfAllowed) { fitTimeline() }
+                        fitTimeline()
                     }
                     .keyboardShortcut("0", modifiers: .command)
                     .help("Fit Timeline (⌘0)")
@@ -475,6 +473,7 @@ struct StudioTimelineDock: View {
                     model.pause()
                     model.seek(to: time)
                 }
+                .transaction { $0.animation = nil }
             }
             .onChange(of: proxy.size.width, initial: true) { _, width in
                 viewportWidth = max(width, 1)
@@ -563,6 +562,9 @@ struct StudioTimelineDock: View {
                 }
             }
             .scrollPosition($scrollPosition)
+            // Blocks and clips land where an edit puts them, even when the
+            // edit came from an animated inspector or tool-row action.
+            .transaction { $0.animation = nil }
             .scrollIndicators(scale.isScrollable ? .visible : .never)
             .scrollBounceBehavior(.basedOnSize)
             .onScrollGeometryChange(for: CGFloat.self) { geometry in
@@ -780,22 +782,20 @@ struct StudioTimelineDock: View {
     }
 
     private func deleteSelection() {
-        withAnimation(.morphIfAllowed) {
-            if let textID = model.selectedTextID {
-                model.removeText(id: textID)
-            } else if let imageID = model.selectedImageID {
-                model.removeImage(id: imageID)
-            } else if let audioClipID = model.selectedAudioClipID {
-                model.removeAudioClip(id: audioClipID)
-            } else if let redactionID = model.selectedRedactionID {
-                model.removeRedaction(id: redactionID)
-            } else if let cueID = model.selectedCueID {
-                model.removeZoomCue(id: cueID)
-            } else if let cueID = model.selectedLayoutCueID {
-                model.removeLayoutCue(id: cueID)
-            } else if model.selectedClipID != nil {
-                model.deleteSelectedClip()
-            }
+        if let textID = model.selectedTextID {
+            model.removeText(id: textID)
+        } else if let imageID = model.selectedImageID {
+            model.removeImage(id: imageID)
+        } else if let audioClipID = model.selectedAudioClipID {
+            model.removeAudioClip(id: audioClipID)
+        } else if let redactionID = model.selectedRedactionID {
+            model.removeRedaction(id: redactionID)
+        } else if let cueID = model.selectedCueID {
+            model.removeZoomCue(id: cueID)
+        } else if let cueID = model.selectedLayoutCueID {
+            model.removeLayoutCue(id: cueID)
+        } else if model.selectedClipID != nil {
+            model.deleteSelectedClip()
         }
     }
 }
@@ -997,7 +997,6 @@ private struct StudioTimelinePlayhead: View {
                             .fixedSize()
                             .frame(width: head.width, height: head.height)
                             .frame(maxHeight: .infinity, alignment: .top)
-                            .transition(AnyTransition(.blurReplace))
                     }
                 }
                 .frame(width: head.width, height: max(0, proxy.size.height - headTop))
@@ -1028,7 +1027,6 @@ private struct StudioTimelinePlayhead: View {
             }
         }
         .coordinateSpace(name: Self.coordinateSpace)
-        .motion(.morphQuick, value: isHovering || isDragging || isScrubbing)
     }
 }
 
@@ -1043,14 +1041,6 @@ private struct PlayheadPinShape: Shape {
     var stemWidth: CGFloat = 2
     var cornerRadius: CGFloat = 4
     var filletRadius: CGFloat = 3.5
-
-    var animatableData: AnimatablePair<CGFloat, CGFloat> {
-        get { AnimatablePair(headHeight, stemOffset) }
-        set {
-            headHeight = newValue.first
-            stemOffset = newValue.second
-        }
-    }
 
     func path(in rect: CGRect) -> Path {
         let head = min(headHeight, rect.height)
@@ -1382,12 +1372,10 @@ private struct StudioZoomLane: View {
                             // gap here to put a zoom in.
                             if let range = pendingZoomRange,
                                range.upperBound - range.lowerBound > 0.001 {
-                                withAnimation(.morphIfAllowed) {
-                                    model.addZoomCue(
-                                        fromEditorTime: range.lowerBound,
-                                        toEditorTime: range.upperBound
-                                    )
-                                }
+                                model.addZoomCue(
+                                    fromEditorTime: range.lowerBound,
+                                    toEditorTime: range.upperBound
+                                )
                             }
                             dragStartTime = nil
                             pendingZoomRange = nil
@@ -1434,15 +1422,12 @@ private struct StudioZoomLane: View {
 
             ForEach(visibleBlocks) { block in
                 StudioZoomCueBlock(model: model, block: block, scale: scale)
-                    .transition(.blurPop)
             }
         }
         .opacity(model.zoomEnabled ? 1 : 0.45)
         .contextMenu {
             Button("Add Zoom at Playhead", systemImage: "plus.magnifyingglass") {
-                withAnimation(.morphIfAllowed) {
-                    model.addZoomCue(at: model.currentTime)
-                }
+                model.addZoomCue(at: model.currentTime)
             }
         }
     }
@@ -1593,8 +1578,6 @@ private struct StudioZoomCueBlock: View {
             }
             .contentShape(shape)
             .onHover { isHovering = $0 }
-            .motion(.morphQuick, value: showsHandles)
-            .motion(.morphQuick, value: isSelected)
             .offset(x: x, y: StudioZoomLaneMetrics.blockInset)
             .gesture(moveGesture(cue: cue))
             .onTapGesture {
@@ -1703,9 +1686,7 @@ private struct StudioZoomCueBlock: View {
         }
 
         Button("Remove Zoom", systemImage: "trash", role: .destructive) {
-            withAnimation(.morphIfAllowed) {
-                model.removeZoomCue(id: cue.id)
-            }
+            model.removeZoomCue(id: cue.id)
         }
     }
 
@@ -1714,9 +1695,7 @@ private struct StudioZoomCueBlock: View {
         var updated = cue
         change(&updated)
         model.beginZoomCueEdit()
-        withAnimation(.morphQuickIfAllowed) {
-            model.updateZoomCue(updated)
-        }
+        model.updateZoomCue(updated)
         model.endZoomCueEdit(actionName: action)
     }
 
@@ -1864,9 +1843,7 @@ private struct StudioLayoutLane: View {
                         }
                         .onEnded { _ in
                             if let range = pendingRange, range.upperBound - range.lowerBound > 0.001 {
-                                withAnimation(.morphIfAllowed) {
-                                    model.addLayoutCue(fromEditorTime: range.lowerBound, toEditorTime: range.upperBound)
-                                }
+                                model.addLayoutCue(fromEditorTime: range.lowerBound, toEditorTime: range.upperBound)
                             }
                             dragStartTime = nil
                             pendingRange = nil
@@ -1889,7 +1866,6 @@ private struct StudioLayoutLane: View {
 
             ForEach(visibleBlocks) { block in
                 StudioLayoutCueBlock(model: model, block: block, scale: scale)
-                    .transition(.blurPop)
             }
         }
         .opacity(model.showsCameraLayer ? 1 : 0.45)
@@ -1897,12 +1873,10 @@ private struct StudioLayoutLane: View {
             Menu("Add Layout at Playhead") {
                 ForEach(RecordingCameraLayout.presets, id: \.self) { preset in
                     Button(preset.detailedTitle, systemImage: preset.systemImage) {
-                        withAnimation(.morphIfAllowed) {
-                            model.addLayoutCue(
-                                at: model.currentTime,
-                                layout: model.style.camera.layout.adopting(preset)
-                            )
-                        }
+                        model.addLayoutCue(
+                            at: model.currentTime,
+                            layout: model.style.camera.layout.adopting(preset)
+                        )
                     }
                 }
             }
@@ -1989,8 +1963,6 @@ private struct StudioLayoutCueBlock: View {
             }
             .contentShape(shape)
             .onHover { isHovering = $0 }
-            .motion(.morphQuick, value: showsHandles)
-            .motion(.morphQuick, value: isSelected)
             .offset(x: x, y: StudioZoomLaneMetrics.blockInset)
             .gesture(moveGesture(cue: cue))
             .onTapGesture {
@@ -2040,9 +2012,7 @@ private struct StudioLayoutCueBlock: View {
         Divider()
 
         Button("Remove Layout", systemImage: "trash", role: .destructive) {
-            withAnimation(.morphIfAllowed) {
-                model.removeLayoutCue(id: cue.id)
-            }
+            model.removeLayoutCue(id: cue.id)
         }
     }
 
@@ -2155,9 +2125,7 @@ private struct StudioTextLane: View {
                         .onEnded { _ in
                             onScrubbing(false)
                             if let range = pendingRange, range.upperBound - range.lowerBound > 0.05 {
-                                withAnimation(.morphIfAllowed) {
-                                    model.addText(fromEditorTime: range.lowerBound, toEditorTime: range.upperBound)
-                                }
+                                model.addText(fromEditorTime: range.lowerBound, toEditorTime: range.upperBound)
                             }
                             dragStartTime = nil
                             pendingRange = nil
@@ -2196,15 +2164,14 @@ private struct StudioTextLane: View {
                     model: model
                 ) {
                     Button("Delete Text", systemImage: "trash", role: .destructive) {
-                        withAnimation(.morphIfAllowed) { model.removeText(id: block.item.id) }
+                        model.removeText(id: block.item.id)
                     }
                 }
-                .transition(.blurPop)
             }
         }
         .contextMenu {
             Button("Add Text at Playhead", systemImage: "textformat") {
-                withAnimation(.morphIfAllowed) { model.addText(atEditorTime: model.currentTime) }
+                model.addText(atEditorTime: model.currentTime)
             }
         }
     }
@@ -2275,10 +2242,9 @@ private struct StudioRedactionLane: View {
                     model: model
                 ) {
                     Button("Delete Image", systemImage: "trash", role: .destructive) {
-                        withAnimation(.morphIfAllowed) { model.removeImage(id: overlay.id) }
+                        model.removeImage(id: overlay.id)
                     }
                 }
-                .transition(.blurPop)
             }
 
             ForEach(visibleBlocks) { block in
@@ -2322,18 +2288,17 @@ private struct StudioRedactionLane: View {
                     }
                     Divider()
                     Button("Delete \(redaction.style.title)", systemImage: "trash", role: .destructive) {
-                        withAnimation(.morphIfAllowed) { model.removeRedaction(id: redaction.id) }
+                        model.removeRedaction(id: redaction.id)
                     }
                 }
-                .transition(.blurPop)
             }
         }
         .contextMenu {
             Button("Pixelate at Playhead", systemImage: "squareshape.split.3x3") {
-                withAnimation(.morphIfAllowed) { model.addRedaction(atEditorTime: model.currentTime) }
+                model.addRedaction(atEditorTime: model.currentTime)
             }
             Button("Blur at Playhead", systemImage: "drop.halffull") {
-                withAnimation(.morphIfAllowed) { model.addRedaction(atEditorTime: model.currentTime, style: .blur) }
+                model.addRedaction(atEditorTime: model.currentTime, style: .blur)
             }
         }
     }
@@ -2452,8 +2417,6 @@ private struct StudioOverlayBlock<Item: Identifiable & Sendable, MenuContent: Vi
             }
             .contentShape(shape)
             .onHover { isHovering = $0 }
-            .motion(.morphQuick, value: showsHandles)
-            .motion(.morphQuick, value: isSelected)
             .offset(x: x, y: StudioZoomLaneMetrics.blockInset)
             .gesture(dragGesture(.move))
             .onTapGesture(perform: onSelect)
@@ -2566,7 +2529,6 @@ private struct StudioAudioLane: View {
 
             ForEach(visibleClips) { clip in
                 StudioAudioClipBlock(model: model, clip: clip, scale: scale)
-                    .transition(.blurPop)
             }
         }
     }
@@ -2645,14 +2607,12 @@ private struct StudioAudioClipBlock: View {
         }
         .contentShape(shape)
         .onHover { isHovering = $0 }
-        .motion(.morphQuick, value: showsHandles)
-        .motion(.morphQuick, value: isSelected)
         .offset(x: x, y: StudioZoomLaneMetrics.blockInset)
         .gesture(dragGesture(.move))
         .onTapGesture { model.selectAudioClip(id: clip.id) }
         .contextMenu {
             Button("Delete Audio", systemImage: "trash", role: .destructive) {
-                withAnimation(.morphIfAllowed) { model.removeAudioClip(id: clip.id) }
+                model.removeAudioClip(id: clip.id)
             }
         }
         .help("\(clip.displayName). Drag to move, drag an edge to trim, right-click for options.")
