@@ -323,6 +323,7 @@ final class RecordingStudioModel {
     private let editUndoManager = UndoManager()
     private(set) var undoRevision = 0
     private var zoomEditSnapshot: [ZoomCue]?
+    private var viewportRebuildTask: Task<Void, Never>?
     private var layoutEditSnapshot: [RecordingCameraLayoutCue]?
     private var textEditSnapshot: [RecordingTextOverlay]?
     private var redactionEditSnapshot: [RecordingRedaction]?
@@ -633,6 +634,8 @@ final class RecordingStudioModel {
         replacementAudio = nil
         editUndoManager.removeAllActions()
         zoomEditSnapshot = nil
+        viewportRebuildTask?.cancel()
+        viewportRebuildTask = nil
         layoutEditSnapshot = nil
         textEditSnapshot = nil
         redactionEditSnapshot = nil
@@ -1094,7 +1097,14 @@ final class RecordingStudioModel {
 
     private func replaceZoomCues(_ cues: [ZoomCue]) {
         zoomCues = cues.sorted { $0.start < $1.start }
-        rebuildViewportTimeline()
+        if zoomEditSnapshot != nil {
+            // A drag reports dozens of moves a second, and planning the
+            // camera integrates the whole recording. The block follows the
+            // pointer from `zoomCues`; the plan catches up when it rests.
+            scheduleViewportRebuild()
+        } else {
+            rebuildViewportTimeline()
+        }
         scheduleProjectSave()
     }
 
@@ -1117,6 +1127,11 @@ final class RecordingStudioModel {
     func endZoomCueEdit(actionName: String = "Edit Zoom") {
         guard let previous = zoomEditSnapshot else { return }
         zoomEditSnapshot = nil
+        if viewportRebuildTask != nil {
+            viewportRebuildTask?.cancel()
+            viewportRebuildTask = nil
+            rebuildViewportTimeline()
+        }
         guard previous != zoomCues else { return }
         registerUndo(actionName) { target in
             target.applyZoomCues(previous, actionName: actionName)
@@ -2183,6 +2198,16 @@ final class RecordingStudioModel {
             fallbackArtwork: PointerArtworkCapture.defaultArtwork(),
             clipTimeline: clipTimeline
         )
+    }
+
+    private func scheduleViewportRebuild() {
+        viewportRebuildTask?.cancel()
+        viewportRebuildTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(80))
+            guard let self, !Task.isCancelled else { return }
+            self.viewportRebuildTask = nil
+            self.rebuildViewportTimeline()
+        }
     }
 
     private func rebuildViewportTimeline() {
