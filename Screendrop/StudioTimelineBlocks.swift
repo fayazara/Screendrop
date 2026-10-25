@@ -594,14 +594,30 @@ struct StudioBlockHatch: View {
 /// block narrows the detail goes first, then the name (a long one is
 /// truncated while a few letters still show), then the glyph sits alone,
 /// centred, so nothing is ever cut to a stub like "C…".
+///
+/// It always spans the whole block, so a surface put behind it covers the
+/// block rather than just the line of text.
 struct StudioBlockLabel: View {
     let systemImage: String
     let title: String
     var detail: String?
-    let width: CGFloat
+    let state: StudioBlockState
     let color: Color
+    /// Where the line sits; audio keeps it along the top, over its waveform.
+    var verticalAlignment: VerticalAlignment = .center
 
     var body: some View {
+        line
+            .frame(
+                width: state.width,
+                height: state.height,
+                alignment: Alignment(horizontal: .leading, vertical: verticalAlignment)
+            )
+    }
+
+    @ViewBuilder
+    private var line: some View {
+        let width = state.width
         if width >= StudioBlockMetrics.labelInset * 2 + 14 {
             HStack(spacing: 5) {
                 glyph
@@ -621,7 +637,7 @@ struct StudioBlockLabel: View {
                         titleText
                             .truncationMode(.tail)
                     } else {
-                        Color.clear.frame(width: 0)
+                        Color.clear.frame(width: 0, height: 0)
                     }
                 }
             }

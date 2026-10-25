@@ -1415,7 +1415,7 @@ private struct StudioZoomLane: View {
             // does something else says so, ahead of its length.
             detail: (cue.isEnabled && cue.anchorMode != .pointerAnchor ? "\(cue.anchorMode.laneTitle) · " : "")
                 + studioTimecode(block.editorLength),
-            width: state.width,
+            state: state,
             color: cue.isEnabled ? StudioBlockStyle.zoom.onTint : .secondary
         )
         .background {
@@ -1592,7 +1592,7 @@ private struct StudioLayoutLane: View {
             systemImage: block.item.layout.systemImage,
             title: block.item.layout.title,
             detail: studioTimecode(block.editorLength),
-            width: state.width,
+            state: state,
             color: StudioBlockStyle.layout.onTint
         )
         .background {
@@ -1921,7 +1921,7 @@ private struct StudioOverlayBlockContent: View {
             systemImage: systemImage,
             title: title,
             detail: studioTimecode(length),
-            width: state.width,
+            state: state,
             color: style.onTint
         )
         .background {
@@ -1989,8 +1989,9 @@ private struct StudioAudioLane: View {
                 systemImage: "music.note",
                 title: clip.displayName,
                 detail: studioTimecode(clip.duration),
-                width: state.width,
-                color: style.onTint
+                state: state,
+                color: style.onTint,
+                verticalAlignment: .top
             )
             .padding(.top, 2)
         }
