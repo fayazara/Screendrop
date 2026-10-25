@@ -77,12 +77,9 @@ enum StudioLaneEmptyBehavior {
     /// Scrubs the playhead.
     case scrub
     /// A click scrubs; a drag draws out a new block, committed on release.
-    /// `stopsAtBlocks` keeps the new block in the gap it started in, for
-    /// tracks whose blocks can't overlap.
     case create(
         tint: Color,
         minimumLength: TimeInterval,
-        stopsAtBlocks: Bool,
         commit: (ClosedRange<TimeInterval>) -> Void
     )
 }
@@ -225,6 +222,9 @@ where Item.ID == UUID {
     let selectedID: UUID?
     let scale: StudioTimelineScale
     let height: CGFloat
+    /// Blocks on this track can't overlap, as zooms and camera layouts
+    /// can't: moves, trims and new blocks all stop at the neighbours.
+    let keepsBlocksApart: Bool
     let empty: StudioLaneEmptyBehavior
     var onScrubbing: ((Bool) -> Void)?
     let actions: StudioBlockLaneActions<Item>
@@ -265,7 +265,7 @@ where Item.ID == UUID {
             decoration()
                 .allowsHitTesting(false)
 
-            if let pendingRange, case .create(let tint, _, _, _) = empty {
+            if let pendingRange, case .create(let tint, _, _) = empty {
                 StudioPendingBlock(range: pendingRange, scale: scale, height: blockHeight, tint: tint)
             }
 
@@ -429,11 +429,33 @@ where Item.ID == UUID {
     }
 
     private func edit(_ block: StudioLaneBlock<Item>, kind: StudioBlockEditKind, translation: CGFloat) {
-        actions.edit(StudioBlockEdit(
-            base: block,
-            kind: kind,
-            delta: Double(translation) * scale.secondsPerPoint
-        ))
+        var delta = Double(translation) * scale.secondsPerPoint
+        if keepsBlocksApart {
+            // Stop at the neighbours here, on the timeline, where the
+            // block's length is the one you see. Stopping later, in
+            // recording time, would park it with a length measured where
+            // the pointer is - over a sped-up clip, a different one.
+            let room = room(around: block)
+            switch kind {
+            case .move:
+                delta = min(max(delta, room.lowerBound - block.editorStart),
+                            room.upperBound - block.editorEnd)
+            case .trimLeading:
+                delta = max(delta, room.lowerBound - block.editorStart)
+            case .trimTrailing:
+                delta = min(delta, room.upperBound - block.editorEnd)
+            }
+        }
+        actions.edit(StudioBlockEdit(base: block, kind: kind, delta: delta))
+    }
+
+    /// The gap a block sits in: from the end of the block before it to the
+    /// start of the block after it, or the timeline's ends.
+    private func room(around block: StudioLaneBlock<Item>) -> ClosedRange<TimeInterval> {
+        let others = blocks.filter { $0.id != block.id }
+        let floor = others.map(\.editorEnd).filter { $0 <= block.editorStart + 0.0001 }.max() ?? 0
+        let ceiling = others.map(\.editorStart).filter { $0 >= block.editorEnd - 0.0001 }.min() ?? model.duration
+        return floor...max(floor, ceiling)
     }
 
     private func finish() {
@@ -441,7 +463,7 @@ where Item.ID == UUID {
         case .editing(_, let kind):
             actions.end(kind)
         case .creating:
-            if let pendingRange, case .create(_, let minimum, _, let commit) = empty,
+            if let pendingRange, case .create(_, let minimum, let commit) = empty,
                pendingRange.upperBound - pendingRange.lowerBound > minimum {
                 commit(pendingRange)
             }
@@ -460,7 +482,7 @@ where Item.ID == UUID {
     private func creationRange(from start: TimeInterval, to current: TimeInterval) -> ClosedRange<TimeInterval> {
         var lower = min(start, current)
         var upper = max(start, current)
-        if case .create(_, _, true, _) = empty {
+        if keepsBlocksApart {
             let floor = blocks.map(\.editorEnd).filter { $0 <= start }.max() ?? 0
             let ceiling = blocks.map(\.editorStart).filter { $0 >= start }.min() ?? model.duration
             lower = max(lower, floor)
@@ -477,6 +499,7 @@ extension StudioBlockLane where Decoration == EmptyView {
         selectedID: UUID?,
         scale: StudioTimelineScale,
         height: CGFloat,
+        keepsBlocksApart: Bool = false,
         empty: StudioLaneEmptyBehavior,
         onScrubbing: ((Bool) -> Void)? = nil,
         actions: StudioBlockLaneActions<Item>,
@@ -490,6 +513,7 @@ extension StudioBlockLane where Decoration == EmptyView {
             selectedID: selectedID,
             scale: scale,
             height: height,
+            keepsBlocksApart: keepsBlocksApart,
             empty: empty,
             onScrubbing: onScrubbing,
             actions: actions,

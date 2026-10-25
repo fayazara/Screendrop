@@ -1360,7 +1360,8 @@ private struct StudioZoomLane: View {
             selectedID: model.selectedCueID,
             scale: scale,
             height: StudioTrack.zooms.height,
-            empty: .create(tint: Palette.highlight, minimumLength: 0.001, stopsAtBlocks: true) { range in
+            keepsBlocksApart: true,
+            empty: .create(tint: Palette.highlight, minimumLength: 0.001) { range in
                 model.addZoomCue(fromEditorTime: range.lowerBound, toEditorTime: range.upperBound)
             },
             actions: StudioBlockLaneActions(
@@ -1550,7 +1551,8 @@ private struct StudioLayoutLane: View {
             selectedID: model.selectedLayoutCueID,
             scale: scale,
             height: StudioTrack.layouts.height,
-            empty: .create(tint: Palette.layoutCue, minimumLength: 0.001, stopsAtBlocks: true) { range in
+            keepsBlocksApart: true,
+            empty: .create(tint: Palette.layoutCue, minimumLength: 0.001) { range in
                 model.addLayoutCue(fromEditorTime: range.lowerBound, toEditorTime: range.upperBound)
             },
             actions: StudioBlockLaneActions(
@@ -1684,7 +1686,7 @@ private struct StudioTextLane: View {
             selectedID: model.selectedTextID,
             scale: scale,
             height: StudioTrack.text.height,
-            empty: .create(tint: Palette.textCue, minimumLength: 0.05, stopsAtBlocks: false) { range in
+            empty: .create(tint: Palette.textCue, minimumLength: 0.05) { range in
                 model.addText(fromEditorTime: range.lowerBound, toEditorTime: range.upperBound)
             },
             onScrubbing: onScrubbing,
