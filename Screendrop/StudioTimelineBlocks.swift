@@ -26,6 +26,9 @@ enum StudioBlockMetrics {
     /// The selection's handles, outside the block's ends.
     static let handleWidth: CGFloat = 8
     static let rimWidth: CGFloat = 2
+    /// The rim's outer corners: tighter than the block's, so the selection
+    /// reads as a frame rather than a pill.
+    static let selectionCornerRadius: CGFloat = 5
     /// How far past an unselected block's end a trim can still be grabbed.
     static let edgeOutset: CGFloat = 4
     /// How far into an unselected block its trim reaches, at most. Never
@@ -715,13 +718,13 @@ struct StudioSelectionFrame: View {
     }
 }
 
-/// The rim's outline: the frame's rounded rect with the block cut out. The
-/// outer radius is the block's plus the rim, so the two curves run parallel.
+/// The rim's outline: the frame's rounded rect with the block cut out along
+/// the block's own corners.
 private struct StudioSelectionFrameShape: Shape {
     func path(in rect: CGRect) -> Path {
         let radius = StudioBlockMetrics.cornerRadius
         let rim = StudioBlockMetrics.rimWidth
-        var path = Path(roundedRect: rect, cornerRadius: radius + rim, style: .continuous)
+        var path = Path(roundedRect: rect, cornerRadius: StudioBlockMetrics.selectionCornerRadius, style: .continuous)
         let block = rect.insetBy(dx: StudioBlockMetrics.handleWidth, dy: rim)
         if block.width > 0, block.height > 0 {
             path.addPath(Path(roundedRect: block, cornerRadius: radius, style: .continuous))
