@@ -1491,6 +1491,21 @@ private struct StudioZoomLane: View {
     }
 }
 
+/// Where a dragged block lands in the recording. It keeps its length on the
+/// timeline, not in the recording, so sliding it from a sped-up clip onto a
+/// normal one doesn't stretch it (or squeeze it the other way).
+private func studioMovedSourceRange(
+    model: RecordingStudioModel,
+    editorStart: TimeInterval,
+    editorLength: TimeInterval
+) -> (start: TimeInterval, end: TimeInterval) {
+    let start = min(max(0, editorStart), max(0, model.duration - editorLength))
+    return (
+        model.sourceTime(atEditorTime: start),
+        model.sourceTime(atEditorTime: start + editorLength)
+    )
+}
+
 /// How a block on a track is painted: an opaque body in its colour with
 /// light marks on it, as in Final Cut and iMovie. Selection doesn't change
 /// the body; `StudioTrimFrame` goes around it.
@@ -1869,18 +1884,14 @@ private struct StudioZoomCueBlock: View {
                 }
                 guard let dragBase else { return }
                 let delta = Double(value.translation.width) * scale.secondsPerPoint
+                let range = studioMovedSourceRange(
+                    model: model,
+                    editorStart: dragBase.editorStart + delta,
+                    editorLength: dragBase.editorEnd - dragBase.editorStart
+                )
                 var moved = dragBase.cue
-                let length = dragBase.cue.duration
-                let baseBlockDuration = dragBase.editorEnd - dragBase.editorStart
-                let editorStart = min(
-                    max(0, dragBase.editorStart + delta),
-                    max(0, model.duration - baseBlockDuration)
-                )
-                moved.start = min(
-                    max(0, model.sourceTime(atEditorTime: editorStart)),
-                    max(0, model.sourceDuration - length)
-                )
-                moved.end = min(model.sourceDuration, moved.start + length)
+                moved.start = range.start
+                moved.end = range.end
                 model.moveZoomCue(moved)
             }
             .onEnded { _ in
@@ -2164,15 +2175,14 @@ private struct StudioLayoutCueBlock: View {
                 beginDrag()
                 guard let dragBase else { return }
                 let delta = Double(value.translation.width) * scale.secondsPerPoint
-                let length = dragBase.cue.duration
-                let blockDuration = dragBase.editorEnd - dragBase.editorStart
-                let editorStart = min(max(0, dragBase.editorStart + delta), max(0, model.duration - blockDuration))
-                var moved = dragBase.cue
-                moved.start = min(
-                    max(0, model.sourceTime(atEditorTime: editorStart)),
-                    max(0, model.sourceDuration - length)
+                let range = studioMovedSourceRange(
+                    model: model,
+                    editorStart: dragBase.editorStart + delta,
+                    editorLength: dragBase.editorEnd - dragBase.editorStart
                 )
-                moved.end = min(model.sourceDuration, moved.start + length)
+                var moved = dragBase.cue
+                moved.start = range.start
+                moved.end = range.end
                 model.moveLayoutCue(moved)
             }
             .onEnded { _ in
@@ -2580,11 +2590,12 @@ private struct StudioOverlayBlock<Item: Identifiable & Sendable, MenuContent: Vi
                 let base = sourceRange(dragBase.item)
                 switch kind {
                 case .move:
-                    let length = base.end - base.start
-                    let blockLength = dragBase.editorEnd - dragBase.editorStart
-                    let editorStart = min(max(0, dragBase.editorStart + delta), max(0, model.duration - blockLength))
-                    let start = min(max(0, model.sourceTime(atEditorTime: editorStart)), max(0, model.sourceDuration - length))
-                    onEdit(dragBase.item, start, start + length)
+                    let range = studioMovedSourceRange(
+                        model: model,
+                        editorStart: dragBase.editorStart + delta,
+                        editorLength: dragBase.editorEnd - dragBase.editorStart
+                    )
+                    onEdit(dragBase.item, range.start, range.end)
                 case .leading:
                     let start = model.sourceTime(atEditorTime: dragBase.editorStart + delta)
                     onEdit(dragBase.item, min(start, base.end - 0.1), base.end)
