@@ -868,7 +868,7 @@ private enum StudioTrack: String, Identifiable {
 /// the original fixed-width timeline and higher values widen the lanes into a
 /// scrolling surface where cuts, trim handles and zoom blocks stay grabbable
 /// on long recordings.
-private struct StudioTimelineScale: Equatable {
+struct StudioTimelineScale: Equatable {
     /// Finest scale worth offering; past this a single frame is wider than a
     /// thumbnail tile.
     static let maximumPointsPerSecond: CGFloat = 240
@@ -1346,111 +1346,38 @@ private struct StudioMediaDropDelegate: DropDelegate {
     }
 }
 
+/// Zoom cues. Dragging across empty track draws out a zoom in the gap it
+/// started in; a click scrubs. Recorded clicks mark the track's floor.
 private struct StudioZoomLane: View {
     @Bindable var model: RecordingStudioModel
     let scale: StudioTimelineScale
     let visibleRange: ClosedRange<TimeInterval>
 
-    /// Below this many dragged points, a gesture on blank lane space is
-    /// still treated as a click-to-seek rather than a zoom-creating drag.
-    private static let dragCreateThreshold: CGFloat = 4
-
-    /// Held as a time rather than a position so a zoom change mid-drag can't
-    /// reinterpret where the drag began.
-    @State private var dragStartTime: TimeInterval?
-    @State private var pendingZoomRange: ClosedRange<TimeInterval>?
-
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            // Contentless hit surface: the lane can be tens of thousands of
-            // points wide, and the visible frame is drawn by the chrome behind
-            // the scroll view.
-            Color.clear
-                .contentShape(Rectangle())
-                .gesture(
-                    DragGesture(minimumDistance: 0)
-                        .onChanged { value in
-                            guard scale.pointsPerSecond > 0 else { return }
-                            let time = scale.time(forX: value.location.x)
-
-                            if dragStartTime == nil {
-                                model.pause()
-                                dragStartTime = time
-                                // A click on empty lane lets go of whatever
-                                // was selected, like clicking empty canvas.
-                                model.clearTimelineSelection()
-                            }
-                            guard let startTime = dragStartTime else { return }
-
-                            if pendingZoomRange == nil,
-                               abs(value.location.x - scale.x(for: startTime))
-                                   < Self.dragCreateThreshold {
-                                // Still within click tolerance: scrub the
-                                // playhead, same as a plain click always has.
-                                model.seek(to: time)
-                                return
-                            }
-
-                            pendingZoomRange = pendingRange(from: startTime, to: time)
-                        }
-                        .onEnded { _ in
-                            // A range clamped to nothing means the drag ran
-                            // entirely into a neighboring block; there is no
-                            // gap here to put a zoom in.
-                            if let range = pendingZoomRange,
-                               range.upperBound - range.lowerBound > 0.001 {
-                                model.addZoomCue(
-                                    fromEditorTime: range.lowerBound,
-                                    toEditorTime: range.upperBound
-                                )
-                            }
-                            dragStartTime = nil
-                            pendingZoomRange = nil
-                        }
-                )
-
-            // Recorded clicks as small dots along the lane's floor, so they
-            // mark where Auto Zoom would act without striping the blocks.
-            // Culled to the visible span: an hour-long take can hold
-            // thousands of clicks, and only a screenful can ever be seen.
-            ForEach(Array(visiblePressTimes.enumerated()), id: \.offset) { _, pressTime in
-                Circle()
-                    .fill(Color.primary.opacity(0.28))
-                    .frame(width: 3, height: 3)
-                    .offset(
-                        x: scale.x(for: pressTime) - 1.5,
-                        y: StudioZoomLaneMetrics.laneHeight - StudioZoomLaneMetrics.blockInset - 3
-                    )
-                    .allowsHitTesting(false)
+        StudioBlockLane(
+            model: model,
+            blocks: visibleBlocks,
+            selectedID: model.selectedCueID,
+            scale: scale,
+            height: StudioTrack.zooms.height,
+            empty: .create(tint: Palette.highlight, minimumLength: 0.001, stopsAtBlocks: true) { range in
+                model.addZoomCue(fromEditorTime: range.lowerBound, toEditorTime: range.upperBound)
+            },
+            actions: StudioBlockLaneActions(
+                select: { model.selectZoomCue(id: $0.id) },
+                begin: { _ in model.beginZoomCueEdit() },
+                edit: apply,
+                end: { kind in model.endZoomCueEdit(actionName: kind == .move ? "Move Zoom" : "Resize Zoom") }
+            ),
+            decoration: { pressMarks },
+            content: { block, state in content(for: block, state: state) },
+            menu: { block in menu(for: block.item) },
+            help: { block in
+                block.item.isEnabled
+                    ? "Drag to move, drag an end to resize, right-click for options"
+                    : "Turned off. Right-click to turn it back on."
             }
-
-            if let pendingZoomRange {
-                let lowX = scale.x(for: pendingZoomRange.lowerBound)
-                let highX = scale.x(for: pendingZoomRange.upperBound)
-                RoundedRectangle(
-                    cornerRadius: StudioZoomLaneMetrics.blockCornerRadius,
-                    style: .continuous
-                )
-                    .fill(Palette.highlight.opacity(0.22))
-                    .overlay {
-                        RoundedRectangle(
-                            cornerRadius: StudioZoomLaneMetrics.blockCornerRadius,
-                            style: .continuous
-                        )
-                        .strokeBorder(
-                            Palette.highlight.opacity(0.8),
-                            style: StrokeStyle(lineWidth: 1.5, dash: [4, 3])
-                        )
-                    }
-                    .frame(width: max(2, highX - lowX), height: StudioZoomLaneMetrics.blockHeight)
-                    .offset(x: lowX, y: StudioZoomLaneMetrics.blockInset)
-                    .allowsHitTesting(false)
-            }
-
-            ForEach(visibleBlocks) { block in
-                StudioZoomCueBlock(model: model, block: block, scale: scale)
-            }
-        }
+        )
         .opacity(model.zoomEnabled ? 1 : 0.45)
         .contextMenu {
             Button("Add Zoom at Playhead", systemImage: "plus.magnifyingglass") {
@@ -1459,314 +1386,26 @@ private struct StudioZoomLane: View {
         }
     }
 
-    /// The range a drag-created zoom would cover, stopped at the blocks on
-    /// either side of where the drag began so the preview matches the cue the
-    /// model will actually allow.
-    private func pendingRange(
-        from startTime: TimeInterval,
-        to currentTime: TimeInterval
-    ) -> ClosedRange<TimeInterval> {
-        let blocks = model.zoomTimelineBlocks
-        let lowerLimit = blocks
-            .filter { $0.editorEnd <= startTime }
-            .map(\.editorEnd)
-            .max() ?? 0
-        let upperLimit = blocks
-            .filter { $0.editorStart >= startTime }
-            .map(\.editorStart)
-            .min() ?? model.duration
-        let low = max(min(startTime, currentTime), lowerLimit)
-        let high = min(max(startTime, currentTime), upperLimit)
-        return low...max(low, high)
-    }
-
-    private var visiblePressTimes: [TimeInterval] {
-        model.visibleRecordedPressTimes.filter { visibleRange.contains($0) }
-    }
-
-    private var visibleBlocks: [RecordingZoomTimelineBlock] {
-        model.zoomTimelineBlocks.filter {
-            $0.editorEnd >= visibleRange.lowerBound && $0.editorStart <= visibleRange.upperBound
-        }
-    }
-}
-
-/// Where a dragged block lands in the recording. It keeps its length on the
-/// timeline, not in the recording, so sliding it from a sped-up clip onto a
-/// normal one doesn't stretch it (or squeeze it the other way).
-private func studioMovedSourceRange(
-    model: RecordingStudioModel,
-    editorStart: TimeInterval,
-    editorLength: TimeInterval
-) -> (start: TimeInterval, end: TimeInterval) {
-    let start = min(max(0, editorStart), max(0, model.duration - editorLength))
-    return (
-        model.sourceTime(atEditorTime: start),
-        model.sourceTime(atEditorTime: start + editorLength)
-    )
-}
-
-/// How a block on a track is painted: an opaque body in its colour with
-/// light marks on it, as in Final Cut and iMovie. Selection doesn't change
-/// the body; `StudioTrimFrame` goes around it.
-private struct StudioBlockStyle {
-    let tint: NSColor
-    /// Marks on the body.
-    var onTint: Color = .white
-
-    static let zoom = StudioBlockStyle(tint: .controlAccentColor)
-    static let layout = StudioBlockStyle(tint: .systemGreen)
-    static let text = StudioBlockStyle(tint: .systemPurple)
-    static let image = StudioBlockStyle(tint: .systemTeal)
-    static let effect = StudioBlockStyle(tint: .systemGray)
-    static let audio = StudioBlockStyle(tint: .systemIndigo)
-
-    /// The bright tint itself, lifted a touch toward white in light mode,
-    /// with white marks on it, as in Edits and CapCut. The pointer lifts it
-    /// a little more.
-    func fill(isHovering: Bool) -> Color {
-        let tint = tint
-        return Color(nsColor: NSColor(name: nil) { appearance in
-            var resolved = tint
-            appearance.performAsCurrentDrawingAppearance {
-                resolved = tint.usingColorSpace(.sRGB) ?? tint
+    /// Recorded clicks as small dots along the track's floor, so they mark
+    /// where Auto Zoom would act without striping the blocks. Culled to the
+    /// visible span: an hour-long take can hold thousands of clicks.
+    private var pressMarks: some View {
+        ZStack(alignment: .topLeading) {
+            ForEach(Array(visiblePressTimes.enumerated()), id: \.offset) { _, pressTime in
+                Circle()
+                    .fill(Color.primary.opacity(0.28))
+                    .frame(width: 3, height: 3)
+                    .offset(
+                        x: scale.x(for: pressTime) - 1.5,
+                        y: StudioTrack.zooms.height - StudioBlockMetrics.inset - 3
+                    )
             }
-            let lift = (appearance.isDarkAppearance ? 0 : 0.08) + (isHovering ? 0.1 : 0)
-            return lift > 0 ? resolved.blended(withFraction: lift, of: .white) ?? resolved : resolved
-        })
-    }
-}
-
-/// A block's body: its fill, a faint light along the top and a hairline
-/// rim, so neighbouring blocks and the track behind them stay apart.
-private struct StudioBlockSurface<Fill: ShapeStyle>: View {
-    let fill: Fill
-
-    var body: some View {
-        let shape = StudioZoomLaneMetrics.blockShape
-        shape.fill(fill)
-            .overlay {
-                shape.fill(LinearGradient(
-                    colors: [.white.opacity(0.14), .white.opacity(0)],
-                    startPoint: .top,
-                    endPoint: .center
-                ))
-            }
-            .overlay {
-                shape.strokeBorder(Color.black.opacity(0.16), lineWidth: 0.5)
-            }
-            .allowsHitTesting(false)
-    }
-}
-
-/// The one label every block uses: a glyph, its name, then a quieter
-/// detail - usually how long the block runs, "Audio 00:56" style. As the
-/// block narrows the detail goes first, then the name (a long one is
-/// truncated while a few letters still show), then the glyph, so nothing
-/// is ever cut to a stub like "C…".
-private struct StudioBlockLabel: View {
-    let systemImage: String
-    let title: String
-    var detail: String?
-    let width: CGFloat
-    let color: Color
-
-    var body: some View {
-        if width >= StudioZoomLaneMetrics.labelInset * 2 + 14 {
-            HStack(spacing: 5) {
-                glyph
-                ViewThatFits(in: .horizontal) {
-                    if let detail {
-                        HStack(spacing: 6) {
-                            titleText
-                            Text(detail)
-                                .font(.system(size: 10.5, weight: .regular).monospacedDigit())
-                                .opacity(0.8)
-                        }
-                        .fixedSize()
-                    }
-                    titleText
-                        .fixedSize()
-                    if width >= 88 {
-                        titleText
-                            .truncationMode(.tail)
-                    } else {
-                        Color.clear.frame(width: 0)
-                    }
-                }
-            }
-            .lineLimit(1)
-            .foregroundStyle(color)
-            .padding(.horizontal, StudioZoomLaneMetrics.labelInset)
-            .frame(width: width, alignment: .leading)
-            .allowsHitTesting(false)
-        } else if width >= 24 {
-            // Too narrow to inset: the glyph alone, centred.
-            glyph
-                .foregroundStyle(color)
-                .frame(width: width)
-                .allowsHitTesting(false)
         }
     }
 
-    private var glyph: some View {
-        Image(systemName: systemImage)
-            .font(.system(size: 10, weight: .medium))
-    }
-
-    /// Digits keep their width, so "1.5×" doesn't shuffle as it changes.
-    private var titleText: Text {
-        Text(title)
-            .font(.system(size: 11, weight: .medium).monospacedDigit())
-    }
-}
-
-/// Selection, drawn the way Apple's trimmers (and Edits) draw it: a yellow
-/// frame whose ends thicken into grips with a chevron in each. The block's
-/// own edge handles sit over the ends.
-private struct StudioTrimFrame: View {
-    var body: some View {
-        StudioTrimFrameShape(
-            edgeWidth: StudioZoomLaneMetrics.trimEdgeWidth,
-            borderWidth: StudioZoomLaneMetrics.trimBorderWidth,
-            cornerRadius: StudioZoomLaneMetrics.blockCornerRadius
-        )
-        .fill(Color(nsColor: .systemYellow), style: FillStyle(eoFill: true))
-        .overlay(alignment: .leading) { grip("chevron.compact.left") }
-        .overlay(alignment: .trailing) { grip("chevron.compact.right") }
-        .allowsHitTesting(false)
-    }
-
-    private func grip(_ systemImage: String) -> some View {
-        Image(systemName: systemImage)
-            .font(.system(size: 11, weight: .bold))
-            .foregroundStyle(Color.black.opacity(0.62))
-            .frame(width: StudioZoomLaneMetrics.trimEdgeWidth)
-    }
-}
-
-/// A rounded frame: thin along the top and bottom, wide at either end.
-private struct StudioTrimFrameShape: Shape {
-    let edgeWidth: CGFloat
-    let borderWidth: CGFloat
-    let cornerRadius: CGFloat
-
-    func path(in rect: CGRect) -> Path {
-        var path = Path(roundedRect: rect, cornerRadius: cornerRadius, style: .continuous)
-        let inner = rect.insetBy(dx: edgeWidth, dy: borderWidth)
-        if inner.width > 0, inner.height > 0 {
-            path.addPath(Path(
-                roundedRect: inner,
-                cornerRadius: max(0, cornerRadius - borderWidth),
-                style: .continuous
-            ))
-        }
-        return path
-    }
-}
-
-/// The mark on a block's edge under the pointer, saying it can be dragged.
-/// A selected block shows the trim frame's grips instead.
-private struct StudioBlockGrip: View {
-    var color: Color = .white
-
-    var body: some View {
-        Capsule()
-            .fill(color.opacity(0.85))
-            .frame(width: 2, height: 10)
-    }
-}
-
-private enum StudioZoomLaneMetrics {
-    static let laneHeight = StudioTrack.zooms.height
-    static let blockCornerRadius: CGFloat = 8
-    static var blockShape: RoundedRectangle {
-        RoundedRectangle(cornerRadius: blockCornerRadius, style: .continuous)
-    }
-    /// The selection frame's grips at either end, and its rim between them.
-    static let trimEdgeWidth: CGFloat = 12
-    static let trimBorderWidth: CGFloat = 2.5
-    /// Clears the selection grips, so a label doesn't shift when its block
-    /// is selected.
-    static let labelInset: CGFloat = trimEdgeWidth + 5
-    static let blockInset: CGFloat = 3
-    static let blockHeight = laneHeight - blockInset * 2
-    static let handleWidth: CGFloat = 12
-    /// Magnifications offered from a block's context menu.
-    static let zoomPresets: [Double] = [1.25, 1.5, 2, 2.5, 3]
-}
-
-/// One zoom on the timeline: an accent capsule whose label names the
-/// magnification (and, when there is room, where the camera looks). Resize
-/// handles show on hover and selection; a turned-off zoom keeps its place as
-/// a muted, hatched block.
-private struct StudioZoomCueBlock: View {
-    @Bindable var model: RecordingStudioModel
-    let block: RecordingZoomTimelineBlock
-    let scale: StudioTimelineScale
-
-    /// Frozen at drag start. The live block re-derives on every model update,
-    /// so measuring the drag against it would compound the translation each
-    /// event and send the block flying.
-    private struct DragBase {
-        let cue: ZoomCue
-        let editorStart: TimeInterval
-        let editorEnd: TimeInterval
-    }
-
-    @State private var dragBase: DragBase?
-    @State private var isHovering = false
-
-    private var isSelected: Bool {
-        model.selectedCueID == block.cue.id
-    }
-
-    private var showsHandles: Bool {
-        isSelected || isHovering || dragBase != nil
-    }
-
-    var body: some View {
-        if scale.pointsPerSecond > 0 {
-            content
-        }
-    }
-
-    private var content: some View {
-        let cue = block.cue
-        let blockDuration = block.editorEnd - block.editorStart
-        // Short cues keep a grabbable minimum width even when the timeline is
-        // fitted; zooming in is what makes them accurate to work with.
-        let width = min(
-            scale.contentWidth,
-            max(24, CGFloat(blockDuration) * scale.pointsPerSecond)
-        )
-        let x = min(
-            max(scale.x(for: block.editorStart), 0),
-            max(0, scale.contentWidth - width)
-        )
-
-        return label(for: cue, width: width)
-            .frame(width: width, height: StudioZoomLaneMetrics.blockHeight, alignment: .leading)
-            .background { blockFill(cue: cue) }
-            .overlay { if isSelected { StudioTrimFrame() } }
-            .overlay(alignment: .leading) {
-                if showsHandles { resizeHandle(edge: .leading) }
-            }
-            .overlay(alignment: .trailing) {
-                if showsHandles { resizeHandle(edge: .trailing) }
-            }
-            .contentShape(StudioZoomLaneMetrics.blockShape)
-            .onHover { isHovering = $0 }
-            .offset(x: x, y: StudioZoomLaneMetrics.blockInset)
-            .gesture(moveGesture(cue: cue))
-            .onTapGesture {
-                model.selectZoomCue(id: cue.id)
-            }
-            .contextMenu { menu(for: cue) }
-            .help(helpText(for: cue))
-    }
-
-    private func label(for cue: ZoomCue, width: CGFloat) -> some View {
+    @ViewBuilder
+    private func content(for block: StudioLaneBlock<ZoomCue>, state: StudioBlockState) -> some View {
+        let cue = block.item
         StudioBlockLabel(
             systemImage: cue.anchorMode == .pinnedAnchor ? "scope" : "magnifyingglass",
             title: cue.isEnabled
@@ -1775,40 +1414,49 @@ private struct StudioZoomCueBlock: View {
             // Following the pointer is the default, so only a zoom that
             // does something else says so, ahead of its length.
             detail: (cue.isEnabled && cue.anchorMode != .pointerAnchor ? "\(cue.anchorMode.laneTitle) · " : "")
-                + studioTimecode(block.editorEnd - block.editorStart),
-            width: width,
+                + studioTimecode(block.editorLength),
+            width: state.width,
             color: cue.isEnabled ? StudioBlockStyle.zoom.onTint : .secondary
         )
+        .background {
+            if cue.isEnabled {
+                StudioBlockSurface(fill: StudioBlockStyle.zoom.fill(isHovering: state.isHovered))
+            } else {
+                // Hatched, so a turned-off zoom reads as "kept, not used".
+                StudioBlockSurface(fill: Color.primary.opacity(0.08))
+                    .overlay { StudioBlockHatch(color: .primary.opacity(0.10)) }
+            }
+        }
     }
 
-    @ViewBuilder
-    private func blockFill(cue: ZoomCue) -> some View {
-        if cue.isEnabled {
-            StudioBlockSurface(fill: StudioBlockStyle.zoom.fill(isHovering: isHovering))
-        } else {
-            StudioBlockSurface(fill: Color.primary.opacity(0.08))
-                .overlay {
-                    // Hatched, so a turned-off zoom reads as "kept, not used".
-                    Canvas { context, size in
-                        var path = Path()
-                        var x: CGFloat = -size.height
-                        while x < size.width {
-                            path.move(to: CGPoint(x: x, y: size.height))
-                            path.addLine(to: CGPoint(x: x + size.height, y: 0))
-                            x += 6
-                        }
-                        context.stroke(path, with: .color(.primary.opacity(0.10)), lineWidth: 1)
-                    }
-                    .clipShape(StudioZoomLaneMetrics.blockShape)
-                    .allowsHitTesting(false)
-                }
+    private func apply(_ edit: StudioBlockEdit<ZoomCue>) {
+        let base = edit.base
+        var cue = base.item
+        switch edit.kind {
+        case .move:
+            let range = studioMovedSourceRange(
+                model: model,
+                editorStart: base.editorStart + edit.delta,
+                editorLength: base.editorLength
+            )
+            cue.start = range.start
+            cue.end = range.end
+            model.moveZoomCue(cue)
+        case .trimLeading:
+            let source = model.sourceTime(atEditorTime: base.editorStart + edit.delta)
+            cue.start = min(max(0, source), base.item.end - ZoomCue.minimumDuration)
+            model.updateZoomCue(cue)
+        case .trimTrailing:
+            let source = model.sourceTime(atEditorTime: base.editorEnd + edit.delta)
+            cue.end = max(base.item.start + ZoomCue.minimumDuration, min(model.sourceDuration, source))
+            model.updateZoomCue(cue)
         }
     }
 
     @ViewBuilder
     private func menu(for cue: ZoomCue) -> some View {
         Menu("Zoom Level") {
-            ForEach(StudioZoomLaneMetrics.zoomPresets, id: \.self) { preset in
+            ForEach(Self.zoomPresets, id: \.self) { preset in
                 Toggle(
                     String(format: "%g×", preset),
                     isOn: Binding(
@@ -1853,7 +1501,10 @@ private struct StudioZoomCueBlock: View {
         }
     }
 
-    /// One undoable change to this zoom from its context menu.
+    /// Magnifications offered from a block's context menu.
+    private static let zoomPresets: [Double] = [1.25, 1.5, 2, 2.5, 3]
+
+    /// One undoable change to a zoom from its context menu.
     private func edit(_ cue: ZoomCue, action: String, _ change: (inout ZoomCue) -> Void) {
         var updated = cue
         change(&updated)
@@ -1862,95 +1513,14 @@ private struct StudioZoomCueBlock: View {
         model.endZoomCueEdit(actionName: action)
     }
 
-    private func helpText(for cue: ZoomCue) -> String {
-        guard cue.isEnabled else { return "Turned off. Right-click to turn it back on." }
-        return "Drag to move, drag an edge to resize, right-click for options"
+    private var visiblePressTimes: [TimeInterval] {
+        model.visibleRecordedPressTimes.filter { visibleRange.contains($0) }
     }
 
-    private func moveGesture(cue: ZoomCue) -> some Gesture {
-        // Global coordinates: the block moves under the pointer while
-        // dragging, so a local-space translation would chase its own
-        // updates and jitter.
-        DragGesture(coordinateSpace: .global)
-            .onChanged { value in
-                if dragBase == nil {
-                    dragBase = DragBase(
-                        cue: cue,
-                        editorStart: block.editorStart,
-                        editorEnd: block.editorEnd
-                    )
-                    model.beginZoomCueEdit()
-                    model.selectZoomCue(id: cue.id)
-                }
-                guard let dragBase else { return }
-                let delta = Double(value.translation.width) * scale.secondsPerPoint
-                let range = studioMovedSourceRange(
-                    model: model,
-                    editorStart: dragBase.editorStart + delta,
-                    editorLength: dragBase.editorEnd - dragBase.editorStart
-                )
-                var moved = dragBase.cue
-                moved.start = range.start
-                moved.end = range.end
-                model.moveZoomCue(moved)
-            }
-            .onEnded { _ in
-                dragBase = nil
-                model.endZoomCueEdit(actionName: "Move Zoom")
-            }
-    }
-
-    private func resizeHandle(edge: HorizontalEdge) -> some View {
-        Rectangle()
-            .fill(Color.white.opacity(0.001))
-            .frame(width: StudioZoomLaneMetrics.handleWidth, height: StudioZoomLaneMetrics.blockHeight)
-            .overlay {
-                if !isSelected {
-                    StudioBlockGrip(color: block.cue.isEnabled ? StudioBlockStyle.zoom.onTint : .secondary)
-                }
-            }
-            .contentShape(Rectangle())
-            .pointerStyle(.frameResize(position: edge == .leading ? .leading : .trailing))
-            .gesture(
-                // Global coordinates - the handle itself moves while resizing,
-                // so local-space translations feed back into the drag and jitter.
-                DragGesture(coordinateSpace: .global)
-                    .onChanged { value in
-                        if dragBase == nil {
-                            dragBase = DragBase(
-                                cue: block.cue,
-                                editorStart: block.editorStart,
-                                editorEnd: block.editorEnd
-                            )
-                            model.beginZoomCueEdit()
-                            model.selectZoomCue(id: block.cue.id)
-                        }
-                        guard let dragBase else { return }
-                        let delta = Double(value.translation.width) * scale.secondsPerPoint
-                        var resized = dragBase.cue
-                        switch edge {
-                        case .leading:
-                            let editorTime = dragBase.editorStart + delta
-                            let sourceTime = model.sourceTime(atEditorTime: editorTime)
-                            resized.start = min(
-                                max(0, sourceTime),
-                                dragBase.cue.end - ZoomCue.minimumDuration
-                            )
-                        case .trailing:
-                            let editorTime = dragBase.editorEnd + delta
-                            let sourceTime = model.sourceTime(atEditorTime: editorTime)
-                            resized.end = max(
-                                dragBase.cue.start + ZoomCue.minimumDuration,
-                                min(model.sourceDuration, sourceTime)
-                            )
-                        }
-                        model.updateZoomCue(resized)
-                    }
-                    .onEnded { _ in
-                        dragBase = nil
-                        model.endZoomCueEdit(actionName: "Resize Zoom")
-                    }
-            )
+    private var visibleBlocks: [StudioLaneBlock<ZoomCue>] {
+        model.zoomTimelineBlocks
+            .filter { $0.editorEnd >= visibleRange.lowerBound && $0.editorStart <= visibleRange.upperBound }
+            .map { StudioLaneBlock(item: $0.cue, editorStart: $0.editorStart, editorEnd: $0.editorEnd) }
     }
 }
 
@@ -1966,67 +1536,35 @@ private extension ZoomAnchorMode {
 
 // MARK: - Layout lane
 
-/// Camera layout cues. Dragging across empty lane creates one over the
-/// dragged range; a click scrubs, as on the zoom lane.
+/// Camera layout cues. Dragging across empty track draws out a layout in
+/// the gap it started in; a click scrubs, as on the zoom track.
 private struct StudioLayoutLane: View {
     @Bindable var model: RecordingStudioModel
     let scale: StudioTimelineScale
     let visibleRange: ClosedRange<TimeInterval>
 
-    private static let dragCreateThreshold: CGFloat = 4
-
-    @State private var dragStartTime: TimeInterval?
-    @State private var pendingRange: ClosedRange<TimeInterval>?
-
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            Color.clear
-                .contentShape(Rectangle())
-                .gesture(
-                    DragGesture(minimumDistance: 0)
-                        .onChanged { value in
-                            guard scale.pointsPerSecond > 0 else { return }
-                            let time = scale.time(forX: value.location.x)
-                            if dragStartTime == nil {
-                                model.pause()
-                                dragStartTime = time
-                                model.clearTimelineSelection()
-                            }
-                            guard let startTime = dragStartTime else { return }
-                            if pendingRange == nil,
-                               abs(value.location.x - scale.x(for: startTime)) < Self.dragCreateThreshold {
-                                model.seek(to: time)
-                                return
-                            }
-                            pendingRange = clampedRange(from: startTime, to: time)
-                        }
-                        .onEnded { _ in
-                            if let range = pendingRange, range.upperBound - range.lowerBound > 0.001 {
-                                model.addLayoutCue(fromEditorTime: range.lowerBound, toEditorTime: range.upperBound)
-                            }
-                            dragStartTime = nil
-                            pendingRange = nil
-                        }
-                )
-
-            if let pendingRange {
-                let lowX = scale.x(for: pendingRange.lowerBound)
-                let highX = scale.x(for: pendingRange.upperBound)
-                RoundedRectangle(cornerRadius: StudioZoomLaneMetrics.blockCornerRadius, style: .continuous)
-                    .fill(Palette.layoutCue.opacity(0.22))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: StudioZoomLaneMetrics.blockCornerRadius, style: .continuous)
-                            .strokeBorder(Palette.layoutCue.opacity(0.9), style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
-                    }
-                    .frame(width: max(2, highX - lowX), height: StudioZoomLaneMetrics.blockHeight)
-                    .offset(x: lowX, y: StudioZoomLaneMetrics.blockInset)
-                    .allowsHitTesting(false)
+        StudioBlockLane(
+            model: model,
+            blocks: visibleBlocks,
+            selectedID: model.selectedLayoutCueID,
+            scale: scale,
+            height: StudioTrack.layouts.height,
+            empty: .create(tint: Palette.layoutCue, minimumLength: 0.001, stopsAtBlocks: true) { range in
+                model.addLayoutCue(fromEditorTime: range.lowerBound, toEditorTime: range.upperBound)
+            },
+            actions: StudioBlockLaneActions(
+                select: { model.selectLayoutCue(id: $0.id) },
+                begin: { _ in model.beginLayoutCueEdit() },
+                edit: apply,
+                end: { kind in model.endLayoutCueEdit(actionName: kind == .move ? "Move Layout" : "Resize Layout") }
+            ),
+            content: { block, state in content(for: block, state: state) },
+            menu: { block in menu(for: block.item) },
+            help: { block in
+                "\(block.item.layout.detailedTitle). Drag to move, drag an end to resize, right-click to change."
             }
-
-            ForEach(visibleBlocks) { block in
-                StudioLayoutCueBlock(model: model, block: block, scale: scale)
-            }
-        }
+        )
         .opacity(model.showsCameraLayer ? 1 : 0.45)
         .contextMenu {
             Menu("Add Layout at Playhead") {
@@ -2042,99 +1580,59 @@ private struct StudioLayoutLane: View {
         }
     }
 
-    private func clampedRange(from startTime: TimeInterval, to currentTime: TimeInterval) -> ClosedRange<TimeInterval> {
-        let blocks = model.cameraLayoutTimelineBlocks
-        let lowerLimit = blocks.filter { $0.editorEnd <= startTime }.map(\.editorEnd).max() ?? 0
-        let upperLimit = blocks.filter { $0.editorStart >= startTime }.map(\.editorStart).min() ?? model.duration
-        let low = max(min(startTime, currentTime), lowerLimit)
-        let high = min(max(startTime, currentTime), upperLimit)
-        return low...max(low, high)
-    }
-
-    private var visibleBlocks: [RecordingCameraLayoutTimelineBlock] {
-        model.cameraLayoutTimelineBlocks.filter {
-            $0.editorEnd >= visibleRange.lowerBound && $0.editorStart <= visibleRange.upperBound
-        }
-    }
-}
-
-/// One layout cue: a capsule naming its layout, with the morph-in drawn as
-/// a soft ramp at its leading edge. Moves and resizes like a zoom block.
-private struct StudioLayoutCueBlock: View {
-    @Bindable var model: RecordingStudioModel
-    let block: RecordingCameraLayoutTimelineBlock
-    let scale: StudioTimelineScale
-
-    private struct DragBase {
-        let cue: RecordingCameraLayoutCue
-        let editorStart: TimeInterval
-        let editorEnd: TimeInterval
-    }
-
-    @State private var dragBase: DragBase?
-    @State private var isHovering = false
-
-    private var isSelected: Bool {
-        model.selectedLayoutCueID == block.cue.id
-    }
-
-    private var showsHandles: Bool {
-        isSelected || isHovering || dragBase != nil
-    }
-
-    var body: some View {
-        if scale.pointsPerSecond > 0 {
-            content
-        }
-    }
-
-    private var content: some View {
-        let cue = block.cue
-        let width = min(
-            scale.contentWidth,
-            max(24, CGFloat(block.editorEnd - block.editorStart) * scale.pointsPerSecond)
+    private func content(
+        for block: StudioLaneBlock<RecordingCameraLayoutCue>,
+        state: StudioBlockState
+    ) -> some View {
+        let rampWidth = min(
+            state.width / 2,
+            CGFloat(RecordingCameraLayoutTimeline.transitionDuration) * scale.pointsPerSecond
         )
-        let x = min(max(scale.x(for: block.editorStart), 0), max(0, scale.contentWidth - width))
-        let rampWidth = min(width / 2, CGFloat(RecordingCameraLayoutTimeline.transitionDuration) * scale.pointsPerSecond)
-
         return StudioBlockLabel(
-            systemImage: cue.layout.systemImage,
-            title: cue.layout.title,
-            detail: studioTimecode(block.editorEnd - block.editorStart),
-            width: width,
+            systemImage: block.item.layout.systemImage,
+            title: block.item.layout.title,
+            detail: studioTimecode(block.editorLength),
+            width: state.width,
             color: StudioBlockStyle.layout.onTint
         )
-            .frame(width: width, height: StudioZoomLaneMetrics.blockHeight, alignment: .leading)
-            .background {
-                StudioBlockSurface(fill: StudioBlockStyle.layout.fill(isHovering: isHovering))
-                    .overlay(alignment: .leading) {
-                        // Where the layout is still morphing in.
-                        LinearGradient(
-                            colors: [StudioBlockStyle.layout.onTint.opacity(0.2), .clear],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                        .frame(width: rampWidth)
-                        .clipShape(StudioZoomLaneMetrics.blockShape)
-                        .allowsHitTesting(false)
-                    }
-            }
-            .overlay { if isSelected { StudioTrimFrame() } }
-            .overlay(alignment: .leading) {
-                if showsHandles { resizeHandle(edge: .leading) }
-            }
-            .overlay(alignment: .trailing) {
-                if showsHandles { resizeHandle(edge: .trailing) }
-            }
-            .contentShape(StudioZoomLaneMetrics.blockShape)
-            .onHover { isHovering = $0 }
-            .offset(x: x, y: StudioZoomLaneMetrics.blockInset)
-            .gesture(moveGesture(cue: cue))
-            .onTapGesture {
-                model.selectLayoutCue(id: cue.id)
-            }
-            .contextMenu { menu(for: cue) }
-            .help("\(cue.layout.detailedTitle). Drag to move, drag an edge to resize, right-click to change.")
+        .background {
+            StudioBlockSurface(fill: StudioBlockStyle.layout.fill(isHovering: state.isHovered))
+                .overlay(alignment: .leading) {
+                    // Where the layout is still morphing in.
+                    LinearGradient(
+                        colors: [StudioBlockStyle.layout.onTint.opacity(0.2), .clear],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                    .frame(width: rampWidth)
+                    .clipShape(StudioBlockMetrics.shape)
+                }
+        }
+    }
+
+    private func apply(_ edit: StudioBlockEdit<RecordingCameraLayoutCue>) {
+        let base = edit.base
+        var cue = base.item
+        let minimum = RecordingCameraLayoutCue.minimumDuration
+        switch edit.kind {
+        case .move:
+            let range = studioMovedSourceRange(
+                model: model,
+                editorStart: base.editorStart + edit.delta,
+                editorLength: base.editorLength
+            )
+            cue.start = range.start
+            cue.end = range.end
+            model.moveLayoutCue(cue)
+        case .trimLeading:
+            let source = model.sourceTime(atEditorTime: base.editorStart + edit.delta)
+            cue.start = min(max(0, source), base.item.end - minimum)
+            model.resizeLayoutCue(cue)
+        case .trimTrailing:
+            let source = model.sourceTime(atEditorTime: base.editorEnd + edit.delta)
+            cue.end = max(base.item.start + minimum, min(model.sourceDuration, source))
+            model.resizeLayoutCue(cue)
+        }
     }
 
     @ViewBuilder
@@ -2162,156 +1660,62 @@ private struct StudioLayoutCueBlock: View {
         }
     }
 
-    private func beginDrag() {
-        guard dragBase == nil else { return }
-        dragBase = DragBase(cue: block.cue, editorStart: block.editorStart, editorEnd: block.editorEnd)
-        model.beginLayoutCueEdit()
-        model.selectLayoutCue(id: block.cue.id)
-    }
-
-    private func moveGesture(cue: RecordingCameraLayoutCue) -> some Gesture {
-        DragGesture(coordinateSpace: .global)
-            .onChanged { value in
-                beginDrag()
-                guard let dragBase else { return }
-                let delta = Double(value.translation.width) * scale.secondsPerPoint
-                let range = studioMovedSourceRange(
-                    model: model,
-                    editorStart: dragBase.editorStart + delta,
-                    editorLength: dragBase.editorEnd - dragBase.editorStart
-                )
-                var moved = dragBase.cue
-                moved.start = range.start
-                moved.end = range.end
-                model.moveLayoutCue(moved)
-            }
-            .onEnded { _ in
-                dragBase = nil
-                model.endLayoutCueEdit(actionName: "Move Layout")
-            }
-    }
-
-    private func resizeHandle(edge: HorizontalEdge) -> some View {
-        Rectangle()
-            .fill(Color.white.opacity(0.001))
-            .frame(width: StudioZoomLaneMetrics.handleWidth, height: StudioZoomLaneMetrics.blockHeight)
-            .overlay {
-                if !isSelected { StudioBlockGrip(color: StudioBlockStyle.layout.onTint) }
-            }
-            .contentShape(Rectangle())
-            .pointerStyle(.frameResize(position: edge == .leading ? .leading : .trailing))
-            .gesture(
-                DragGesture(coordinateSpace: .global)
-                    .onChanged { value in
-                        beginDrag()
-                        guard let dragBase else { return }
-                        let delta = Double(value.translation.width) * scale.secondsPerPoint
-                        var resized = dragBase.cue
-                        let minimum = RecordingCameraLayoutCue.minimumDuration
-                        switch edge {
-                        case .leading:
-                            let source = model.sourceTime(atEditorTime: dragBase.editorStart + delta)
-                            resized.start = min(max(0, source), dragBase.cue.end - minimum)
-                        case .trailing:
-                            let source = model.sourceTime(atEditorTime: dragBase.editorEnd + delta)
-                            resized.end = max(dragBase.cue.start + minimum, min(model.sourceDuration, source))
-                        }
-                        model.resizeLayoutCue(resized)
-                    }
-                    .onEnded { _ in
-                        dragBase = nil
-                        model.endLayoutCueEdit(actionName: "Resize Layout")
-                    }
-            )
+    private var visibleBlocks: [StudioLaneBlock<RecordingCameraLayoutCue>] {
+        model.cameraLayoutTimelineBlocks
+            .filter { $0.editorEnd >= visibleRange.lowerBound && $0.editorStart <= visibleRange.upperBound }
+            .map { StudioLaneBlock(item: $0.cue, editorStart: $0.editorStart, editorEnd: $0.editorEnd) }
     }
 }
 
 // MARK: - Text and pixelate tracks
 
 /// Text blocks. Dragging across empty track adds a text over the dragged
-/// range; a click scrubs, as on the zoom lane.
+/// range; a click scrubs. Texts may overlap.
 private struct StudioTextLane: View {
     @Bindable var model: RecordingStudioModel
     let scale: StudioTimelineScale
     let visibleRange: ClosedRange<TimeInterval>
     let onScrubbing: (Bool) -> Void
 
-    private static let dragCreateThreshold: CGFloat = 4
-
-    @State private var dragStartTime: TimeInterval?
-    @State private var pendingRange: ClosedRange<TimeInterval>?
-
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            Color.clear
-                .contentShape(Rectangle())
-                .gesture(
-                    DragGesture(minimumDistance: 0)
-                        .onChanged { value in
-                            guard scale.pointsPerSecond > 0 else { return }
-                            let time = scale.time(forX: value.location.x)
-                            if dragStartTime == nil {
-                                model.pause()
-                                dragStartTime = time
-                                model.clearTimelineSelection()
-                            }
-                            guard let startTime = dragStartTime else { return }
-                            if pendingRange == nil,
-                               abs(value.location.x - scale.x(for: startTime)) < Self.dragCreateThreshold {
-                                onScrubbing(true)
-                                model.seek(to: time)
-                                return
-                            }
-                            onScrubbing(false)
-                            pendingRange = min(startTime, time)...max(startTime, time)
-                        }
-                        .onEnded { _ in
-                            onScrubbing(false)
-                            if let range = pendingRange, range.upperBound - range.lowerBound > 0.05 {
-                                model.addText(fromEditorTime: range.lowerBound, toEditorTime: range.upperBound)
-                            }
-                            dragStartTime = nil
-                            pendingRange = nil
-                        }
-                )
-
-            if let pendingRange {
-                StudioPendingBlock(range: pendingRange, scale: scale, tint: Palette.textCue)
-            }
-
-            ForEach(visibleBlocks) { block in
-                StudioOverlayBlock(
-                    block: block,
-                    scale: scale,
-                    isSelected: model.selectedTextID == block.item.id,
+        StudioBlockLane(
+            model: model,
+            blocks: visibleBlocks,
+            selectedID: model.selectedTextID,
+            scale: scale,
+            height: StudioTrack.text.height,
+            empty: .create(tint: Palette.textCue, minimumLength: 0.05, stopsAtBlocks: false) { range in
+                model.addText(fromEditorTime: range.lowerBound, toEditorTime: range.upperBound)
+            },
+            onScrubbing: onScrubbing,
+            actions: StudioBlockLaneActions(
+                select: { model.selectText(id: $0.id) },
+                begin: { _ in model.beginTextEdit() },
+                edit: { edit in
+                    var text = edit.base.item
+                    let range = studioOverlaySourceRange(for: edit, model: model, start: text.start, end: text.end)
+                    text.start = range.start
+                    text.end = range.end
+                    model.setText(text)
+                },
+                end: { kind in model.endTextEdit(actionName: kind == .move ? "Move Text" : "Resize Text") }
+            ),
+            content: { block, state in
+                StudioOverlayBlockContent(
                     style: .text,
                     systemImage: "textformat",
-                    title: block.item.text.isEmpty ? "Text" : block.item.text
-                        .replacingOccurrences(of: "\n", with: " "),
-                    isHatched: false,
-                    onSelect: { model.selectText(id: block.item.id) },
-                    onBegin: {
-                        model.selectText(id: block.item.id)
-                        model.beginTextEdit()
-                    },
-                    onEdit: { base, start, end in
-                        var edited = base
-                        edited.start = start
-                        edited.end = end
-                        model.setText(edited)
-                    },
-                    onEnd: { kind in
-                        model.endTextEdit(actionName: kind == .move ? "Move Text" : "Resize Text")
-                    },
-                    sourceRange: { ($0.start, $0.end) },
-                    model: model
-                ) {
-                    Button("Delete Text", systemImage: "trash", role: .destructive) {
-                        model.removeText(id: block.item.id)
-                    }
+                    title: title(for: block.item),
+                    length: block.editorLength,
+                    state: state
+                )
+            },
+            menu: { block in
+                Button("Delete Text", systemImage: "trash", role: .destructive) {
+                    model.removeText(id: block.id)
                 }
-            }
-        }
+            },
+            help: { block in "\(title(for: block.item)). Drag to move, drag an end to resize, right-click for options." }
+        )
         .contextMenu {
             Button("Add Text at Playhead", systemImage: "textformat") {
                 model.addText(atEditorTime: model.currentTime)
@@ -2319,123 +1723,99 @@ private struct StudioTextLane: View {
         }
     }
 
-    private var visibleBlocks: [RecordingOverlayTimelineBlock<RecordingTextOverlay>] {
-        model.textTimelineBlocks.filter {
-            $0.editorEnd >= visibleRange.lowerBound && $0.editorStart <= visibleRange.upperBound
+    private func title(for text: RecordingTextOverlay) -> String {
+        text.text.isEmpty ? "Text" : text.text.replacingOccurrences(of: "\n", with: " ")
+    }
+
+    private var visibleBlocks: [StudioLaneBlock<RecordingTextOverlay>] {
+        model.textTimelineBlocks
+            .filter { $0.editorEnd >= visibleRange.lowerBound && $0.editorStart <= visibleRange.upperBound }
+            .map { StudioLaneBlock(item: $0.item, editorStart: $0.editorStart, editorEnd: $0.editorEnd) }
+    }
+}
+
+/// What sits on the Images and Effects track. Images and pixelate or blur
+/// regions share it, so they hit-test together.
+private enum StudioEffectsItem: Identifiable {
+    case image(RecordingImageOverlay)
+    case redaction(RecordingRedaction)
+
+    var id: UUID {
+        switch self {
+        case .image(let overlay): overlay.id
+        case .redaction(let redaction): redaction.id
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .image(let overlay): overlay.isAnimated ? "\(overlay.displayName) · GIF" : overlay.displayName
+        case .redaction(let redaction): redaction.style.title
         }
     }
 }
 
 /// Images, GIFs, and pixelate and blur blocks, on the Images and Effects
-/// track. A click on empty track scrubs.
+/// track. A drag across empty track scrubs.
 private struct StudioRedactionLane: View {
     @Bindable var model: RecordingStudioModel
     let scale: StudioTimelineScale
     let visibleRange: ClosedRange<TimeInterval>
     let onScrubbing: (Bool) -> Void
 
-    @State private var isScrubbing = false
-
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            Color.clear
-                .contentShape(Rectangle())
-                .gesture(
-                    DragGesture(minimumDistance: 0)
-                        .onChanged { value in
-                            if !isScrubbing {
-                                isScrubbing = true
-                                onScrubbing(true)
-                                model.pause()
-                                model.clearTimelineSelection()
-                            }
-                            model.seek(to: scale.time(forX: value.location.x))
-                        }
-                        .onEnded { _ in
-                            isScrubbing = false
-                            onScrubbing(false)
-                        }
-                )
-
-            ForEach(visibleImageBlocks) { block in
-                let overlay = block.item
-                StudioOverlayBlock(
-                    block: block,
-                    scale: scale,
-                    isSelected: model.selectedImageID == overlay.id,
-                    style: .image,
-                    systemImage: overlay.isAnimated ? "photo.stack" : "photo",
-                    title: overlay.isAnimated ? "\(overlay.displayName) · GIF" : overlay.displayName,
-                    isHatched: false,
-                    onSelect: { model.selectImage(id: overlay.id) },
-                    onBegin: {
-                        model.selectImage(id: overlay.id)
-                        model.beginImageEdit()
-                    },
-                    onEdit: { base, start, end in
-                        var edited = base
-                        edited.start = start
-                        edited.end = end
-                        model.setImage(edited)
-                    },
-                    onEnd: { kind in
-                        model.endImageEdit(actionName: kind == .move ? "Move Image" : "Resize Image")
-                    },
-                    sourceRange: { ($0.start, $0.end) },
-                    model: model
-                ) {
-                    Button("Delete Image", systemImage: "trash", role: .destructive) {
-                        model.removeImage(id: overlay.id)
+        StudioBlockLane(
+            model: model,
+            blocks: visibleBlocks,
+            selectedID: model.selectedImageID ?? model.selectedRedactionID,
+            scale: scale,
+            height: StudioTrack.overlay.height,
+            empty: .scrub,
+            onScrubbing: onScrubbing,
+            actions: StudioBlockLaneActions(
+                select: { item in
+                    switch item {
+                    case .image(let overlay): model.selectImage(id: overlay.id)
+                    case .redaction(let redaction): model.selectRedaction(id: redaction.id)
                     }
+                },
+                begin: { _ in
+                    model.beginImageEdit()
+                    model.beginRedactionEdit()
+                },
+                edit: apply,
+                end: { kind in
+                    let verb = kind == .move ? "Move" : "Resize"
+                    model.endImageEdit(actionName: "\(verb) Image")
+                    model.endRedactionEdit(actionName: "\(verb) Pixelate")
                 }
-            }
-
-            ForEach(visibleBlocks) { block in
-                let redaction = block.item
-                StudioOverlayBlock(
-                    block: block,
-                    scale: scale,
-                    isSelected: model.selectedRedactionID == redaction.id,
-                    style: .effect,
-                    systemImage: redaction.style.systemImage,
-                    title: redaction.style.title,
-                    isHatched: true,
-                    onSelect: { model.selectRedaction(id: redaction.id) },
-                    onBegin: {
-                        model.selectRedaction(id: redaction.id)
-                        model.beginRedactionEdit()
-                    },
-                    onEdit: { base, start, end in
-                        var edited = base
-                        edited.start = start
-                        edited.end = end
-                        model.setRedaction(edited)
-                    },
-                    onEnd: { kind in
-                        model.endRedactionEdit(actionName: kind == .move ? "Move Pixelate" : "Resize Pixelate")
-                    },
-                    sourceRange: { ($0.start, $0.end) },
-                    model: model
-                ) {
-                    Menu("Style") {
-                        ForEach(RecordingRedaction.Style.allCases) { style in
-                            Toggle(style.title, isOn: Binding(
-                                get: { redaction.style == style },
-                                set: { _ in
-                                    var edited = redaction
-                                    edited.style = style
-                                    model.updateRedaction(edited, actionName: "Change Pixelate Style")
-                                }
-                            ))
-                        }
-                    }
-                    Divider()
-                    Button("Delete \(redaction.style.title)", systemImage: "trash", role: .destructive) {
-                        model.removeRedaction(id: redaction.id)
-                    }
+            ),
+            content: { block, state in
+                switch block.item {
+                case .image(let overlay):
+                    StudioOverlayBlockContent(
+                        style: .image,
+                        systemImage: overlay.isAnimated ? "photo.stack" : "photo",
+                        title: block.item.title,
+                        length: block.editorLength,
+                        state: state
+                    )
+                case .redaction(let redaction):
+                    // Effects carry light stripes, so they read apart from
+                    // images.
+                    StudioOverlayBlockContent(
+                        style: .effect,
+                        systemImage: redaction.style.systemImage,
+                        title: block.item.title,
+                        length: block.editorLength,
+                        state: state,
+                        isHatched: true
+                    )
                 }
-            }
-        }
+            },
+            menu: { block in menu(for: block.item) },
+            help: { block in "\(block.item.title). Drag to move, drag an end to resize, right-click for options." }
+        )
         .contextMenu {
             Button("Pixelate at Playhead", systemImage: "squareshape.split.3x3") {
                 model.addRedaction(atEditorTime: model.currentTime)
@@ -2446,263 +1826,160 @@ private struct StudioRedactionLane: View {
         }
     }
 
-    private var visibleImageBlocks: [RecordingOverlayTimelineBlock<RecordingImageOverlay>] {
-        model.imageTimelineBlocks.filter {
-            $0.editorEnd >= visibleRange.lowerBound && $0.editorStart <= visibleRange.upperBound
+    private func apply(_ edit: StudioBlockEdit<StudioEffectsItem>) {
+        switch edit.base.item {
+        case .image(var overlay):
+            let range = studioOverlaySourceRange(for: edit, model: model, start: overlay.start, end: overlay.end)
+            overlay.start = range.start
+            overlay.end = range.end
+            model.setImage(overlay)
+        case .redaction(var redaction):
+            let range = studioOverlaySourceRange(for: edit, model: model, start: redaction.start, end: redaction.end)
+            redaction.start = range.start
+            redaction.end = range.end
+            model.setRedaction(redaction)
         }
     }
 
-    private var visibleBlocks: [RecordingOverlayTimelineBlock<RecordingRedaction>] {
-        model.redactionTimelineBlocks.filter {
-            $0.editorEnd >= visibleRange.lowerBound && $0.editorStart <= visibleRange.upperBound
-        }
-    }
-}
-
-/// The dashed block a drag across an empty track would create.
-private struct StudioPendingBlock: View {
-    let range: ClosedRange<TimeInterval>
-    let scale: StudioTimelineScale
-    let tint: Color
-
-    var body: some View {
-        let lowX = scale.x(for: range.lowerBound)
-        let highX = scale.x(for: range.upperBound)
-        let shape = RoundedRectangle(cornerRadius: StudioZoomLaneMetrics.blockCornerRadius, style: .continuous)
-        shape
-            .fill(tint.opacity(0.22))
-            .overlay {
-                shape.strokeBorder(tint.opacity(0.85), style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+    @ViewBuilder
+    private func menu(for item: StudioEffectsItem) -> some View {
+        switch item {
+        case .image(let overlay):
+            Button("Delete Image", systemImage: "trash", role: .destructive) {
+                model.removeImage(id: overlay.id)
             }
-            .frame(width: max(2, highX - lowX), height: StudioZoomLaneMetrics.blockHeight)
-            .offset(x: lowX, y: StudioZoomLaneMetrics.blockInset)
-            .allowsHitTesting(false)
+        case .redaction(let redaction):
+            Menu("Style") {
+                ForEach(RecordingRedaction.Style.allCases) { style in
+                    Toggle(style.title, isOn: Binding(
+                        get: { redaction.style == style },
+                        set: { _ in
+                            var edited = redaction
+                            edited.style = style
+                            model.updateRedaction(edited, actionName: "Change Pixelate Style")
+                        }
+                    ))
+                }
+            }
+            Divider()
+            Button("Delete \(redaction.style.title)", systemImage: "trash", role: .destructive) {
+                model.removeRedaction(id: redaction.id)
+            }
+        }
+    }
+
+    /// Images under effects, as they draw on the video.
+    private var visibleBlocks: [StudioLaneBlock<StudioEffectsItem>] {
+        let images = model.imageTimelineBlocks.map {
+            StudioLaneBlock(item: StudioEffectsItem.image($0.item), editorStart: $0.editorStart, editorEnd: $0.editorEnd)
+        }
+        let redactions = model.redactionTimelineBlocks.map {
+            StudioLaneBlock(item: StudioEffectsItem.redaction($0.item), editorStart: $0.editorStart, editorEnd: $0.editorEnd)
+        }
+        return (images + redactions).filter {
+            $0.editorEnd >= visibleRange.lowerBound && $0.editorStart <= visibleRange.upperBound
+        }
     }
 }
 
-/// One text or effect on its track: a tinted block naming what it is, moved
-/// by dragging its body and resized by its edges. Unlike zooms and
-/// layouts, these may overlap, so a block never parks against another.
-private struct StudioOverlayBlock<Item: Identifiable & Sendable, MenuContent: View>: View {
-    enum EditKind { case move, leading, trailing }
+/// Where a text, image or effect lands after a drag. A move keeps its
+/// length on the timeline; a trim moves one end, never past the other.
+private func studioOverlaySourceRange<Item>(
+    for edit: StudioBlockEdit<Item>,
+    model: RecordingStudioModel,
+    start: TimeInterval,
+    end: TimeInterval
+) -> (start: TimeInterval, end: TimeInterval) {
+    switch edit.kind {
+    case .move:
+        return studioMovedSourceRange(
+            model: model,
+            editorStart: edit.base.editorStart + edit.delta,
+            editorLength: edit.base.editorLength
+        )
+    case .trimLeading:
+        let source = model.sourceTime(atEditorTime: edit.base.editorStart + edit.delta)
+        return (min(source, end - 0.1), end)
+    case .trimTrailing:
+        let source = model.sourceTime(atEditorTime: edit.base.editorEnd + edit.delta)
+        return (start, max(source, start + 0.1))
+    }
+}
 
-    let block: RecordingOverlayTimelineBlock<Item>
-    let scale: StudioTimelineScale
-    let isSelected: Bool
+/// A text, image or effect block: its surface, stripes for effects, and
+/// its label.
+private struct StudioOverlayBlockContent: View {
     let style: StudioBlockStyle
     let systemImage: String
     let title: String
-    /// Effects carry light stripes, so they read apart from images.
-    let isHatched: Bool
-    let onSelect: () -> Void
-    let onBegin: () -> Void
-    /// The item as the drag found it, and its new source range.
-    let onEdit: (Item, TimeInterval, TimeInterval) -> Void
-    let onEnd: (EditKind) -> Void
-    let sourceRange: (Item) -> (start: TimeInterval, end: TimeInterval)
-    let model: RecordingStudioModel
-    @ViewBuilder let menu: () -> MenuContent
-
-    /// Frozen at drag start; the live block re-derives on every update.
-    private struct DragBase {
-        let item: Item
-        let editorStart: TimeInterval
-        let editorEnd: TimeInterval
-    }
-
-    @State private var dragBase: DragBase?
-    @State private var isHovering = false
-
-    private var showsHandles: Bool {
-        isSelected || isHovering || dragBase != nil
-    }
+    let length: TimeInterval
+    let state: StudioBlockState
+    var isHatched = false
 
     var body: some View {
-        if scale.pointsPerSecond > 0 {
-            content
-        }
-    }
-
-    private var content: some View {
-        let width = min(
-            scale.contentWidth,
-            max(16, CGFloat(block.editorEnd - block.editorStart) * scale.pointsPerSecond)
-        )
-        let x = min(max(scale.x(for: block.editorStart), 0), max(0, scale.contentWidth - width))
-        let shape = StudioZoomLaneMetrics.blockShape
-
-        return StudioBlockLabel(
+        StudioBlockLabel(
             systemImage: systemImage,
             title: title,
-            detail: studioTimecode(block.editorEnd - block.editorStart),
-            width: width,
+            detail: studioTimecode(length),
+            width: state.width,
             color: style.onTint
         )
-            .frame(width: width, height: StudioZoomLaneMetrics.blockHeight, alignment: .leading)
-            .background {
-                StudioBlockSurface(fill: style.fill(isHovering: isHovering))
-                    .overlay {
-                        if isHatched {
-                            let stripe = style.onTint.opacity(0.1)
-                            Canvas { context, size in
-                                var path = Path()
-                                var stripeX: CGFloat = -size.height
-                                while stripeX < size.width {
-                                    path.move(to: CGPoint(x: stripeX, y: size.height))
-                                    path.addLine(to: CGPoint(x: stripeX + size.height, y: 0))
-                                    stripeX += 12
-                                }
-                                context.stroke(path, with: .color(stripe), lineWidth: 6)
-                            }
-                            .clipShape(shape)
-                            .allowsHitTesting(false)
-                        }
+        .background {
+            StudioBlockSurface(fill: style.fill(isHovering: state.isHovered))
+                .overlay {
+                    if isHatched {
+                        StudioBlockHatch(color: style.onTint.opacity(0.1), spacing: 12, lineWidth: 6)
                     }
-            }
-            .overlay { if isSelected { StudioTrimFrame() } }
-            .overlay(alignment: .leading) {
-                if showsHandles { resizeHandle(.leading) }
-            }
-            .overlay(alignment: .trailing) {
-                if showsHandles { resizeHandle(.trailing) }
-            }
-            .contentShape(shape)
-            .onHover { isHovering = $0 }
-            .offset(x: x, y: StudioZoomLaneMetrics.blockInset)
-            .gesture(dragGesture(.move))
-            .onTapGesture(perform: onSelect)
-            .contextMenu { menu() }
-            .help("\(title). Drag to move, drag an edge to resize, right-click for options.")
-    }
-
-    private func dragGesture(_ kind: EditKind) -> some Gesture {
-        // Global coordinates: the block moves under the pointer, so local
-        // translations would chase their own updates and jitter.
-        DragGesture(minimumDistance: kind == .move ? 2 : 0, coordinateSpace: .global)
-            .onChanged { value in
-                if dragBase == nil {
-                    dragBase = DragBase(item: block.item, editorStart: block.editorStart, editorEnd: block.editorEnd)
-                    model.pause()
-                    onBegin()
                 }
-                guard let dragBase else { return }
-                let delta = Double(value.translation.width) * scale.secondsPerPoint
-                let base = sourceRange(dragBase.item)
-                switch kind {
-                case .move:
-                    let range = studioMovedSourceRange(
-                        model: model,
-                        editorStart: dragBase.editorStart + delta,
-                        editorLength: dragBase.editorEnd - dragBase.editorStart
-                    )
-                    onEdit(dragBase.item, range.start, range.end)
-                case .leading:
-                    let start = model.sourceTime(atEditorTime: dragBase.editorStart + delta)
-                    onEdit(dragBase.item, min(start, base.end - 0.1), base.end)
-                case .trailing:
-                    let end = model.sourceTime(atEditorTime: dragBase.editorEnd + delta)
-                    onEdit(dragBase.item, base.start, max(end, base.start + 0.1))
-                }
-            }
-            .onEnded { _ in
-                dragBase = nil
-                onEnd(kind)
-            }
-    }
-
-    private func resizeHandle(_ edge: HorizontalEdge) -> some View {
-        Rectangle()
-            .fill(Color.white.opacity(0.001))
-            .frame(width: StudioZoomLaneMetrics.handleWidth, height: StudioZoomLaneMetrics.blockHeight)
-            .overlay {
-                if !isSelected { StudioBlockGrip(color: style.onTint) }
-            }
-            .contentShape(Rectangle())
-            .pointerStyle(.frameResize(position: edge == .leading ? .leading : .trailing))
-            .gesture(dragGesture(edge == .leading ? .leading : .trailing))
+        }
     }
 }
 
 // MARK: - Audio track
 
-/// Music and sound under the video. Blocks sit on the edited video's clock;
-/// a click on empty track scrubs.
+/// Music and sound under the video. Blocks sit on the edited video's clock:
+/// the body moves a clip along the video, its ends trim the file. A drag
+/// across empty track scrubs.
 private struct StudioAudioLane: View {
     @Bindable var model: RecordingStudioModel
     let scale: StudioTimelineScale
     let visibleRange: ClosedRange<TimeInterval>
     let onScrubbing: (Bool) -> Void
 
-    @State private var isScrubbing = false
-
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            Color.clear
-                .contentShape(Rectangle())
-                .gesture(
-                    DragGesture(minimumDistance: 0)
-                        .onChanged { value in
-                            if !isScrubbing {
-                                isScrubbing = true
-                                onScrubbing(true)
-                                model.pause()
-                                model.clearTimelineSelection()
-                            }
-                            model.seek(to: scale.time(forX: value.location.x))
-                        }
-                        .onEnded { _ in
-                            isScrubbing = false
-                            onScrubbing(false)
-                        }
-                )
-
-            ForEach(visibleClips) { clip in
-                StudioAudioClipBlock(model: model, clip: clip, scale: scale)
-            }
-        }
+        StudioBlockLane(
+            model: model,
+            blocks: visibleBlocks,
+            selectedID: model.selectedAudioClipID,
+            scale: scale,
+            height: StudioTrack.audio.height,
+            empty: .scrub,
+            onScrubbing: onScrubbing,
+            actions: StudioBlockLaneActions(
+                select: { model.selectAudioClip(id: $0.id) },
+                begin: { _ in model.beginAudioClipEdit() },
+                edit: apply,
+                end: { kind in model.endAudioClipEdit(actionName: kind == .move ? "Move Audio" : "Trim Audio") }
+            ),
+            content: { block, state in content(for: block.item, state: state) },
+            menu: { block in
+                Button("Delete Audio", systemImage: "trash", role: .destructive) {
+                    model.removeAudioClip(id: block.id)
+                }
+            },
+            help: { block in "\(block.item.displayName). Drag to move, drag an end to trim, right-click for options." }
+        )
     }
 
-    private var visibleClips: [RecordingAudioClip] {
-        model.audioClips.filter { $0.end >= visibleRange.lowerBound && $0.start <= visibleRange.upperBound }
-    }
-}
-
-/// One audio clip: its name over a waveform of the stretch that plays.
-/// The body moves it along the video; the edges trim the file.
-private struct StudioAudioClipBlock: View {
-    @Bindable var model: RecordingStudioModel
-    let clip: RecordingAudioClip
-    let scale: StudioTimelineScale
-
-    private enum EditKind { case move, leading, trailing }
-
-    @State private var dragBase: RecordingAudioClip?
-    @State private var isHovering = false
-
-    private static let height = StudioTrack.audio.height - StudioZoomLaneMetrics.blockInset * 2
-
-    private var isSelected: Bool { model.selectedAudioClipID == clip.id }
-    private var showsHandles: Bool { isSelected || isHovering || dragBase != nil }
-
-    var body: some View {
-        if scale.pointsPerSecond > 0 {
-            content
-        }
-    }
-
-    private var content: some View {
-        let x = scale.x(for: clip.start)
-        // A clip may run past the video's end; only what fits is drawn.
-        let width = max(16, min(CGFloat(clip.duration) * scale.pointsPerSecond, scale.contentWidth - x))
-        let shape = StudioZoomLaneMetrics.blockShape
-        let peaks = model.audioPeaks[clip.fileName] ?? []
-
+    /// Its name over a waveform of the stretch that plays.
+    private func content(for clip: RecordingAudioClip, state: StudioBlockState) -> some View {
+        let style = StudioBlockStyle.audio
         return ZStack(alignment: .topLeading) {
             StudioWaveform(
-                peaks: peaks,
-                color: StudioBlockStyle.audio.onTint.opacity(0.55),
+                peaks: model.audioPeaks[clip.fileName] ?? [],
+                color: style.onTint.opacity(0.55),
                 from: clip.trimStart,
-                to: clip.trimStart + Double(width / scale.pointsPerSecond)
+                to: clip.trimStart + Double(state.width / max(scale.pointsPerSecond, 1))
             )
             .padding(.top, 13)
             .padding(.bottom, 3)
@@ -2712,75 +1989,39 @@ private struct StudioAudioClipBlock: View {
                 systemImage: "music.note",
                 title: clip.displayName,
                 detail: studioTimecode(clip.duration),
-                width: width,
-                color: StudioBlockStyle.audio.onTint
+                width: state.width,
+                color: style.onTint
             )
             .padding(.top, 2)
         }
-        .frame(width: width, height: Self.height, alignment: .topLeading)
-        .background { StudioBlockSurface(fill: StudioBlockStyle.audio.fill(isHovering: isHovering)) }
-        .clipShape(shape)
-        .overlay { if isSelected { StudioTrimFrame() } }
-        .overlay(alignment: .leading) {
-            if showsHandles { resizeHandle(.leading) }
-        }
-        .overlay(alignment: .trailing) {
-            if showsHandles { resizeHandle(.trailing) }
-        }
-        .contentShape(shape)
-        .onHover { isHovering = $0 }
-        .offset(x: x, y: StudioZoomLaneMetrics.blockInset)
-        .gesture(dragGesture(.move))
-        .onTapGesture { model.selectAudioClip(id: clip.id) }
-        .contextMenu {
-            Button("Delete Audio", systemImage: "trash", role: .destructive) {
-                model.removeAudioClip(id: clip.id)
-            }
-        }
-        .help("\(clip.displayName). Drag to move, drag an edge to trim, right-click for options.")
+        .frame(width: state.width, height: state.height, alignment: .topLeading)
+        .background { StudioBlockSurface(fill: style.fill(isHovering: state.isHovered)) }
+        .clipShape(StudioBlockMetrics.shape)
     }
 
-    private func dragGesture(_ kind: EditKind) -> some Gesture {
-        DragGesture(minimumDistance: kind == .move ? 2 : 0, coordinateSpace: .global)
-            .onChanged { value in
-                if dragBase == nil {
-                    dragBase = clip
-                    model.pause()
-                    model.selectAudioClip(id: clip.id)
-                    model.beginAudioClipEdit()
-                }
-                guard let base = dragBase else { return }
-                let delta = Double(value.translation.width) * scale.secondsPerPoint
-                let minimum = RecordingAudioClip.minimumDuration
-                var edited = base
-                switch kind {
-                case .move:
-                    edited.start = max(0, base.start + delta)
-                case .leading:
-                    let shift = min(max(delta, -base.trimStart, -base.start), base.duration - minimum)
-                    edited.start = base.start + shift
-                    edited.trimStart = base.trimStart + shift
-                case .trailing:
-                    edited.trimEnd = min(max(base.trimEnd + delta, base.trimStart + minimum), base.fileDuration)
-                }
-                model.setAudioClip(edited)
-            }
-            .onEnded { _ in
-                dragBase = nil
-                model.endAudioClipEdit(actionName: kind == .move ? "Move Audio" : "Trim Audio")
-            }
+    private func apply(_ edit: StudioBlockEdit<RecordingAudioClip>) {
+        let base = edit.base.item
+        let minimum = RecordingAudioClip.minimumDuration
+        var edited = base
+        switch edit.kind {
+        case .move:
+            edited.start = max(0, base.start + edit.delta)
+        case .trimLeading:
+            // The start can't run before the file's first sample or the
+            // video's first frame.
+            let shift = min(max(edit.delta, -base.trimStart, -base.start), base.duration - minimum)
+            edited.start = base.start + shift
+            edited.trimStart = base.trimStart + shift
+        case .trimTrailing:
+            edited.trimEnd = min(max(base.trimEnd + edit.delta, base.trimStart + minimum), base.fileDuration)
+        }
+        model.setAudioClip(edited)
     }
 
-    private func resizeHandle(_ edge: HorizontalEdge) -> some View {
-        Rectangle()
-            .fill(Color.white.opacity(0.001))
-            .frame(width: StudioZoomLaneMetrics.handleWidth, height: Self.height)
-            .overlay {
-                if !isSelected { StudioBlockGrip(color: StudioBlockStyle.audio.onTint) }
-            }
-            .contentShape(Rectangle())
-            .pointerStyle(.frameResize(position: edge == .leading ? .leading : .trailing))
-            .gesture(dragGesture(edge == .leading ? .leading : .trailing))
+    private var visibleBlocks: [StudioLaneBlock<RecordingAudioClip>] {
+        model.audioClips
+            .filter { $0.end >= visibleRange.lowerBound && $0.start <= visibleRange.upperBound }
+            .map { StudioLaneBlock(item: $0, editorStart: $0.start, editorEnd: $0.end) }
     }
 }
 
