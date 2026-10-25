@@ -1494,9 +1494,9 @@ private struct StudioBlockStyle {
     static let effect = StudioBlockStyle(tint: .systemGray)
     static let audio = StudioBlockStyle(tint: .systemIndigo)
 
-    /// The tint settled a little toward black, more so in dark mode, so a
-    /// row of blocks stays calm and white marks read on any of them. The
-    /// pointer lifts it slightly.
+    /// The bright tint itself, lifted a touch toward white in light mode,
+    /// with white marks on it, as in Edits and CapCut. The pointer lifts it
+    /// a little more.
     func fill(isHovering: Bool) -> Color {
         let tint = tint
         return Color(nsColor: NSColor(name: nil) { appearance in
@@ -1504,11 +1504,8 @@ private struct StudioBlockStyle {
             appearance.performAsCurrentDrawingAppearance {
                 resolved = tint.usingColorSpace(.sRGB) ?? tint
             }
-            let body = resolved.blended(
-                withFraction: appearance.isDarkAppearance ? 0.3 : 0.12,
-                of: .black
-            ) ?? resolved
-            return isHovering ? body.blended(withFraction: 0.1, of: .white) ?? body : body
+            let lift = (appearance.isDarkAppearance ? 0 : 0.08) + (isHovering ? 0.1 : 0)
+            return lift > 0 ? resolved.blended(withFraction: lift, of: .white) ?? resolved : resolved
         })
     }
 }
@@ -1535,10 +1532,11 @@ private struct StudioBlockSurface<Fill: ShapeStyle>: View {
     }
 }
 
-/// The one label every block uses: a glyph, then a title, then a quieter
-/// detail. As the block narrows the detail goes first, then the title
-/// (a long one is truncated while a few letters still show), then the
-/// glyph, so nothing is ever cut to a stub like "C…".
+/// The one label every block uses: a glyph, its name, then a quieter
+/// detail - usually how long the block runs, "Audio 00:56" style. As the
+/// block narrows the detail goes first, then the name (a long one is
+/// truncated while a few letters still show), then the glyph, so nothing
+/// is ever cut to a stub like "C…".
 private struct StudioBlockLabel: View {
     let systemImage: String
     let title: String
@@ -1547,24 +1545,21 @@ private struct StudioBlockLabel: View {
     let color: Color
 
     var body: some View {
-        if width >= 28 {
+        if width >= StudioZoomLaneMetrics.labelInset * 2 + 14 {
             HStack(spacing: 5) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 10, weight: .semibold))
+                glyph
                 ViewThatFits(in: .horizontal) {
                     if let detail {
-                        HStack(spacing: 5) {
+                        HStack(spacing: 6) {
                             titleText
                             Text(detail)
-                                .font(.system(size: 11))
-                                .opacity(0.72)
+                                .font(.system(size: 10.5, weight: .regular).monospacedDigit())
+                                .opacity(0.8)
                         }
                         .fixedSize()
                     }
                     titleText
                         .fixedSize()
-                    // A long title is cut only where a few letters still
-                    // show; below that the glyph stands alone.
                     if width >= 88 {
                         titleText
                             .truncationMode(.tail)
@@ -1575,21 +1570,33 @@ private struct StudioBlockLabel: View {
             }
             .lineLimit(1)
             .foregroundStyle(color)
-            .padding(.horizontal, StudioZoomLaneMetrics.handleWidth)
+            .padding(.horizontal, StudioZoomLaneMetrics.labelInset)
             .frame(width: width, alignment: .leading)
             .allowsHitTesting(false)
+        } else if width >= 24 {
+            // Too narrow to inset: the glyph alone, centred.
+            glyph
+                .foregroundStyle(color)
+                .frame(width: width)
+                .allowsHitTesting(false)
         }
+    }
+
+    private var glyph: some View {
+        Image(systemName: systemImage)
+            .font(.system(size: 10, weight: .medium))
     }
 
     /// Digits keep their width, so "1.5×" doesn't shuffle as it changes.
     private var titleText: Text {
         Text(title)
-            .font(.system(size: 11, weight: .semibold).monospacedDigit())
+            .font(.system(size: 11, weight: .medium).monospacedDigit())
     }
 }
 
-/// Selection, drawn the way Apple's trimmers draw it: a yellow frame whose
-/// ends thicken into grips. The block's own edge handles sit over the ends.
+/// Selection, drawn the way Apple's trimmers (and Edits) draw it: a yellow
+/// frame whose ends thicken into grips with a chevron in each. The block's
+/// own edge handles sit over the ends.
 private struct StudioTrimFrame: View {
     var body: some View {
         StudioTrimFrameShape(
@@ -1598,15 +1605,15 @@ private struct StudioTrimFrame: View {
             cornerRadius: StudioZoomLaneMetrics.blockCornerRadius
         )
         .fill(Color(nsColor: .systemYellow), style: FillStyle(eoFill: true))
-        .overlay(alignment: .leading) { grip }
-        .overlay(alignment: .trailing) { grip }
+        .overlay(alignment: .leading) { grip("chevron.compact.left") }
+        .overlay(alignment: .trailing) { grip("chevron.compact.right") }
         .allowsHitTesting(false)
     }
 
-    private var grip: some View {
-        Capsule()
-            .fill(Color.black.opacity(0.5))
-            .frame(width: 1.5, height: 9)
+    private func grip(_ systemImage: String) -> some View {
+        Image(systemName: systemImage)
+            .font(.system(size: 11, weight: .bold))
+            .foregroundStyle(Color.black.opacity(0.62))
             .frame(width: StudioZoomLaneMetrics.trimEdgeWidth)
     }
 }
@@ -1645,16 +1652,19 @@ private struct StudioBlockGrip: View {
 
 private enum StudioZoomLaneMetrics {
     static let laneHeight = StudioTrack.zooms.height
-    static let blockCornerRadius: CGFloat = 4
+    static let blockCornerRadius: CGFloat = 8
     static var blockShape: RoundedRectangle {
         RoundedRectangle(cornerRadius: blockCornerRadius, style: .continuous)
     }
     /// The selection frame's grips at either end, and its rim between them.
-    static let trimEdgeWidth: CGFloat = 6
-    static let trimBorderWidth: CGFloat = 2
-    static let blockInset: CGFloat = 4
+    static let trimEdgeWidth: CGFloat = 12
+    static let trimBorderWidth: CGFloat = 2.5
+    /// Clears the selection grips, so a label doesn't shift when its block
+    /// is selected.
+    static let labelInset: CGFloat = trimEdgeWidth + 5
+    static let blockInset: CGFloat = 3
     static let blockHeight = laneHeight - blockInset * 2
-    static let handleWidth: CGFloat = 10
+    static let handleWidth: CGFloat = 12
     /// Magnifications offered from a block's context menu.
     static let zoomPresets: [Double] = [1.25, 1.5, 2, 2.5, 3]
 }
@@ -1736,8 +1746,9 @@ private struct StudioZoomCueBlock: View {
                 ? InspectorValueFormat.magnification(fractionDigits: 1).displayString(for: cue.zoom)
                 : "Off",
             // Following the pointer is the default, so only a zoom that
-            // does something else says so.
-            detail: cue.isEnabled && cue.anchorMode != .pointerAnchor ? cue.anchorMode.laneTitle : nil,
+            // does something else says so, ahead of its length.
+            detail: (cue.isEnabled && cue.anchorMode != .pointerAnchor ? "\(cue.anchorMode.laneTitle) · " : "")
+                + studioTimecode(block.editorEnd - block.editorStart),
             width: width,
             color: cue.isEnabled ? StudioBlockStyle.zoom.onTint : .secondary
         )
@@ -2066,6 +2077,7 @@ private struct StudioLayoutCueBlock: View {
         return StudioBlockLabel(
             systemImage: cue.layout.systemImage,
             title: cue.layout.title,
+            detail: studioTimecode(block.editorEnd - block.editorStart),
             width: width,
             color: StudioBlockStyle.layout.onTint
         )
@@ -2497,7 +2509,13 @@ private struct StudioOverlayBlock<Item: Identifiable & Sendable, MenuContent: Vi
         let x = min(max(scale.x(for: block.editorStart), 0), max(0, scale.contentWidth - width))
         let shape = StudioZoomLaneMetrics.blockShape
 
-        return StudioBlockLabel(systemImage: systemImage, title: title, width: width, color: style.onTint)
+        return StudioBlockLabel(
+            systemImage: systemImage,
+            title: title,
+            detail: studioTimecode(block.editorEnd - block.editorStart),
+            width: width,
+            color: style.onTint
+        )
             .frame(width: width, height: StudioZoomLaneMetrics.blockHeight, alignment: .leading)
             .background {
                 StudioBlockSurface(fill: style.fill(isHovering: isHovering))
@@ -2670,6 +2688,7 @@ private struct StudioAudioClipBlock: View {
             StudioBlockLabel(
                 systemImage: "music.note",
                 title: clip.displayName,
+                detail: studioTimecode(clip.duration),
                 width: width,
                 color: StudioBlockStyle.audio.onTint
             )
