@@ -48,9 +48,8 @@ enum Palette {
     /// so marks over pixels can be retuned apart from chrome.
     static let highlight = Color.accentColor
     /// Camera layout cues on the timeline, apart from the accent zooms they
-    /// sit under, with `onLayoutCue` marks.
-    static let layoutCue = Color(nsColor: .systemYellow)
-    static let onLayoutCue = Color.black.opacity(0.78)
+    /// sit under. Not yellow: that is the timeline's selection frame.
+    static let layoutCue = Color(nsColor: .systemGreen)
     /// Text on the timeline, apart from the cues that move the camera.
     static let textCue = Color(nsColor: .systemPurple)
     /// Recording, and actions that remove something.
