@@ -677,12 +677,9 @@ final class RecordingClipTimelineControl: NSView {
                 yRadius: clipRadius(for: rect)
             ).addClip()
             drawThumbnails(in: rect, clip: clip, dirtyRect: dirtyRect)
-            // Unselected clips sit a little back from the selected one;
-            // the clip under the pointer lifts toward it.
+            // The picture shows as it is; the selection chrome alone marks
+            // the selected clip.
             let isSelected = clip.id == selectedClipID
-            let isHovered = clip.id == hoveredClipID && dragTarget == nil
-            NSColor.black.withAlphaComponent(isSelected ? 0 : isHovered ? 0.06 : 0.16).setFill()
-            rect.intersection(dirtyRect).fill()
             if showsTitle(on: clip, in: rect) {
                 drawTitleShade(in: rect)
             }
