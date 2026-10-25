@@ -683,7 +683,7 @@ final class RecordingClipTimelineControl: NSView {
             let isHovered = clip.id == hoveredClipID && dragTarget == nil
             NSColor.black.withAlphaComponent(isSelected ? 0 : isHovered ? 0.06 : 0.16).setFill()
             rect.intersection(dirtyRect).fill()
-            if title != nil, rect.width >= Metrics.minimumTitledWidth {
+            if showsTitle(on: clip, in: rect) {
                 drawTitleShade(in: rect)
             }
             NSGraphicsContext.restoreGraphicsState()
@@ -836,7 +836,7 @@ final class RecordingClipTimelineControl: NSView {
 
             // The title gives way to the speed badge after it, truncating
             // rather than pushing the badge off the clip.
-            if let title, rect.width >= Metrics.minimumTitledWidth {
+            if let title, showsTitle(on: clip, in: rect) {
                 let reserved = isSpedUp ? Self.badgeSize(text: speedText, hasSymbol: true).width + 4 : 0
                 let titleWidth = drawTitle(
                     title,
@@ -874,6 +874,15 @@ final class RecordingClipTimelineControl: NSView {
                 }
             }
         }
+    }
+
+    /// The recording's name is the same on every clip, so it shows only on
+    /// the clip that's selected or under the pointer, where it says which
+    /// one you're about to act on, and the picture stays clear elsewhere.
+    private func showsTitle(on clip: RecordingClipSegment, in rect: CGRect) -> Bool {
+        title != nil
+            && rect.width >= Metrics.minimumTitledWidth
+            && (clip.id == selectedClipID || clip.id == hoveredClipID)
     }
 
     private static let titleAttributes: [NSAttributedString.Key: Any] = {
