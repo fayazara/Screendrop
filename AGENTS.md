@@ -46,7 +46,7 @@ All source is in `Screendrop/` (flat, no subdirectories). Key flow:
 6. **Rendering** - `AnnotationRenderer.swift`: Composites annotations onto the source image at full pixel resolution using Core Graphics.
 7. **Preferences** - `ScreendropPreferences.swift` + `SettingsView.swift`: `UserDefaults`-backed settings (auto-save, auto-copy, auto-compress, export directory).
 8. **Library** - `CaptureLibraryView.swift` + `CaptureLibraryModel.swift`: Single native sidebar/detail/inspector scene. `CaptureLibraryCollection.swift` reuses AppKit cells for grid/list layouts; `CaptureLibraryThumbnails.swift` bounds decoded image memory and concurrency. The model merges History metadata with recording packages by standardized package path. Existing capture storage and editable sidecars remain authoritative. `CaptureLibraryActions.swift` handles batch operations and prevents trashing captures while their editors are open.
-9. **Library index** - `CaptureLibraryIndex.swift` + `CaptureLibraryAnalyzer.swift`: background, on-device analysis of every capture (Vision OCR with line boxes, a feature print for Similar, and a Foundation Models category/title/keywords, falling back to `CaptureCategoryRules`). One JSON file per capture lives in `Application Support/Screendrop/Library Index`, keyed by a hash of the item ID and invalidated by `thumbnailKey`; bump `CaptureAnalysis.currentVersion` to re-index. Work runs in two passes: `read` (OCR, feature print, rules category) for every capture, then `sort` (the model) for captures made after `ScreendropPreferences.libraryAutoSortSince`, or for all of them once the user opts in (`librarySortExisting`). `libraryAnalyzeCaptures` is the master switch. `CaptureLibrarySearch.swift` folds and matches the search text. `CaptureSource.swift` records the app a capture came from (stored in history.json and the recording manifest).
+9. **Library index** - `CaptureLibraryIndex.swift` + `CaptureLibraryAnalyzer.swift`: background, on-device analysis of every capture (Vision OCR with line boxes, a feature print for Similar, and a Foundation Models category/title/keywords, falling back to `CaptureCategoryRules`). One JSON file per capture lives in `Application Support/Screendrop/Library Index`, keyed by a hash of the item ID and invalidated by `thumbnailKey`; bump `CaptureAnalysis.currentVersion` to re-index. Similar compares feature prints in `Feature Prints.pack`, a memory-mapped, append-only copy of the per-capture `.print` archives (which stay authoritative). Work runs in two passes: `read` (OCR, feature print, rules category) for every capture, then `sort` (the model) for captures made after `ScreendropPreferences.libraryAutoSortSince`, or for all of them once the user opts in (`librarySortExisting`). `libraryAnalyzeCaptures` is the master switch. `CaptureLibrarySearch.swift` folds and matches the search text. `CaptureSource.swift` records the app a capture came from (stored in history.json and the recording manifest).
 
 ### Singletons
 
@@ -55,6 +55,10 @@ Most managers are `static let shared` singletons: `ScreenshotManager`, `CaptureC
 ### Annotation coordinate system
 
 All annotation positions/sizes are normalized to `[0, 1]` relative to the source image dimensions. Pixel conversion happens only in `AnnotationRenderer` at export time and in the canvas view for display. Do not use pixel coordinates in the model layer.
+
+### Memory
+
+Activity Monitor's figure is the heap's high-water mark: malloc keeps the pages a burst of small allocations leaves behind, and `malloc_zone_pressure_relief` returns nothing. Keep long-lived data in few allocations (one string per capture, not one per OCR line), map large read-only data from disk, and avoid `URL.resourceValues` on URLs that are kept (the values stay cached on them). `MallocLargeCache=0` is set through `LSEnvironment` in Info.plist and in the schemes.
 
 ## Conventions
 
