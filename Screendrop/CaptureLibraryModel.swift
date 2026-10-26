@@ -192,8 +192,7 @@ final class CaptureLibraryModel {
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    /// The search text and the index are only kept in memory while the
-    /// Library is open.
+    /// Search text is only kept in memory while the Library is open.
     func windowDidOpen() {
         isWindowOpen = true
         CaptureLibraryIndex.shared.libraryDidOpen()
@@ -303,7 +302,7 @@ final class CaptureLibraryModel {
             if ($0.category == .other) != ($1.category == .other) { return $1.category == .other }
             return $0.count != $1.count ? $0.count > $1.count : $0.category.title < $1.category.title
         }
-        // Keep the last categories while the index is unloaded.
+        // No categories are known until the index has loaded.
         if index.isLoaded, !sortedCategories.elementsEqual(categoryFacets, by: { $0 == $1 }) { categoryFacets = sortedCategories }
         let sortedApps = apps.map {
             CaptureLibraryAppFacet(id: $0.key, name: $0.value.source.appName,

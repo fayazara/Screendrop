@@ -36,7 +36,7 @@ final class CaptureLibraryIndex {
     @ObservationIgnored private let store = CaptureLibraryIndexStore(
         directory: ScreenshotHistoryStore.applicationSupportDirectory.appendingPathComponent("Library Index", isDirectory: true)
     )
-    /// Whether `analyses` holds the saved index; it's empty while unloaded.
+    /// Whether `analyses` holds the saved index yet.
     @ObservationIgnored private(set) var isLoaded = false
     @ObservationIgnored private var latestItems: [CaptureLibraryItem]?
     @ObservationIgnored private var readQueue: [CaptureLibraryItem] = []
@@ -51,7 +51,6 @@ final class CaptureLibraryIndex {
     @ObservationIgnored private var publishTask: Task<Void, Never>?
     @ObservationIgnored private var started = false
     @ObservationIgnored private var loadTask: Task<Void, Never>?
-    @ObservationIgnored private var isLibraryOpen = false
 
     private init() {}
 
@@ -64,16 +63,15 @@ final class CaptureLibraryIndex {
         load()
     }
 
-    /// The saved index stays in memory while the Library is open or there is
-    /// work to do, and is read back from disk when either comes round again.
     func libraryDidOpen() {
-        isLibraryOpen = true
         load()
     }
 
+    /// The index stays loaded: held compactly it's smaller than the spike of
+    /// reading it back from disk for every new capture. Only the mapped
+    /// feature prints go.
     func libraryDidClose() {
-        isLibraryOpen = false
-        unloadIfIdle()
+        Task { await store.forgetFeaturePrints() }
     }
 
     private func load() {
@@ -87,14 +85,6 @@ final class CaptureLibraryIndex {
             CaptureLibraryModel.shared.indexDidChange(changed: Set(loaded.keys))
             if let latestItems { sync(latestItems) } else { CaptureLibraryModel.shared.refresh() }
         }
-    }
-
-    private func unloadIfIdle() {
-        guard !isLibraryOpen, isLoaded, runner == nil, publishTask == nil, unpublished.isEmpty else { return }
-        analyses = [:]
-        isLoaded = false
-        revision &+= 1
-        Task { await store.forgetFeaturePrints() }
     }
 
     /// Re-plans the work after the Library settings change.
@@ -156,13 +146,7 @@ final class CaptureLibraryIndex {
         sortQueue = sorts.sorted { $0.createdAt > $1.createdAt }
         unsortedExistingCount = unsortedExisting
         updateCounts()
-        if pendingCount > 0, runner == nil {
-            runner = Task {
-                await drain()
-                unloadIfIdle()
-            }
-        }
-        unloadIfIdle()
+        if pendingCount > 0, runner == nil { runner = Task { await drain() } }
     }
 
     /// Captures that look most like `id`, nearest first.
