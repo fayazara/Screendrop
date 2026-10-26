@@ -390,7 +390,7 @@ nonisolated enum CaptureLibraryScanner {
                 ?? (try? session.directoryURL.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
             let fileURL = session.deliverableURL
             let modified = [session.editDocumentURL, session.draftDocumentURL, session.projectMetadataURL, fileURL]
-                .compactMap { try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate }
+                .compactMap(modificationDate(of:))
                 .max() ?? row?.modifiedAt ?? createdAt
             entries.append(CaptureLibraryItem(
                 id: "recording:\(path)", historyIDs: Set(rows.map(\.id)), name: session.displayName,
@@ -406,9 +406,7 @@ nonisolated enum CaptureLibraryScanner {
         for row in history where row.sessionPath == nil {
             guard !Task.isCancelled else { return [] }
             let url = historyDirectory.appendingPathComponent(row.fileName)
-            guard FileManager.default.fileExists(atPath: url.path) else { continue }
-            let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate)
-                ?? row.modifiedAt
+            guard let modified = modificationDate(of: url) else { continue }
             entries.append(CaptureLibraryItem(
                 id: row.id.uuidString, historyIDs: [row.id], name: row.name, fileURL: url, session: nil,
                 createdAt: row.createdAt, modifiedAt: max(modified, row.modifiedAt), pixelWidth: row.width,
@@ -418,6 +416,17 @@ nonisolated enum CaptureLibraryScanner {
             ))
         }
         return entries
+    }
+
+    /// The file's modification date, or nil when it's missing. Resource
+    /// values would stay cached on the URL, which every item keeps; `stat`
+    /// leaves nothing behind. The date is made as Foundation makes it, so
+    /// thumbnail keys, and the index entries keyed by them, don't change.
+    private static func modificationDate(of url: URL) -> Date? {
+        var info = stat()
+        guard stat(url.path, &info) == 0 else { return nil }
+        return Date(timeIntervalSinceReferenceDate: Double(info.st_mtimespec.tv_sec)
+            - Date.timeIntervalBetween1970AndReferenceDate + 1.0e-9 * Double(info.st_mtimespec.tv_nsec))
     }
 
     static func sizeOnDisk(of url: URL) -> Int64 {
