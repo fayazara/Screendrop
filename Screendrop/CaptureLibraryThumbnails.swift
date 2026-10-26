@@ -34,6 +34,11 @@ actor CaptureLibraryThumbnails {
         return result
     }
 
+    /// Drops every decoded thumbnail, for when nothing on screen shows them.
+    func removeAll() {
+        cache.removeAllObjects()
+    }
+
     private func acquire() async -> Bool {
         guard !Task.isCancelled else { return false }
         if running < 4 { running += 1; return true }

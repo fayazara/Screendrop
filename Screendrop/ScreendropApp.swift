@@ -24,7 +24,7 @@ struct ScreendropApp: App {
         }
 
         Window("Screendrop Library", id: "CAPTURE_LIBRARY") {
-            CaptureLibraryView()
+            CaptureLibraryWindow()
         }
         .defaultSize(width: 1180, height: 760)
         .defaultLaunchBehavior(.suppressed)

@@ -2,6 +2,27 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// The Library's scene keeps its window, and the view tree inside it, after
+/// the window closes. Swapping the content out on close frees the grid's
+/// cells, layers and decoded thumbnails until the window opens again.
+struct CaptureLibraryWindow: View {
+    @State private var isOpen = true
+    @State private var window: NSWindow?
+
+    var body: some View {
+        Group {
+            if isOpen { CaptureLibraryView() } else { Color.clear }
+        }
+        .onAppear { isOpen = true }
+        .onWindowChange { window = $0 }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { notification in
+            guard let closing = notification.object as? NSWindow, closing === window else { return }
+            isOpen = false
+            Task { await CaptureLibraryThumbnails.shared.removeAll() }
+        }
+    }
+}
+
 struct CaptureLibraryView: View {
     @State private var model = CaptureLibraryModel.shared
     @State private var history = ScreenshotHistoryStore.shared
