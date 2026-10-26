@@ -51,6 +51,13 @@
             ReferencedContainer = "container:Screendrop.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
+      <EnvironmentVariables>
+         <EnvironmentVariable
+            key = "MallocLargeCache"
+            value = "0"
+            isEnabled = "YES">
+         </EnvironmentVariable>
+      </EnvironmentVariables>
       <CommandLineArguments>
          <CommandLineArgument
             argument = "--demo-mode"

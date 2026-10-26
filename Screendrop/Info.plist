@@ -17,6 +17,11 @@
 			</array>
 		</dict>
 	</array>
+	<key>LSEnvironment</key>
+	<dict>
+		<key>MallocLargeCache</key>
+		<string>0</string>
+	</dict>
 	<key>NSCameraUsageDescription</key>
 	<string>Screendrop records your camera alongside the screen so you can add a camera bubble to recordings.</string>
 	<key>NSInputMonitoringUsageDescription</key>
