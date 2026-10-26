@@ -93,7 +93,14 @@ final class CaptureLibraryIndex {
         analyses = [:]
         isLoaded = false
         revision &+= 1
-        Task { await store.forgetFeaturePrints() }
+        Task {
+            await store.forgetFeaturePrints()
+            // Malloc keeps freed pages until memory runs short, so the idle
+            // footprint would still show the Library's peak. Once its views
+            // have torn down too, hand the free pages back.
+            try? await Task.sleep(for: .seconds(1))
+            malloc_zone_pressure_relief(nil, 0)
+        }
     }
 
     /// Re-plans the work after the Library settings change.
