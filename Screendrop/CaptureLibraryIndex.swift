@@ -3,6 +3,7 @@
 //  Screendrop
 //
 
+import Accelerate
 import AppKit
 import CryptoKit
 import Observation
@@ -260,14 +261,18 @@ final class CaptureLibraryIndex {
 }
 
 /// The index on disk: one JSON file per capture, plus its feature print, in
-/// Application Support. Feature prints stay out of memory until the first
-/// similarity lookup needs them.
+/// Application Support. Similarity lookups read the prints from a pack
+/// rather than from each capture's file.
 actor CaptureLibraryIndexStore {
     private let directory: URL
-    private var prints: [String: VNFeaturePrintObservation] = [:]
+    private var pack: CaptureFeaturePrintPack
+    /// Prints that couldn't be packed this session, so they aren't re-read
+    /// on every lookup.
+    private var unpackable: Set<CaptureFeaturePrintPack.Key> = []
 
     init(directory: URL) {
         self.directory = directory
+        pack = CaptureFeaturePrintPack(url: directory.appendingPathComponent("Feature Prints.pack"))
     }
 
     func loadAll() -> [String: CaptureAnalysis] {
@@ -288,7 +293,14 @@ actor CaptureLibraryIndexStore {
             try JSONEncoder().encode(analysis).write(to: url(analysis.id, "json"), options: .atomic)
             if let featurePrint {
                 try featurePrint.write(to: url(analysis.id, "print"), options: .atomic)
-                prints[analysis.id] = nil
+                // The pack's last record for a capture wins, so a re-read
+                // capture's new print replaces its old one.
+                let key = CaptureFeaturePrintPack.key(analysis.id)
+                unpackable.remove(key)
+                if let elements = Self.elements(ofArchive: featurePrint) {
+                    pack.open()
+                    pack.append([(key, elements)])
+                }
             }
         } catch {
             NSLog("[Screendrop] Failed to save Library index entry: \(error)")
@@ -296,42 +308,183 @@ actor CaptureLibraryIndexStore {
     }
 
     func forgetFeaturePrints() {
-        prints = [:]
+        pack.close()
     }
 
     func remove(ids: [String]) {
         for id in ids {
-            prints[id] = nil
             try? FileManager.default.removeItem(at: url(id, "json"))
             try? FileManager.default.removeItem(at: url(id, "print"))
         }
     }
 
     func nearest(to id: String, among candidates: [String], limit: Int) -> [String] {
-        guard let target = featurePrint(id) else { return [] }
-        var scored: [(id: String, distance: Float)] = []
-        scored.reserveCapacity(candidates.count)
-        for candidate in candidates {
-            var distance: Float = 0
-            guard let other = featurePrint(candidate),
-                  (try? target.computeDistance(&distance, to: other)) != nil else { continue }
-            scored.append((candidate, distance))
+        pack.open()
+        let target = CaptureFeaturePrintPack.key(id)
+        let keyed = candidates.map { ($0, CaptureFeaturePrintPack.key($0)) }
+        // Prints made before the pack existed are packed on first use.
+        var missing: [(CaptureFeaturePrintPack.Key, [Float])] = []
+        for (candidate, key) in [(id, target)] + keyed where !pack.contains(key) && !unpackable.contains(key) {
+            if let data = try? Data(contentsOf: url(candidate, "print")),
+               let elements = Self.elements(ofArchive: data) {
+                missing.append((key, elements))
+            } else {
+                unpackable.insert(key)
+            }
         }
-        return scored.sorted { $0.distance < $1.distance }.prefix(limit).map(\.id)
+        pack.append(missing)
+        return pack.nearest(to: target, among: keyed, limit: limit)
     }
 
-    private func featurePrint(_ id: String) -> VNFeaturePrintObservation? {
-        if let cached = prints[id] { return cached }
-        guard let data = try? Data(contentsOf: url(id, "print")),
-              let observation = try? NSKeyedUnarchiver.unarchivedObject(ofClass: VNFeaturePrintObservation.self, from: data)
-        else { return nil }
-        prints[id] = observation
-        return observation
+    private static func elements(ofArchive data: Data) -> [Float]? {
+        guard let observation = try? NSKeyedUnarchiver.unarchivedObject(ofClass: VNFeaturePrintObservation.self, from: data),
+              observation.elementType == .float else { return nil }
+        return observation.data.withUnsafeBytes { Array($0.bindMemory(to: Float.self)) }
     }
 
     /// Item IDs include file paths, so files are named by a hash of the ID.
     private func url(_ id: String, _ pathExtension: String) -> URL {
         let digest = SHA256.hash(data: Data(id.utf8)).prefix(16).map { String(format: "%02x", $0) }.joined()
         return directory.appendingPathComponent(digest).appendingPathExtension(pathExtension)
+    }
+}
+
+/// Every capture's feature print in one memory-mapped file: a header, then
+/// records of a capture's key and its elements. Lookups leave nothing on the
+/// heap, since mapped pages are file-backed and the system drops them freely,
+/// and the per-capture archives stay the source of truth. Vision's distance
+/// between two prints is the Euclidean distance between their elements, so
+/// they're compared here directly. The file is only appended to; the last
+/// record for a key wins, and it's compacted when old records pile up.
+nonisolated struct CaptureFeaturePrintPack {
+    struct Key: Hashable {
+        var high: UInt64
+        var low: UInt64
+    }
+
+    private static let magic: UInt32 = 0x5046_4453
+    private static let headerSize = 8
+    private static let keySize = 16
+
+    let url: URL
+    private var data: Data?
+    private var dimension = 0
+    /// Byte offset of each key's elements.
+    private var offsets: [Key: Int] = [:]
+    private var recordCount = 0
+    private var isOpen = false
+
+    init(url: URL) {
+        self.url = url
+    }
+
+    static func key(_ id: String) -> Key {
+        SHA256.hash(data: Data(id.utf8)).withUnsafeBytes {
+            Key(high: $0.loadUnaligned(as: UInt64.self), low: $0.loadUnaligned(fromByteOffset: 8, as: UInt64.self))
+        }
+    }
+
+    private var recordSize: Int { Self.keySize + dimension * MemoryLayout<Float>.size }
+
+    func contains(_ key: Key) -> Bool { offsets[key] != nil }
+
+    mutating func open() {
+        guard !isOpen else { return }
+        isOpen = true
+        guard let mapped = try? Data(contentsOf: url, options: .alwaysMapped),
+              mapped.count >= Self.headerSize else { return }
+        let (magic, dimension) = mapped.withUnsafeBytes {
+            ($0.loadUnaligned(as: UInt32.self), Int($0.loadUnaligned(fromByteOffset: 4, as: UInt32.self)))
+        }
+        guard magic == Self.magic, dimension > 0 else { return }
+        self.dimension = dimension
+        let size = recordSize
+        mapped.withUnsafeBytes { bytes in
+            var offset = Self.headerSize
+            while offset + size <= bytes.count {
+                let key = Key(high: bytes.loadUnaligned(fromByteOffset: offset, as: UInt64.self),
+                              low: bytes.loadUnaligned(fromByteOffset: offset + 8, as: UInt64.self))
+                offsets[key] = offset + Self.keySize
+                offset += size
+                recordCount += 1
+            }
+        }
+        data = mapped
+        if recordCount > offsets.count * 2 + 256 { compact() }
+    }
+
+    mutating func close() {
+        data = nil
+        dimension = 0
+        offsets = [:]
+        recordCount = 0
+        isOpen = false
+    }
+
+    /// Writes the prints in one go and maps the file again. Prints of another
+    /// size than the pack's are left out.
+    mutating func append(_ entries: [(Key, [Float])]) {
+        if dimension == 0, let first = entries.first { dimension = first.1.count }
+        let entries = entries.filter { $0.1.count == dimension }
+        guard !entries.isEmpty else { return }
+        var bytes = Data()
+        bytes.reserveCapacity((data == nil ? Self.headerSize : 0) + entries.count * recordSize)
+        if data == nil {
+            withUnsafeBytes(of: Self.magic) { bytes.append(contentsOf: $0) }
+            withUnsafeBytes(of: UInt32(dimension)) { bytes.append(contentsOf: $0) }
+        }
+        for (key, elements) in entries {
+            withUnsafeBytes(of: key.high) { bytes.append(contentsOf: $0) }
+            withUnsafeBytes(of: key.low) { bytes.append(contentsOf: $0) }
+            elements.withUnsafeBytes { bytes.append(contentsOf: $0) }
+        }
+        do {
+            if data == nil {
+                try bytes.write(to: url, options: .atomic)
+            } else {
+                let handle = try FileHandle(forWritingTo: url)
+                defer { try? handle.close() }
+                try handle.seekToEnd()
+                try handle.write(contentsOf: bytes)
+            }
+        } catch {
+            // A half-written pack is rebuilt from the archives.
+            try? FileManager.default.removeItem(at: url)
+        }
+        close()
+        open()
+    }
+
+    func nearest(to targetKey: Key, among candidates: [(id: String, key: Key)], limit: Int) -> [String] {
+        guard let data, let targetOffset = offsets[targetKey] else { return [] }
+        let dimension = dimension
+        return data.withUnsafeBytes { bytes -> [String] in
+            func elements(at offset: Int) -> UnsafePointer<Float> {
+                UnsafePointer((bytes.baseAddress! + offset).assumingMemoryBound(to: Float.self))
+            }
+            let target = elements(at: targetOffset)
+            var scored: [(id: String, distance: Float)] = []
+            scored.reserveCapacity(candidates.count)
+            for candidate in candidates where candidate.key != targetKey {
+                guard let offset = offsets[candidate.key] else { continue }
+                var distance: Float = 0
+                vDSP_distancesq(target, 1, elements(at: offset), 1, &distance, vDSP_Length(dimension))
+                scored.append((candidate.id, distance))
+            }
+            return scored.sorted { $0.distance < $1.distance }.prefix(limit).map(\.id)
+        }
+    }
+
+    /// Rewrites the pack with only each key's latest record.
+    private mutating func compact() {
+        guard let data else { return }
+        var bytes = Data(data.prefix(Self.headerSize))
+        bytes.reserveCapacity(Self.headerSize + offsets.count * recordSize)
+        for offset in offsets.values {
+            bytes.append(data[(offset - Self.keySize)..<(offset + recordSize - Self.keySize)])
+        }
+        try? bytes.write(to: url, options: .atomic)
+        close()
+        open()
     }
 }
