@@ -158,6 +158,7 @@ final class CaptureLibraryModel {
     @ObservationIgnored private var pendingCorpusIDs: Set<String> = []
     @ObservationIgnored var openWindow: (() -> Void)?
     @ObservationIgnored private var pendingOpen = false
+    @ObservationIgnored private var isWindowOpen = false
 
     private init() {}
 
@@ -189,6 +190,22 @@ final class CaptureLibraryModel {
         guard let openWindow else { pendingOpen = true; return }
         openWindow()
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// The search text and the index are only kept in memory while the
+    /// Library is open.
+    func windowDidOpen() {
+        isWindowOpen = true
+        CaptureLibraryIndex.shared.libraryDidOpen()
+    }
+
+    func windowDidClose() {
+        isWindowOpen = false
+        corpusTask?.cancel()
+        corpus = [:]
+        corpusItems = [:]
+        pendingCorpusIDs = []
+        CaptureLibraryIndex.shared.libraryDidClose()
     }
 
     func installOpener(_ opener: @escaping () -> Void) {
@@ -245,6 +262,8 @@ final class CaptureLibraryModel {
     /// Re-folds search text for captures that are new, changed, or newly
     /// analyzed; everything else keeps its cached text.
     private func rebuildCorpus(changed: Set<String>) {
+        // Opening the Library loads the index, which rebuilds it all.
+        guard isWindowOpen, CaptureLibraryIndex.shared.isLoaded else { return }
         pendingCorpusIDs.formUnion(changed)
         corpusTask?.cancel()
         let analyses = CaptureLibraryIndex.shared.analyses
@@ -270,7 +289,8 @@ final class CaptureLibraryModel {
     /// Sidebar counts. Categories are listed by size with Other last; apps
     /// by size, then name.
     private func updateFacets() {
-        let analyses = CaptureLibraryIndex.shared.analyses
+        let index = CaptureLibraryIndex.shared
+        let analyses = index.analyses
         var categories: [CaptureCategory: Int] = [:]
         var apps: [String: (source: CaptureSource, count: Int)] = [:]
         for item in items {
@@ -283,7 +303,8 @@ final class CaptureLibraryModel {
             if ($0.category == .other) != ($1.category == .other) { return $1.category == .other }
             return $0.count != $1.count ? $0.count > $1.count : $0.category.title < $1.category.title
         }
-        if !sortedCategories.elementsEqual(categoryFacets, by: { $0 == $1 }) { categoryFacets = sortedCategories }
+        // Keep the last categories while the index is unloaded.
+        if index.isLoaded, !sortedCategories.elementsEqual(categoryFacets, by: { $0 == $1 }) { categoryFacets = sortedCategories }
         let sortedApps = apps.map {
             CaptureLibraryAppFacet(id: $0.key, name: $0.value.source.appName,
                                    bundleIdentifier: $0.value.source.bundleIdentifier, count: $0.value.count)

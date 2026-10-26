@@ -139,11 +139,15 @@ struct CaptureLibraryView: View {
         .onAppear {
             AppActivationPolicy.enter()
             CaptureLibraryIndex.shared.start()
+            model.windowDidOpen()
             UpdaterManager.shared.checkForUpdateInformation()
             model.sortOrder = savedSort
             model.refresh()
         }
-        .onDisappear { AppActivationPolicy.leave() }
+        .onDisappear {
+            AppActivationPolicy.leave()
+            model.windowDidClose()
+        }
         .onWindowChange { window in
             libraryWindow = window
             PreviewWindowCaptureExclusion.shared.register(window: window)

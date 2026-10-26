@@ -35,7 +35,8 @@ final class CaptureLibraryIndex {
     @ObservationIgnored private let store = CaptureLibraryIndexStore(
         directory: ScreenshotHistoryStore.applicationSupportDirectory.appendingPathComponent("Library Index", isDirectory: true)
     )
-    @ObservationIgnored private var isLoaded = false
+    /// Whether `analyses` holds the saved index; it's empty while unloaded.
+    @ObservationIgnored private(set) var isLoaded = false
     @ObservationIgnored private var latestItems: [CaptureLibraryItem]?
     @ObservationIgnored private var readQueue: [CaptureLibraryItem] = []
     @ObservationIgnored private var sortQueue: [CaptureLibraryItem] = []
@@ -48,23 +49,51 @@ final class CaptureLibraryIndex {
     @ObservationIgnored private var unpublished: [String: CaptureAnalysis] = [:]
     @ObservationIgnored private var publishTask: Task<Void, Never>?
     @ObservationIgnored private var started = false
+    @ObservationIgnored private var loadTask: Task<Void, Never>?
+    @ObservationIgnored private var isLibraryOpen = false
 
     private init() {}
 
-    /// Loads the saved index and keeps it in step with History from then on,
-    /// whether or not the Library window is open.
+    /// Keeps the index in step with History from now on, whether or not the
+    /// Library window is open.
     func start() {
         guard !started else { return }
         started = true
         observeHistory()
-        Task {
+        load()
+    }
+
+    /// The saved index stays in memory while the Library is open or there is
+    /// work to do, and is read back from disk when either comes round again.
+    func libraryDidOpen() {
+        isLibraryOpen = true
+        load()
+    }
+
+    func libraryDidClose() {
+        isLibraryOpen = false
+        unloadIfIdle()
+    }
+
+    private func load() {
+        guard started, !isLoaded, loadTask == nil else { return }
+        loadTask = Task {
             let loaded = await store.loadAll()
+            loadTask = nil
             analyses = loaded
             isLoaded = true
             revision &+= 1
             CaptureLibraryModel.shared.indexDidChange(changed: Set(loaded.keys))
             if let latestItems { sync(latestItems) } else { CaptureLibraryModel.shared.refresh() }
         }
+    }
+
+    private func unloadIfIdle() {
+        guard !isLibraryOpen, isLoaded, runner == nil, publishTask == nil, unpublished.isEmpty else { return }
+        analyses = [:]
+        isLoaded = false
+        revision &+= 1
+        Task { await store.forgetFeaturePrints() }
     }
 
     /// Re-plans the work after the Library settings change.
@@ -82,7 +111,7 @@ final class CaptureLibraryIndex {
     /// capture due for the model, and forgets captures that are gone.
     func sync(_ items: [CaptureLibraryItem]) {
         latestItems = items
-        guard isLoaded else { return }
+        guard isLoaded else { load(); return }
         let live = Set(items.lazy.map(\.id))
         // An empty scan more likely means History failed to load than that
         // every capture was deleted; keep the index rather than wipe it.
@@ -126,7 +155,13 @@ final class CaptureLibraryIndex {
         sortQueue = sorts.sorted { $0.createdAt > $1.createdAt }
         unsortedExistingCount = unsortedExisting
         updateCounts()
-        if pendingCount > 0, runner == nil { runner = Task { await drain() } }
+        if pendingCount > 0, runner == nil {
+            runner = Task {
+                await drain()
+                unloadIfIdle()
+            }
+        }
+        unloadIfIdle()
     }
 
     /// Captures that look most like `id`, nearest first.
@@ -258,6 +293,10 @@ actor CaptureLibraryIndexStore {
         } catch {
             NSLog("[Screendrop] Failed to save Library index entry: \(error)")
         }
+    }
+
+    func forgetFeaturePrints() {
+        prints = [:]
     }
 
     func remove(ids: [String]) {
