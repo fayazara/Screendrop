@@ -76,6 +76,58 @@ nonisolated struct CaptureTextLine: Codable, Sendable, Equatable {
     var box: CGRect?
 }
 
+/// The lines of text in a capture, saved as an array of lines but held as
+/// one string with each line's end and box. A Library's worth of captures
+/// otherwise makes a small allocation for nearly every line, and the heap
+/// those leave behind stays with the app long after they're freed.
+nonisolated struct CaptureTextLines: Codable, Sendable, Equatable, RandomAccessCollection {
+    /// Every line, joined by newlines.
+    private(set) var text = ""
+    /// Where each line ends in `text`, in UTF-8 bytes.
+    private var ends: [UInt32] = []
+    /// Each line's box as x, y, width and height; NaN for a line without
+    /// one. Normalized coordinates don't need doubles.
+    private var boxes: [Float] = []
+
+    init() {}
+
+    init(_ lines: [CaptureTextLine]) {
+        text = lines.map(\.text).joined(separator: "\n")
+        ends.reserveCapacity(lines.count)
+        boxes.reserveCapacity(lines.count * 4)
+        var offset = 0
+        for line in lines {
+            offset += line.text.utf8.count
+            ends.append(UInt32(offset))
+            let box = line.box
+            boxes += box.map { [Float($0.minX), Float($0.minY), Float($0.width), Float($0.height)] } ?? [.nan, .nan, .nan, .nan]
+            offset += 1
+        }
+    }
+
+    init(from decoder: Decoder) throws {
+        self.init(try [CaptureTextLine](from: decoder))
+    }
+
+    func encode(to encoder: Encoder) throws {
+        try Array(self).encode(to: encoder)
+    }
+
+    var startIndex: Int { 0 }
+    var endIndex: Int { ends.count }
+
+    subscript(position: Int) -> CaptureTextLine {
+        let utf8 = text.utf8
+        let start = position == 0 ? 0 : Int(ends[position - 1]) + 1
+        let lower = utf8.index(utf8.startIndex, offsetBy: start)
+        let upper = utf8.index(lower, offsetBy: Int(ends[position]) - start)
+        let i = position * 4
+        let box = boxes[i].isNaN ? nil : CGRect(x: CGFloat(boxes[i]), y: CGFloat(boxes[i + 1]),
+                                                width: CGFloat(boxes[i + 2]), height: CGFloat(boxes[i + 3]))
+        return CaptureTextLine(text: String(decoding: utf8[lower..<upper], as: UTF8.self), box: box)
+    }
+}
+
 /// Everything the Library learns about a capture by looking at it. Stored
 /// apart from the capture so the index can be rebuilt without touching it.
 nonisolated struct CaptureAnalysis: Codable, Sendable, Equatable {
@@ -94,7 +146,7 @@ nonisolated struct CaptureAnalysis: Codable, Sendable, Equatable {
     /// The capture's thumbnail key: path plus modification date, so an edit
     /// re-reads the new pixels.
     var fingerprint: String
-    var lines: [CaptureTextLine] = []
+    var lines = CaptureTextLines()
     /// Spoken words from a recording's transcript, when it has one.
     var transcript: String?
     var category: CaptureCategory?
@@ -107,7 +159,7 @@ nonisolated struct CaptureAnalysis: Codable, Sendable, Equatable {
     var modelDeclined = false
     var hasFeaturePrint = false
 
-    var text: String { lines.map(\.text).joined(separator: "\n") }
+    var text: String { lines.text }
 }
 
 /// The fallback classifier: the source app first, then telltale words.

@@ -43,7 +43,7 @@ nonisolated enum CaptureLibrarySearch {
     /// Where the query's words sit in the capture, normalized to the image
     /// with a top-left origin. Vision reports whole lines, so a match's span
     /// is estimated from its share of the line's characters.
-    static func highlights(in lines: [CaptureTextLine], tokens: [String], limit: Int = 24) -> [CGRect] {
+    static func highlights(in lines: CaptureTextLines, tokens: [String], limit: Int = 24) -> [CGRect] {
         guard !tokens.isEmpty else { return [] }
         var rects: [CGRect] = []
         for line in lines {
@@ -76,7 +76,7 @@ nonisolated enum CaptureLibrarySearch {
 /// stays apart from the content beside it. Stray fragments ("G", a lone
 /// line number) are left out; search still sees every line.
 nonisolated enum CaptureReadableText {
-    static func paragraphs(from lines: [CaptureTextLine]) -> [String] {
+    static func paragraphs(from lines: CaptureTextLines) -> [String] {
         struct Paragraph {
             var lines: [String]
             var lastBox: CGRect?

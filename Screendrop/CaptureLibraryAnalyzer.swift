@@ -50,7 +50,7 @@ nonisolated enum CaptureLibraryAnalyzer {
 
         let featurePrint = try? makeFeaturePrint(of: primary)
         var analysis = CaptureAnalysis(id: item.id, fingerprint: item.thumbnailKey)
-        analysis.lines = lines
+        analysis.lines = CaptureTextLines(lines)
         analysis.transcript = item.session.flatMap(transcript)
         analysis.hasFeaturePrint = featurePrint != nil
         if let previous, previous.classifier == .model {
