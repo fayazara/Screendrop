@@ -5,8 +5,8 @@
 //  Uploads screenshots to R2 via the Screendrop Cloud worker.
 //
 //  Flow:
-//  1. PUT /api/upload with the raw file body + metadata headers
-//  2. Worker streams the body directly to R2 via binding (no buffering)
+//  1. PUT /api/upload for small files; multipart requests for large recordings
+//  2. Worker streams the body/parts directly to R2 via binding (no buffering)
 //  3. Worker creates the D1 metadata row, returns the shareable short URL
 //
 //  The user only needs a worker URL and upload token - no S3 credentials.
@@ -241,7 +241,7 @@ final class CloudUploader: NSObject {
 
     // MARK: - Streaming Upload
 
-    /// Sends the raw file bytes as the request body to PUT /api/upload.
+    /// Sends file bytes to PUT /api/upload, or multipart routes for large files.
     /// Metadata (filename, dimensions, etc.) is passed via headers so the
     /// Worker can stream the body directly to R2 without buffering.
     nonisolated private static func streamUpload(
@@ -281,43 +281,12 @@ final class CloudUploader: NSObject {
         }
         request.setValue(socialEnabled ? "true" : "false", forHTTPHeaderField: "X-Social-Enabled")
 
-        let size = try fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
-        if size >= 32 * 1024 * 1024 {
-            let result = try await MultipartCloudUpload.upload(fileURL: fileURL, request: request, progress: progress)
-            return CloudUploadResult(id: result.id, url: result.url, filename: result.filename, size: result.size)
-        }
-        let data = try Data(contentsOf: fileURL, options: .mappedIfSafe)
-
-        let progressDelegate = UploadProgressDelegate { sent, expected in
-            guard expected > 0 else { return }
-            progress?(min(1, Double(sent) / Double(expected)))
-        }
-
-        let (responseData, response) = try await URLSession.shared.upload(
-            for: request,
-            from: data,
-            delegate: progressDelegate
+        let result = try await CloudUploadRequest.uploadFile(
+            at: fileURL,
+            request: request,
+            progress: progress
         )
-
-        guard let http = response as? HTTPURLResponse else {
-            throw CloudUploadError.invalidResponse
-        }
-
-        guard http.statusCode == 201 else {
-            let body = String(data: responseData, encoding: .utf8) ?? ""
-            throw CloudUploadError.serverError(http.statusCode, body)
-        }
-
-        let json = try JSONSerialization.jsonObject(with: responseData) as? [String: Any]
-        guard let id = json?["id"] as? String,
-              let shareURL = json?["url"] as? String,
-              let name = json?["filename"] as? String,
-              let fileSize = json?["size"] as? Int else {
-            throw CloudUploadError.invalidResponse
-        }
-
-        progress?(1)
-        return CloudUploadResult(id: id, url: shareURL, filename: name, size: fileSize)
+        return CloudUploadResult(id: result.id, url: result.url, filename: result.filename, size: result.size)
     }
 
     // MARK: - Helpers
@@ -379,26 +348,6 @@ final class CloudUploader: NSObject {
         }
 
         return (dimensions: dims, duration: dur)
-    }
-}
-
-// MARK: - Upload Progress Delegate
-
-private final class UploadProgressDelegate: NSObject, URLSessionTaskDelegate, Sendable {
-    private let onProgress: @Sendable (Int64, Int64) -> Void
-
-    init(onProgress: @escaping @Sendable (Int64, Int64) -> Void) {
-        self.onProgress = onProgress
-    }
-
-    func urlSession(
-        _ session: URLSession,
-        task: URLSessionTask,
-        didSendBodyData bytesSent: Int64,
-        totalBytesSent: Int64,
-        totalBytesExpectedToSend: Int64
-    ) {
-        onProgress(totalBytesSent, totalBytesExpectedToSend)
     }
 }
 

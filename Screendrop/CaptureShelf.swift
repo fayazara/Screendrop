@@ -411,6 +411,13 @@ final class CaptureShelf {
             } catch {
                 CloudUploader.shared.clearFailed(for: id)
                 flash(.uploadFailed, on: id)
+                let alert = NSAlert()
+                alert.alertStyle = .warning
+                alert.messageText = "The capture could not be uploaded"
+                alert.informativeText = error.localizedDescription
+                alert.addButton(withTitle: "OK")
+                NSApp.activate(ignoringOtherApps: true)
+                alert.runModal()
             }
         }
     }

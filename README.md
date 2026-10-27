@@ -381,13 +381,27 @@ Screendrop verifies the Worker URL and token before enabling uploads.
 
 ### How Uploads Work
 
-1. Screendrop sends the file to the Worker with `PUT /api/upload`.
+1. Screendrop sends files below 90 MiB to the Worker with `PUT /api/upload`. Larger files use the Worker's multipart API in 16 MiB parts, keeping each request below Cloudflare's body-size limit.
 2. The Worker validates the bearer token, streams the file to R2, and writes its metadata to D1.
 3. The Worker returns a share URL. Screendrop copies it and stores it in the local Library.
 4. For edited recordings, Screendrop uploads the rendered final cut-not the raw screen master.
 5. Screendrop then adds best-effort video sidecars: a title, poster, transcript remapped to the edited timeline, and a storyboard sprite used for scrub previews.
 
 The share link works as soon as the main upload finishes and becomes richer as the sidecars arrive.
+
+Large uploads require a Worker with the multipart routes from [screendrop-worker#6](https://github.com/fayazara/screendrop-worker/pull/6). Older Workers still accept smaller uploads; for larger recordings the app explains that the Worker needs updating. Transient failures retry only the affected part. Failed or cancelled transfers attempt to abort unfinished parts; completion is not retried because the initial Worker API does not guarantee idempotent completion.
+
+### Upload Troubleshooting
+
+HTTP 413 means the server rejected the request size. The app preserves this status even when URLSession reports a connection error or timeout instead. Manual uploads from the floating preview show the error reason.
+
+Upload diagnostics use macOS's unified log (Console → process `Screendrop`, category `CloudUpload`). They include HTTP status, error code, and request byte count, without filenames, URLs, tokens, or response bodies:
+
+```bash
+log show --last 1h --style compact --predicate 'subsystem == "com.fayazahmed.Screendrop" AND category == "CloudUpload"'
+```
+
+For development, run `python3 tools/check-cloud-uploads.py` to exercise the same Swift upload code against a local server, including large-file integrity, transient failures, early HTTP rejection, older Workers, and cancellation. This requires Python 3 and the Xcode command-line tools; no cloud credentials are needed.
 
 ## Privacy and Permissions
 

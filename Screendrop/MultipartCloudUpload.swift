@@ -45,7 +45,12 @@ nonisolated enum MultipartCloudUpload {
         start.url = uploadURL.appendingPathComponent("multipart")
         start.httpMethod = "POST"
         start.httpBody = nil
-        let session = try JSONDecoder().decode(Session.self, from: await send(start, body: nil, retry: false))
+        let session: Session
+        do {
+            session = try JSONDecoder().decode(Session.self, from: await send(start, body: nil, retry: false))
+        } catch let error as CloudUploadHTTPError where error.statusCode == 404 || error.statusCode == 405 {
+            throw ServerError(status: error.statusCode, message: "This recording needs multipart uploads. Update your Screendrop Cloud Worker to support them, or compress or shorten the recording and try again.")
+        }
         let sessionURL = start.url!.appendingPathComponent(session.id)
         var parts: [Part] = []
         var offset: UInt64 = 0
@@ -78,8 +83,11 @@ nonisolated enum MultipartCloudUpload {
             complete.httpMethod = "POST"
             complete.setValue("application/json", forHTTPHeaderField: "Content-Type")
             let body = try JSONEncoder().encode(Completion(key: session.key, uploadId: session.uploadId, parts: parts))
+            try Task.checkCancellation()
             completing = true
-            let result = try JSONDecoder().decode(Result.self, from: await send(complete, body: body, retry: true))
+            // The initial Worker multipart API is not idempotent on completion.
+            // A lost response may hide a committed object; do not retry or abort it.
+            let result = try JSONDecoder().decode(Result.self, from: await send(complete, body: body, retry: false))
             guard result.size == Int(size) else { throw URLError(.badServerResponse) }
             progress?(1)
             return result
@@ -92,8 +100,9 @@ nonisolated enum MultipartCloudUpload {
                 var abort = template
                 abort.url = components.url
                 abort.httpMethod = "DELETE"
+                abort.timeoutInterval = 10
                 let abortRequest = abort
-                _ = await Task.detached { try? await send(abortRequest, body: nil, retry: true) }.value
+                _ = await Task.detached { try? await send(abortRequest, body: nil, retry: false) }.value
             }
             throw error
         }
@@ -103,30 +112,13 @@ nonisolated enum MultipartCloudUpload {
         for attempt in 0..<4 {
             try Task.checkCancellation()
             do {
-                let response: (Data, URLResponse)
-                if let body {
-                    response = try await URLSession.shared.upload(for: request, from: body)
-                } else {
-                    response = try await URLSession.shared.data(for: request)
-                }
-                guard let http = response.1 as? HTTPURLResponse else { throw URLError(.badServerResponse) }
-                guard (200..<300).contains(http.statusCode) else {
-                    let message: String
-                    if http.statusCode == 404 {
-                        message = "The cloud server needs the multipart upload update."
-                    } else if http.statusCode == 413 {
-                        message = "The cloud server rejected the upload size."
-                    } else {
-                        message = "Cloud upload failed (HTTP \(http.statusCode))."
-                    }
-                    throw ServerError(status: http.statusCode, message: message)
-                }
+                let response = try await CloudUploadRequest.send(request, body: body)
                 return response.0
             } catch {
                 if Task.isCancelled { throw CancellationError() }
                 let transient: Bool
-                if let server = error as? ServerError {
-                    transient = server.status == 429 || server.status >= 500
+                if let server = error as? CloudUploadHTTPError {
+                    transient = server.statusCode == 429 || server.statusCode >= 500
                 } else {
                     transient = error is URLError
                 }
