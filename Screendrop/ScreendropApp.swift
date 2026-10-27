@@ -19,8 +19,15 @@ struct ScreendropApp: App {
     var body: some Scene {
         let _ = configurePreviewPresentation()
 
-        MenuBarExtra("Screendrop", image: "MenuBarIcon", isInserted: $showMenuBarIcon) {
+        MenuBarExtra(isInserted: $showMenuBarIcon) {
             MenuBarView()
+        } label: {
+            Image("MenuBarIcon")
+                .renderingMode(.template)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 20, height: 20)
+                .accessibilityLabel("Screendrop")
         }
 
         Window("Screendrop Library", id: "CAPTURE_LIBRARY") {
@@ -32,7 +39,6 @@ struct ScreendropApp: App {
         .commands {
             CommandGroup(after: .newItem) {
                 Button("Show Library") { CaptureLibraryModel.shared.show() }
-                    .keyboardShortcut("l", modifiers: [.command, .shift])
             }
             CommandGroup(replacing: .appSettings) {
                 Button("Settings…") { SettingsWindowController.show(tab: .general) }
@@ -75,7 +81,7 @@ struct ScreendropApp: App {
         // through this opener.
         RecordingProjectOpener.shared.openHandler = openVideoEditor
 
-        CaptureCoordinator.shared.onShowPreview = { [openWindow] url, displayID, source in
+        CaptureCoordinator.shared.onShowPreview = { [openWindow] url, displayID, source, selection in
             // Set the editor openers first so auto-annotate can fire during add.
             CaptureShelfPresenter.shared.onAnnotate = { url in
                 openWindow(id: "ANNOTATION_EDITOR", value: url)
@@ -83,10 +89,12 @@ struct ScreendropApp: App {
             CaptureShelfPresenter.shared.onEditVideo = openVideoEditor
 
             let historyURL = ScreenshotHistoryStore.shared.importScreenshot(from: url, source: source)
+            // Lets the automatic pin know where the area capture was taken.
+            CaptureShelfPresenter.shared.prepareCapture(displayID: displayID, selection: selection)
             CaptureShelf.shared.add(url: historyURL)
 
             if AfterCaptureActions.isEnabled(.showOverlay, for: .screenshot) {
-                CaptureShelfPresenter.shared.show(displayID: displayID)
+                CaptureShelfPresenter.shared.show(displayID: displayID, selection: selection)
             }
 
             return historyURL
@@ -146,8 +154,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        UserDefaults.standard.set(
+            ScrollingCapturePermission.isTrusted,
+            forKey: "accessibilityTrusted"
+        )
+        UserDefaults.standard.set(
+            CGPreflightScreenCaptureAccess(),
+            forKey: "screenCaptureTrusted"
+        )
+        // Registers the ⇧⌘L global shortcut for the recent-captures strip.
+        _ = RecentCapturesStripPresenter.shared
         #if DEBUG
         if RecordingExportBenchmark.runIfRequested() { return }
+        if PreviewSelfTest.runIfRequested() { return }
         #endif
         HotkeyManager.shared.registerHotkeys()
         updaterManager.start()
@@ -156,16 +175,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
             CaptureLibraryIndex.shared.start()
         }
-        let launchEvent = NSAppleEventManager.shared().currentAppleEvent
-        let launchReason = launchEvent?.paramDescriptor(forKeyword: keyAEPropData)?.enumCodeValue
-        let launchedInBackground = launchReason == keyAELaunchedAsLogInItem
-            || launchReason == keyAELaunchedAsServiceItem
-        // Let Finder's open-file event reach its editor without also opening a
-        // Library. Login/service launches keep the existing quiet menu-bar mode.
-        DispatchQueue.main.async { [weak self] in
-            guard let self, !launchedInBackground, !self.openedFilesAtLaunch else { return }
-            CaptureLibraryModel.shared.show()
-        }
+        // This fork is menu-bar-first: the Library opens only when asked for.
+        // (A normal launch used to raise it, which also made it jump forward
+        // whenever the recent-captures strip activated the app.)
     }
 
     /// Finder "Open With" / `open -a Screendrop file.png` entry point.
@@ -178,10 +190,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         onOpenFiles(urls)
     }
 
-    /// Finder, Spotlight and the Dock all reopen the same Library window.
+    /// Menu-bar-first: reopening the app does not force the Library open.
+    /// It is available from the menu bar whenever it is wanted.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
-        CaptureLibraryModel.shared.show()
-        return false
+        false
     }
 
     /// Guard against silently losing captures. Screenshots that were never

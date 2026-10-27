@@ -168,7 +168,14 @@ final class ScreenshotHistoryStore {
                 if FileManager.default.fileExists(atPath: destinationURL.path) {
                     try FileManager.default.removeItem(at: destinationURL)
                 }
-                try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
+                // Link the bytes when the source is on the same volume, so a
+                // capture that was just saved to the Screenshots folder is
+                // not stored twice. Falls back to a copy across volumes.
+                do {
+                    try FileManager.default.linkItem(at: sourceURL, to: destinationURL)
+                } catch {
+                    try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
+                }
             }
 
             let imageSize = ScreenshotImageLoader.imageSize(at: destinationURL) ?? .zero
@@ -474,6 +481,41 @@ final class ScreenshotHistoryStore {
         items = decoded
             .filter { FileManager.default.fileExists(atPath: $0.url.path) }
             .sorted { $0.createdAt > $1.createdAt }
+    }
+
+    /// Renames a screenshot on disk and keeps its history entry in step.
+    /// Returns the file's new URL, or nil when it isn't a history screenshot.
+    @discardableResult
+    func renameScreenshot(at url: URL, to baseName: String) -> URL? {
+        guard let index = items.firstIndex(where: { $0.url.standardizedFileURL == url.standardizedFileURL }),
+              items[index].recordingSessionPath == nil,
+              !baseName.isEmpty,
+              FileManager.default.fileExists(atPath: url.path)
+        else { return nil }
+
+        let folder = url.deletingLastPathComponent()
+        let pathExtension = url.pathExtension.isEmpty ? "png" : url.pathExtension
+        var destination = folder.appendingPathComponent(baseName).appendingPathExtension(pathExtension)
+        var counter = 2
+        while FileManager.default.fileExists(atPath: destination.path),
+              destination.standardizedFileURL != url.standardizedFileURL {
+            destination = folder
+                .appendingPathComponent("\(baseName) \(counter)")
+                .appendingPathExtension(pathExtension)
+            counter += 1
+        }
+
+        guard destination.standardizedFileURL != url.standardizedFileURL else { return url }
+        do {
+            try FileManager.default.moveItem(at: url, to: destination)
+        } catch {
+            print("Failed to rename screenshot: \(error)")
+            return nil
+        }
+        items[index].fileName = destination.lastPathComponent
+        items[index].updatedAt = Date()
+        saveMetadata()
+        return destination
     }
 
     private func saveMetadata() {

@@ -24,7 +24,10 @@ enum AppActivationPolicy {
             shelfEditorCount += 1
             CaptureShelf.shared.tuck(.editor)
         }
-        NSApp.setActivationPolicy(.regular)
+        // This build is a menu-bar app: it never takes a Dock icon, even
+        // while an editor or the Library is open. The window still comes
+        // forward and can be focused.
+        NSApp.setActivationPolicy(.accessory)
         NSApp.unhide(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
@@ -41,10 +44,7 @@ enum AppActivationPolicy {
         }
         guard activeWindowCount == 0 else { return }
 
-        Task { @MainActor in
-            guard activeWindowCount == 0 else { return }
-            NSApp.setActivationPolicy(.accessory)
-        }
+
     }
 }
 

@@ -14,21 +14,28 @@ final class RecordingAreaSelectionPresenter {
 
     private var panel: NSPanel?
     private var completion: ((CGRect?) -> Void)?
-    private var display: SCDisplay?
     private var keyMonitor: Any?
+    private var previousApp: NSRunningApplication?
 
     private init() {}
 
+    /// Area selection for screen recording, measured in the display's pixels.
     func selectArea(on display: SCDisplay, completion: @escaping (CGRect?) -> Void) {
-        cancel()
-
         guard let screen = ActiveDisplayResolver.screen(for: display.displayID) ?? NSScreen.main else {
             completion(nil)
             return
         }
+        selectArea(on: screen, completion: completion)
+    }
 
-        self.display = display
+    /// Area selection for screenshots. Returns the rectangle in global screen
+    /// coordinates so the preview can sit exactly where it was drawn.
+    func selectArea(on screen: NSScreen, completion: @escaping (CGRect?) -> Void) {
+        SettingsWindowController.hideIfVisible()
+        cancel()
+
         self.completion = completion
+        previousApp = NSWorkspace.shared.frontmostApplication
 
         let panel = RecordingAreaSelectionPanel(
             contentRect: screen.frame,
@@ -45,11 +52,7 @@ final class RecordingAreaSelectionPresenter {
         panel.acceptsMouseMovedEvents = true
 
         let selectionView = RecordingAreaSelectionView(
-            frame: CGRect(origin: .zero, size: screen.frame.size),
-            pixelScale: CGSize(
-                width: CGFloat(display.width) / max(screen.frame.width, 1),
-                height: CGFloat(display.height) / max(screen.frame.height, 1)
-            )
+            frame: CGRect(origin: .zero, size: screen.frame.size)
         )
         selectionView.onCancel = { [weak self] in
             self?.finish(rect: nil)
@@ -70,9 +73,13 @@ final class RecordingAreaSelectionPresenter {
         }
 
         panel.contentView = selectionView
+        PreviewWindowCaptureExclusion.shared.register(window: panel)
         panel.makeFirstResponder(selectionView)
         self.panel = panel
         installKeyMonitor()
+        // Activating matters for the cursor: an inactive app's tracking areas
+        // do not own the pointer, so apps like OpenCode kept their I-beam.
+        NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
         panel.orderFrontRegardless()
         selectionView.beginSelectionCursorSession()
@@ -85,11 +92,22 @@ final class RecordingAreaSelectionPresenter {
     private func finish(rect: CGRect?) {
         let completion = completion
         self.completion = nil
-        display = nil
         removeKeyMonitor()
         (panel?.contentView as? RecordingAreaSelectionView)?.endSelectionCursorSession()
+        // Make sure the dimmed overlay is not part of the screenshot: alpha 0
+        // is applied immediately, then the panel is ordered out.
+        panel?.alphaValue = 0
         panel?.orderOut(nil)
         panel = nil
+
+        if rect != nil {
+            // Keep Screendrop active while the capture preview is up, so ⌘W
+            // closes the preview instead of the window of the app behind it.
+            CaptureShelfPresenter.shared.adoptPreviousApp(previousApp)
+        } else {
+            previousApp?.activate()
+        }
+        previousApp = nil
         completion?(rect)
     }
 
@@ -123,15 +141,13 @@ private final class RecordingAreaSelectionView: NSView {
 
     private var startPoint: CGPoint?
     private var currentPoint: CGPoint?
-    private let pixelScale: CGSize
     private var didPushSelectionCursor = false
 
     override var acceptsFirstResponder: Bool {
         true
     }
 
-    init(frame frameRect: NSRect, pixelScale: CGSize) {
-        self.pixelScale = pixelScale
+    override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
     }
@@ -145,7 +161,9 @@ private final class RecordingAreaSelectionView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        NSColor.black.withAlphaComponent(0.28).setFill()
+        // Light enough to keep the page readable underneath: CleanShot's
+        // selector is a hint, not a blackout.
+        NSColor.black.withAlphaComponent(0.14).setFill()
         bounds.fill()
 
         guard let selectionRect else { return }
@@ -157,8 +175,6 @@ private final class RecordingAreaSelectionView: NSView {
         let border = NSBezierPath(roundedRect: selectionRect, xRadius: 4, yRadius: 4)
         border.lineWidth = 2
         border.stroke()
-
-        drawSelectionSize(for: selectionRect)
     }
 
     override func resetCursorRects() {
@@ -189,6 +205,12 @@ private final class RecordingAreaSelectionView: NSView {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
         beginSelectionCursorSession()
         return true
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        // Apps with aggressive cursor management (web views, remote desktops)
+        // can steal the pointer; reassert ours on every move.
+        beginSelectionCursorSession()
     }
 
     override func mouseDragged(with event: NSEvent) {
@@ -228,45 +250,6 @@ private final class RecordingAreaSelectionView: NSView {
 
         NSCursor.pop()
         didPushSelectionCursor = false
-    }
-
-    private func drawSelectionSize(for rect: CGRect) {
-        let pixelWidth = Int((rect.width * pixelScale.width).rounded())
-        let pixelHeight = Int((rect.height * pixelScale.height).rounded())
-        let label = "\(pixelWidth) x \(pixelHeight)"
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold),
-            .foregroundColor: NSColor.white
-        ]
-        let attributedLabel = NSAttributedString(string: label, attributes: attributes)
-        let textSize = attributedLabel.size()
-        let padding = CGSize(width: 10, height: 6)
-        let badgeSize = CGSize(width: textSize.width + padding.width * 2, height: textSize.height + padding.height * 2)
-        let badgeOrigin = badgeOrigin(for: rect, size: badgeSize)
-        let badgeRect = CGRect(origin: badgeOrigin, size: badgeSize)
-
-        NSColor.black.withAlphaComponent(0.72).setFill()
-        NSBezierPath(roundedRect: badgeRect, xRadius: 7, yRadius: 7).fill()
-
-        attributedLabel.draw(
-            at: CGPoint(
-                x: badgeRect.minX + padding.width,
-                y: badgeRect.minY + padding.height
-            )
-        )
-    }
-
-    private func badgeOrigin(for rect: CGRect, size: CGSize) -> CGPoint {
-        let preferred = CGPoint(x: rect.minX, y: rect.minY - size.height - 8)
-        if bounds.contains(CGRect(origin: preferred, size: size)) {
-            return preferred
-        }
-
-        let fallbackY = min(rect.maxY + 8, bounds.maxY - size.height - 8)
-        return CGPoint(
-            x: min(max(rect.minX, bounds.minX + 8), bounds.maxX - size.width - 8),
-            y: max(fallbackY, bounds.minY + 8)
-        )
     }
 
     private var selectionRect: CGRect? {

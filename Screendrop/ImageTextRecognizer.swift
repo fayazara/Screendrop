@@ -24,10 +24,15 @@ enum ImageTextRecognizer {
                 }
 
                 let request = VNRecognizeTextRequest()
+                // Vision is the on-device engine CleanShot X and the system's
+                // Live Text use. These are its highest-accuracy settings.
                 request.recognitionLevel = .accurate
                 request.usesLanguageCorrection = true
+                request.revision = VNRecognizeTextRequestRevision3
+                request.automaticallyDetectsLanguage = true
+                request.recognitionLanguages = Self.recognitionLanguages
 
-                let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+                let handler = VNImageRequestHandler(cgImage: Self.preparedImage(cgImage), options: [:])
                 do {
                     try handler.perform([request])
                     let observations = request.results ?? []
@@ -39,6 +44,45 @@ enum ImageTextRecognizer {
                 }
             }
         }
+    }
+
+    /// The user's languages first, filtered to what Vision supports, so a
+    /// non-English screen is recognised in its own language rather than being
+    /// forced through the English model.
+    private static var recognitionLanguages: [String] {
+        let supported = (try? VNRecognizeTextRequest.supportedRecognitionLanguages(
+            for: .accurate,
+            revision: VNRecognizeTextRequestRevision3
+        )) ?? []
+        let preferred = Locale.preferredLanguages
+        let matching = preferred.filter { language in
+            supported.contains { $0.caseInsensitiveCompare(language) == .orderedSame }
+                || supported.contains { $0.hasPrefix(language) }
+        }
+        return matching.isEmpty ? ["en-US"] : Array(matching.prefix(3))
+    }
+
+    /// Screenshots of small text (menu items, code at 1x) recognise poorly.
+    /// Upscaling them before Vision runs gives the recogniser more pixels per
+    /// glyph; larger images are left untouched.
+    private static func preparedImage(_ image: CGImage) -> CGImage {
+        let longEdge = max(image.width, image.height)
+        guard longEdge < 1400 else { return image }
+        let scale = 2
+        let width = image.width * scale
+        let height = image.height * scale
+        guard let context = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return image }
+        context.interpolationQuality = .high
+        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        return context.makeImage() ?? image
     }
 
     /// Vision returns observations in no documented order, which scrambles

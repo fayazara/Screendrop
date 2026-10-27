@@ -12,6 +12,7 @@ struct ScreenshotsSettingsPane: View {
     @AppStorage(ScreendropPreferences.captureWindowShadowKey) private var captureWindowShadow = false
     @AppStorage(ScreendropPreferences.captureDelaySecondsKey) private var captureDelaySeconds = 0
     @AppStorage(ScreendropPreferences.lowResolutionEditorPreviewKey) private var lowResolutionEditorPreview = true
+    @AppStorage(ScreendropPreferences.autoNameCapturesKey) private var autoNameCaptures = false
     @AppStorage(ScreendropPreferences.trimFullscreenMenuBarKey) private var trimFullscreenMenuBar = true
     @AppStorage(ScreendropPreferences.annotationStartingToolKey) private var startingTool = AnnotationTool.select.rawValue
 
@@ -29,7 +30,7 @@ struct ScreenshotsSettingsPane: View {
 
     var body: some View {
         SettingsPage {
-            CaptureHotkeySettingsSection(actions: [.fullscreen, .window, .area, .textCapture])
+            CaptureHotkeySettingsSection(actions: [.fullscreen, .window, .area, .textCapture, .scrollingCapture])
 
             Section("Capture") {
                 Picker(selection: $captureDelaySeconds) {
@@ -42,6 +43,14 @@ struct ScreenshotsSettingsPane: View {
                         detail: "Show a countdown before the capture is taken."
                     )
                 }
+
+                Toggle(isOn: $autoNameCaptures) {
+                    SettingsControlLabel(
+                        "Name screenshots from their content",
+                        detail: "Reads each capture on device and gives it a descriptive file name using Apple Intelligence. Nothing leaves your Mac; it takes a moment after the capture."
+                    )
+                }
+                .toggleStyle(.ink)
 
                 Toggle(isOn: $captureWindowShadow) {
                     SettingsControlLabel(

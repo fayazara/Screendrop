@@ -22,6 +22,7 @@ enum ScreendropPreferences {
     static let areaHotkeyKey = "captureHotkey.area"
     static let textCaptureHotkeyKey = "captureHotkey.textCapture"
     static let screenRecordingHotkeyKey = "captureHotkey.screenRecording"
+    static let scrollingCaptureHotkeyKey = "captureHotkey.scrollingCapture"
     static let playSoundsKey = "playSounds"
     static let showMenuBarIconKey = "showMenuBarIcon"
     static let includeAppWindowsInCapturesKey = "includeAppWindowsInCaptures"
@@ -30,11 +31,10 @@ enum ScreendropPreferences {
     static let previewPositionKey = "previewPosition"
     static let previewAutoCloseSecondsKey = "previewAutoCloseSeconds"
     static let previewCloseAfterDraggingKey = "previewCloseAfterDragging"
-    /// Where the tucked shelf's handle sits along the screen edge, from 0
-    /// (top) to 1 (bottom).
-    static let shelfHandlePositionKey = "captureShelfHandlePosition"
+    static let confirmPinnedCloseKey = "confirmPinnedClose"
     static let overlayCardLayoutKey = "overlayCardLayout"
     static let lowResolutionEditorPreviewKey = "lowResolutionEditorPreview"
+    static let autoNameCapturesKey = "autoNameCaptures"
     /// The tool the annotator opens with: a tool's raw value, or
     /// `startingToolLastUsed` to reopen with whatever was picked last.
     static let annotationStartingToolKey = "annotationStartingTool"
@@ -179,7 +179,7 @@ enum ScreendropPreferences {
         max(0, UserDefaults.standard.integer(forKey: captureDelaySecondsKey))
     }
 
-    /// Which screen corner the preview overlay docks to.
+    /// Which bottom corner the capture preview appears in.
     static var previewPosition: PreviewOverlayPosition {
         guard let raw = UserDefaults.standard.string(forKey: previewPositionKey),
               let position = PreviewOverlayPosition(rawValue: raw) else {
@@ -191,6 +191,20 @@ enum ScreendropPreferences {
     /// Seconds before the preview overlay auto-dismisses. 0 means never.
     static var previewAutoCloseSeconds: Int {
         max(0, UserDefaults.standard.integer(forKey: previewAutoCloseSecondsKey))
+    }
+
+    /// Give a new screenshot a name written from its own content, on device.
+    /// Off by default: it costs a second of reading and a model call.
+    static var autoNameCaptures: Bool {
+        UserDefaults.standard.bool(forKey: autoNameCapturesKey)
+    }
+
+    /// Ask before ⌘W closes a pinned screenshot. Defaults to on.
+    static var confirmPinnedClose: Bool {
+        if UserDefaults.standard.object(forKey: confirmPinnedCloseKey) == nil {
+            return true
+        }
+        return UserDefaults.standard.bool(forKey: confirmPinnedCloseKey)
     }
 
     /// Whether dragging a preview card out dismisses it. Defaults to on.
@@ -254,10 +268,7 @@ enum PreviewOverlayPosition: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 
     var title: String {
-        switch self {
-        case .left: "Bottom left"
-        case .right: "Bottom right"
-        }
+        self == .left ? "Bottom left" : "Bottom right"
     }
 }
 
@@ -350,16 +361,31 @@ enum ScreenshotFileActions {
     
     @discardableResult
     static func saveToDefaultLocation(from url: URL) throws -> URL {
-        let destinationDirectory = ScreendropPreferences.exportDirectory
+        try saveToDirectory(ScreendropPreferences.exportDirectory, from: url)
+    }
+
+    /// Saves into an explicit directory. Used as the fallback when the user's
+    /// configured folder is unavailable, so a finished capture is not lost
+    /// because a cloud folder is offline or read-only.
+    @discardableResult
+    static func saveToDirectory(_ destinationDirectory: URL, from url: URL) throws -> URL {
         try FileManager.default.createDirectory(
             at: destinationDirectory,
             withIntermediateDirectories: true
         )
-        
+
         let destinationURL = uniqueDestinationURL(
             for: exportFileName(for: url),
             in: destinationDirectory
         )
+        // PNG exports are byte-identical, so a hard link shares the data
+        // blocks with the history copy: the Screenshots folder and the
+        // Library no longer double the disk usage. Other formats are
+        // re-encoded and cannot share storage.
+        if ScreendropPreferences.exportFormat == .png,
+           (try? FileManager.default.linkItem(at: url, to: destinationURL)) != nil {
+            return destinationURL
+        }
         try save(from: url, to: destinationURL)
         return destinationURL
     }
@@ -435,9 +461,14 @@ enum ScreenshotFileActions {
             throw CocoaError(.fileWriteUnknown)
         }
         
-        let options: [CFString: Any] = contentType == .png ? [:] : [
+        var options: [CFString: Any] = contentType == .png ? [:] : [
             kCGImageDestinationLossyCompressionQuality: ScreendropPreferences.compressionQuality
         ]
+        // Keep the capture's resolution: a file without one would be treated
+        // as 72 dpi and drawn at double size.
+        for (key, value) in ImageDPI.preserving(sourceURL) {
+            options[key] = value
+        }
         
         CGImageDestinationAddImageFromSource(destination, source, 0, options as CFDictionary)
         

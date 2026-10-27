@@ -7,8 +7,6 @@ import AppKit
 import SwiftUI
 
 struct SettingsAboutPane: View {
-    @ObservedObject private var updaterManager = UpdaterManager.shared
-
     private var versionText: String {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
         let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String
@@ -21,6 +19,17 @@ struct SettingsAboutPane: View {
         default:
             return "Version 1.0"
         }
+    }
+
+    /// When this copy was built. The executable's date is stamped by the
+    /// install script, so it is the quickest way to tell whether the app on
+    /// disk is the build the user just made.
+    private var builtText: String {
+        guard let url = Bundle.main.executableURL,
+              let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let date = attributes[.modificationDate] as? Date
+        else { return "Built unknown" }
+        return "Built " + date.formatted(date: .abbreviated, time: .shortened)
     }
 
     var body: some View {
@@ -37,26 +46,22 @@ struct SettingsAboutPane: View {
                         Text("Screendrop")
                             .font(.dsDisplay)
                         Tag(text: versionText)
+                        Tag(text: builtText)
                     }
 
-                    Text("Screenshots and screen recordings, made beautiful in a click.")
+                    Text("Screenshots and screen recordings, with a CleanShot-style floating preview.")
                         .font(.dsCallout)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
 
                     GlassEffectContainer(spacing: GlassMetrics.containerSpacing) {
                         HStack(spacing: GlassMetrics.gap) {
-                            SettingsButton("Check for Updates", systemImage: "arrow.down.circle", isProminent: true) {
-                                updaterManager.checkForUpdates()
+                            SettingsButton("Show in Finder", systemImage: "folder") {
+                                NSWorkspace.shared.activateFileViewerSelecting([Bundle.main.bundleURL])
                             }
-                            .disabled(!updaterManager.canCheckForUpdates)
 
-                            SettingsButton("GitHub", systemImage: "chevron.left.forwardslash.chevron.right") {
+                            SettingsButton("Upstream GitHub", systemImage: "chevron.left.forwardslash.chevron.right") {
                                 open("https://github.com/fayazara/screendrop")
-                            }
-
-                            SettingsButton("@fayazara", systemImage: "at") {
-                                open("https://x.com/fayazara")
                             }
                         }
                     }
@@ -67,20 +72,14 @@ struct SettingsAboutPane: View {
             }
 
             Section("Updates") {
-                Toggle(isOn: Binding(
-                    get: { updaterManager.automaticallyChecksForUpdates },
-                    set: { updaterManager.automaticallyChecksForUpdates = $0 }
-                )) {
-                    SettingsControlLabel(
-                        "Check for updates automatically",
-                        detail: "Screendrop looks for a new version in the background and asks before installing it."
-                    )
-                }
-                .toggleStyle(.ink)
+                SettingsControlLabel(
+                    "This is a local build",
+                    detail: "It does not update itself through Sparkle. Run scripts/build-and-install.sh in the fork to install a newer build; the Built date above changes every time. Screen Recording permission survives those builds because the app keeps the same Apple Development signature."
+                )
             }
 
             Section {
-                Text("Screendrop is open source and built by Fayaz Ahmed. Issues, ideas and pull requests are welcome on GitHub.")
+                Text("Built from the open-source Screendrop project by Fayaz Ahmed. The floating preview, area selection and pinned windows in this copy are customised.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

@@ -25,20 +25,6 @@ struct CloudSettingsPane: View {
     @State private var tokenCopied = false
     @State private var setupGuideExpanded = true
 
-    // Worker version signalling (non-blocking "update available" notice).
-    @State private var deployedWorkerVersion: String?
-    @State private var latestWorkerVersion: String?
-    @State private var updateGuideURL = "https://github.com/fayazara/screendrop-worker#updating-your-worker"
-
-    private static let versionManifestURL = "https://raw.githubusercontent.com/fayazara/screendrop-worker/main/version.json"
-
-    private var isWorkerOutdated: Bool {
-        guard let deployed = deployedWorkerVersion, let latest = latestWorkerVersion else {
-            return false
-        }
-        return Self.isVersion(deployed, olderThan: latest)
-    }
-
     private var isWorkerConfigured: Bool {
         !workerURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         && !uploadToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -129,33 +115,6 @@ struct CloudSettingsPane: View {
                             .font(.callout)
                     }
                     Text("Paste this token as the **UPLOAD_TOKEN** secret when you deploy the worker to Cloudflare.")
-                }
-            }
-
-            // MARK: - Update notice
-
-            if isWorkerOutdated {
-                Section {
-                    HStack(spacing: 10) {
-                        Image(systemName: "arrow.up.circle.fill")
-                            .foregroundStyle(Palette.warning)
-                            .font(.title3)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Worker update available")
-                                .font(.callout.weight(.medium))
-                            if let deployed = deployedWorkerVersion, let latest = latestWorkerVersion {
-                                Text("v\(deployed) → v\(latest)")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        Spacer()
-                        SettingsButton("How to Update") {
-                            if let url = URL(string: updateGuideURL) {
-                                NSWorkspace.shared.open(url)
-                            }
-                        }
-                    }
                 }
             }
 
@@ -306,7 +265,6 @@ struct CloudSettingsPane: View {
     private func fieldDidChange() {
         guard !isLoading else { return }
         workerStatus = .unchecked
-        deployedWorkerVersion = nil
         saveSettings()
     }
 
@@ -375,8 +333,6 @@ struct CloudSettingsPane: View {
             switch http.statusCode {
             case 200:
                 workerStatus = .connected
-                deployedWorkerVersion = Self.decodeVersion(from: data)
-                await fetchLatestWorkerInfo()
             case 401, 403:
                 workerStatus = .failed("Invalid token")
             default:
@@ -385,53 +341,6 @@ struct CloudSettingsPane: View {
         } catch {
             workerStatus = .failed(error.localizedDescription)
         }
-    }
-
-    // MARK: - Worker Version
-
-    private func fetchLatestWorkerInfo() async {
-        guard let url = URL(string: Self.versionManifestURL) else { return }
-
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 10
-        request.cachePolicy = .reloadIgnoringLocalCacheData
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return }
-            let manifest = try JSONDecoder().decode(WorkerVersionManifest.self, from: data)
-            latestWorkerVersion = manifest.version
-            if let guide = manifest.updateGuide, !guide.isEmpty {
-                updateGuideURL = guide
-            }
-        } catch {
-            // Non-blocking: if we can't reach the manifest, just skip the notice.
-        }
-    }
-
-    private static func decodeVersion(from data: Data) -> String? {
-        struct PingResponse: Decodable { let version: String? }
-        return (try? JSONDecoder().decode(PingResponse.self, from: data))?.version
-    }
-
-    /// Numeric semantic-version comparison. Returns true if `lhs` is strictly
-    /// older than `rhs` (e.g. "1.0.0" < "1.1.0").
-    private static func isVersion(_ lhs: String, olderThan rhs: String) -> Bool {
-        func components(_ value: String) -> [Int] {
-            value
-                .split(separator: ".")
-                .map { Int($0.prefix(while: \.isNumber)) ?? 0 }
-        }
-
-        let a = components(lhs)
-        let b = components(rhs)
-        let count = max(a.count, b.count)
-        for index in 0..<count {
-            let left = index < a.count ? a[index] : 0
-            let right = index < b.count ? b[index] : 0
-            if left != right { return left < right }
-        }
-        return false
     }
 
     // MARK: - Status Display
@@ -488,11 +397,6 @@ private enum ConnectionStatus: Equatable {
     case checking
     case connected
     case failed(String)
-}
-
-private struct WorkerVersionManifest: Decodable {
-    let version: String
-    let updateGuide: String?
 }
 
 private struct SetupStepView: View {

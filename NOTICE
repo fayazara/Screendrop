@@ -1,0 +1,33 @@
+Screenshot X
+============
+
+This repository contains a modified version of Screendrop.
+
+Original work
+-------------
+Screendrop, by Fayaz Ahmed Aralikatti
+https://github.com/fayazara/Screendrop
+Released under CC0 1.0 Universal (see LICENSE).
+
+Modifications
+-------------
+Copyright (c) 2026 Rochak Agrawal
+Contributed as "Screenshot X".
+
+The files touched by this contribution are modified versions of the original
+Screendrop sources. A description of every change is in CHANGELOG.md.
+
+Acknowledgement on merge
+------------------------
+By merging this pull request, the maintainer acknowledges that the merged files
+are modified versions of the original project rather than the original work,
+and that the original dedication (CC0 1.0) continues to apply to the code it
+covers. This acknowledgement is a courtesy record of provenance; it adds no
+condition to the existing licence.
+
+Not included
+------------
+This contribution deliberately omits fork-specific material: the personal
+bundle identifier and signing team, local export paths, and the personal
+Cloudflare worker URL and upload token. The upload token is a Cloudflare secret
+and has never been committed to source.

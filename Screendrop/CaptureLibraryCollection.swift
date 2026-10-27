@@ -6,6 +6,7 @@ enum CaptureLibraryAction: String {
     case open = "Open"
     case preview = "Quick Look"
     case edit = "Edit"
+    case pin = "Pin to Screen"
     case rename = "Rename…"
     case copy = "Copy"
     case export = "Export…"
@@ -138,14 +139,26 @@ struct CaptureLibraryCollection: NSViewRepresentable {
                 selectionChanged()
             }
             let count = collection.selectionIndexPaths.count
+            let singleIndex = count == 1 ? collection.selectionIndexPaths.first?.item : nil
+            let singleItem = singleIndex.flatMap { parent.items.indices.contains($0) ? parent.items[$0] : nil }
             let menu = NSMenu()
             menu.autoenablesItems = false
-            for action in [CaptureLibraryAction.preview, .edit, .rename, .copy, .export, .reveal, .trash] {
+            for action in [CaptureLibraryAction.preview, .edit, .pin, .rename, .copy, .export, .reveal, .trash] {
                 if action == .copy || action == .trash { menu.addItem(.separator()) }
-                let item = NSMenuItem(title: action.rawValue, action: #selector(performMenuAction(_:)), keyEquivalent: "")
+                let title: String
+                if action == .edit {
+                    // Images open in the annotator, so name the action after
+                    // what it actually does.
+                    title = singleItem == nil ? "Edit" : (singleItem!.isVideo ? "Edit Recording" : "Annotate")
+                } else {
+                    title = action.rawValue
+                }
+                let item = NSMenuItem(title: title, action: #selector(performMenuAction(_:)), keyEquivalent: "")
                 item.target = self
                 item.representedObject = action.rawValue
-                item.isEnabled = !parent.isBusy && (!(action == .rename || action == .edit || action == .preview) || count == 1)
+                item.isEnabled = !parent.isBusy
+                    && (!(action == .rename || action == .edit || action == .preview) || count == 1)
+                    && (action != .pin || singleItem?.isVideo == false)
                 menu.addItem(item)
             }
             return menu

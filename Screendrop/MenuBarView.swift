@@ -14,47 +14,84 @@ struct MenuBarView: View {
     @ObservedObject private var updaterManager = UpdaterManager.shared
     @State private var historyStore = ScreenshotHistoryStore.shared
     @State private var projectStore = RecordingProjectStore.shared
+    @State private var hotkeys = HotkeyManager.shared
+    @State private var shortcutTick = 0
 
     var body: some View {
+        menu
+            .onReceive(NotificationCenter.default.publisher(for: HotkeyManager.didChangeNotification)) { _ in
+                shortcutTick &+= 1
+            }
+    }
+
+    private var menu: some View {
         Group {
             Button {
                 CaptureCoordinator.shared.captureFullscreen()
             } label: {
-                Label("Capture Fullscreen", systemImage: "macwindow")
+                Label(captureTitle("Capture Fullscreen", .fullscreen), systemImage: "macwindow")
             }
             
             Button {
                 CaptureCoordinator.shared.captureWindow()
             } label: {
-                Label("Capture Window", systemImage: "macwindow.on.rectangle")
+                Label(captureTitle("Capture Window", .window), systemImage: "macwindow.on.rectangle")
             }
             
             Button {
                 CaptureCoordinator.shared.captureArea()
             } label: {
-                Label("Capture Area", systemImage: "rectangle.dashed")
+                Label(captureTitle("Capture Area", .area), systemImage: "rectangle.dashed")
             }
 
             Button {
                 CaptureCoordinator.shared.captureText()
             } label: {
-                Label("Capture Text", systemImage: "text.viewfinder")
+                Label(captureTitle("Capture Text", .textCapture), systemImage: "text.viewfinder")
+            }
+
+            Button {
+                ScrollingCaptureController.shared.start()
+            } label: {
+                Label(
+                    captureTitle("Scrolling Capture…", .scrollingCapture),
+                    systemImage: "arrow.up.and.down.text.horizontal"
+                )
             }
 
             Button {
                 RecordingPickerPresenter.shared.show()
             } label: {
-                Label("Record Screen", systemImage: "record.circle")
+                Label(captureTitle("Record Screen", .screenRecording), systemImage: "record.circle")
+            }
+
+            Button {
+                ScrollingCapturePermission.request()
+            } label: {
+                Label(
+                    ScrollingCapturePermission.isTrusted
+                        ? "Automatic Scrolling Enabled"
+                        : "Enable Automatic Scrolling…",
+                    systemImage: "accessibility"
+                )
             }
 
             Divider()
+
+            Button {
+                RecentCapturesStripPresenter.shared.show()
+            } label: {
+                Label(
+                    "Recent Captures  \(RecentCapturesStripPresenter.shared.shortcutHint)",
+                    systemImage: "rectangle.stack"
+                )
+            }
 
             Button {
                 CaptureLibraryModel.shared.show()
             } label: {
                 Label("Open Library", systemImage: "square.grid.2x2")
             }
-            .keyboardShortcut("l", modifiers: [.command, .shift])
 
             Menu {
                 projectsMenuContent
@@ -124,6 +161,17 @@ struct MenuBarView: View {
         }
     }
 
+    /// The global shortcut the app has registered, shown beside the menu item
+    /// so it can be discovered without opening Settings.
+    private func captureTitle(_ title: String, _ action: CaptureHotkeyAction) -> String {
+        // Reading the revision registers an Observation dependency so the
+        // menu is rebuilt when a shortcut changes in Settings, instead of
+        // keeping the label it was first built with.
+        _ = hotkeys.shortcutRevision
+        _ = shortcutTick
+        return "\(title)  \(CaptureHotkeyPreferences.shortcut(for: action).displayString)"
+    }
+
     private func projectMenuTitle(for project: RecordingProjectSummary) -> String {
         let name = truncatedMenuTitle(project.displayName)
         return project.hasUnsavedDraft ? "\(name) - Unsaved" : name
@@ -153,10 +201,12 @@ struct MenuBarView: View {
     private func showHistoryPreview(_ item: ScreenshotHistoryItem) {
         if item.isVideo {
             CaptureShelf.shared.show(existing: item.url, kind: .video)
+            CaptureShelfPresenter.shared.show(displayID: ActiveDisplayResolver.activeDisplayID(preferPointer: false))
         } else {
-            CaptureShelf.shared.show(existing: item.url, kind: .image)
+            // A recent screenshot opens as a pin: movable and resizable,
+            // rather than a fixed thumbnail that has to be pinned again.
+            PinnedScreenshotPresenter.shared.pin(url: item.url)
         }
-        CaptureShelfPresenter.shared.show(displayID: ActiveDisplayResolver.activeDisplayID(preferPointer: false))
     }
 
     private func openSettings(tab: SettingsTab) {

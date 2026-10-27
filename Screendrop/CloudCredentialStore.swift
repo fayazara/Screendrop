@@ -25,7 +25,11 @@ final class CloudCredentialStore {
     static let shared = CloudCredentialStore()
 
     private let defaults = UserDefaults.standard
-    private static let keychainService = "com.fayazahmed.Screendrop"
+    // A separate keychain service for this build's identity: it must never
+    // read or prompt for the installed Screendrop's cloud token.
+    private static var keychainService: String {
+        Bundle.main.bundleIdentifier ?? "com.fayazahmed.Screendrop"
+    }
 
     // MARK: - Keys
 

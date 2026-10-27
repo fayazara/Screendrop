@@ -297,6 +297,24 @@ struct CaptureLibraryView: View {
             .help("Sort captures")
         }
         ToolbarItem(placement: .primaryAction) {
+            Button {
+                model.perform(.pin)
+            } label: {
+                Label("Pin", systemImage: "pin")
+            }
+            .disabled(!(model.selectedItems.count == 1 && model.selectedItems.first?.isVideo == false))
+            .help("Pin the selected screenshot to the screen")
+        }
+        ToolbarItem(placement: .primaryAction) {
+            Button {
+                model.perform(.edit)
+            } label: {
+                Label("Annotate", systemImage: "pencil.tip")
+            }
+            .disabled(!(model.selectedItems.count == 1 && model.selectedItems.first?.isVideo == false))
+            .help("Open the selected screenshot in the annotator")
+        }
+        ToolbarItem(placement: .primaryAction) {
             Button { withAnimation(.morphIfAllowed) { inspectorVisible.toggle() } } label: {
                 Label(inspectorVisible ? "Hide Inspector" : "Show Inspector", systemImage: "sidebar.right")
             }
