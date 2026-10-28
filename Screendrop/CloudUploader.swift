@@ -5,8 +5,8 @@
 //  Uploads screenshots to R2 via the Screendrop Cloud worker.
 //
 //  Flow:
-//  1. PUT /api/upload with the raw file body + metadata headers
-//  2. Worker streams the body directly to R2 via binding (no buffering)
+//  1. PUT /api/upload for small files, multipart requests for large files
+//  2. Worker streams the body or parts directly to R2 via binding
 //  3. Worker creates the D1 metadata row, returns the shareable short URL
 //
 //  The user only needs a worker URL and upload token - no S3 credentials.
@@ -90,16 +90,6 @@ final class CloudUploader: NSObject {
 
         let creds = CloudCredentialStore.shared.snapshot()
         let fileName = fileURL.lastPathComponent
-        let fileData: Data
-        do {
-            fileData = try Data(contentsOf: fileURL, options: .mappedIfSafe)
-        } catch {
-            DockExportProgressCoordinator.shared.finish(dockProgressID)
-            uploadingItems.remove(itemID)
-            uploadProgress.removeValue(forKey: itemID)
-            failedItemIDs.insert(itemID)
-            throw error
-        }
         let mimeType = mimeTypeForFile(fileURL)
         let isVideo = mimeType.hasPrefix("video/")
         let dimensions: (width: Int, height: Int)?
@@ -119,7 +109,7 @@ final class CloudUploader: NSObject {
 
         let uploadTask = Task { [weak self] () throws -> CloudUploadResult in
             let result = try await Self.streamUpload(
-                data: fileData,
+                fileURL: fileURL,
                 filename: fileName,
                 contentType: mimeType,
                 mediaType: isVideo ? "video" : "image",
@@ -251,11 +241,11 @@ final class CloudUploader: NSObject {
 
     // MARK: - Streaming Upload
 
-    /// Sends the raw file bytes as the request body to PUT /api/upload.
+    /// Uses PUT /api/upload for small files and bounded multipart requests for large files.
     /// Metadata (filename, dimensions, etc.) is passed via headers so the
     /// Worker can stream the body directly to R2 without buffering.
     nonisolated private static func streamUpload(
-        data: Data,
+        fileURL: URL,
         filename: String,
         contentType: String,
         mediaType: String,
@@ -296,11 +286,19 @@ final class CloudUploader: NSObject {
             progress?(min(1, Double(sent) / Double(expected)))
         }
 
-        let (responseData, response) = try await URLSession.shared.upload(
-            for: request,
-            from: data,
-            delegate: progressDelegate
-        )
+        let responseData: Data
+        let response: URLResponse
+        let size = try fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+        if size >= 90 * 1024 * 1024 {
+            (responseData, response) = try await MultipartCloudUpload.upload(
+                fileURL: fileURL, request: request, progress: progress
+            )
+        } else {
+            let data = try Data(contentsOf: fileURL, options: .mappedIfSafe)
+            (responseData, response) = try await URLSession.shared.upload(
+                for: request, from: data, delegate: progressDelegate
+            )
+        }
 
         guard let http = response as? HTTPURLResponse else {
             throw CloudUploadError.invalidResponse
