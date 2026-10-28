@@ -24,9 +24,20 @@ extension Animation {
     /// bounce on a panel's height reads as the whole list wobbling.
     static let fold = Animation.smooth(duration: 0.26)
 
+    /// The editor's image moving to a new frame (entering, applying or
+    /// cancelling a crop): `morph`'s timing with a tenth of its bounce. A
+    /// spring's overshoot grows with the distance travelled, so a full
+    /// bounce on a zoomed-in crop whips.
+    static let canvasMove = Animation.spring(duration: 0.45, bounce: 0.04)
+
     /// `morph`, or no animation when Reduce Motion is on. For use outside views.
     static var morphIfAllowed: Animation? {
         NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? nil : .morph
+    }
+
+    /// `canvasMove`, or no animation when Reduce Motion is on.
+    static var canvasMoveIfAllowed: Animation? {
+        NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? nil : .canvasMove
     }
 
     /// `morphQuick`, or no animation when Reduce Motion is on.
