@@ -76,7 +76,9 @@ enum AfterCaptureAction: String, CaseIterable, Identifiable {
     /// Default when the user hasn't chosen yet. The overlay defaults on, and
     /// recordings open in the studio so zooms/backgrounds are discoverable.
     var defaultValue: Bool {
-        self == .showOverlay || self == .openVideoEditor
+        // Recordings stay out of the way once they stop: the floating card is
+        // enough, and the Studio opens only when asked for in Settings.
+        self == .showOverlay
     }
 }
 

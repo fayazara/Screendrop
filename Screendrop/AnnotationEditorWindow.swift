@@ -24,6 +24,7 @@ struct AnnotationEditorWindow: View {
     @State private var isUploading = false
     @State private var closeGuard = EditorCloseGuard()
     @State private var didCopyLink = false
+    @State private var didCopyImage = false
     @State private var saveFlash = false
     @State private var isToolbarShareOptionsPresented = false
     @FocusState private var focusedField: AnnotationEditorFocusedField?
@@ -129,6 +130,32 @@ struct AnnotationEditorWindow: View {
         if !isInspectorPresented {
             finishingToolbarActions
         }
+
+        Button(action: copyImageToClipboard) {
+            Label(
+                didCopyImage ? "Copied" : "Copy",
+                systemImage: didCopyImage ? "checkmark" : "doc.on.doc"
+            )
+            .labelStyle(.iconOnly)
+            .contentTransition(.symbolEffect(.replace))
+        }
+        .disabled(isBusy)
+        .help("Copy to clipboard")
+
+        Button(action: uploadQuickly) {
+            Label(
+                isUploading ? "Uploading…" : "Upload to Cloud",
+                systemImage: isUploading ? "arrow.up.circle" : "cloud"
+            )
+            .labelStyle(.iconOnly)
+            .contentTransition(.symbolEffect(.replace))
+        }
+        .disabled(isBusy)
+        .help(
+            CloudUploader.shared.isConfigured
+                ? "Upload to Cloud and copy link"
+                : "Set up cloud upload in Settings"
+        )
 
         Button(action: saveEdits) {
             Label(saveFlash ? "Saved" : "Save", systemImage: saveFlash ? "checkmark" : "square.and.arrow.down")
@@ -398,6 +425,44 @@ struct AnnotationEditorWindow: View {
             wallpaperStore.addRecentWallpaper(url)
             model.backgroundSettings.customWallpaper = wallpaper
             model.backgroundSettings.style = .customWallpaper(wallpaper)
+        }
+    }
+
+    /// Uploads with the remembered share options, without the popover.
+    private func uploadQuickly() {
+        guard CloudUploader.shared.isConfigured else {
+            SettingsWindowController.show(tab: .cloud)
+            return
+        }
+        uploadAnnotation(
+            options: CloudUploadOptions(
+                title: "",
+                socialEnabled: CloudUploadPreferences.lastSocialEnabled
+            )
+        )
+    }
+
+    /// Commits the current annotations and puts the rendered PNG on the
+    /// clipboard, the same file Save and Upload use.
+    private func copyImageToClipboard() {
+        clearInspectorFocus()
+        guard let sourceURL = model.sourceURL, !isBusy else { return }
+        isSaving = true
+        Task {
+            defer { isSaving = false }
+            do {
+                let resultURL = try await model.commitEdits() ?? sourceURL
+                _ = CaptureShelf.shared.applyAnnotation(
+                    originalURL: sourceURL,
+                    historyURL: resultURL
+                )
+                try ScreenshotFileActions.copyPNGToClipboard(from: resultURL)
+                withAnimation(.morphQuickIfAllowed) { didCopyImage = true }
+                try? await Task.sleep(for: .seconds(1.5))
+                withAnimation(.morphQuickIfAllowed) { didCopyImage = false }
+            } catch {
+                model.errorMessage = "Failed to copy: \(error.localizedDescription)"
+            }
         }
     }
 

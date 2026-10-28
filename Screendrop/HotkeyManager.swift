@@ -15,11 +15,20 @@ final class HotkeyManager {
     
     static let shared = HotkeyManager()
     
-    private static let hotKeySignature = OSType(0x4F53_4854)
+    static let hotKeySignature = OSType(0x4F53_4854)
 
     private var eventHandlerRef: EventHandlerRef?
     private var hotKeyRefs: [CaptureHotkeyAction: EventHotKeyRef] = [:]
     private(set) var registrationErrors: [CaptureHotkeyAction: String] = [:]
+
+    /// Bumped whenever a binding changes. The menu bar labels read the
+    /// shortcuts from UserDefaults, so they need something observable to
+    /// invalidate the menu when a shortcut is reassigned in Settings.
+    private(set) var shortcutRevision = 0
+
+    /// Also posted as a notification: it reaches the menu bar view even when
+    /// Observation invalidation alone does not rebuild an already-open menu.
+    static let didChangeNotification = Notification.Name("ScreenDropHotkeysDidChange")
     
     private init() {}
 
@@ -39,6 +48,8 @@ final class HotkeyManager {
     func reloadHotkeys() {
         unregisterHotkeys()
         registrationErrors.removeAll()
+        shortcutRevision &+= 1
+        NotificationCenter.default.post(name: Self.didChangeNotification, object: nil)
 
         var registeredShortcuts: Set<HotkeyShortcut> = []
         for action in CaptureHotkeyAction.allCases {
@@ -91,6 +102,8 @@ final class HotkeyManager {
         hotKeyRefs[action] = newRef
         CaptureHotkeyPreferences.saveShortcut(shortcut, for: action)
         registrationErrors[action] = nil
+        shortcutRevision &+= 1
+        NotificationCenter.default.post(name: Self.didChangeNotification, object: nil)
     }
 
     private func registerHotKey(action: CaptureHotkeyAction, shortcut: HotkeyShortcut) throws -> EventHotKeyRef {
@@ -148,8 +161,15 @@ private func hotKeyHandler(
         &hotKeyID
     )
     
+    // Another component (the recent-captures strip) installs its own hotkey
+    // handler on the same target. Only claim events carrying this manager's
+    // signature; otherwise Carbon would route ⇧⌘L to "capture fullscreen".
+    guard hotKeyID.signature == HotkeyManager.hotKeySignature else {
+        return OSStatus(eventNotHandledErr)
+    }
+
     let manager = Unmanaged<HotkeyManager>.fromOpaque(userData).takeUnretainedValue()
     manager.handleHotKey(id: hotKeyID.id)
-    
+
     return noErr
 }

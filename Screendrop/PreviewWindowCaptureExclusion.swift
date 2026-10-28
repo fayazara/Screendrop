@@ -31,6 +31,21 @@ final class PreviewWindowCaptureExclusion {
         applyCaptureVisibility(to: window)
     }
 
+    /// Window numbers that should be removed from a ScreenCaptureKit filter.
+    /// Only windows we deliberately marked as hidden from captures belong
+    /// here: excluding a whole process also removes the *area* of every window
+    /// it owns, even when another app covers that window, which punched
+    /// transparent holes in region captures.
+    var excludedWindowIDs: Set<CGWindowID> {
+        guard !Self.includesAppWindowsInCaptures else { return [] }
+        var ids: Set<CGWindowID> = []
+        for window in registeredWindows.allObjects
+        where window.isVisible && window.sharingType == .none {
+            ids.insert(CGWindowID(window.windowNumber))
+        }
+        return ids
+    }
+
     /// Applies a changed preference immediately to windows that already
     /// exist, rather than waiting for them to be recreated.
     func refreshRegisteredWindows() {

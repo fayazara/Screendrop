@@ -65,9 +65,8 @@ enum ScreenshotCompressionService {
             throw CocoaError(.fileWriteUnknown)
         }
 
-        let options: [CFString: Any] = [
-            kCGImageDestinationLossyCompressionQuality: min(max(quality, 0.1), 1)
-        ]
+        var options: [CFString: Any] = ImageDPI.preserving(sourceURL)
+        options[kCGImageDestinationLossyCompressionQuality] = min(max(quality, 0.1), 1)
         CGImageDestinationAddImage(destination, flattenedImage, options as CFDictionary)
 
         guard CGImageDestinationFinalize(destination) else {

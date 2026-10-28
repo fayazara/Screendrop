@@ -74,12 +74,15 @@ final class CaptureShelf {
     /// pointer would otherwise flash its controls on and off.
     private(set) var isMoving = false
 
-    /// The most cards the screen fits, set by the view as it lays out.
-    @ObservationIgnored var capacity = 6 {
-        didSet { trimToCapacity() }
+    /// The new capture is shown on its own; the card replaces the previous
+    /// preview instead of joining a stack.
+    /// How many preview squares fit on screen at once. Set by the presenter.
+    @ObservationIgnored var visibleCapacity = 5 {
+        didSet { trimToVisibleCapacity() }
     }
 
     @ObservationIgnored private var autoCloseTasks: [ShelfItem.ID: Task<Void, Never>] = [:]
+    @ObservationIgnored private var autoNameTasks: [ShelfItem.ID: Task<Void, Never>] = [:]
     @ObservationIgnored private var flashTasks: [ShelfItem.ID: Task<Void, Never>] = [:]
     @ObservationIgnored private var compressionTasks: [ShelfItem.ID: Task<Void, Never>] = [:]
 
@@ -133,11 +136,11 @@ final class CaptureShelf {
 
     /// A fresh screenshot. Runs the after-capture actions whether or not the
     /// shelf is set to show it.
-    func add(url: URL) {
+    func add(url: URL, preSavedURL: URL? = nil) {
         let showsCard = AfterCaptureActions.isEnabled(.showOverlay, for: .screenshot)
-        let savedURL = AfterCaptureActions.isEnabled(.save, for: .screenshot)
+        let savedURL = preSavedURL ?? (AfterCaptureActions.isEnabled(.save, for: .screenshot)
             ? saveToDefaultLocation(from: url)
-            : nil
+            : nil)
 
         guard showsCard,
               let thumbnail = ScreenshotImageLoader.downsampledImage(at: url, maxPixelSize: Self.thumbnailPixelSize)
@@ -149,8 +152,21 @@ final class CaptureShelf {
         let item = ShelfItem(url: url, thumbnail: thumbnail, savedURL: savedURL)
         insert(item)
         runAfterCaptureActions(type: .screenshot, url: url, itemID: item.id)
+        scheduleAutoName(id: item.id)
         scheduleAutoClose(id: item.id)
     }
+
+    #if DEBUG
+    /// Shows a capture's card without running the after-capture actions; used
+    /// by the preview self-test.
+    func showForTesting(url: URL) {
+        guard let thumbnail = ScreenshotImageLoader.downsampledImage(
+            at: url,
+            maxPixelSize: Self.thumbnailPixelSize
+        ) else { return }
+        insert(ShelfItem(url: url, thumbnail: thumbnail))
+    }
+    #endif
 
     /// A finished recording. The card shows at once; saving and the real
     /// thumbnail land when they are ready.
@@ -246,7 +262,7 @@ final class CaptureShelf {
         cancelTasks(for: id)
 
         noteMotion()
-        withAnimation(Self.slideIfAllowed) {
+        withAnimation(Self.dismissAnimation) {
             items.remove(at: index)
             if hoveredID == id { hoveredID = nil }
             if draggingID == id { draggingID = nil }
@@ -261,7 +277,7 @@ final class CaptureShelf {
         for id in items.map(\.id) { cancelTasks(for: id) }
 
         noteMotion()
-        withAnimation(Self.slideIfAllowed) {
+        withAnimation(Self.dismissAnimation) {
             items.removeAll()
             tuckReasons.removeAll()
             hoveredID = nil
@@ -356,8 +372,10 @@ final class CaptureShelf {
     func pin(id: ShelfItem.ID) {
         guard let item = item(id: id), item.kind == .image else { return }
         QuickLookPreviewPresenter.dismiss()
-        PinnedScreenshotPresenter.shared.pin(url: item.url)
-        dismiss(id: id)
+        PinnedScreenshotPresenter.shared.pin(
+            url: item.url,
+            at: CaptureShelfPresenter.shared.captureFrame
+        )
     }
 
     /// Whether an editor has this capture open. It can't be deleted then,
@@ -501,7 +519,7 @@ final class CaptureShelf {
                     try ScreenshotCompressionService.compressToTemporaryJPEG(sourceURL: sourceURL, quality: quality)
                 }.value
                 try Task.checkCancellation()
-                insertCompressed(result, beside: id)
+                insertCompressed(result)
             } catch is CancellationError {
                 return
             } catch {
@@ -520,6 +538,14 @@ final class CaptureShelf {
         NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? nil : slide
     }
 
+    /// Cards leave with a short slide to the right, matching the pinned
+    /// screenshots, rather than shrinking in place.
+    static var dismissAnimation: Animation? {
+        NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+            ? nil
+            : .easeIn(duration: 0.18)
+    }
+
     @ObservationIgnored private var motionEndTask: Task<Void, Never>?
 
     /// Marks the shelf as moving until the slide has had time to finish.
@@ -533,32 +559,41 @@ final class CaptureShelf {
         }
     }
 
-    /// Long edge of a card's thumbnail, in pixels.
-    private static let thumbnailPixelSize: CGFloat = 520
+    /// Long edge of a card's thumbnail, in pixels. An area preview can cover
+    /// most of the screen, so the thumbnail is decoded large enough to stay
+    /// sharp at that size on a Retina display.
+    private static let thumbnailPixelSize: CGFloat = 2400
 
-    private func insert(_ item: ShelfItem, at index: Int = 0) {
+    /// Captures stack in the floating preview, newest first. Beyond the
+    /// number that fits on screen the oldest preview is dropped (the file and
+    /// its pin are untouched; it remains in the Library).
+    private func insert(_ item: ShelfItem) {
         QuickLookPreviewPresenter.dismiss()
-        makeRoom(keeping: items.indices.contains(index) ? items[index].id : nil)
         noteMotion()
+        var updated = items.filter { $0.id != item.id }
+        updated.insert(item, at: 0)
+        if updated.count > visibleCapacity {
+            for removed in updated.suffix(updated.count - visibleCapacity) {
+                cancelTasks(for: removed.id)
+            }
+            updated.removeLast(updated.count - visibleCapacity)
+        }
         withAnimation(Self.slideIfAllowed) {
-            items.insert(item, at: min(index, items.count))
+            items = updated
             // A new capture always shows, even over an editor.
             tuckReasons.removeAll()
+            draggingID = nil
+            hoveredID = nil
         }
     }
 
-    /// Drops the oldest idle cards so one more fits on screen.
-    private func makeRoom(keeping keptID: ShelfItem.ID?) {
-        let overflow = items.count + 1 - capacity
-        guard overflow > 0 else { return }
-        let removable = items.reversed().filter { $0.id != keptID }.prefix(overflow)
-        for item in removable { dismiss(id: item.id) }
-    }
-
-    private func trimToCapacity() {
-        let overflow = items.count - capacity
-        guard overflow > 0 else { return }
-        for item in items.suffix(overflow) { dismiss(id: item.id) }
+    private func trimToVisibleCapacity() {
+        guard items.count > visibleCapacity else { return }
+        let overflow = items.count - visibleCapacity
+        for item in items.suffix(overflow) {
+            cancelTasks(for: item.id)
+        }
+        items.removeLast(overflow)
     }
 
     private func update(_ id: ShelfItem.ID, _ change: (inout ShelfItem) -> Void) {
@@ -583,7 +618,68 @@ final class CaptureShelf {
         }
     }
 
+    /// Renames the file from what is in the picture, using the on-device text
+    /// reader and language model. Runs after the card is already on screen, so
+    /// the capture never waits for it.
+    private func scheduleAutoName(id: ShelfItem.ID) {
+        guard ScreendropPreferences.autoNameCaptures,
+              let item = item(id: id), item.kind == .image
+        else { return }
+        autoNameTasks[id]?.cancel()
+        autoNameTasks[id] = Task { [weak self] in
+            guard let title = await CaptureAutoNamer.fileName(for: item.url),
+                  !Task.isCancelled
+            else { return }
+            guard let self, self.item(id: id) != nil else { return }
+            if self.isOpenInEditor(id: id) { return }
+
+            let base = Self.autoNameBase(title: title)
+            let renamedHistory = ScreenshotHistoryStore.shared
+                .renameScreenshot(at: item.url, to: base) ?? item.url
+            let renamedSaved = item.savedURL.flatMap { saved -> URL? in
+                Self.rename(saved, to: base)
+            }
+            self.update(id) { shelfItem in
+                shelfItem.url = renamedHistory
+                if let renamedSaved { shelfItem.savedURL = renamedSaved }
+            }
+        }
+    }
+
+    /// `<Title> 2026-10-27 21.43.07` — the timestamp is the user's local time,
+    /// with dots instead of colons because a colon is not valid in a path.
+    private static func autoNameBase(title: String) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = .current
+        formatter.dateFormat = "yyyy-MM-dd HH.mm.ss"
+        return "\(title) \(formatter.string(from: Date()))"
+    }
+
+    /// Moves an exported file to a new name in the same folder, without
+    /// overwriting anything already there.
+    private static func rename(_ url: URL, to base: String) -> URL? {
+        let folder = url.deletingLastPathComponent()
+        let pathExtension = url.pathExtension.isEmpty ? "png" : url.pathExtension
+        var destination = folder.appendingPathComponent(base).appendingPathExtension(pathExtension)
+        var counter = 2
+        while FileManager.default.fileExists(atPath: destination.path) {
+            destination = folder
+                .appendingPathComponent("\(base) \(counter)")
+                .appendingPathExtension(pathExtension)
+            counter += 1
+        }
+        do {
+            try FileManager.default.moveItem(at: url, to: destination)
+            return destination
+        } catch {
+            print("Failed to rename exported screenshot: \(error)")
+            return nil
+        }
+    }
+
     private func cancelTasks(for id: ShelfItem.ID) {
+        autoNameTasks.removeValue(forKey: id)?.cancel()
         autoCloseTasks.removeValue(forKey: id)?.cancel()
         flashTasks.removeValue(forKey: id)?.cancel()
         compressionTasks.removeValue(forKey: id)?.cancel()
@@ -623,10 +719,10 @@ final class CaptureShelf {
         }
     }
 
-    private func insertCompressed(_ result: ScreenshotCompressionResult, beside sourceID: ShelfItem.ID) {
+    private func insertCompressed(_ result: ScreenshotCompressionResult) {
         guard let thumbnail = ScreenshotImageLoader.downsampledImage(at: result.outputURL, maxPixelSize: Self.thumbnailPixelSize) else { return }
         let item = ShelfItem(url: result.outputURL, thumbnail: thumbnail)
-        insert(item, at: items.firstIndex { $0.id == sourceID } ?? 0)
+        insert(item)
         flash(.compressed(summary: result.displaySummary), on: item.id)
     }
 
@@ -654,7 +750,11 @@ final class CaptureShelf {
                 if let itemID { engage(itemID) }
                 CaptureShelfPresenter.shared.onAnnotate?(url)
             }
-            if AfterCaptureActions.isEnabled(.pin, for: type) {
+            // Like CleanShot, an area capture is pinned at the captured
+            // rectangle while the floating tile stays in the corner.
+            if let frame = CaptureShelfPresenter.shared.captureFrame {
+                PinnedScreenshotPresenter.shared.pin(url: url, at: frame)
+            } else if AfterCaptureActions.isEnabled(.pin, for: type) {
                 PinnedScreenshotPresenter.shared.pin(url: url)
             }
         case .recording:

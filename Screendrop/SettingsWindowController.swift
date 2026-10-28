@@ -11,6 +11,13 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     private static var shared: SettingsWindowController?
     private var didEnterActivationPolicy = false
 
+    /// Hides Settings before a capture. The area selector activates the app,
+    /// which would otherwise bring an open Settings window forward.
+    static func hideIfVisible() {
+        guard let window = shared?.window, window.isVisible else { return }
+        window.orderOut(nil)
+    }
+
     static func show(tab: SettingsTab? = nil) {
         if let tab {
             SettingsNavigation.shared.selectedTab = tab

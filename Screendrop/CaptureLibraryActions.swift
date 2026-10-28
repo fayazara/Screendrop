@@ -8,9 +8,10 @@ extension CaptureLibraryModel {
         guard !selected.isEmpty else { return }
         switch action {
         case .open:
-            // Previewing a video renders its export first, so opening one
-            // goes to the editor instead.
-            perform(selected.count == 1 && selected.first?.isVideo == true ? .edit : .preview)
+            // A double-click on an image pins it; videos open in the editor
+            // because previewing one renders its export first.
+            guard selected.count == 1, let item = selected.first else { return }
+            perform(item.isVideo ? .edit : .pin)
         case .preview:
             guard selected.count == 1, let item = selected.first else { return }
             if QuickLookPreviewPresenter.isShown, let current = QuickLookPreviewPresenter.currentURL {
@@ -28,6 +29,10 @@ extension CaptureLibraryModel {
             QuickLookPreviewPresenter.dismiss()
             if item.isVideo { CaptureShelfPresenter.shared.onEditVideo?(item.session?.directoryURL ?? item.fileURL) }
             else { CaptureShelfPresenter.shared.onAnnotate?(item.fileURL) }
+        case .pin:
+            guard selected.count == 1, let item = selected.first, !item.isVideo else { return }
+            QuickLookPreviewPresenter.dismiss()
+            PinnedScreenshotPresenter.shared.pin(url: item.fileURL)
         case .rename:
             guard selected.count == 1, let item = selected.first else { return }
             renamingItem = item

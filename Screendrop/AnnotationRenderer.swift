@@ -127,12 +127,11 @@ enum AnnotationRenderer {
                 throw CocoaError(.fileWriteUnknown)
             }
 
-            var options: CFDictionary?
+            var optionValues: [CFString: Any] = ImageDPI.preserving(sourceURL)
             if contentType != .png {
-                options = [
-                    kCGImageDestinationLossyCompressionQuality: ScreendropPreferences.compressionQuality
-                ] as CFDictionary
+                optionValues[kCGImageDestinationLossyCompressionQuality] = ScreendropPreferences.compressionQuality
             }
+            let options = optionValues as CFDictionary
 
             CGImageDestinationAddImage(destination, renderedImage, options)
 

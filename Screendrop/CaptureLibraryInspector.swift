@@ -406,6 +406,15 @@ struct CaptureLibraryInspector: View {
                 .disabled(single == nil)
                 .glassEffectID("edit", in: glass)
 
+                GlassActionCapsule(
+                    title: "Pin",
+                    systemImage: "pin"
+                ) {
+                    model.perform(.pin)
+                }
+                .disabled(!(single?.isVideo == false))
+                .glassEffectID("pin", in: glass)
+
                 GlassConfirmButton(
                     systemImage: "doc.on.doc",
                     help: "Copy (⌘C)",

@@ -73,6 +73,7 @@ final class RecordingBarPresenter {
     }
 
     func showPicker() {
+        hideLibraryWindow()
         let panel = panel ?? makePanel()
         PreviewWindowCaptureExclusion.shared.register(window: panel)
         Task {
@@ -87,6 +88,16 @@ final class RecordingBarPresenter {
         // keystrokes out of the app being recorded.
         panel.makeKey()
         warmCameraPreviewIfEnabled()
+    }
+
+    /// Recording starts from a floating bar; the Library is not part of that
+    /// flow and should get out of the way if it happens to be open.
+    private func hideLibraryWindow() {
+        for window in NSApp.windows
+        where window.identifier?.rawValue.contains("CAPTURE_LIBRARY") == true
+            || window.title == "Screendrop Library" {
+            window.orderOut(nil)
+        }
     }
 
     // MARK: Recording

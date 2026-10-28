@@ -40,8 +40,9 @@ struct OverlaySettingsPane: View {
     @AppStorage(ScreendropPreferences.previewPositionKey) private var previewPositionRaw = PreviewOverlayPosition.right.rawValue
     @AppStorage(ScreendropPreferences.previewAutoCloseSecondsKey) private var autoCloseSeconds = 0
     @AppStorage(ScreendropPreferences.previewCloseAfterDraggingKey) private var closeAfterDragging = true
+    @AppStorage(ScreendropPreferences.confirmPinnedCloseKey) private var confirmPinnedClose = true
 
-    private let autoCloseOptions: [Int] = [0, 5, 10, 30, 60]
+    private let autoCloseOptions: [Int] = [0, 5, 10, 15, 30, 60]
 
     var body: some View {
         SettingsPage {
@@ -52,8 +53,19 @@ struct OverlaySettingsPane: View {
                     }
                 } label: {
                     SettingsControlLabel(
-                        "Screen edge",
-                        detail: "The edge capture cards dock to after a screenshot or recording. Tucked away, they leave a handle there."
+                        "Screen corner",
+                        detail: "The capture preview opens in this bottom corner."
+                    )
+                }
+
+                LabeledContent {
+                    SettingsButton("Reset Position", systemImage: "arrow.counterclockwise") {
+                        CaptureShelfPresenter.shared.resetPlacement()
+                    }
+                } label: {
+                    SettingsControlLabel(
+                        "Preview position",
+                        detail: "The preview opens in the bottom corner above. If you drag it, it stays where you leave it; Reset puts it back in that corner."
                     )
                 }
 
@@ -64,23 +76,32 @@ struct OverlaySettingsPane: View {
                 } label: {
                     SettingsControlLabel(
                         "Auto-close",
-                        detail: "Dismiss a card after this delay, unless you're using it."
+                        detail: "Dismiss the preview after this delay, unless you're using it."
                     )
                 }
 
                 Toggle(isOn: $closeAfterDragging) {
                     SettingsControlLabel(
                         "Close after dragging",
-                        detail: "Dismiss a card once you drag it out to another app."
+                        detail: "Dismiss the preview once you drag it out to another app."
+                    )
+                }
+                .toggleStyle(.ink)
+
+                Toggle(isOn: $confirmPinnedClose) {
+                    SettingsControlLabel(
+                        "Confirm closing pins",
+                        detail: "Ask before ⌘W closes a pinned screenshot. The image file is never deleted."
                     )
                 }
                 .toggleStyle(.ink)
             }
 
-            Section("Card Actions") {
-                OverlayCardEditor()
-                    .padding(.vertical, 8)
-                    .frame(maxWidth: .infinity)
+            Section("Preview Controls") {
+                SettingsControlLabel(
+                    "Controls",
+                    detail: "Hover the preview for copy, annotate, save, pin and close. Drag the picture to move the preview; drag the grip, or hold Option and drag, to drag the file into Finder, Mail or another app."
+                )
             }
         }
     }

@@ -8,6 +8,7 @@
 import SwiftUI
 import CoreGraphics
 import ImageIO
+import ScreenCaptureKit
 
 /// Manages all screenshot capture operations at native Retina resolution.
 @Observable
@@ -82,6 +83,95 @@ final class ScreenshotManager {
         }
         args.append(contentsOf: delayArguments(delaySeconds))
         return await runScreencapture(args: args)
+    }
+
+    /// Captures a rectangle the user drew, given in global screen points.
+    /// ScreenCaptureKit is tried first because it maps the rectangle to the
+    /// display that owns it and returns an error when capture is not
+    /// available, instead of a transparent image. `screencapture -R` remains
+    /// the fallback: it measures from the top-left of the main display, while
+    /// AppKit's global space has its origin at the bottom-left.
+    func captureRect(_ rect: CGRect) async -> URL? {
+        if let url = await captureRectWithScreenCaptureKit(rect) {
+            return url
+        }
+
+        let mainHeight = NSScreen.screens.first?.frame.height ?? 0
+        let x = Int(rect.minX.rounded())
+        let y = Int((mainHeight - rect.maxY).rounded())
+        let width = max(1, Int(rect.width.rounded()))
+        let height = max(1, Int(rect.height.rounded()))
+        return await runScreencapture(args: ["-R", "\(x),\(y),\(width),\(height)"])
+    }
+
+    /// Captures just the requested rectangle from the display that contains
+    /// it. ScreenDrop's own windows are excluded unless the user opted into
+    /// capturing the app's UI, matching the screenshot privacy preference.
+    private func captureRectWithScreenCaptureKit(_ rect: CGRect) async -> URL? {
+        guard rect.width >= 1, rect.height >= 1,
+              let screen = NSScreen.screens.first(where: {
+                  $0.frame.contains(CGPoint(x: rect.midX, y: rect.midY))
+              }) ?? NSScreen.screens.first(where: { $0.frame.intersects(rect) }),
+              let displayID = ActiveDisplayResolver.displayID(for: screen)
+        else { return nil }
+
+        do {
+            let content = try await SCShareableContent.excludingDesktopWindows(
+                false,
+                onScreenWindowsOnly: true
+            )
+            guard let display = content.displays.first(where: { $0.displayID == displayID }) else {
+                return nil
+            }
+
+            // Match the existing privacy preference: ScreenDrop's own panels
+            // stay out of captures unless the user opts in. The selection,
+            // border and HUD are already outside the captured rectangle; this
+            // also covers any preview card or open window that overlaps it.
+            let excludedIDs = PreviewWindowCaptureExclusion.shared.excludedWindowIDs
+            let excludedWindows = content.windows.filter {
+                excludedIDs.contains($0.windowID)
+            }
+
+            let filter = SCContentFilter(display: display, excludingWindows: excludedWindows)
+            let configuration = SCStreamConfiguration()
+            configuration.sourceRect = CGRect(
+                x: rect.minX - screen.frame.minX,
+                y: screen.frame.maxY - rect.maxY,
+                width: rect.width,
+                height: rect.height
+            )
+            let scale = screen.backingScaleFactor
+            configuration.width = max(1, Int((rect.width * scale).rounded()))
+            configuration.height = max(1, Int((rect.height * scale).rounded()))
+            configuration.showsCursor = false
+
+            let image = try await SCScreenshotManager.captureImage(
+                contentFilter: filter,
+                configuration: configuration
+            )
+            return writePNG(image, scale: scale)
+        } catch {
+            return nil
+        }
+    }
+
+    private func writePNG(_ image: CGImage, scale: CGFloat = 2) -> URL? {
+        let url = URL(fileURLWithPath: generateTempPath(extension: "png"))
+        guard let destination = CGImageDestinationCreateWithURL(
+            url as CFURL,
+            "public.png" as CFString,
+            1,
+            nil
+        ) else { return nil }
+
+        CGImageDestinationAddImage(
+            destination,
+            image,
+            ImageDPI.properties(scale: scale) as CFDictionary
+        )
+        guard CGImageDestinationFinalize(destination) else { return nil }
+        return url
     }
 
     /// Builds the `-T <seconds>` delay arguments, or none when the timer is off.
