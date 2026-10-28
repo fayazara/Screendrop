@@ -96,9 +96,10 @@ struct AnnotationEditorWindow: View {
                 onZoomOut: model.zoomOut,
                 onFitCanvas: model.fitCanvas,
                 onActualSize: { model.setZoomPercent(100) },
-                onToggleCrop: { withAnimation(.morphIfAllowed) { model.toggleCropping() } },
-                onApplyCrop: { withAnimation(.morphIfAllowed) { model.applyCrop() } },
-                onCancelCrop: { withAnimation(.morphIfAllowed) { model.cancelCrop() } },
+                onToggleCrop: { withAnimation(.canvasMoveIfAllowed) { model.toggleCropping() } },
+                onApplyCrop: applyCropAction,
+                onCancelCrop: { withAnimation(.canvasMoveIfAllowed) { model.cancelCrop() } },
+                onNudgeCrop: model.nudgeCrop(by:),
                 isCropping: { model.isCropping }
             ))
             .inspector(isPresented: $isInspectorPresented) {
@@ -211,17 +212,19 @@ struct AnnotationEditorWindow: View {
 
     private func enterCrop() {
         clearInspectorFocus()
-        withAnimation(.morphIfAllowed) { model.beginCropping() }
+        withAnimation(.canvasMoveIfAllowed) { model.beginCropping() }
     }
 
     private func exitCrop() {
         clearInspectorFocus()
-        withAnimation(.morphIfAllowed) { model.cancelCrop() }
+        withAnimation(.canvasMoveIfAllowed) { model.cancelCrop() }
     }
 
     private func applyCropAction() {
         clearInspectorFocus()
-        withAnimation(.morphIfAllowed) { model.applyCrop() }
+        // Not animated: the crop first lands where its box was, and the canvas
+        // animates the fit from there (`canvasRevealID`).
+        model.applyCrop()
     }
 
     private var mainContent: some View {
@@ -251,8 +254,10 @@ struct AnnotationEditorWindow: View {
                 bottomChrome
             }
         }
-        .motion(.morph, value: model.isCropping)
-        .motion(.morph, value: isInspectorPresented)
+        // The canvas reframes here; overshoot on the image reads as a whip.
+        // Crop changes animate where they are made, not here: applying a crop
+        // must land on the box before it moves.
+        .motion(.canvasMove, value: isInspectorPresented)
     }
 
     private var hasImage: Bool {
@@ -296,11 +301,11 @@ struct AnnotationEditorWindow: View {
                             aspect: model.cropAspect,
                             onAspectChange: { aspect in
                                 clearInspectorFocus()
-                                withAnimation(.morphIfAllowed) { model.setCropAspect(aspect) }
+                                withAnimation(.canvasMoveIfAllowed) { model.setCropAspect(aspect) }
                             },
                             onReset: {
                                 clearInspectorFocus()
-                                withAnimation(.morphIfAllowed) { model.resetCrop() }
+                                withAnimation(.canvasMoveIfAllowed) { model.resetCrop() }
                             },
                             onCancel: exitCrop,
                             onApply: applyCropAction,
@@ -317,6 +322,8 @@ struct AnnotationEditorWindow: View {
                         )
                     }
                 }
+                // The canvas moves on `canvasMove`; the bars keep the morph.
+                .motion(.morph, value: model.isCropping)
             }
         }
         .padding(.bottom, AnnotationToolDock.bottomPadding)

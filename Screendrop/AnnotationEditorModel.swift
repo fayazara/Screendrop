@@ -53,15 +53,20 @@ final class AnnotationEditorModel {
     // MARK: Crop
     /// Whether the modal crop overlay is currently active.
     var isCropping = false
-    /// The working crop rectangle, normalized to the image (0...1, top-left
-    /// origin). Only meaningful while `isCropping` is true.
-    var cropRect = CGRect(x: 0, y: 0, width: 1, height: 1)
+    /// The working crop selection in image pixels (top-left origin), on
+    /// whole pixels. Only meaningful while `isCropping` is true.
+    var cropPixelRect: CGRect = .zero
+    /// The crop drag in progress (AnnotationEditorCrop.swift).
+    var cropDrag: CropDrag?
     /// The aspect-ratio constraint applied while cropping.
     var cropAspect: CropAspectRatio = .freeform
 
     // MARK: Zoom & pan
     /// The rendered camera and active gesture are committed as one value.
     var canvasViewport = AnnotationCanvasViewport()
+    /// Bumped when the viewport has been placed where the image already shows
+    /// and should now animate to the fit; the canvas runs that animation.
+    var canvasRevealID = 0
     /// While cropping, the image is fit with this much breathing room (in
     /// points) on every side so the crop resize handles - which are centered on
     /// the crop edges - never spill outside the interactive canvas bounds.
@@ -87,9 +92,6 @@ final class AnnotationEditorModel {
     private var cropUndoStack: [CropSnapshot] = []
     private var cropRedoStack: [CropSnapshot] = []
     private var ownedCropURLs: Set<URL> = []
-
-    /// Smallest crop dimension, in normalized units, derived from a pixel floor.
-    private let minimumCropPixels: CGFloat = 24
 
     /// Longest-edge cap (in pixels) for the downscaled editing preview.
     private let previewImageMaxPixelSize: CGFloat = 2880
@@ -191,7 +193,8 @@ final class AnnotationEditorModel {
         engine.tool = selectedTool
 
         isCropping = false
-        cropRect = CGRect(x: 0, y: 0, width: 1, height: 1)
+        cropPixelRect = .zero
+        cropDrag = nil
         cropAspect = .freeform
         cropUndoStack = []
         cropRedoStack = []
@@ -694,91 +697,33 @@ extension AnnotationEditorModel {
     /// Whether the image has been cropped in this editing session (and can be undone).
     var isCropped: Bool { !cropUndoStack.isEmpty }
 
-    /// Pixel dimensions of the current crop selection.
-    var cropPixelSize: CGSize {
-        CGSize(
-            width: (cropRect.width * imageSize.width).rounded(),
-            height: (cropRect.height * imageSize.height).rounded()
-        )
-    }
-
-    func beginCropping() {
-        guard imageSize != .zero, !isCropping else { return }
-
-        commitTextEditing()
-        engine.selectedIds.removeAll()
-        cropAspect = .freeform
-        cropRect = CropRectEditor.unit
-        fitCanvas()
-        isCropping = true
-    }
-
-    func cancelCrop() {
-        guard isCropping else { return }
-        isCropping = false
-        cropRect = CropRectEditor.unit
-        cropAspect = .freeform
-    }
-
-    func toggleCropping() {
-        isCropping ? cancelCrop() : beginCropping()
-    }
-
-    func resetCrop() {
-        guard isCropping else { return }
-        if let ratio = cropAspect.normalizedRatio(imageSize: imageSize) {
-            cropRect = CropRectEditor.applyAspect(to: CropRectEditor.unit, aspect: ratio)
-        } else {
-            cropRect = CropRectEditor.unit
-        }
-    }
-
-    func setCropAspect(_ aspect: CropAspectRatio) {
-        cropAspect = aspect
-        guard isCropping else { return }
-        if let ratio = aspect.normalizedRatio(imageSize: imageSize) {
-            cropRect = CropRectEditor.applyAspect(to: cropRect, aspect: ratio)
-        }
-    }
-
-    func updateCrop(handle: CropHandle, toNormalized point: CGPoint) {
-        guard isCropping else { return }
-        let aspect = handle.isCorner ? cropAspect.normalizedRatio(imageSize: imageSize) : nil
-        cropRect = CropRectEditor.resize(
-            cropRect,
-            handle: handle,
-            to: point,
-            aspect: aspect,
-            minWidth: minimumCropWidth,
-            minHeight: minimumCropHeight,
-            fromCenter: isCropCenterResizeModifierPressed
-        )
-    }
-
-    private var isCropCenterResizeModifierPressed: Bool {
-        let flags = NSEvent.modifierFlags
-        return flags.contains(.option) || (flags.contains(.command) && flags.contains(.shift))
-    }
-
-    func moveCrop(byNormalized delta: CGSize) {
-        guard isCropping else { return }
-        cropRect = CropRectEditor.move(cropRect, by: delta)
-    }
-
     /// Bake the crop into a new full-resolution base image, move the shapes with it, and exit crop
     /// mode. Page space is image pixels, so a crop is a translation plus a scale on every shape.
     func applyCrop() {
         guard isCropping else { return }
 
-        let crop = cropRect.standardized.intersection(CropRectEditor.unit)
+        let crop = imageSize.width > 0 && imageSize.height > 0
+            ? CGRect(
+                x: cropPixelRect.minX / imageSize.width,
+                y: cropPixelRect.minY / imageSize.height,
+                width: cropPixelRect.width / imageSize.width,
+                height: cropPixelRect.height / imageSize.height
+            ).intersection(CropGeometry.unit)
+            : .zero
+        // Leaving starts from what is on screen: the whole image, or after a
+        // crop, the box it was cut from.
+        let shownImageFrame = displayedImageFrame
+        var revealFrom = shownImageFrame
         defer {
             isCropping = false
-            cropRect = CropRectEditor.unit
+            cropDrag = nil
+            // The fading box settles on the whole (new) image.
+            cropPixelRect = cropBounds
             cropAspect = .freeform
+            revealCanvasLeavingCrop(imageAt: revealFrom)
         }
 
-        guard crop.width > 0.0001, crop.height > 0.0001 else { return }
-        if crop.minX < 0.0005, crop.minY < 0.0005, crop.width > 0.999, crop.height > 0.999 { return }
+        guard !crop.isEmpty, crop != CropGeometry.unit else { return }
 
         guard let baseURL = baseImageURL,
               let result = AnnotationImageCropper.crop(url: baseURL, normalizedRect: crop) else {
@@ -821,7 +766,12 @@ extension AnnotationEditorModel {
         cropUndoStack.append(snapshot)
         cropRedoStack.removeAll()
 
-        resetZoom()
+        revealFrom = shownImageFrame.map { frame in
+            CGRect(x: frame.minX + usedCrop.minX * frame.width,
+                   y: frame.minY + usedCrop.minY * frame.height,
+                   width: usedCrop.width * frame.width,
+                   height: usedCrop.height * frame.height)
+        }
         errorMessage = nil
     }
 
@@ -936,15 +886,6 @@ extension AnnotationEditorModel {
         ownedCropURLs.removeAll()
     }
 
-    private var minimumCropWidth: CGFloat {
-        guard imageSize.width > 0 else { return 0.05 }
-        return min(0.5, max(0.01, minimumCropPixels / imageSize.width))
-    }
-
-    private var minimumCropHeight: CGFloat {
-        guard imageSize.height > 0 else { return 0.05 }
-        return min(0.5, max(0.01, minimumCropPixels / imageSize.height))
-    }
 }
 
 // MARK: - Background preview

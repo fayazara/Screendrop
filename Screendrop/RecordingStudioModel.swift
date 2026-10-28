@@ -168,14 +168,14 @@ final class RecordingStudioModel {
     /// Non-destructive crop of the screen-video source. The Studio background,
     /// camera bubble and captions remain in canvas space around the reshaped
     /// video card.
-    var videoCropRect = CropRectEditor.unit {
+    var videoCropRect = CropGeometry.unit {
         didSet {
             scheduleProjectSave()
             if oldValue != videoCropRect { rebuildMotionTimeline() }
         }
     }
     private(set) var isCroppingVideo = false
-    var workingVideoCropRect = CropRectEditor.unit
+    var workingVideoCropRect = CropGeometry.unit
     var videoCropAspect: CropAspectRatio = .freeform
     /// The preview's copy of the reframe camera, kept current with every
     /// edit that would change the exported crop.
@@ -2799,46 +2799,65 @@ final class RecordingStudioModel {
 
     func resetVideoCrop() {
         guard isCroppingVideo else { return }
-        if let ratio = videoCropAspect.normalizedRatio(imageSize: videoSize) {
-            workingVideoCropRect = CropRectEditor.applyAspect(
-                to: CropRectEditor.unit,
-                aspect: ratio
-            )
+        if let ratio = videoCropAspect.pixelRatio(imageSize: videoSize) {
+            workingVideoCropRect = normalizedVideoCrop(CropGeometry.largest(aspect: ratio, in: videoCropBounds))
         } else {
-            workingVideoCropRect = CropRectEditor.unit
+            workingVideoCropRect = CropGeometry.unit
         }
     }
 
     func setVideoCropAspect(_ aspect: CropAspectRatio) {
         videoCropAspect = aspect
         guard isCroppingVideo,
-              let ratio = aspect.normalizedRatio(imageSize: videoSize) else {
+              let ratio = aspect.pixelRatio(imageSize: videoSize) else {
             return
         }
-        workingVideoCropRect = CropRectEditor.applyAspect(
-            to: workingVideoCropRect,
-            aspect: ratio
+        workingVideoCropRect = normalizedVideoCrop(
+            CropGeometry.reshaped(pixelVideoCrop(workingVideoCropRect), aspect: ratio, in: videoCropBounds)
         )
     }
 
     func moveVideoCrop(from start: CGRect, byNormalized delta: CGSize) {
         guard isCroppingVideo else { return }
-        workingVideoCropRect = CropRectEditor.move(start, by: delta)
+        workingVideoCropRect = CropGeometry.move(start, by: delta, in: CropGeometry.unit)
     }
 
-    func updateVideoCrop(handle: CropHandle, toNormalized point: CGPoint) {
+    /// Resizes from the selection the drag started with by the pointer's
+    /// total travel, so grabbing a handle off-centre never jumps.
+    func resizeVideoCrop(from start: CGRect, handle: CropHandle, byNormalized translation: CGSize) {
         guard isCroppingVideo else { return }
-        let aspect = handle.isCorner
-            ? videoCropAspect.normalizedRatio(imageSize: videoSize)
-            : nil
-        workingVideoCropRect = CropRectEditor.resize(
-            workingVideoCropRect,
+        let pixels = CropGeometry.resize(
+            pixelVideoCrop(start),
             handle: handle,
-            to: point,
-            aspect: aspect,
-            minWidth: min(1, 24 / max(videoSize.width, 1)),
-            minHeight: min(1, 24 / max(videoSize.height, 1)),
+            by: CGSize(width: translation.width * videoSize.width, height: translation.height * videoSize.height),
+            in: videoCropBounds,
+            aspect: videoCropAspect.pixelRatio(imageSize: videoSize),
+            minimumSize: CGSize(width: min(24, videoSize.width), height: min(24, videoSize.height)),
             fromCenter: isVideoCropCenterResizeModifierPressed
+        )
+        workingVideoCropRect = normalizedVideoCrop(pixels)
+    }
+
+    /// The crop engine works in pixels so aspect ratios are exact; Studio
+    /// stores its crop normalized to the video.
+    private var videoCropBounds: CGRect { CGRect(origin: .zero, size: videoSize) }
+
+    private func pixelVideoCrop(_ rect: CGRect) -> CGRect {
+        CGRect(
+            x: rect.minX * videoSize.width,
+            y: rect.minY * videoSize.height,
+            width: rect.width * videoSize.width,
+            height: rect.height * videoSize.height
+        )
+    }
+
+    private func normalizedVideoCrop(_ rect: CGRect) -> CGRect {
+        guard videoSize.width > 0, videoSize.height > 0 else { return CropGeometry.unit }
+        return CGRect(
+            x: rect.minX / videoSize.width,
+            y: rect.minY / videoSize.height,
+            width: rect.width / videoSize.width,
+            height: rect.height / videoSize.height
         )
     }
 
@@ -3006,7 +3025,7 @@ final class RecordingStudioModel {
     var previewCanvasSize: CGSize {
         if exportAspect == .original, isCroppingVideo {
             RecordingStudioLayout.originalCanvasSize(
-                sourceSize: videoSize, style: style, contentCropRect: CropRectEditor.unit
+                sourceSize: videoSize, style: style, contentCropRect: CropGeometry.unit
             )
         } else {
             basePreviewCanvasSize
@@ -3024,7 +3043,7 @@ final class RecordingStudioModel {
     }
 
     var previewVideoCropRect: CGRect {
-        isCroppingVideo ? CropRectEditor.unit : videoCropRect
+        isCroppingVideo ? CropGeometry.unit : videoCropRect
     }
 
     /// How the content occupies the card on a target-aspect canvas.

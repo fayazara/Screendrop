@@ -486,7 +486,7 @@ private struct StudioCanvasComposition: View {
             usesUniformPadding: model.exportAspect == .original,
             contentAspect: isEditingVideoCrop ? model.sourceVideoAspect : model.previewContentAspect,
             contentMode: isEditingVideoCrop ? .fit : model.previewContentMode,
-            contentCropRect: isEditingVideoCrop ? CropRectEditor.unit : model.videoCropRect
+            contentCropRect: isEditingVideoCrop ? CropGeometry.unit : model.videoCropRect
         )
     }
 
@@ -881,6 +881,7 @@ private struct VideoCropOverlay: View {
     /// The uncropped screen-video card inside the surrounding canvas.
     let videoFrame: CGRect
     @State private var moveStartCrop: CGRect?
+    @State private var resizeStartCrop: CGRect?
 
     private var cropViewRect: CGRect {
         let crop = model.workingVideoCropRect.standardized
@@ -962,15 +963,19 @@ private struct VideoCropOverlay: View {
     private func handleGesture(_ handle: CropHandle) -> some Gesture {
         DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.coordinateSpaceName))
             .onChanged { value in
+                let start = resizeStartCrop ?? model.workingVideoCropRect.standardized
+                if resizeStartCrop == nil { resizeStartCrop = start }
                 guard videoFrame.width > 0, videoFrame.height > 0 else { return }
-                model.updateVideoCrop(
+                model.resizeVideoCrop(
+                    from: start,
                     handle: handle,
-                    toNormalized: CGPoint(
-                        x: (value.location.x - videoFrame.minX) / videoFrame.width,
-                        y: (value.location.y - videoFrame.minY) / videoFrame.height
+                    byNormalized: CGSize(
+                        width: value.translation.width / videoFrame.width,
+                        height: value.translation.height / videoFrame.height
                     )
                 )
             }
+            .onEnded { _ in resizeStartCrop = nil }
     }
 
     private func handlePoint(_ handle: CropHandle) -> CGPoint {

@@ -220,10 +220,10 @@ struct RecordingEditDocument: Codable, Equatable {
     }
 
     var normalizedVideoCropRect: CGRect {
-        guard let videoCropRect else { return CropRectEditor.unit }
-        let crop = videoCropRect.standardized.intersection(CropRectEditor.unit)
+        guard let videoCropRect else { return CropGeometry.unit }
+        let crop = videoCropRect.standardized.intersection(CropGeometry.unit)
         guard crop.width > 0.0001, crop.height > 0.0001 else {
-            return CropRectEditor.unit
+            return CropGeometry.unit
         }
         return crop
     }

@@ -2,193 +2,174 @@
 //  AnnotationCropOverlay.swift
 //  Screendrop
 //
-//  The modal crop UI rendered over the canvas: a dimmed exterior, rule-of-thirds
-//  grid, draggable interior, and corner/edge resize handles. All interaction is
-//  expressed in the image's normalized coordinate space and forwarded to the
-//  model, which owns the crop geometry.
+//  Crop mode's drawing: the dimmed outside, the box, its handles and, while
+//  dragging, a rule-of-thirds grid. It takes no input; the canvas routes
+//  presses to the model, which hit-tests the same geometry
+//  (AnnotationEditorCrop.swift).
+//
+//  The handles sit inside the box, so a box edge at the viewport's edge
+//  still shows its corner and stays grabbable when zoomed in. Every layer is
+//  an animatable shape over the same rects, so the box moves as one piece
+//  with the image.
 //
 
 import SwiftUI
 
-/// Shared coordinate-space name so the overlay's drag gestures resolve to the
-/// same coordinates as the canvas `imageFrame`.
+/// Shared coordinate-space name for the canvas's viewport points.
 enum AnnotationCanvasCoordinateSpace {
     static let name = "AnnotationCanvasSpace"
 }
 
 struct AnnotationCropOverlay: View {
-    @Bindable var model: AnnotationEditorModel
-    /// The on-screen rect (canvas-local points) the image occupies.
+    let model: AnnotationEditorModel
+    /// The on-screen rect (viewport points) the image occupies.
     let imageFrame: CGRect
-
-    @State private var moveStartCrop: CGRect?
-
-    private var cropViewRect: CGRect {
-        viewRect(model.cropRect.standardized)
-    }
-
-    private var visibleHandles: [CropHandle] {
-        model.cropAspect.locksAspect
-            ? CropHandle.allCases.filter(\.isCorner)
-            : CropHandle.allCases
-    }
+    /// The part of the viewport not covered by floating chrome. Edge handles
+    /// sit in the middle of the part of their edge that is in it.
+    let visibleRect: CGRect
 
     var body: some View {
+        let box = model.cropViewRect(in: imageFrame)
+
         ZStack(alignment: .topLeading) {
-            dimmedExterior
-            grid
-            border
-            moveSurface
-            handles
+            CropDimShape(imageFrame: imageFrame, cropFrame: box)
+                .fill(Color.black.opacity(0.55), style: FillStyle(eoFill: true))
+
+            CropGridShape(cropFrame: box)
+                .stroke(Color.white.opacity(0.45), lineWidth: 0.75)
+                .animation(.easeOut(duration: 0.18)) { $0.opacity(model.isCropDragging ? 1 : 0) }
+
+            CropBorderShape(cropFrame: box)
+                .stroke(Color.white.opacity(0.95), lineWidth: 1)
+                .shadow(color: .black.opacity(0.35), radius: 1)
+
+            CropHandlesShape(cropFrame: box, visibleRect: visibleRect)
+                .fill(Color.white)
+                .shadow(color: .black.opacity(0.4), radius: 1.5, y: 0.5)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .allowsHitTesting(true)
-    }
-
-    // MARK: Layers
-
-    private var dimmedExterior: some View {
-        Path { path in
-            path.addRect(imageFrame)
-            path.addRect(cropViewRect)
-        }
-        .fill(Color.black.opacity(0.55), style: FillStyle(eoFill: true))
         .allowsHitTesting(false)
-    }
-
-    private var border: some View {
-        Rectangle()
-            .strokeBorder(Color.white.opacity(0.95), lineWidth: 1.5)
-            .frame(width: cropViewRect.width, height: cropViewRect.height)
-            .position(x: cropViewRect.midX, y: cropViewRect.midY)
-            .shadow(color: .black.opacity(0.3), radius: 1)
-            .allowsHitTesting(false)
-    }
-
-    private var grid: some View {
-        Path { path in
-            let rect = cropViewRect
-            for index in 1...2 {
-                let x = rect.minX + rect.width * CGFloat(index) / 3
-                path.move(to: CGPoint(x: x, y: rect.minY))
-                path.addLine(to: CGPoint(x: x, y: rect.maxY))
-
-                let y = rect.minY + rect.height * CGFloat(index) / 3
-                path.move(to: CGPoint(x: rect.minX, y: y))
-                path.addLine(to: CGPoint(x: rect.maxX, y: y))
-            }
-        }
-        .stroke(Color.white.opacity(0.35), lineWidth: 0.75)
-        .allowsHitTesting(false)
-    }
-
-    private var moveSurface: some View {
-        Rectangle()
-            .fill(Color.white.opacity(0.001))
-            .frame(width: max(cropViewRect.width, 1), height: max(cropViewRect.height, 1))
-            .position(x: cropViewRect.midX, y: cropViewRect.midY)
-            .gesture(moveGesture)
-    }
-
-    private var handles: some View {
-        ForEach(visibleHandles, id: \.self) { handle in
-            let point = handlePoint(handle)
-            CropHandleView(isCorner: handle.isCorner, handle: handle)
-                .position(x: point.x, y: point.y)
-                .gesture(handleGesture(handle))
-        }
-    }
-
-    // MARK: Gestures
-
-    private var moveGesture: some Gesture {
-        DragGesture(minimumDistance: 0, coordinateSpace: .named(AnnotationCanvasCoordinateSpace.name))
-            .onChanged { value in
-                let start = moveStartCrop ?? model.cropRect.standardized
-                if moveStartCrop == nil { moveStartCrop = start }
-                guard imageFrame.width > 0, imageFrame.height > 0 else { return }
-                let delta = CGSize(
-                    width: value.translation.width / imageFrame.width,
-                    height: value.translation.height / imageFrame.height
-                )
-                model.cropRect = CropRectEditor.move(start, by: delta)
-            }
-            .onEnded { _ in moveStartCrop = nil }
-    }
-
-    private func handleGesture(_ handle: CropHandle) -> some Gesture {
-        DragGesture(minimumDistance: 0, coordinateSpace: .named(AnnotationCanvasCoordinateSpace.name))
-            .onChanged { value in
-                model.updateCrop(handle: handle, toNormalized: normalized(value.location))
-            }
-    }
-
-    // MARK: Geometry
-
-    private func viewRect(_ rect: CGRect) -> CGRect {
-        CGRect(
-            x: imageFrame.minX + rect.minX * imageFrame.width,
-            y: imageFrame.minY + rect.minY * imageFrame.height,
-            width: rect.width * imageFrame.width,
-            height: rect.height * imageFrame.height
-        )
-    }
-
-    private func normalized(_ point: CGPoint) -> CGPoint {
-        guard imageFrame.width > 0, imageFrame.height > 0 else { return .zero }
-        return CGPoint(
-            x: (point.x - imageFrame.minX) / imageFrame.width,
-            y: (point.y - imageFrame.minY) / imageFrame.height
-        )
-    }
-
-    private func handlePoint(_ handle: CropHandle) -> CGPoint {
-        let rect = cropViewRect
-        let unit = handle.unitPoint
-        return CGPoint(
-            x: rect.minX + rect.width * unit.x,
-            y: rect.minY + rect.height * unit.y
-        )
     }
 }
 
-private struct CropHandleView: View {
-    let isCorner: Bool
-    let handle: CropHandle
+/// The image with the crop box cut out, in viewport points.
+private struct CropDimShape: Shape {
+    var imageFrame: CGRect
+    var cropFrame: CGRect
 
-    var body: some View {
-        ZStack {
-            // Large, invisible hit target for comfortable grabbing.
-            Color.white.opacity(0.001)
-                .frame(width: 30, height: 30)
-                .contentShape(Rectangle())
-
-            shape
+    var animatableData: AnimatablePair<CGRect.AnimatableData, CGRect.AnimatableData> {
+        get { AnimatablePair(imageFrame.animatableData, cropFrame.animatableData) }
+        set {
+            imageFrame.animatableData = newValue.first
+            cropFrame.animatableData = newValue.second
         }
     }
 
-    @ViewBuilder
-    private var shape: some View {
-        if isCorner {
-            RoundedRectangle(cornerRadius: 2.5, style: .continuous)
-                .fill(Color.white)
-                .frame(width: 13, height: 13)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 2.5, style: .continuous)
-                        .strokeBorder(Color.black.opacity(0.18), lineWidth: 0.5)
-                )
-                .shadow(color: .black.opacity(0.35), radius: 1.5, y: 0.5)
-        } else {
-            let isHorizontalEdge = handle == .top || handle == .bottom
-            RoundedRectangle(cornerRadius: 3, style: .continuous)
-                .fill(Color.white)
-                .frame(
-                    width: isHorizontalEdge ? 26 : 7,
-                    height: isHorizontalEdge ? 7 : 26
-                )
-                .shadow(color: .black.opacity(0.35), radius: 1.5, y: 0.5)
-        }
+    func path(in _: CGRect) -> Path {
+        var path = Path()
+        path.addRect(imageFrame)
+        path.addRect(cropFrame)
+        return path
     }
 }
 
+/// Rule-of-thirds lines across the crop box.
+private struct CropGridShape: Shape {
+    var cropFrame: CGRect
 
+    var animatableData: CGRect.AnimatableData {
+        get { cropFrame.animatableData }
+        set { cropFrame.animatableData = newValue }
+    }
+
+    func path(in _: CGRect) -> Path {
+        var path = Path()
+        let rect = cropFrame
+        for index in 1...2 {
+            let x = rect.minX + rect.width * CGFloat(index) / 3
+            path.move(to: CGPoint(x: x, y: rect.minY))
+            path.addLine(to: CGPoint(x: x, y: rect.maxY))
+
+            let y = rect.minY + rect.height * CGFloat(index) / 3
+            path.move(to: CGPoint(x: rect.minX, y: y))
+            path.addLine(to: CGPoint(x: rect.maxX, y: y))
+        }
+        return path
+    }
+}
+
+/// The box's outline, drawn just inside its edge.
+private struct CropBorderShape: Shape {
+    var cropFrame: CGRect
+
+    var animatableData: CGRect.AnimatableData {
+        get { cropFrame.animatableData }
+        set { cropFrame.animatableData = newValue }
+    }
+
+    func path(in _: CGRect) -> Path {
+        Path(cropFrame.insetBy(dx: 0.5, dy: 0.5))
+    }
+}
+
+/// Corner brackets and mid-edge bars, all inside the box.
+private struct CropHandlesShape: Shape {
+    var cropFrame: CGRect
+    let visibleRect: CGRect
+
+    static let thickness: CGFloat = 3
+    static let armLength: CGFloat = 20
+    static let barLength: CGFloat = 24
+
+    var animatableData: CGRect.AnimatableData {
+        get { cropFrame.animatableData }
+        set { cropFrame.animatableData = newValue }
+    }
+
+    func path(in _: CGRect) -> Path {
+        let box = cropFrame.standardized
+        guard box.width > 0, box.height > 0 else { return Path() }
+        let thickness = min(Self.thickness, box.width / 4, box.height / 4)
+        // Arms shrink on a small box so the brackets never meet.
+        let arm = min(Self.armLength, box.width / 3, box.height / 3)
+
+        var path = Path()
+        for handle in CropHandle.allCases where handle.isCorner {
+            let x = handle.xDirection < 0 ? box.minX : box.maxX
+            let y = handle.yDirection < 0 ? box.minY : box.maxY
+            let inwardX: CGFloat = handle.xDirection < 0 ? 1 : -1
+            let inwardY: CGFloat = handle.yDirection < 0 ? 1 : -1
+            path.addRect(CGRect(x: x, y: y, width: arm * inwardX, height: thickness * inwardY).standardized)
+            path.addRect(CGRect(x: x, y: y, width: thickness * inwardX, height: arm * inwardY).standardized)
+        }
+
+        // A bar needs room clear of both brackets on the visible stretch.
+        let clearance = Self.barLength + 2 * (arm + 8)
+        for handle in CropHandle.allCases where !handle.isCorner {
+            if handle.yDirection != 0 {
+                let y = handle.yDirection < 0 ? box.minY : box.maxY
+                let lower = max(box.minX, visibleRect.minX)
+                let upper = min(box.maxX, visibleRect.maxX)
+                guard (visibleRect.minY...visibleRect.maxY).contains(y), upper - lower >= clearance else { continue }
+                let inward: CGFloat = handle.yDirection < 0 ? 1 : -1
+                path.addRoundedRect(
+                    in: CGRect(x: (lower + upper - Self.barLength) / 2, y: y, width: Self.barLength, height: thickness * inward)
+                        .standardized,
+                    cornerSize: CGSize(width: thickness / 2, height: thickness / 2)
+                )
+            } else {
+                let x = handle.xDirection < 0 ? box.minX : box.maxX
+                let lower = max(box.minY, visibleRect.minY)
+                let upper = min(box.maxY, visibleRect.maxY)
+                guard (visibleRect.minX...visibleRect.maxX).contains(x), upper - lower >= clearance else { continue }
+                let inward: CGFloat = handle.xDirection < 0 ? 1 : -1
+                path.addRoundedRect(
+                    in: CGRect(x: x, y: (lower + upper - Self.barLength) / 2, width: thickness * inward, height: Self.barLength)
+                        .standardized,
+                    cornerSize: CGSize(width: thickness / 2, height: thickness / 2)
+                )
+            }
+        }
+        return path
+    }
+}

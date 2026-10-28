@@ -21,6 +21,7 @@ struct AnnotationKeyCommandHandler: NSViewRepresentable {
     let onToggleCrop: () -> Void
     let onApplyCrop: () -> Void
     let onCancelCrop: () -> Void
+    let onNudgeCrop: (CGSize) -> Void
     let isCropping: () -> Bool
 
     func makeNSView(context: Context) -> AnnotationKeyCommandHandlerView {
@@ -48,6 +49,7 @@ struct AnnotationKeyCommandHandler: NSViewRepresentable {
         view.onToggleCrop = onToggleCrop
         view.onApplyCrop = onApplyCrop
         view.onCancelCrop = onCancelCrop
+        view.onNudgeCrop = onNudgeCrop
         view.isCropping = isCropping
     }
 }
@@ -67,6 +69,7 @@ final class AnnotationKeyCommandHandlerView: NSView {
     var onToggleCrop: (() -> Void)?
     var onApplyCrop: (() -> Void)?
     var onCancelCrop: (() -> Void)?
+    var onNudgeCrop: ((CGSize) -> Void)?
     var isCropping: (() -> Bool)?
 
     private var localKeyMonitor: Any?
@@ -101,9 +104,9 @@ final class AnnotationKeyCommandHandlerView: NSView {
                 return event
             }
 
-            // Crop mode is modal: Return applies, Escape cancels, and all other
-            // editing shortcuts are swallowed so they can't act on the hidden
-            // annotation layer.
+            // Crop mode is modal: Return applies, Escape cancels, arrows nudge
+            // the selection, and all other editing shortcuts are swallowed so
+            // they can't act on the hidden annotation layer.
             if self.isCropping?() == true {
                 if Self.isReturn(event) {
                     self.onApplyCrop?()
@@ -111,6 +114,10 @@ final class AnnotationKeyCommandHandlerView: NSView {
                 }
                 if Self.isEscape(event) {
                     self.onCancelCrop?()
+                    return nil
+                }
+                if let delta = Self.arrowNudge(event) {
+                    self.onNudgeCrop?(delta)
                     return nil
                 }
                 if Self.isUndo(event) || Self.isRedo(event) {
@@ -184,6 +191,19 @@ final class AnnotationKeyCommandHandlerView: NSView {
 
     private static func isEscape(_ event: NSEvent) -> Bool {
         event.keyCode == 53
+    }
+
+    /// An arrow key as a pixel offset: one pixel, ten with Shift.
+    private static func arrowNudge(_ event: NSEvent) -> CGSize? {
+        guard event.modifierFlags.intersection([.command, .option, .control]).isEmpty else { return nil }
+        let step: CGFloat = event.modifierFlags.contains(.shift) ? 10 : 1
+        switch event.keyCode {
+        case 123: return CGSize(width: -step, height: 0)
+        case 124: return CGSize(width: step, height: 0)
+        case 125: return CGSize(width: 0, height: step)
+        case 126: return CGSize(width: 0, height: -step)
+        default: return nil
+        }
     }
 
     private static func isCropToggle(_ event: NSEvent) -> Bool {
