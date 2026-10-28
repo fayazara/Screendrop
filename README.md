@@ -389,6 +389,8 @@ Screendrop verifies the Worker URL and token before enabling uploads.
 
 The share link works as soon as the main upload finishes and becomes richer as the sidecars arrive.
 
+Files of 90 MiB or larger use 16 MiB multipart requests to stay below Cloudflare's request-body limit. This requires a Worker with the `/api/upload/multipart` endpoints; update the Worker before sharing large recordings. Smaller uploads continue to use `PUT /api/upload`.
+
 ## Privacy and Permissions
 
 Screendrop is local-first:
