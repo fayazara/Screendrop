@@ -96,6 +96,9 @@ struct GlassCapsuleButton: View {
     let title: String
     var systemImage: String? = nil
     var height: CGFloat = GlassMetrics.buttonSize
+    /// Grows the whole button - height, type and padding - from the sizes
+    /// `height` picks, for surfaces that scale with a user setting.
+    var scale: CGFloat = 1
     var isProminent = false
     /// A functional color such as `Palette.record`; wins over `isProminent`.
     var tint: Color? = nil
@@ -105,21 +108,21 @@ struct GlassCapsuleButton: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 6) {
+            HStack(spacing: 6 * scale) {
                 if let systemImage {
                     Image(systemName: systemImage)
-                        .font(.system(size: height < 28 ? 10.5 : GlassMetrics.symbolSize - 1, weight: .semibold))
+                        .font(.system(size: (height < 28 ? 10.5 : GlassMetrics.symbolSize - 1) * scale, weight: .semibold))
                         .contentTransition(.symbolEffect(.replace))
                 }
                 Text(title)
-                    .font(.system(size: height < 28 ? 11.5 : 12, weight: .semibold))
+                    .font(.system(size: (height < 28 ? 11.5 : 12) * scale, weight: .semibold))
                     .lineLimit(1)
                     .fixedSize()
                     .contentTransition(.interpolate)
             }
             .foregroundStyle(glassForeground(isInked: isProminent, tint: tint, isEnabled: isEnabled))
-            .padding(.horizontal, height < 28 ? 11 : 13)
-            .frame(height: height)
+            .padding(.horizontal, (height < 28 ? 11 : 13) * scale)
+            .frame(height: height * scale)
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
