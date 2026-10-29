@@ -20,7 +20,12 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild build \
   2>&1 | grep -E "(BUILD SUCCEEDED|BUILD FAILED|error:)" | head -20
 ```
 
-There are two shared schemes (`Screendrop` and `Screendrop Dev`) - both build the same target with Debug config. Use `Screendrop` unless told otherwise.
+There are two shared schemes, both building the same target:
+
+- `Screendrop` - `Debug` configuration, produces `Screendrop.app` (`com.fayazahmed.Screendrop`).
+- `Screendrop Dev` - `Debug Dev` configuration, produces `Screendrop Dev.app` (`com.fayazahmed.Screendrop.dev`) in `Build/Products/Debug Dev`. It runs alongside an installed release build and keeps its own permissions, so use it for running and testing the app.
+
+`-configuration` overrides the scheme's own, so build the Dev scheme with `-configuration "Debug Dev"` (or leave the flag off). With `-configuration Debug` it quietly builds `Screendrop.app` instead and leaves `Screendrop Dev.app` stale.
 
 No test target exists. Build success is the only automated verification.
 
