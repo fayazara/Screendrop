@@ -48,6 +48,9 @@ enum ScreendropPreferences {
     static let recordingTeleprompterScriptKey = "recordingTeleprompterScript"
     static let recordingTeleprompterLineCountKey = "recordingTeleprompterLineCount"
     static let revealExportInFinderKey = "revealExportInFinder"
+    /// Lets AI agents (Claude Code, Codex, ...) edit recordings through the
+    /// local MCP server. On unless turned off.
+    static let agentServerEnabledKey = "agentServerEnabled"
     /// The ratio an area recording's selection is locked to ("16:9"), or
     /// empty for freeform.
     static let recordingAreaAspectKey = "recordingAreaAspect"
@@ -256,6 +259,13 @@ enum ScreendropPreferences {
             return true
         }
         return UserDefaults.standard.bool(forKey: revealExportInFinderKey)
+    }
+
+    static var agentServerEnabled: Bool {
+        if UserDefaults.standard.object(forKey: agentServerEnabledKey) == nil {
+            return true
+        }
+        return UserDefaults.standard.bool(forKey: agentServerEnabledKey)
     }
 
     /// Whether fullscreen captures on notched displays trim the empty black

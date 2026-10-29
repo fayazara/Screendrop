@@ -34,6 +34,9 @@ struct RecordingStudioWindow: View {
         .task(id: url) {
             guard let url else { return }
             model?.teardown()
+            // An agent may be editing this project without a window. Hand it
+            // over: its draft is flushed first, so the window opens on it.
+            AgentProjects.shared.releaseAgentModel(for: url)
             let newModel = RecordingStudioModel(url: url)
             model = newModel
             await newModel.load()

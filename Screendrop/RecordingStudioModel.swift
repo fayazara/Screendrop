@@ -354,6 +354,9 @@ final class RecordingStudioModel {
     /// Set while a stored document is being applied to the model, so the
     /// resulting property writes don't register as user edits.
     private var isApplyingDocument = false
+    /// Loaded by the agent server with no window behind it. Such a model
+    /// edits and exports like any other but doesn't count as an open editor.
+    var isAgentSession = false
     /// Whether the editor holds edits that have not been committed with an
     /// explicit save. Stored rather than derived: the title bar and the Save
     /// button read it on every body evaluation, and rebuilding the whole
@@ -1814,6 +1817,19 @@ final class RecordingStudioModel {
         }
     }
 
+    /// One file, awaited: the agent server needs to know it landed before
+    /// it reports back. False when the file isn't an image, GIF, or audio.
+    func importMediaFile(_ url: URL, atEditorTime time: TimeInterval) async -> Bool {
+        guard let directory = mediaDirectoryURL, !isTornDown else { return false }
+        if RecordingOverlayImage.canImport(url) {
+            return await importImage(url, into: directory, atEditorTime: time) != nil
+        }
+        if RecordingAudioClip.canImport(url) {
+            return await importAudio(url, into: directory, atEditorTime: time) != nil
+        }
+        return false
+    }
+
     private func copyIntoProject(_ url: URL, directory: URL) -> String? {
         let fileName = UUID().uuidString + (url.pathExtension.isEmpty ? "" : ".\(url.pathExtension.lowercased())")
         do {
@@ -2350,6 +2366,77 @@ final class RecordingStudioModel {
         writeDraftNow()
     }
 
+    // MARK: - Agent edits
+
+    /// Every edit as a storable document, for the agent server to read and
+    /// transform.
+    var editDocument: RecordingEditDocument {
+        currentDocument()
+    }
+
+    /// Runs one agent edit as exactly one undo step. Undo groups normally
+    /// close at the end of a UI event, and edits arriving over the agent
+    /// socket never get one, so without an explicit group every agent edit
+    /// would pile into a single step that undoes them all at once.
+    func performAgentEdit(_ edit: () throws -> Void) rethrows {
+        let manager = editUndoManager
+        closeOpenUndoGroups()
+        manager.groupsByEvent = false
+        manager.beginUndoGrouping()
+        defer {
+            manager.endUndoGrouping()
+            manager.groupsByEvent = true
+        }
+        try edit()
+    }
+
+    /// Ends a group left open by an edit that arrived outside a UI event,
+    /// such as a media import an agent awaited.
+    func closeOpenUndoGroups() {
+        while editUndoManager.groupingLevel > 0 {
+            editUndoManager.endUndoGrouping()
+        }
+    }
+
+    /// Applies a whole document an agent produced as one undo step, so the
+    /// user can ⌘Z an agent's change like their own. The imported soundtrack
+    /// is the one thing that stays put: swapping it loads a file, which this
+    /// synchronous path (and undo) can't wait for.
+    func applyAgentDocument(_ requested: RecordingEditDocument, actionName: String) {
+        guard isLoaded else { return }
+        var document = requested
+        let previous = currentDocument()
+        document.replacementAudioFileName = previous.replacementAudioFileName
+        document.replacementAudioDisplayName = previous.replacementAudioDisplayName
+        guard document != previous else { return }
+
+        registerUndo(actionName) { target in
+            target.applyAgentDocument(previous, actionName: actionName)
+        }
+        pause()
+        clearTimelineSelection()
+        hoverPreviewTime = nil
+        timelineHoverTime = nil
+
+        let implicitZoomCues = zoomCues.filter(\.isImplicit)
+        applyDocumentSettings(document)
+        isApplyingDocument = true
+        zoomCues = document.zoomCues + implicitZoomCues
+        if let clips = document.clips, !clips.isEmpty {
+            clipTimeline = RecordingClipTimeline(segments: clips).normalized(to: sourceDuration)
+        }
+        duration = clipTimeline.duration
+        isApplyingDocument = false
+
+        try? rebuildScreenPlayerItem(preserving: min(currentTime, duration))
+        rebuildCameraLayoutTimeline()
+        rebuildPointerTimeline()
+        rebuildViewportTimeline()
+        rebuildPreviewReframe()
+        updateActiveTranscriptWord()
+        scheduleProjectSave()
+    }
+
     /// ⌘S. Commits the working copy to `edit.json` and clears the draft.
     @discardableResult
     func saveProject() -> Bool {
@@ -2661,7 +2748,7 @@ final class RecordingStudioModel {
     /// timeline and drops the cut words from any overlapping captions. Both
     /// registrations land in one undo group, so a single ⌘Z restores the
     /// footage and the caption text together.
-    private func cutSourceRanges(_ ranges: [ClosedRange<TimeInterval>], actionName: String) {
+    func cutSourceRanges(_ ranges: [ClosedRange<TimeInterval>], actionName: String) {
         let merged = RecordingClipTimeline.mergedRanges(ranges)
         guard !merged.isEmpty,
               let next = clipTimeline.removingSourceRanges(merged)?.normalized(to: sourceDuration),

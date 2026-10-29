@@ -214,8 +214,16 @@ final class StudioProjectRegistry {
     func hasLoadedEditor(for url: URL) -> Bool {
         let path = url.standardizedFileURL.path
         return models.values.contains {
-            guard let model = $0.model, model.isLoaded else { return false }
+            guard let model = $0.model, model.isLoaded, !model.isAgentSession else { return false }
             return model.sessionURL.standardizedFileURL.path == path
+        }
+    }
+
+    /// The model a Studio window is editing this project in, if one is open.
+    func editorModel(for url: URL) -> RecordingStudioModel? {
+        let path = url.standardizedFileURL.path
+        return models.values.lazy.compactMap(\.model).first {
+            $0.isLoaded && !$0.isAgentSession && $0.sessionURL.standardizedFileURL.path == path
         }
     }
 

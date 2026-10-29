@@ -11,6 +11,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
     case screenshots
     case video
     case overlay
+    case mcp
     case cloud
     case about
 
@@ -22,6 +23,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         case .screenshots: "Screenshots"
         case .video: "Screen Recordings"
         case .overlay: "Overlay"
+        case .mcp: "MCP"
         case .cloud: "Cloud"
         case .about: "About"
         }
@@ -33,6 +35,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         case .screenshots: "camera.viewfinder"
         case .video: "record.circle.fill"
         case .overlay: "square.stack.fill"
+        case .mcp: "point.3.filled.connected.trianglepath.dotted"
         case .cloud: "icloud.fill"
         case .about: "info.circle.fill"
         }
@@ -202,6 +205,8 @@ private struct SettingsDetailView: View {
                 VideoSettingsPane()
             case .overlay:
                 OverlaySettingsPane()
+            case .mcp:
+                MCPSettingsPane()
             case .cloud:
                 CloudSettingsPane()
             case .about:

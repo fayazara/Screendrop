@@ -10,7 +10,18 @@ import UniformTypeIdentifiers
 import UserNotifications
 import Carbon
 
+/// `Screendrop --mcp` is the agent relay and must never start the UI, so
+/// the choice is made before SwiftUI gets the process.
 @main
+enum ScreendropMain {
+    static func main() {
+        if AgentRelay.isRequested {
+            AgentRelay.run()
+        }
+        ScreendropApp.main()
+    }
+}
+
 struct ScreendropApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @Environment(\.openWindow) var openWindow
@@ -151,6 +162,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #endif
         HotkeyManager.shared.registerHotkeys()
         updaterManager.start()
+        AgentServer.shared.updateForPreference()
         RecordingRecoveryCoordinator.recoverInterruptedRecordings()
         // Indexing is background work; let launch settle first.
         DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
@@ -160,6 +172,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let launchReason = launchEvent?.paramDescriptor(forKeyword: keyAEPropData)?.enumCodeValue
         let launchedInBackground = launchReason == keyAELaunchedAsLogInItem
             || launchReason == keyAELaunchedAsServiceItem
+            || CommandLine.arguments.contains(AgentSocket.launchedByAgentArgument)
         // Let Finder's open-file event reach its editor without also opening a
         // Library. Login/service launches keep the existing quiet menu-bar mode.
         DispatchQueue.main.async { [weak self] in
@@ -182,6 +195,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
         CaptureLibraryModel.shared.show()
         return false
+    }
+
+    /// Removes the agent socket so a relay sees the app is gone and
+    /// relaunches it, rather than connecting to a dead file.
+    func applicationWillTerminate(_ notification: Notification) {
+        AgentServer.shared.stop()
     }
 
     /// Guard against silently losing captures. Screenshots that were never
