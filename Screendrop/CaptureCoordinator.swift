@@ -185,18 +185,17 @@ final class CaptureCoordinator {
         }
     }
 
-    func recordArea(_ display: SCDisplay) {
-        RecordingAreaSelectionPresenter.shared.selectArea(on: display) { rect in
-            guard let rect else { return }
-            Task {
-                guard await CaptureCountdownPresenter.shared.runIfNeeded(
-                    seconds: ScreendropPreferences.recordingStartDelaySeconds,
-                    displayID: display.displayID
-                ) else { return }
-                ScreenRecordingManager.shared.startRecording(
-                    source: ScreenRecordingSource(kind: .area(display: display, rect: rect))
-                )
-            }
+    /// - Parameter rect: global AppKit coordinates, picked with
+    ///   RecordingAreaSelectionPresenter.
+    func recordArea(_ display: SCDisplay, rect: CGRect) {
+        Task {
+            guard await CaptureCountdownPresenter.shared.runIfNeeded(
+                seconds: ScreendropPreferences.recordingStartDelaySeconds,
+                displayID: display.displayID
+            ) else { return }
+            ScreenRecordingManager.shared.startRecording(
+                source: ScreenRecordingSource(kind: .area(display: display, rect: rect))
+            )
         }
     }
     

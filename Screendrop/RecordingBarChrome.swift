@@ -37,8 +37,11 @@ enum BarMetrics {
     /// The panel is a fixed size that both modes sit centred inside, so
     /// morphing between them never resizes the window - only the bar's own
     /// rounded rect animates. Wide enough for the widest mode plus the room a
-    /// tooltip needs beyond the end controls.
-    static let panelWidth: CGFloat = 760
+    /// tooltip needs beyond the end controls, and for the area pill to hang
+    /// off the bar's trailing end without the bar moving.
+    static let panelWidth: CGFloat = 1000
+    /// Between the bar and the area pill beside it.
+    static let pillGap: CGFloat = 8
     /// Tall enough for the teleprompter to unfold above the bar without the
     /// window ever resizing.
     static var panelHeight: CGFloat {
@@ -108,6 +111,10 @@ enum BarTooltipID: String {
     case display
     case window
     case area
+    case areaWidth
+    case areaHeight
+    case areaSwap
+    case areaAspect
     case camera
     case microphone
     case systemAudio

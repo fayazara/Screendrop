@@ -48,6 +48,11 @@ enum ScreendropPreferences {
     static let recordingTeleprompterScriptKey = "recordingTeleprompterScript"
     static let recordingTeleprompterLineCountKey = "recordingTeleprompterLineCount"
     static let revealExportInFinderKey = "revealExportInFinder"
+    /// The ratio an area recording's selection is locked to ("16:9"), or
+    /// empty for freeform.
+    static let recordingAreaAspectKey = "recordingAreaAspect"
+    /// The last area recorded, so a retake starts from the same framing.
+    static let recordingAreaLastSelectionKey = "recordingAreaLastSelection"
 
     private static let defaultCompressionQuality = 0.8
 
@@ -120,6 +125,38 @@ enum ScreendropPreferences {
     /// Countdown delay (in seconds) before a recording starts. 0 means off.
     static var recordingStartDelaySeconds: Int {
         max(0, UserDefaults.standard.integer(forKey: recordingStartDelaySecondsKey))
+    }
+
+    static var recordingAreaAspect: RecordingAreaAspect? {
+        get {
+            UserDefaults.standard.string(forKey: recordingAreaAspectKey)
+                .flatMap(RecordingAreaAspect.init(storageValue:))
+        }
+        set { UserDefaults.standard.set(newValue?.storageValue ?? "", forKey: recordingAreaAspectKey) }
+    }
+
+    /// The last area recorded, in global AppKit coordinates, with the display
+    /// it was on. Restored only while that display is attached and still
+    /// contains it.
+    static var recordingAreaLastSelection: (displayID: CGDirectDisplayID, rect: CGRect)? {
+        get {
+            let parts = (UserDefaults.standard.string(forKey: recordingAreaLastSelectionKey) ?? "")
+                .split(separator: ",")
+                .compactMap { Double($0) }
+            guard parts.count == 5, parts[3] > 0, parts[4] > 0 else { return nil }
+            return (CGDirectDisplayID(parts[0]), CGRect(x: parts[1], y: parts[2], width: parts[3], height: parts[4]))
+        }
+        set {
+            guard let newValue else {
+                UserDefaults.standard.removeObject(forKey: recordingAreaLastSelectionKey)
+                return
+            }
+            let rect = newValue.rect
+            let value = [Double(newValue.displayID), rect.minX, rect.minY, rect.width, rect.height]
+                .map { String($0) }
+                .joined(separator: ",")
+            UserDefaults.standard.set(value, forKey: recordingAreaLastSelectionKey)
+        }
     }
 
     /// Whether the notch teleprompter appears during recordings. Defaults to off.

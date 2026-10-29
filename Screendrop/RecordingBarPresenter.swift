@@ -36,9 +36,12 @@ final class RecordingBarPresenter {
     /// windows where to anchor.
     var barFrameInPanel: CGRect = .zero
     var visibilityBannerFrameInPanel: CGRect = .zero
+    /// The area pill beside the bar, while the area picker is up.
+    var areaPillFrameInPanel: CGRect?
 
     func containsPanelPoint(_ point: CGPoint) -> Bool {
         if barFrameInPanel.contains(point) { return true }
+        if let areaPillFrameInPanel, areaPillFrameInPanel.contains(point) { return true }
         return mode == .picker
             && ScreendropPreferences.includeAppWindowsInCaptures
             && visibilityBannerFrameInPanel.contains(point)
@@ -98,6 +101,7 @@ final class RecordingBarPresenter {
         let panel = panel ?? makePanel()
         PreviewWindowCaptureExclusion.shared.register(window: panel)
         RecordingSourceTargetPresenter.shared.cancel()
+        RecordingAreaSelectionPresenter.shared.cancel()
 
         let isMorphing = panel.isVisible && isPositioned(panel, onDisplayID: displayID)
         if isMorphing {
@@ -117,6 +121,7 @@ final class RecordingBarPresenter {
     func hide() {
         if mode == .picker { CaptureCountdownPresenter.shared.cancel() }
         RecordingSourceTargetPresenter.shared.cancel()
+        RecordingAreaSelectionPresenter.shared.cancel()
         // `orderOut` sends no exit events, so a hover that's live when the
         // bar hides has to be ended by hand, or its puck would linger.
         BarControlHoverView.endActiveHover()
@@ -125,6 +130,13 @@ final class RecordingBarPresenter {
         // without animating out of a mode nobody can see.
         mode = .picker
         isTeleprompterOpen = false
+    }
+
+    /// Takes the keyboard back from a sheet that's going away, so the next
+    /// Esc reaches the bar and closes it.
+    func reclaimKey() {
+        guard let panel, panel.isVisible else { return }
+        panel.makeKey()
     }
 
     func containsScreenPoint(_ point: CGPoint) -> Bool {
@@ -149,6 +161,18 @@ final class RecordingBarPresenter {
             y: panel.frame.maxY - barFrameInPanel.maxY,
             width: barFrameInPanel.width,
             height: barFrameInPanel.height
+        )
+    }
+
+    /// The area pill on screen, so the area sheet can keep its Start
+    /// Recording pill clear of it.
+    var areaPillFrame: CGRect? {
+        guard let panel, panel.isVisible, let frame = areaPillFrameInPanel else { return nil }
+        return CGRect(
+            x: panel.frame.minX + frame.minX,
+            y: panel.frame.maxY - frame.maxY,
+            width: frame.width,
+            height: frame.height
         )
     }
 
@@ -257,8 +281,12 @@ private final class RecordingBarPanel: NSPanel {
             RecordingBarPresenter.shared.closeTeleprompter()
             return
         }
-        // First Esc puts away the point-to-pick sheet; the next one closes
-        // the bar.
+        // First Esc puts away the point-to-pick or area sheet; the next one
+        // closes the bar.
+        if RecordingAreaSelectionPresenter.shared.isActive {
+            RecordingAreaSelectionPresenter.shared.cancel()
+            return
+        }
         if RecordingSourceTargetPresenter.shared.isActive {
             RecordingSourceTargetPresenter.shared.cancel()
             return
@@ -291,6 +319,7 @@ private final class RecordingBarHostingView<Content: View>: NSHostingView<Conten
 
 private struct RecordingBarView: View {
     @State private var presenter = RecordingBarPresenter.shared
+    @State private var area = RecordingAreaSelectionPresenter.shared
     @State private var tooltip = BarTooltipModel()
     /// The control row's width, which the teleprompter matches so opening
     /// it grows the bar upward only.
@@ -343,11 +372,34 @@ private struct RecordingBarView: View {
                     .offset(y: BarMetrics.visibilityBannerHeight - BarMetrics.visibilityBannerOverlap)
             }
         }
+        // The area controls are a pill of their own hanging off the bar's
+        // trailing end, so choosing Area never reshapes or moves the bar.
+        .overlay(alignment: .bottomTrailing) {
+            if presenter.mode == .picker && area.isActive {
+                RecordingAreaBarPill()
+                    .alignmentGuide(.trailing) { $0[.leading] - BarMetrics.pillGap }
+                    .transition(
+                        .opacity.combined(with: .offset(x: -12))
+                            .animation(.easeOut(duration: 0.18))
+                    )
+                    .onGeometryChange(for: CGRect.self) {
+                        $0.frame(in: .named(BarCoordinateSpace.panel))
+                    } action: {
+                        presenter.areaPillFrameInPanel = $0
+                    }
+                    .onDisappear {
+                        presenter.areaPillFrameInPanel = nil
+                    }
+            }
+        }
         // The tooltip rides on the control row, outside the clip, so it
         // floats just above the controls whether or not the bar is unfolded.
         .overlay(alignment: .bottom) {
             tooltipLayer.frame(height: BarMetrics.height)
         }
+        // Controls report their frames here for the tooltip, which is laid
+        // out over the bar - including the area pill's, beyond its end.
+        .coordinateSpace(.named(BarCoordinateSpace.bar))
         // Satellite windows anchor to the bar itself, excluding the reminder.
         .onGeometryChange(for: CGRect.self) {
             $0.frame(in: .named(BarCoordinateSpace.panel))
@@ -379,7 +431,6 @@ private struct RecordingBarView: View {
         .padding(.leading, 2)
         .padding(.trailing, BarMetrics.horizontalPadding)
         .frame(height: BarMetrics.height)
-        .coordinateSpace(.named(BarCoordinateSpace.bar))
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { rowWidth = $0 }
     }
 

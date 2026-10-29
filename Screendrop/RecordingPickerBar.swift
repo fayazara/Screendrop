@@ -5,7 +5,7 @@
 //  The pre-record mode of the floating bar. "Record" anywhere in the app
 //  brings the bar up at the bottom of the active screen; it picks the source
 //  (display / window by pointing at it - RecordingSourceTargetPresenter - or
-//  area by dragging) and toggles the capture inputs (camera,
+//  area by dragging - RecordingAreaSelectionPresenter) and toggles the capture inputs (camera,
 //  microphone, system audio) for the next recording, then hands off to
 //  CaptureCoordinator - at which point the same bar morphs into the in-session
 //  controls (RecordingControlPresenter). Clicks and keystrokes are always
@@ -43,6 +43,7 @@ extension RecordingBarPresenter {
 struct RecordingPickerControls: View {
     @State private var sources = RecordingSourceCatalog.shared
     @State private var target = RecordingSourceTargetPresenter.shared
+    @State private var area = RecordingAreaSelectionPresenter.shared
     @State private var cameras = RecordingDeviceCatalog.cameras()
     @AppStorage(ScreendropPreferences.recordingCameraDeviceIDKey) private var cameraID = ""
     @AppStorage(ScreendropPreferences.recordingMicrophoneDeviceIDKey) private var microphoneID = ""
@@ -60,12 +61,12 @@ struct RecordingPickerControls: View {
                 id: .area,
                 title: "Drag to select a region",
                 systemImage: "rectangle.dashed",
+                isSelected: area.isActive,
                 accessibility: "Area - drag to select the region to record"
             ) {
-                startAreaRecording()
+                area.toggle()
             }
             .disabled(!canSelectSource)
-
 
             BarDivider()
 
@@ -197,18 +198,6 @@ struct RecordingPickerControls: View {
                 }
             }
         }
-    }
-
-    private func startAreaRecording() {
-        let displayID = ActiveDisplayResolver.activeDisplayID(preferPointer: false)
-        guard let display = sources.displays.first(where: { $0.displayID == displayID })
-            ?? sources.displays.first else { return }
-        // Area is the one source that can't morph: the bar has to get out of
-        // the way of the selection overlay, so it leaves and comes back as the
-        // session controls.
-        target.cancel()
-        RecordingBarPresenter.shared.hide()
-        CaptureCoordinator.shared.recordArea(display)
     }
 
     /// Leaves the bar on screen: it stays as the picker through any start

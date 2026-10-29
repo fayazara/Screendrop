@@ -63,6 +63,7 @@ final class RecordingSourceTargetPresenter {
     }
 
     func begin(_ mode: Mode) {
+        RecordingAreaSelectionPresenter.shared.cancel()
         self.mode = mode
         if mode == .window {
             snapshotWindowStack()
