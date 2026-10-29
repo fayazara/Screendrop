@@ -120,6 +120,8 @@ extension CaptureLibraryModel {
             let id = item.historyIDs.first ?? ScreenshotHistoryStore.shared.items.first {
                 $0.recordingSessionPath == item.session?.directoryURL.standardizedFileURL.path
             }?.id ?? UUID()
+            self.uploadingItemID = id
+            defer { self.uploadingItemID = nil }
             let result = try await CloudUploader.shared.upload(itemID: id, fileURL: item.fileURL,
                 title: options.trimmedTitleOrNil, socialEnabled: options.socialEnabled)
             ScreenshotHistoryStore.shared.setLibraryCloudURL(id: id, cloudURL: result.url)
