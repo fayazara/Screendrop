@@ -78,7 +78,7 @@ struct GlassIconButton: View {
             Image(systemName: systemImage)
                 .font(.system(size: symbolSize, weight: .semibold))
                 .foregroundStyle(glassForeground(isInked: isOn, tint: tint, isEnabled: isEnabled))
-                .contentTransition(.symbolEffect(.replace))
+                .contentTransition(.symbolEffect(.replace.downUp))
                 .frame(width: size, height: size)
                 .contentShape(Circle())
         }
@@ -109,7 +109,7 @@ struct GlassCapsuleButton: View {
                 if let systemImage {
                     Image(systemName: systemImage)
                         .font(.system(size: height < 28 ? 10.5 : GlassMetrics.symbolSize - 1, weight: .semibold))
-                        .contentTransition(.symbolEffect(.replace))
+                        .contentTransition(.symbolEffect(.replace.downUp))
                 }
                 Text(title)
                     .font(.system(size: height < 28 ? 11.5 : 12, weight: .semibold))

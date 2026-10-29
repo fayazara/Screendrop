@@ -235,6 +235,7 @@ struct StudioTimelineDock: View {
             withAnimation(.morphIfAllowed) { isAddOpen.toggle() }
         }
         .disabled(!model.isLoaded)
+        .motion(.morphQuick, value: isAddOpen)
         .glassEffectID("add", in: glass)
 
         if isAddOpen {

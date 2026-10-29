@@ -134,7 +134,7 @@ struct AnnotationEditorWindow: View {
         Button(action: saveEdits) {
             Label(saveFlash ? "Saved" : "Save", systemImage: saveFlash ? "checkmark" : "square.and.arrow.down")
                 .labelStyle(.iconOnly)
-                .contentTransition(.symbolEffect(.replace))
+                .contentTransition(.symbolEffect(.replace.downUp))
         }
         .keyboardShortcut("s", modifiers: .command)
         .disabled((!model.hasUnsavedChanges && !saveFlash) || isBusy || model.isCropping)
@@ -165,7 +165,7 @@ struct AnnotationEditorWindow: View {
                     systemImage: didCopyLink ? "checkmark" : isUploading ? "arrow.up.circle" : "link"
                 )
                 .labelStyle(.iconOnly)
-                .contentTransition(.symbolEffect(.replace))
+                .contentTransition(.symbolEffect(.replace.downUp))
             }
             .disabled(isDisabled)
             .help(isUploading ? "Uploading…" : "Share a link")

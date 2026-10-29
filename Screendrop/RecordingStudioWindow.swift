@@ -203,7 +203,7 @@ private struct RecordingStudioContent: View {
                 systemImage: model.saveFlash ? "checkmark" : "square.and.arrow.down"
             )
             .labelStyle(.iconOnly)
-            .contentTransition(.symbolEffect(.replace))
+            .contentTransition(.symbolEffect(.replace.downUp))
         }
         .keyboardShortcut("s", modifiers: .command)
         .disabled(!model.hasUnsavedChanges && !model.saveFlash)

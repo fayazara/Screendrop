@@ -158,7 +158,7 @@ private struct PinnedScreenshotView: View {
             Image(systemName: systemImage)
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.white)
-                .contentTransition(.symbolEffect(.replace))
+                .contentTransition(.symbolEffect(.replace.downUp))
                 .frame(width: 22, height: 22)
                 .contentShape(Rectangle())
         }
