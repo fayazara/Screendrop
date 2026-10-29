@@ -101,12 +101,76 @@ struct StudioBlockEdit<Item: Identifiable> where Item.ID == UUID {
 enum StudioLaneEmptyBehavior {
     /// Scrubs the playhead.
     case scrub
-    /// A click scrubs; a drag draws out a new block, committed on release.
+    /// A click scrubs; a drag draws out a new block. The dashed draft is the
+    /// block: `commit` gets exactly the range it shows, already fitted
+    /// between the neighbours and grown to `minimumLength` (timeline
+    /// seconds), and must add it as is.
     case create(
         tint: Color,
         minimumLength: TimeInterval,
         commit: (ClosedRange<TimeInterval>) -> Void
     )
+}
+
+/// A block's place on the edited timeline.
+struct StudioLaneSpan: Equatable {
+    let id: UUID
+    let editorStart: TimeInterval
+    let editorEnd: TimeInterval
+}
+
+/// Whether blocks on a track may overlap.
+enum StudioLaneOverlap {
+    case allowed
+    /// Moves, trims and new blocks stop at the neighbours, as zooms and
+    /// camera layouts must. `spans` is every block on the track, not just
+    /// the ones drawn, so a drag also stops at a neighbour scrolled out of
+    /// view.
+    case forbidden(spans: [StudioLaneSpan])
+}
+
+/// Where a drag across empty track puts a new block, in editor time.
+///
+/// The block starts where the press landed and runs to the pointer, either
+/// way, stopped at the edges of the gap the press landed in. A drag shorter
+/// than `minimumLength` still makes a block that long, grown in the drag's
+/// direction (and back from the gap's end if it runs out of room), so the
+/// draft never shows less than will be added. Nil when the gap is too short
+/// to hold a block at all.
+func studioDraftRange(
+    anchor: TimeInterval,
+    pointer: TimeInterval,
+    gap: ClosedRange<TimeInterval>,
+    minimumLength: TimeInterval
+) -> ClosedRange<TimeInterval>? {
+    guard gap.contains(anchor), gap.upperBound - gap.lowerBound >= minimumLength else { return nil }
+    let pointer = min(max(pointer, gap.lowerBound), gap.upperBound)
+    var lower = min(anchor, pointer)
+    var upper = max(anchor, pointer)
+    if upper - lower < minimumLength {
+        if pointer >= anchor {
+            upper = min(lower + minimumLength, gap.upperBound)
+            lower = upper - minimumLength
+        } else {
+            lower = max(upper - minimumLength, gap.lowerBound)
+            upper = lower + minimumLength
+        }
+    }
+    return lower...upper
+}
+
+/// The empty stretch of track around `time`: from the end of the last block
+/// before it to the start of the first block after it, or the timeline's
+/// ends. Nil when `time` is inside a block.
+func studioGap(
+    around time: TimeInterval,
+    spans: [StudioLaneSpan],
+    duration: TimeInterval
+) -> ClosedRange<TimeInterval>? {
+    guard !spans.contains(where: { $0.editorStart < time && time < $0.editorEnd }) else { return nil }
+    let floor = spans.map(\.editorEnd).filter { $0 <= time }.max() ?? 0
+    let ceiling = spans.map(\.editorStart).filter { $0 >= time }.min() ?? duration
+    return floor...max(floor, ceiling)
 }
 
 /// How a track turns block edits into model changes.
@@ -247,9 +311,7 @@ where Item.ID == UUID {
     let selectedID: UUID?
     let scale: StudioTimelineScale
     let height: CGFloat
-    /// Blocks on this track can't overlap, as zooms and camera layouts
-    /// can't: moves, trims and new blocks all stop at the neighbours.
-    let keepsBlocksApart: Bool
+    let overlap: StudioLaneOverlap
     let empty: StudioLaneEmptyBehavior
     var onScrubbing: ((Bool) -> Void)?
     let actions: StudioBlockLaneActions<Item>
@@ -265,12 +327,14 @@ where Item.ID == UUID {
         case editing(StudioLaneBlock<Item>, StudioBlockEditKind)
         /// On empty track that can grow a new block, not yet dragged.
         case empty(startTime: TimeInterval)
+        /// Drawing out a new block from where the press landed.
         case creating(startTime: TimeInterval)
         case scrubbing
     }
 
     @State private var press: Press?
-    @State private var pendingRange: ClosedRange<TimeInterval>?
+    /// The block a drag across empty track will add on release.
+    @State private var draft: ClosedRange<TimeInterval>?
     @State private var hover: StudioBlockTarget = .empty
 
     private var blockHeight: CGFloat {
@@ -290,8 +354,12 @@ where Item.ID == UUID {
             decoration()
                 .allowsHitTesting(false)
 
-            if let pendingRange, case .create(let tint, _, _) = empty {
-                StudioPendingBlock(range: pendingRange, scale: scale, height: blockHeight, tint: tint)
+            if let draft, case .create(let tint, _, _) = empty {
+                StudioDraftBlock(
+                    frame: StudioBlockFrame(editorStart: draft.lowerBound, editorEnd: draft.upperBound, scale: scale),
+                    height: blockHeight,
+                    tint: tint
+                )
             }
 
             // The selected block draws last, so its handles sit over its
@@ -445,9 +513,9 @@ where Item.ID == UUID {
             }
             onScrubbing?(false)
             press = .creating(startTime: startTime)
-            pendingRange = creationRange(from: startTime, to: time)
+            draft = draftRange(from: startTime, to: time)
         case .creating(let startTime):
-            pendingRange = creationRange(from: startTime, to: time)
+            draft = draftRange(from: startTime, to: time)
         case .scrubbing:
             model.seek(to: time)
         case nil:
@@ -457,12 +525,12 @@ where Item.ID == UUID {
 
     private func edit(_ block: StudioLaneBlock<Item>, kind: StudioBlockEditKind, translation: CGFloat) {
         var delta = Double(translation) * scale.secondsPerPoint
-        if keepsBlocksApart {
+        if case .forbidden(let spans) = overlap {
             // Stop at the neighbours here, on the timeline, where the
             // block's length is the one you see. Stopping later, in
             // recording time, would park it with a length measured where
             // the pointer is - over a sped-up clip, a different one.
-            let room = room(around: block)
+            let room = room(around: block, among: spans)
             switch kind {
             case .move:
                 delta = min(max(delta, room.lowerBound - block.editorStart),
@@ -478,10 +546,10 @@ where Item.ID == UUID {
 
     /// The gap a block sits in: from the end of the block before it to the
     /// start of the block after it, or the timeline's ends.
-    private func room(around block: StudioLaneBlock<Item>) -> ClosedRange<TimeInterval> {
-        let others = blocks.filter { $0.id != block.id }
+    private func room(around block: StudioLaneBlock<Item>, among spans: [StudioLaneSpan]) -> ClosedRange<TimeInterval> {
+        let others = spans.filter { $0.id != block.id }
         let floor = others.map(\.editorEnd).filter { $0 <= block.editorStart + 0.0001 }.max() ?? 0
-        let ceiling = others.map(\.editorStart).filter { $0 >= block.editorEnd - 0.0001 }.min() ?? model.duration
+        let ceiling = others.map(\.editorStart).filter { $0 >= block.editorEnd - 0.0001 }.min() ?? scale.duration
         return floor...max(floor, ceiling)
     }
 
@@ -490,9 +558,8 @@ where Item.ID == UUID {
         case .editing(_, let kind):
             actions.end(kind)
         case .creating:
-            if let pendingRange, case .create(_, let minimum, let commit) = empty,
-               pendingRange.upperBound - pendingRange.lowerBound > minimum {
-                commit(pendingRange)
+            if let draft, case .create(_, _, let commit) = empty {
+                commit(draft)
             }
         case .empty, .scrubbing:
             onScrubbing?(false)
@@ -500,22 +567,19 @@ where Item.ID == UUID {
             break
         }
         press = nil
-        pendingRange = nil
+        draft = nil
     }
 
-    /// The range a drag on empty track would create, stopped at the blocks
-    /// on either side of where it began when blocks can't overlap, so the
-    /// preview matches what the model will allow.
-    private func creationRange(from start: TimeInterval, to current: TimeInterval) -> ClosedRange<TimeInterval> {
-        var lower = min(start, current)
-        var upper = max(start, current)
-        if keepsBlocksApart {
-            let floor = blocks.map(\.editorEnd).filter { $0 <= start }.max() ?? 0
-            let ceiling = blocks.map(\.editorStart).filter { $0 >= start }.min() ?? model.duration
-            lower = max(lower, floor)
-            upper = min(upper, ceiling)
+    /// The block a drag from `start` to `current` would add, or nil when
+    /// there's no room for one where the press landed.
+    private func draftRange(from start: TimeInterval, to current: TimeInterval) -> ClosedRange<TimeInterval>? {
+        guard case .create(_, let minimumLength, _) = empty else { return nil }
+        let gap: ClosedRange<TimeInterval>? = switch overlap {
+        case .allowed: 0...scale.duration
+        case .forbidden(let spans): studioGap(around: start, spans: spans, duration: scale.duration)
         }
-        return lower...max(lower, upper)
+        guard let gap else { return nil }
+        return studioDraftRange(anchor: start, pointer: current, gap: gap, minimumLength: minimumLength)
     }
 }
 
@@ -526,7 +590,7 @@ extension StudioBlockLane where Decoration == EmptyView {
         selectedID: UUID?,
         scale: StudioTimelineScale,
         height: CGFloat,
-        keepsBlocksApart: Bool = false,
+        overlap: StudioLaneOverlap = .allowed,
         empty: StudioLaneEmptyBehavior,
         onScrubbing: ((Bool) -> Void)? = nil,
         actions: StudioBlockLaneActions<Item>,
@@ -540,7 +604,7 @@ extension StudioBlockLane where Decoration == EmptyView {
             selectedID: selectedID,
             scale: scale,
             height: height,
-            keepsBlocksApart: keepsBlocksApart,
+            overlap: overlap,
             empty: empty,
             onScrubbing: onScrubbing,
             actions: actions,
@@ -767,24 +831,23 @@ struct StudioBlockGrip: View {
     }
 }
 
-/// The dashed block a drag across empty track would create.
-private struct StudioPendingBlock: View {
-    let range: ClosedRange<TimeInterval>
-    let scale: StudioTimelineScale
+/// The dashed block a drag across empty track will add. It sits in the
+/// same frame the block will, minimum width included, so letting go never
+/// makes it jump.
+private struct StudioDraftBlock: View {
+    let frame: StudioBlockFrame
     let height: CGFloat
     let tint: Color
 
     var body: some View {
-        let lowX = scale.x(for: range.lowerBound)
-        let highX = scale.x(for: range.upperBound)
         let shape = StudioBlockMetrics.shape
         shape
             .fill(tint.opacity(0.22))
             .overlay {
                 shape.strokeBorder(tint.opacity(0.85), style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
             }
-            .frame(width: max(2, highX - lowX), height: height)
-            .offset(x: lowX, y: StudioBlockMetrics.inset)
+            .frame(width: frame.width, height: height)
+            .offset(x: frame.minX, y: StudioBlockMetrics.inset)
             .allowsHitTesting(false)
     }
 }

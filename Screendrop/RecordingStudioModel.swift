@@ -1189,18 +1189,25 @@ final class RecordingStudioModel {
         return lower...min(lower + length, upper)
     }
 
-    /// Creates a zoom cue spanning a dragged range in the zoom lane. Times
-    /// are editor time and need not be ordered.
-    func addZoomCue(fromEditorTime editorStart: TimeInterval, toEditorTime editorEnd: TimeInterval) {
-        let lowSource = clipTimeline.sourceTime(at: min(editorStart, editorEnd))
-        let highSource = clipTimeline.sourceTime(at: max(editorStart, editorEnd))
-        let start = min(max(0, lowSource), max(0, sourceDuration - 0.5))
-        let end = max(start + 0.5, min(sourceDuration, highSource))
-        insertZoomCue(start: start, end: end)
+    /// Adds a zoom over a range drawn on the zoom track, in editor time.
+    /// The track has already fitted the range between the neighbouring
+    /// blocks and grown it to `ZoomCue.minimumDuration`, and shown it that
+    /// way, so this adds it as is: it neither moves nor stretches it.
+    func addZoomCue(overEditorRange range: ClosedRange<TimeInterval>) {
+        guard let span = drawnSourceSpan(
+            for: range,
+            among: zoomCues.map { $0.start...$0.end },
+            minimum: ZoomCue.minimumDuration
+        ) else { return }
+        appendZoomCue(span)
     }
 
     private func insertZoomCue(start: TimeInterval, end: TimeInterval) {
         guard let span = freeSpan(from: start, preferredEnd: end) else { return }
+        appendZoomCue(span)
+    }
+
+    private func appendZoomCue(_ span: ClosedRange<TimeInterval>) {
         let hasPointerTrack = !pointerCapture.travel.isEmpty || !pointerCapture.presses.isEmpty
         let editorTime = clipTimeline.editorTime(forSourceTime: span.lowerBound) ?? currentTime
         let target = pointerTimeline.location(at: editorTime) ?? CGPoint(x: 0.5, y: 0.5)
@@ -1386,19 +1393,23 @@ final class RecordingStudioModel {
         insertLayoutCue(start: start, end: min(sourceDuration, start + 3), layout: layout)
     }
 
-    /// Creates a cue spanning a dragged range in the layout lane. Times are
-    /// editor time and need not be ordered.
-    func addLayoutCue(fromEditorTime editorStart: TimeInterval, toEditorTime editorEnd: TimeInterval) {
-        let lowSource = clipTimeline.sourceTime(at: min(editorStart, editorEnd))
-        let highSource = clipTimeline.sourceTime(at: max(editorStart, editorEnd))
-        let minimum = RecordingCameraLayoutCue.minimumDuration
-        let start = min(max(0, lowSource), max(0, sourceDuration - minimum))
-        let end = max(start + minimum, min(sourceDuration, highSource))
-        insertLayoutCue(start: start, end: end, layout: nil)
+    /// Adds a cue over a range drawn on the layout track, in editor time,
+    /// as is - see `addZoomCue(overEditorRange:)`.
+    func addLayoutCue(overEditorRange range: ClosedRange<TimeInterval>) {
+        guard let span = drawnSourceSpan(
+            for: range,
+            among: cameraLayoutCues.map { $0.start...$0.end },
+            minimum: RecordingCameraLayoutCue.minimumDuration
+        ) else { return }
+        appendLayoutCue(span, layout: nil)
     }
 
     private func insertLayoutCue(start: TimeInterval, end: TimeInterval, layout: RecordingCameraLayout?) {
         guard let span = freeLayoutSpan(from: start, preferredEnd: end) else { return }
+        appendLayoutCue(span, layout: layout)
+    }
+
+    private func appendLayoutCue(_ span: ClosedRange<TimeInterval>, layout: RecordingCameraLayout?) {
         let cue = RecordingCameraLayoutCue(
             start: span.lowerBound,
             end: span.upperBound,
@@ -2152,6 +2163,31 @@ final class RecordingStudioModel {
         let lower = min(max(0, start), max(0, sourceDuration - minimum))
         let upper = min(max(end, lower + minimum), sourceDuration)
         return lower...max(lower, upper)
+    }
+
+    /// The recording under a range drawn on a track whose blocks can't
+    /// overlap. The track has fitted the range between the blocks it draws,
+    /// so this only trims away what it couldn't see: a cue cut out of the
+    /// edit draws nothing, and the round trip through editor time can land
+    /// a hair inside a neighbour. Nil when that leaves less than `minimum`,
+    /// which the track already measured, in editor time.
+    private func drawnSourceSpan(
+        for range: ClosedRange<TimeInterval>,
+        among occupied: [ClosedRange<TimeInterval>],
+        minimum: TimeInterval
+    ) -> ClosedRange<TimeInterval>? {
+        var lower = min(max(0, clipTimeline.sourceTime(at: range.lowerBound)), sourceDuration)
+        let end = min(max(lower, clipTimeline.sourceTime(at: range.upperBound)), sourceDuration)
+        while let covering = occupied.first(where: { $0.lowerBound <= lower && lower < $0.upperBound }) {
+            lower = covering.upperBound
+        }
+        let ceiling = occupied.map(\.lowerBound).filter { $0 >= lower }.min() ?? sourceDuration
+        let upper = min(end, ceiling)
+        // Speed only ever packs more recording into a timeline second, so a
+        // block drawn `minimum` long covers at least that much recording;
+        // the slack absorbs rounding.
+        guard upper - lower >= minimum - 0.001 else { return nil }
+        return lower...upper
     }
 
     var visibleRecordedPressTimes: [TimeInterval] {

@@ -1355,15 +1355,18 @@ private struct StudioZoomLane: View {
     let visibleRange: ClosedRange<TimeInterval>
 
     var body: some View {
+        let blocks = model.zoomTimelineBlocks
         StudioBlockLane(
             model: model,
-            blocks: visibleBlocks,
+            blocks: visibleBlocks(of: blocks),
             selectedID: model.selectedCueID,
             scale: scale,
             height: StudioTrack.zooms.height,
-            keepsBlocksApart: true,
-            empty: .create(tint: Palette.highlight, minimumLength: 0.001) { range in
-                model.addZoomCue(fromEditorTime: range.lowerBound, toEditorTime: range.upperBound)
+            overlap: .forbidden(spans: blocks.map {
+                StudioLaneSpan(id: $0.id, editorStart: $0.editorStart, editorEnd: $0.editorEnd)
+            }),
+            empty: .create(tint: Palette.highlight, minimumLength: ZoomCue.minimumDuration) { range in
+                model.addZoomCue(overEditorRange: range)
             },
             actions: StudioBlockLaneActions(
                 select: { model.selectZoomCue(id: $0.id) },
@@ -1519,8 +1522,8 @@ private struct StudioZoomLane: View {
         model.visibleRecordedPressTimes.filter { visibleRange.contains($0) }
     }
 
-    private var visibleBlocks: [StudioLaneBlock<ZoomCue>] {
-        model.zoomTimelineBlocks
+    private func visibleBlocks(of blocks: [RecordingZoomTimelineBlock]) -> [StudioLaneBlock<ZoomCue>] {
+        blocks
             .filter { $0.editorEnd >= visibleRange.lowerBound && $0.editorStart <= visibleRange.upperBound }
             .map { StudioLaneBlock(item: $0.cue, editorStart: $0.editorStart, editorEnd: $0.editorEnd) }
     }
@@ -1546,15 +1549,18 @@ private struct StudioLayoutLane: View {
     let visibleRange: ClosedRange<TimeInterval>
 
     var body: some View {
+        let blocks = model.cameraLayoutTimelineBlocks
         StudioBlockLane(
             model: model,
-            blocks: visibleBlocks,
+            blocks: visibleBlocks(of: blocks),
             selectedID: model.selectedLayoutCueID,
             scale: scale,
             height: StudioTrack.layouts.height,
-            keepsBlocksApart: true,
-            empty: .create(tint: Palette.layoutCue, minimumLength: 0.001) { range in
-                model.addLayoutCue(fromEditorTime: range.lowerBound, toEditorTime: range.upperBound)
+            overlap: .forbidden(spans: blocks.map {
+                StudioLaneSpan(id: $0.id, editorStart: $0.editorStart, editorEnd: $0.editorEnd)
+            }),
+            empty: .create(tint: Palette.layoutCue, minimumLength: RecordingCameraLayoutCue.minimumDuration) { range in
+                model.addLayoutCue(overEditorRange: range)
             },
             actions: StudioBlockLaneActions(
                 select: { model.selectLayoutCue(id: $0.id) },
@@ -1663,8 +1669,8 @@ private struct StudioLayoutLane: View {
         }
     }
 
-    private var visibleBlocks: [StudioLaneBlock<RecordingCameraLayoutCue>] {
-        model.cameraLayoutTimelineBlocks
+    private func visibleBlocks(of blocks: [RecordingCameraLayoutTimelineBlock]) -> [StudioLaneBlock<RecordingCameraLayoutCue>] {
+        blocks
             .filter { $0.editorEnd >= visibleRange.lowerBound && $0.editorStart <= visibleRange.upperBound }
             .map { StudioLaneBlock(item: $0.cue, editorStart: $0.editorStart, editorEnd: $0.editorEnd) }
     }
@@ -1687,7 +1693,7 @@ private struct StudioTextLane: View {
             selectedID: model.selectedTextID,
             scale: scale,
             height: StudioTrack.text.height,
-            empty: .create(tint: Palette.textCue, minimumLength: 0.05) { range in
+            empty: .create(tint: Palette.textCue, minimumLength: RecordingTextOverlay.minimumDuration) { range in
                 model.addText(fromEditorTime: range.lowerBound, toEditorTime: range.upperBound)
             },
             onScrubbing: onScrubbing,
