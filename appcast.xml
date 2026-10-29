@@ -27,6 +27,33 @@
     -->
 
     <item>
+      <title>Version 0.37.0</title>
+      <sparkle:version>38</sparkle:version>
+      <sparkle:shortVersionString>0.37.0</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.4</sparkle:minimumSystemVersion>
+      <pubDate>Thu, 29 Oct 2026 13:20:39 +0000</pubDate>
+      <description><![CDATA[
+        <h2>What's New in 0.37.0</h2>
+        <ul>
+          <li>Let AI agents edit and export your recordings: Claude Code, Codex and other MCP clients can trim, cut words and silences, import media and export through Screendrop (Settings → MCP)</li>
+          <li>Pick the recording area in place: the area stays editable after you draw it, with handles, an exact size or a locked ratio, and Screendrop remembers your last area</li>
+          <li>Cursor styles in Studio: the macOS arrow, four vector arrows and two circles (transparent or frosted), with an inverted look, and a crisp pointing hand that stays sharp in exports</li>
+          <li>A rebuilt Studio timeline: solid, rounded blocks that are easier to grab, move and trim, stop at their neighbours, and land exactly where you draw them, plus a playhead that turns into a flag at the end</li>
+          <li>A new crop for screenshots and videos: handles sit inside the box so they stay easy to grab, drag outside it to start a new selection, nudge with the arrow keys, Shift keeps the ratio and Option resizes from the centre</li>
+          <li>The screenshot editor's canvas now moves without overshooting</li>
+          <li>The Library uses much less memory, and Similar captures load faster</li>
+          <li>Large recordings now upload to Screendrop Cloud in parts, so shares over 100 MB no longer fail. Thanks to @justin-schroeder for the fix!</li>
+        </ul>
+      ]]></description>
+      <enclosure
+        url="https://github.com/fayazara/screendrop/releases/download/v0.37.0/Screendrop.dmg"
+        type="application/octet-stream"
+        sparkle:edSignature="3bYMm+bQY9qz4qUUk2qY4789H9A9J5ysq/ANXGJX1kyufwCAaTqmVibiNb9rJgOT2nsrEpAgDZRIxLirSx5IBQ=="
+        length="9702359"
+      />
+    </item>
+
+    <item>
       <title>Version 0.36.0</title>
       <sparkle:version>37</sparkle:version>
       <sparkle:shortVersionString>0.36.0</sparkle:shortVersionString>
