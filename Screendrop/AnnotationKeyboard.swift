@@ -194,7 +194,7 @@ final class AnnotationKeyCommandHandlerView: NSView {
     }
 
     /// An arrow key as a pixel offset: one pixel, ten with Shift.
-    private static func arrowNudge(_ event: NSEvent) -> CGSize? {
+    static func arrowNudge(_ event: NSEvent) -> CGSize? {
         guard event.modifierFlags.intersection([.command, .option, .control]).isEmpty else { return nil }
         let step: CGFloat = event.modifierFlags.contains(.shift) ? 10 : 1
         switch event.keyCode {

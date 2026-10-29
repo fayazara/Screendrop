@@ -32,7 +32,7 @@ private enum AnnotationCanvasCursor: Equatable {
     }
 }
 
-private extension CropHandle {
+extension CropHandle {
     var frameResizePosition: NSCursor.FrameResizePosition {
         switch self {
         case .topLeft: .topLeft

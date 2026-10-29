@@ -176,6 +176,8 @@ final class RecordingStudioModel {
     }
     private(set) var isCroppingVideo = false
     var workingVideoCropRect = CropGeometry.unit
+    /// The crop drag in progress, in the video's pixels.
+    private(set) var videoCropDrag: CropDrag?
     var videoCropAspect: CropAspectRatio = .freeform
     /// The preview's copy of the reframe camera, kept current with every
     /// edit that would change the exported crop.
@@ -2910,6 +2912,7 @@ final class RecordingStudioModel {
         pause()
         workingVideoCropRect = videoCropRect
         videoCropAspect = .freeform
+        videoCropDrag = nil
         isCroppingVideo = true
     }
 
@@ -2917,13 +2920,16 @@ final class RecordingStudioModel {
         guard isCroppingVideo else { return }
         workingVideoCropRect = videoCropRect
         videoCropAspect = .freeform
+        videoCropDrag = nil
         isCroppingVideo = false
     }
 
     func resetVideoCrop() {
         guard isCroppingVideo else { return }
         if let ratio = videoCropAspect.pixelRatio(imageSize: videoSize) {
-            workingVideoCropRect = normalizedVideoCrop(CropGeometry.largest(aspect: ratio, in: videoCropBounds))
+            workingVideoCropRect = normalizedVideoCrop(
+                CropGeometry.snapped(CropGeometry.largest(aspect: ratio, in: videoCropBounds), in: videoCropBounds)
+            )
         } else {
             workingVideoCropRect = CropGeometry.unit
         }
@@ -2935,30 +2941,87 @@ final class RecordingStudioModel {
               let ratio = aspect.pixelRatio(imageSize: videoSize) else {
             return
         }
-        workingVideoCropRect = normalizedVideoCrop(
-            CropGeometry.reshaped(pixelVideoCrop(workingVideoCropRect), aspect: ratio, in: videoCropBounds)
+        workingVideoCropRect = normalizedVideoCrop(CropGeometry.snapped(
+            CropGeometry.reshaped(pixelVideoCrop(workingVideoCropRect), aspect: ratio, in: videoCropBounds),
+            in: videoCropBounds
+        ))
+    }
+
+    /// Arrow keys: moves the selection by whole pixels.
+    func nudgeVideoCrop(by delta: CGSize) {
+        guard isCroppingVideo, videoCropDrag == nil else { return }
+        workingVideoCropRect = normalizedVideoCrop(CropGeometry.snapped(
+            CropGeometry.move(pixelVideoCrop(workingVideoCropRect), by: delta, in: videoCropBounds),
+            in: videoCropBounds
+        ))
+    }
+
+    // MARK: Crop dragging
+    //
+    // The same interaction as the screenshot editor's crop: the press is
+    // hit-tested against the box as drawn, and every update re-applies the
+    // pointer's total travel to the selection the drag started with.
+    // Pointers arrive in view points over `videoFrame`, the uncropped video.
+
+    var isVideoCropDragging: Bool { videoCropDrag != nil }
+
+    func videoCropViewRect(in videoFrame: CGRect) -> CGRect {
+        let crop = workingVideoCropRect.standardized
+        return CGRect(
+            x: videoFrame.minX + crop.minX * videoFrame.width,
+            y: videoFrame.minY + crop.minY * videoFrame.height,
+            width: crop.width * videoFrame.width,
+            height: crop.height * videoFrame.height
         )
     }
 
-    func moveVideoCrop(from start: CGRect, byNormalized delta: CGSize) {
-        guard isCroppingVideo else { return }
-        workingVideoCropRect = CropGeometry.move(start, by: delta, in: CropGeometry.unit)
+    func videoCropTarget(at pointer: CGPoint, in videoFrame: CGRect) -> CropDragTarget {
+        CropHitTest.target(at: pointer, box: videoCropViewRect(in: videoFrame))
     }
 
-    /// Resizes from the selection the drag started with by the pointer's
-    /// total travel, so grabbing a handle off-centre never jumps.
-    func resizeVideoCrop(from start: CGRect, handle: CropHandle, byNormalized translation: CGSize) {
-        guard isCroppingVideo else { return }
-        let pixels = CropGeometry.resize(
-            pixelVideoCrop(start),
-            handle: handle,
-            by: CGSize(width: translation.width * videoSize.width, height: translation.height * videoSize.height),
+    func beginVideoCropDrag(at pointer: CGPoint, in videoFrame: CGRect) {
+        guard isCroppingVideo, let point = videoCropPixelPoint(at: pointer, in: videoFrame) else { return }
+        let target = videoCropTarget(at: pointer, in: videoFrame)
+        videoCropDrag = CropDrag(
+            target: target,
+            startRect: pixelVideoCrop(workingVideoCropRect),
+            startPoint: point,
+            startPointer: pointer,
+            pointer: pointer,
+            hasTravelled: target != .newSelection
+        )
+    }
+
+    func updateVideoCropDrag(to pointer: CGPoint, in videoFrame: CGRect) {
+        guard var drag = videoCropDrag else { return }
+        drag.pointer = pointer
+        if !drag.hasTravelled {
+            drag.hasTravelled = hypot(pointer.x - drag.startPointer.x, pointer.y - drag.startPointer.y) >= 3
+        }
+        videoCropDrag = drag
+        guard drag.hasTravelled, let point = videoCropPixelPoint(at: pointer, in: videoFrame) else { return }
+
+        let flags = NSEvent.modifierFlags
+        workingVideoCropRect = normalizedVideoCrop(drag.rect(
+            at: point,
             in: videoCropBounds,
-            aspect: videoCropAspect.pixelRatio(imageSize: videoSize),
+            lockedAspect: videoCropAspect.pixelRatio(imageSize: videoSize),
             minimumSize: CGSize(width: min(24, videoSize.width), height: min(24, videoSize.height)),
-            fromCenter: isVideoCropCenterResizeModifierPressed
+            holdsAspect: flags.contains(.shift),
+            fromCenter: flags.contains(.option)
+        ))
+    }
+
+    func endVideoCropDrag() {
+        videoCropDrag = nil
+    }
+
+    private func videoCropPixelPoint(at pointer: CGPoint, in videoFrame: CGRect) -> CGPoint? {
+        guard videoFrame.width > 0, videoFrame.height > 0 else { return nil }
+        return CGPoint(
+            x: (pointer.x - videoFrame.minX) * videoSize.width / videoFrame.width,
+            y: (pointer.y - videoFrame.minY) * videoSize.height / videoFrame.height
         )
-        workingVideoCropRect = normalizedVideoCrop(pixels)
     }
 
     /// The crop engine works in pixels so aspect ratios are exact; Studio
@@ -3001,11 +3064,6 @@ final class RecordingStudioModel {
             target.applyVideoCrop(previous, actionName: actionName)
         }
         videoCropRect = next
-    }
-
-    private var isVideoCropCenterResizeModifierPressed: Bool {
-        let flags = NSEvent.modifierFlags
-        return flags.contains(.option) || (flags.contains(.command) && flags.contains(.shift))
     }
 
     /// Whether any layout on the timeline can show the camera at all.

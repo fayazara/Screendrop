@@ -329,3 +329,84 @@ nonisolated struct CropDrag {
     /// outside the box leaves it alone.
     var hasTravelled = false
 }
+
+extension CropDrag {
+    /// The selection this drag makes with the pointer at `point` (pixels).
+    /// `lockedAspect` is a preset's ratio; without one, `holdsAspect` (Shift)
+    /// keeps the ratio the drag started with, or a square for a new selection.
+    func rect(
+        at point: CGPoint,
+        in bounds: CGRect,
+        lockedAspect: CGFloat?,
+        minimumSize: CGSize,
+        holdsAspect: Bool,
+        fromCenter: Bool
+    ) -> CGRect {
+        let aspect = lockedAspect ?? {
+            guard holdsAspect else { return nil }
+            if target == .newSelection { return 1 }
+            return startRect.height > 0 ? startRect.width / startRect.height : nil
+        }()
+        let translation = CGSize(width: point.x - startPoint.x, height: point.y - startPoint.y)
+
+        let next: CGRect
+        switch target {
+        case .handle(let handle):
+            next = CropGeometry.resize(
+                startRect, handle: handle, by: translation, in: bounds,
+                aspect: aspect, minimumSize: minimumSize, fromCenter: fromCenter
+            )
+        case .move:
+            next = CropGeometry.move(startRect, by: translation, in: bounds)
+        case .newSelection:
+            next = CropGeometry.span(
+                from: startPoint, to: point, in: bounds,
+                aspect: aspect, minimumSize: minimumSize, fromCenter: fromCenter
+            )
+        }
+        return CropGeometry.snapped(next, in: bounds)
+    }
+}
+
+/// What a press grabs on a crop box drawn on screen, in view points.
+nonisolated enum CropHitTest {
+    /// How far a corner's hit zone reaches outside and inside the selection.
+    /// It reaches further in than out: the outside can be cut off by the
+    /// viewport edge, the inside never is.
+    static let cornerReachOutside: CGFloat = 10
+    static let cornerReachInside: CGFloat = 22
+    /// The same for an edge's hit zone, which runs the edge's whole length.
+    static let edgeReachOutside: CGFloat = 8
+    static let edgeReachInside: CGFloat = 10
+
+    /// A corner, then an edge, then the inside of the box; anywhere else
+    /// starts a new selection.
+    static func target(at point: CGPoint, box: CGRect) -> CropDragTarget {
+        for handle in CropHandle.allCases where handle.isCorner {
+            if zone(for: handle, of: box, outside: cornerReachOutside, inside: cornerReachInside).contains(point) {
+                return .handle(handle)
+            }
+        }
+        for handle in CropHandle.allCases where !handle.isCorner {
+            if zone(for: handle, of: box, outside: edgeReachOutside, inside: edgeReachInside).contains(point) {
+                return .handle(handle)
+            }
+        }
+        return box.contains(point) ? .move : .newSelection
+    }
+
+    /// A handle's hit zone around `box`. Along an axis the handle sits on, it
+    /// straddles that edge; along the other, it spans the box. The inside
+    /// reach shrinks on a small box so its middle stays free for moving.
+    private static func zone(for handle: CropHandle, of box: CGRect, outside: CGFloat, inside: CGFloat) -> CGRect {
+        func span(_ direction: CGFloat, _ lower: CGFloat, _ upper: CGFloat) -> ClosedRange<CGFloat> {
+            let inward = min(inside, (upper - lower) / 3)
+            if direction < 0 { return (lower - outside)...(lower + inward) }
+            if direction > 0 { return (upper - inward)...(upper + outside) }
+            return lower...upper
+        }
+        let x = span(handle.xDirection, box.minX, box.maxX)
+        let y = span(handle.yDirection, box.minY, box.maxY)
+        return CGRect(x: x.lowerBound, y: y.lowerBound, width: x.upperBound - x.lowerBound, height: y.upperBound - y.lowerBound)
+    }
+}

@@ -29,21 +29,38 @@ struct AnnotationCropOverlay: View {
     let visibleRect: CGRect
 
     var body: some View {
-        let box = model.cropViewRect(in: imageFrame)
+        CropOverlay(
+            imageFrame: imageFrame,
+            cropFrame: model.cropViewRect(in: imageFrame),
+            visibleRect: visibleRect,
+            isDragging: model.isCropDragging
+        )
+    }
+}
 
+/// The crop box over a picture, shared by the screenshot editor and Studio.
+struct CropOverlay: View {
+    /// The uncropped picture, in view points.
+    let imageFrame: CGRect
+    /// The selection, in the same space.
+    let cropFrame: CGRect
+    let visibleRect: CGRect
+    let isDragging: Bool
+
+    var body: some View {
         ZStack(alignment: .topLeading) {
-            CropDimShape(imageFrame: imageFrame, cropFrame: box)
+            CropDimShape(imageFrame: imageFrame, cropFrame: cropFrame)
                 .fill(Color.black.opacity(0.55), style: FillStyle(eoFill: true))
 
-            CropGridShape(cropFrame: box)
+            CropGridShape(cropFrame: cropFrame)
                 .stroke(Color.white.opacity(0.45), lineWidth: 0.75)
-                .animation(.easeOut(duration: 0.18)) { $0.opacity(model.isCropDragging ? 1 : 0) }
+                .animation(.easeOut(duration: 0.18)) { $0.opacity(isDragging ? 1 : 0) }
 
-            CropBorderShape(cropFrame: box)
+            CropBorderShape(cropFrame: cropFrame)
                 .stroke(Color.white.opacity(0.95), lineWidth: 1)
                 .shadow(color: .black.opacity(0.35), radius: 1)
 
-            CropHandlesShape(cropFrame: box, visibleRect: visibleRect)
+            CropHandlesShape(cropFrame: cropFrame, visibleRect: visibleRect)
                 .fill(Color.white)
                 .shadow(color: .black.opacity(0.4), radius: 1.5, y: 0.5)
         }

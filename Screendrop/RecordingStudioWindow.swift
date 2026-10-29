@@ -876,6 +876,10 @@ private struct StudioZoomTargetOverlay: View {
     }
 }
 
+/// Studio's crop: the screenshot editor's box and interaction over the
+/// uncropped video. One drag covers the canvas and the model hit-tests the
+/// press, so a corner, an edge, the inside and the outside each do what they
+/// do in the editor.
 private struct VideoCropOverlay: View {
     static let coordinateSpaceName = "VideoCropSpace"
 
@@ -883,139 +887,72 @@ private struct VideoCropOverlay: View {
     let canvasSize: CGSize
     /// The uncropped screen-video card inside the surrounding canvas.
     let videoFrame: CGRect
-    @State private var moveStartCrop: CGRect?
-    @State private var resizeStartCrop: CGRect?
-
-    private var cropViewRect: CGRect {
-        let crop = model.workingVideoCropRect.standardized
-        return CGRect(
-            x: videoFrame.minX + crop.minX * videoFrame.width,
-            y: videoFrame.minY + crop.minY * videoFrame.height,
-            width: crop.width * videoFrame.width,
-            height: crop.height * videoFrame.height
-        )
-    }
-
-    private var visibleHandles: [CropHandle] {
-        model.videoCropAspect.locksAspect
-            ? CropHandle.allCases.filter(\.isCorner)
-            : CropHandle.allCases
-    }
+    @State private var keyMonitor: Any?
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            Path { path in
-                path.addRect(videoFrame)
-                path.addRect(cropViewRect)
-            }
-            .fill(Color.black.opacity(0.55), style: FillStyle(eoFill: true))
-            .allowsHitTesting(false)
-
-            Path { path in
-                for index in 1...2 {
-                    let x = cropViewRect.minX + cropViewRect.width * CGFloat(index) / 3
-                    path.move(to: CGPoint(x: x, y: cropViewRect.minY))
-                    path.addLine(to: CGPoint(x: x, y: cropViewRect.maxY))
-                    let y = cropViewRect.minY + cropViewRect.height * CGFloat(index) / 3
-                    path.move(to: CGPoint(x: cropViewRect.minX, y: y))
-                    path.addLine(to: CGPoint(x: cropViewRect.maxX, y: y))
-                }
-            }
-            .stroke(Color.white.opacity(0.35), lineWidth: 0.75)
-            .allowsHitTesting(false)
-
-            Rectangle()
-                .strokeBorder(Color.white.opacity(0.95), lineWidth: 1.5)
-                .frame(width: cropViewRect.width, height: cropViewRect.height)
-                .position(x: cropViewRect.midX, y: cropViewRect.midY)
-                .shadow(color: .black.opacity(0.3), radius: 1)
-                .allowsHitTesting(false)
-
-            Rectangle()
-                .fill(Color.white.opacity(0.001))
-                .frame(width: max(cropViewRect.width, 1), height: max(cropViewRect.height, 1))
-                .position(x: cropViewRect.midX, y: cropViewRect.midY)
-                .gesture(moveGesture)
-
-            ForEach(visibleHandles, id: \.self) { handle in
-                VideoCropHandleView(handle: handle)
-                    .position(handlePoint(handle))
-                    .gesture(handleGesture(handle))
-            }
-        }
+        CropOverlay(
+            imageFrame: videoFrame,
+            cropFrame: model.videoCropViewRect(in: videoFrame),
+            visibleRect: CGRect(origin: .zero, size: canvasSize),
+            isDragging: model.isVideoCropDragging
+        )
         .frame(width: canvasSize.width, height: canvasSize.height, alignment: .topLeading)
-    }
-
-    private var moveGesture: some Gesture {
-        DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.coordinateSpaceName))
-            .onChanged { value in
-                let start = moveStartCrop ?? model.workingVideoCropRect.standardized
-                if moveStartCrop == nil { moveStartCrop = start }
-                guard videoFrame.width > 0, videoFrame.height > 0 else { return }
-                model.moveVideoCrop(
-                    from: start,
-                    byNormalized: CGSize(
-                        width: value.translation.width / videoFrame.width,
-                        height: value.translation.height / videoFrame.height
-                    )
-                )
-            }
-            .onEnded { _ in moveStartCrop = nil }
-    }
-
-    private func handleGesture(_ handle: CropHandle) -> some Gesture {
-        DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.coordinateSpaceName))
-            .onChanged { value in
-                let start = resizeStartCrop ?? model.workingVideoCropRect.standardized
-                if resizeStartCrop == nil { resizeStartCrop = start }
-                guard videoFrame.width > 0, videoFrame.height > 0 else { return }
-                model.resizeVideoCrop(
-                    from: start,
-                    handle: handle,
-                    byNormalized: CGSize(
-                        width: value.translation.width / videoFrame.width,
-                        height: value.translation.height / videoFrame.height
-                    )
-                )
-            }
-            .onEnded { _ in resizeStartCrop = nil }
-    }
-
-    private func handlePoint(_ handle: CropHandle) -> CGPoint {
-        let unit = handle.unitPoint
-        return CGPoint(
-            x: cropViewRect.minX + cropViewRect.width * unit.x,
-            y: cropViewRect.minY + cropViewRect.height * unit.y
-        )
-    }
-}
-
-private struct VideoCropHandleView: View {
-    let handle: CropHandle
-
-    var body: some View {
-        ZStack {
-            Color.white.opacity(0.001)
-                .frame(width: 30, height: 30)
-                .contentShape(Rectangle())
-
-            if handle.isCorner {
-                RoundedRectangle(cornerRadius: 2.5, style: .continuous)
-                    .fill(Color.white)
-                    .frame(width: 13, height: 13)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 2.5, style: .continuous)
-                            .strokeBorder(Color.black.opacity(0.18), lineWidth: 0.5)
-                    }
-                    .shadow(color: .black.opacity(0.35), radius: 1.5, y: 0.5)
-            } else {
-                let isHorizontal = handle == .top || handle == .bottom
-                RoundedRectangle(cornerRadius: 3, style: .continuous)
-                    .fill(Color.white)
-                    .frame(width: isHorizontal ? 26 : 7, height: isHorizontal ? 7 : 26)
-                    .shadow(color: .black.opacity(0.35), radius: 1.5, y: 0.5)
+        .contentShape(Rectangle())
+        .gesture(dragGesture)
+        .onContinuousHover(coordinateSpace: .named(Self.coordinateSpaceName)) { phase in
+            switch phase {
+            case .active(let location): cursor(at: location).set()
+            case .ended: NSCursor.arrow.set()
             }
         }
+        .onWindowChange(installKeyMonitor)
+        .onDisappear(perform: removeKeyMonitor)
+    }
+
+    private var dragGesture: some Gesture {
+        DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.coordinateSpaceName))
+            .onChanged { value in
+                if !model.isVideoCropDragging {
+                    model.beginVideoCropDrag(at: value.startLocation, in: videoFrame)
+                }
+                model.updateVideoCropDrag(to: value.location, in: videoFrame)
+                cursor(at: value.location).set()
+            }
+            .onEnded { value in
+                model.endVideoCropDrag()
+                cursor(at: value.location).set()
+            }
+    }
+
+    /// The drag's own cursor while dragging, so a fast pointer can't flicker
+    /// it through other zones; otherwise whatever a press would grab.
+    private func cursor(at location: CGPoint) -> NSCursor {
+        switch model.videoCropDrag?.target ?? model.videoCropTarget(at: location, in: videoFrame) {
+        case .handle(let handle): .frameResize(position: handle.frameResizePosition, directions: .all)
+        case .move: model.isVideoCropDragging ? .closedHand : .openHand
+        case .newSelection: .crosshair
+        }
+    }
+
+    /// Arrow keys nudge the selection, ahead of the timeline's frame step.
+    private func installKeyMonitor(in window: NSWindow?) {
+        removeKeyMonitor()
+        guard let window else { return }
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [model, weak window] event in
+            guard model.isCroppingVideo,
+                  let window, event.window === window,
+                  !(window.firstResponder is NSTextView),
+                  let delta = AnnotationKeyCommandHandlerView.arrowNudge(event) else {
+                return event
+            }
+            model.nudgeVideoCrop(by: delta)
+            return nil
+        }
+    }
+
+    private func removeKeyMonitor() {
+        if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
+        keyMonitor = nil
     }
 }
 

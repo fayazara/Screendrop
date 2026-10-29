@@ -15,15 +15,6 @@ extension AnnotationEditorModel {
     /// Smallest selection edge, in image pixels.
     static let minimumCropPixels: CGFloat = 24
 
-    /// How far a corner's hit zone reaches outside and inside the selection,
-    /// in viewport points. It reaches further in than out: the outside can be
-    /// cut off by the viewport edge, the inside never is.
-    static let cropCornerReachOutside: CGFloat = 10
-    static let cropCornerReachInside: CGFloat = 22
-    /// The same for an edge's hit zone, which runs the edge's whole length.
-    static let cropEdgeReachOutside: CGFloat = 8
-    static let cropEdgeReachInside: CGFloat = 10
-
     /// Auto-scroll starts this close to a viewport edge (points) and reaches
     /// `cropAutoscrollSpeed` points per second at the edge itself.
     private static let cropAutoscrollZone: CGFloat = 36
@@ -113,44 +104,10 @@ extension AnnotationEditorModel {
         )
     }
 
-    /// What a press at `point` (viewport points) grabs: a corner, then an
-    /// edge, then the inside of the box; anywhere else starts a new selection.
+    /// What a press at `point` (viewport points) grabs.
     func cropTarget(at point: CGPoint) -> CropDragTarget {
         guard let imageFrame = displayedImageFrame else { return .newSelection }
-        let box = cropViewRect(in: imageFrame)
-
-        for handle in CropHandle.allCases where handle.isCorner {
-            let zone = Self.cropHitZone(
-                for: handle, of: box,
-                outside: Self.cropCornerReachOutside,
-                inside: Self.cropCornerReachInside
-            )
-            if zone.contains(point) { return .handle(handle) }
-        }
-        for handle in CropHandle.allCases where !handle.isCorner {
-            let zone = Self.cropHitZone(
-                for: handle, of: box,
-                outside: Self.cropEdgeReachOutside,
-                inside: Self.cropEdgeReachInside
-            )
-            if zone.contains(point) { return .handle(handle) }
-        }
-        return box.contains(point) ? .move : .newSelection
-    }
-
-    /// A handle's hit zone around `box`. Along an axis the handle sits on, it
-    /// straddles that edge; along the other, it spans the box. The inside
-    /// reach shrinks on a small box so its middle stays free for moving.
-    private static func cropHitZone(for handle: CropHandle, of box: CGRect, outside: CGFloat, inside: CGFloat) -> CGRect {
-        func span(_ direction: CGFloat, _ lower: CGFloat, _ upper: CGFloat) -> ClosedRange<CGFloat> {
-            let inward = min(inside, (upper - lower) / 3)
-            if direction < 0 { return (lower - outside)...(lower + inward) }
-            if direction > 0 { return (upper - inward)...(upper + outside) }
-            return lower...upper
-        }
-        let x = span(handle.xDirection, box.minX, box.maxX)
-        let y = span(handle.yDirection, box.minY, box.maxY)
-        return CGRect(x: x.lowerBound, y: y.lowerBound, width: x.upperBound - x.lowerBound, height: y.upperBound - y.lowerBound)
+        return CropHitTest.target(at: point, box: cropViewRect(in: imageFrame))
     }
 
     // MARK: Dragging
@@ -217,32 +174,14 @@ extension AnnotationEditorModel {
         guard let drag = cropDrag, drag.hasTravelled, let point = cropImagePoint(at: drag.pointer) else { return }
 
         let flags = NSEvent.modifierFlags
-        let fromCenter = flags.contains(.option)
-        // Shift holds the ratio the drag started with (a square for a new
-        // selection) when no preset already locks one.
-        let aspect = cropAspect.pixelRatio(imageSize: imageSize) ?? {
-            guard flags.contains(.shift) else { return nil }
-            if drag.target == .newSelection { return 1 }
-            return drag.startRect.height > 0 ? drag.startRect.width / drag.startRect.height : nil
-        }()
-        let translation = CGSize(width: point.x - drag.startPoint.x, height: point.y - drag.startPoint.y)
-
-        let next: CGRect
-        switch drag.target {
-        case .handle(let handle):
-            next = CropGeometry.resize(
-                drag.startRect, handle: handle, by: translation, in: cropBounds,
-                aspect: aspect, minimumSize: minimumCropSize, fromCenter: fromCenter
-            )
-        case .move:
-            next = CropGeometry.move(drag.startRect, by: translation, in: cropBounds)
-        case .newSelection:
-            next = CropGeometry.span(
-                from: drag.startPoint, to: point, in: cropBounds,
-                aspect: aspect, minimumSize: minimumCropSize, fromCenter: fromCenter
-            )
-        }
-        cropPixelRect = CropGeometry.snapped(next, in: cropBounds)
+        cropPixelRect = drag.rect(
+            at: point,
+            in: cropBounds,
+            lockedAspect: cropAspect.pixelRatio(imageSize: imageSize),
+            minimumSize: minimumCropSize,
+            holdsAspect: flags.contains(.shift),
+            fromCenter: flags.contains(.option)
+        )
     }
 
     /// A viewport point in image pixels, through the camera as it is now.
