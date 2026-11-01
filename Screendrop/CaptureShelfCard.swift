@@ -36,6 +36,24 @@ struct CaptureShelfCard: View {
             .frame(width: CaptureShelfMetrics.cardSize.width, height: CaptureShelfMetrics.cardSize.height)
             // Frosted under the controls, so they read on any screenshot.
             .blur(radius: isFrosted ? 6 : 0, opaque: true)
+            .contentShape(shape)
+            // Keep file dragging on the picture, below the controls, so a
+            // button press with pointer movement cannot start a file drag.
+            .simultaneousGesture(TapGesture(count: 2).onEnded { shelf.openEditor(id: item.id) })
+            .draggable(item.url) {
+                Image(nsImage: item.thumbnail)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: CaptureShelfMetrics.cardSize.width)
+                    .clipShape(shape)
+            }
+            .onDragSessionUpdated { session in
+                switch session.phase {
+                case .active: shelf.beginDrag(id: item.id)
+                case .ended: shelf.endDrag(id: item.id)
+                default: break
+                }
+            }
             .overlay { overlay }
             .clipShape(shape)
             .overlay { shape.strokeBorder(Palette.strongHairline, lineWidth: 1) }
@@ -53,21 +71,6 @@ struct CaptureShelfCard: View {
             .motion(.morphQuick, value: showsActions)
             .motion(.morphQuick, value: item.flash)
             .motion(.morphQuick, value: item.activity)
-            .simultaneousGesture(TapGesture(count: 2).onEnded { shelf.openEditor(id: item.id) })
-            .draggable(item.url) {
-                Image(nsImage: item.thumbnail)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: CaptureShelfMetrics.cardSize.width)
-                    .clipShape(shape)
-            }
-            .onDragSessionUpdated { session in
-                switch session.phase {
-                case .active: shelf.beginDrag(id: item.id)
-                case .ended: shelf.endDrag(id: item.id)
-                default: break
-                }
-            }
             .contextMenu { contextMenu }
             .help(item.kind == .video ? "Double-click to edit" : "Double-click to annotate")
             .accessibilityElement(children: .contain)
@@ -160,7 +163,7 @@ struct CaptureShelfCard: View {
                 uploader.cancelUpload(for: item.id)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-            .padding(8)
+            .padding(4)
         }
         .transition(.opacity)
     }
@@ -170,6 +173,7 @@ struct CaptureShelfCard: View {
     /// sits on the screenshot, not on the window.
     private func scrim(_ opacity: Double) -> some View {
         Rectangle().fill(.black.opacity(opacity))
+            .allowsHitTesting(false)
     }
 
     // MARK: Actions
@@ -183,7 +187,7 @@ struct CaptureShelfCard: View {
             corner(layout.bottomLeading, .bottomLeading)
             corner(layout.bottomTrailing, .bottomTrailing)
 
-            VStack(spacing: 6) {
+            VStack(spacing: 0) {
                 ForEach(layout.center.filter(isAvailable)) { action in
                     ShelfChipButton(help: centerHelp(for: action), width: Self.centerButtonWidth) {
                         perform(action)
@@ -207,7 +211,7 @@ struct CaptureShelfCard: View {
             }
             .disabled(isBlocked(action))
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: alignment)
-            .padding(7)
+            .padding(3)
         }
     }
 
@@ -334,7 +338,10 @@ private struct ShelfChipButton<Label: View>: View {
                 .background(.white.opacity(isEnabled ? (isHovered ? 1 : 0.88) : 0.6), in: Capsule())
                 .shadow(color: .black.opacity(0.18), radius: 3, y: 1)
                 .scaleEffect(isHovered && isEnabled ? 1.04 : 1)
-                .contentShape(Capsule())
+                // Include the rounded corners and a little space around
+                // the chip in its target, without enlarging the artwork.
+                .padding(4)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
