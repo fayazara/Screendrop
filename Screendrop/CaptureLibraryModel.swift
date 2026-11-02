@@ -142,6 +142,7 @@ final class CaptureLibraryModel {
     private(set) var searchTokens: [String] = []
     private(set) var isLoading = false
     var operationTitle: String?
+    var uploadingItemID: UUID?
     var errorMessage: String?
     var renamingItem: CaptureLibraryItem?
     var renameText = ""

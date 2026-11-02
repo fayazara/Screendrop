@@ -254,8 +254,19 @@ struct CaptureLibraryView: View {
     private var statusBar: some View {
         HStack(spacing: 8) {
             if let title = model.operationTitle {
-                ProgressView().controlSize(.mini)
-                Text(title)
+                if let id = model.uploadingItemID,
+                   let progress = CloudUploader.shared.uploadProgress[id] {
+                    ProgressView(value: min(progress, 0.99))
+                        .progressViewStyle(.linear)
+                        .frame(width: 120)
+                        .accessibilityLabel("Upload progress")
+                    Text(progress >= 0.99 ? "Finishing upload…" : title)
+                    Text(min(progress, 0.99), format: .percent.precision(.fractionLength(0)).rounded(rule: .down))
+                        .foregroundStyle(.primary)
+                } else {
+                    ProgressView().controlSize(.mini)
+                    Text(title)
+                }
             } else {
                 Text("\(model.visibleItems.count) \(model.visibleItems.count == 1 ? "capture" : "captures")")
                 if !model.selection.isEmpty { Text("· \(model.selection.count) selected") }
