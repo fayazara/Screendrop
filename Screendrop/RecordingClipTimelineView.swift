@@ -827,6 +827,9 @@ final class RecordingClipTimelineControl: NSView {
         for clip in timeline.segments {
             guard let rect = clipRect(for: clip.id), rect.intersects(dirtyRect) else { continue }
             let content = rect.insetBy(dx: Metrics.selectionHandleInset * 2 + 2, dy: 5)
+            // A clip narrower than the insets leaves a null rect, whose
+            // infinite edges pass every fit check below.
+            guard !content.isNull else { continue }
             var leadingX = content.minX
             let isSpedUp = abs(clip.speed - 1) > 0.001
             let speedText = RecordingClipSegment.speedTitle(clip.speed)
