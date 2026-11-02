@@ -211,6 +211,9 @@ nonisolated struct RecordingReplacementAudio {
     let url: URL
     /// The file's name as the user chose it, for the inspector.
     let displayName: String
+    /// Held because a track doesn't keep its asset alive, and a track whose
+    /// asset is gone fails every insert into a composition.
+    let asset: AVURLAsset
     let track: AVAssetTrack
     let duration: TimeInterval
 
@@ -225,6 +228,7 @@ nonisolated struct RecordingReplacementAudio {
         return RecordingReplacementAudio(
             url: url,
             displayName: displayName,
+            asset: asset,
             track: track,
             duration: duration
         )
