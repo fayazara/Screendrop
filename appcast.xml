@@ -27,6 +27,28 @@
     -->
 
     <item>
+      <title>Version 0.37.1</title>
+      <sparkle:version>39</sparkle:version>
+      <sparkle:shortVersionString>0.37.1</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.4</sparkle:minimumSystemVersion>
+      <pubDate>Mon, 02 Nov 2026 13:06:50 +0000</pubDate>
+      <description><![CDATA[
+        <h2>What's New in 0.37.1</h2>
+        <ul>
+          <li>Fixed Studio crashing when opening a recording with a short sped-up clip</li>
+          <li>Fixed the video preview disappearing after replacing a recording's audio</li>
+          <li>Show upload progress in the Library status bar</li>
+        </ul>
+      ]]></description>
+      <enclosure
+        url="https://github.com/fayazara/screendrop/releases/download/v0.37.1/Screendrop.dmg"
+        type="application/octet-stream"
+        sparkle:edSignature="h5nnJhqUOJNgaul38m6AEY3tJHGZEyPKTDh9fD9h958ySvAM/KTEoS+Hvui3ySXoIXek9A+eKmNcLrGyHY38Dw=="
+        length="9703256"
+      />
+    </item>
+
+    <item>
       <title>Version 0.37.0</title>
       <sparkle:version>38</sparkle:version>
       <sparkle:shortVersionString>0.37.0</sparkle:shortVersionString>
