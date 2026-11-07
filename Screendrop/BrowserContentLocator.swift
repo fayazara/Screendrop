@@ -85,28 +85,13 @@ enum BrowserContentLocator {
     static var hasAccessibilityAccess: Bool { AXIsProcessTrusted() }
 
     /// Reading another app's page area needs Accessibility access. Without
-    /// it, explain why and route the user to the right Settings pane.
+    /// it, open the exact switch in System Settings with a guide beside it.
     static func ensureAccessibilityAccess() -> Bool {
         if AXIsProcessTrusted() { return true }
-
-        let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
-        if AXIsProcessTrustedWithOptions(options) { return true }
-
-        NSApp.activate(ignoringOtherApps: true)
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        alert.messageText = "Accessibility permission needed"
-        alert.informativeText = """
-        To capture just a browser tab, Screendrop reads where the page sits \
-        inside the browser window. Allow Screendrop under Privacy & Security > \
-        Accessibility, then try again.
-        """
-        alert.addButton(withTitle: "Open System Settings")
-        alert.addButton(withTitle: "Cancel")
-        if alert.runModal() == .alertFirstButtonReturn,
-           let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-            NSWorkspace.shared.open(url)
-        }
+        PermissionGuidePresenter.shared.show(
+            .accessibility,
+            reason: "Browser Tab captures read where the page sits inside the browser window."
+        )
         return false
     }
 

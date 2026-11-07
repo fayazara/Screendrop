@@ -650,9 +650,11 @@ final class ScreenRecordingManager {
         """
         alert.addButton(withTitle: "Open System Settings")
         alert.addButton(withTitle: "Cancel")
-        if alert.runModal() == .alertFirstButtonReturn,
-           let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
-            NSWorkspace.shared.open(url)
+        if alert.runModal() == .alertFirstButtonReturn {
+            PermissionGuidePresenter.shared.show(
+                .screenRecording,
+                reason: "Screendrop needs this to capture your screen."
+            )
         }
         return false
     }

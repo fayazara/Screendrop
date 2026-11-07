@@ -155,9 +155,10 @@ struct RecordingPickerControls: View {
                 Button("Retry") { Task { await sources.refresh() } }
                 if !CGPreflightScreenCaptureAccess() {
                     Button("Open Screen Recording Settings…") {
-                        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
-                            NSWorkspace.shared.open(url)
-                        }
+                        PermissionGuidePresenter.shared.show(
+                            .screenRecording,
+                            reason: "Screendrop needs this to capture your screen."
+                        )
                     }
                 }
             } label: {
