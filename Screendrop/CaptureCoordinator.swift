@@ -228,6 +228,17 @@ final class CaptureCoordinator {
         }
     }
 
+    func recordBrowserTab(_ window: SCWindow) {
+        Task {
+            let displayID = ActiveDisplayResolver.activeDisplayID(preferPointer: true)
+            guard await CaptureCountdownPresenter.shared.runIfNeeded(
+                seconds: ScreendropPreferences.recordingStartDelaySeconds,
+                displayID: displayID
+            ) else { return }
+            ScreenRecordingManager.shared.startRecording(source: ScreenRecordingSource(kind: .browserTab(window)))
+        }
+    }
+
     /// - Parameter rect: global AppKit coordinates, picked with
     ///   RecordingAreaSelectionPresenter.
     func recordArea(_ display: SCDisplay, rect: CGRect) {
