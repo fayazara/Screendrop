@@ -8,6 +8,8 @@
 import SwiftUI
 import CoreGraphics
 import ImageIO
+import ScreenCaptureKit
+import UniformTypeIdentifiers
 
 /// Manages all screenshot capture operations at native Retina resolution.
 @Observable
@@ -69,6 +71,52 @@ final class ScreenshotManager {
         return await runScreencapture(args: args)
     }
     
+    // MARK: - Browser Tab Capture
+
+    /// Captures only the page of a browser window, cropped from the window
+    /// by ScreenCaptureKit at the window's native pixel scale. The window is
+    /// captured on its own, so anything overlapping it stays out.
+    func captureBrowserContent(_ content: BrowserContent) async -> URL? {
+        do {
+            let shareable = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+            guard let window = shareable.windows.first(where: { $0.windowID == content.windowID }) else { return nil }
+
+            let filter = SCContentFilter(desktopIndependentWindow: window)
+            let scale = max(1, CGFloat(filter.pointPixelScale))
+            let crop = content.rectInWindow
+            guard crop.width >= 1, crop.height >= 1 else { return nil }
+
+            let configuration = SCStreamConfiguration()
+            configuration.sourceRect = crop
+            configuration.width = Int((crop.width * scale).rounded())
+            configuration.height = Int((crop.height * scale).rounded())
+            configuration.showsCursor = false
+            configuration.captureResolution = .best
+
+            let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
+            return writePNG(image, pointPixelScale: scale)
+        } catch {
+            print("Browser tab capture failed: \(error)")
+            return nil
+        }
+    }
+
+    /// Writes with the DPI `screencapture` would record, so a Retina capture
+    /// opens at its point size elsewhere.
+    private func writePNG(_ image: CGImage, pointPixelScale: CGFloat) -> URL? {
+        let url = URL(fileURLWithPath: generateTempPath(extension: "png"))
+        guard let destination = CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil) else {
+            return nil
+        }
+        let dpi = 72 * pointPixelScale
+        let properties = [
+            kCGImagePropertyDPIWidth: dpi,
+            kCGImagePropertyDPIHeight: dpi
+        ] as CFDictionary
+        CGImageDestinationAddImage(destination, image, properties)
+        return CGImageDestinationFinalize(destination) ? url : nil
+    }
+
     // MARK: - Area Capture
     
     /// Uses the native macOS screencapture tool for interactive area drag selection.

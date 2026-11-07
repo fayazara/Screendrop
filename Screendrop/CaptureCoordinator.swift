@@ -49,6 +49,10 @@ final class CaptureCoordinator {
         Task { await performCaptureText() }
     }
 
+    func captureBrowserTab() {
+        Task { await performCaptureBrowserTab() }
+    }
+
     // MARK: - Awaitable Capture Actions
 
     /// Awaitable variants for callers (App Intents / Shortcuts) that need the
@@ -69,6 +73,11 @@ final class CaptureCoordinator {
     @discardableResult
     func captureAreaAwaiting() async -> URL? {
         await performCaptureArea()
+    }
+
+    @discardableResult
+    func captureBrowserTabAwaiting() async -> URL? {
+        await performCaptureBrowserTab()
     }
 
     /// Returns the recognized text rather than a URL - Capture Text produces
@@ -124,6 +133,40 @@ final class CaptureCoordinator {
         guard let url = captured else { return nil }
         let displayID = ActiveDisplayResolver.activeDisplayID(preferPointer: true)
         return finishCapture(url: url, displayID: displayID, source: source)
+    }
+
+    /// Captures the page of the frontmost browser window, without its tab
+    /// strip, toolbar or bookmarks bar. There is nothing to pick: the
+    /// frontmost browser is the target, and the self-timer runs first so the
+    /// page can be scrolled or hovered into place.
+    @discardableResult
+    private func performCaptureBrowserTab() async -> URL? {
+        guard BrowserContentLocator.ensureAccessibilityAccess() else { return nil }
+        guard let found = await BrowserContentLocator.frontmostContent() else {
+            BrowserContentLocator.presentNoBrowserFound()
+            return nil
+        }
+        let displayID = Self.displayID(containing: found.contentFrame)
+        CaptureShelfPresenter.shared.setTargetDisplay(displayID)
+
+        guard await CaptureCountdownPresenter.shared.runIfNeeded(
+            seconds: ScreendropPreferences.captureDelaySeconds,
+            displayID: displayID
+        ) else { return nil }
+        // The page may have moved or resized during the countdown.
+        let content = BrowserContentLocator.relocate(found) ?? found
+        guard let url = await ScreenshotManager.shared.captureBrowserContent(content) else { return nil }
+        return finishCapture(url: url, displayID: displayID, source: content.captureSource)
+    }
+
+    private static func displayID(containing rect: CGRect) -> CGDirectDisplayID? {
+        var displayID: CGDirectDisplayID = 0
+        var count: UInt32 = 0
+        let center = CGPoint(x: rect.midX, y: rect.midY)
+        guard CGGetDisplaysWithPoint(center, 1, &displayID, &count) == .success, count > 0 else {
+            return ActiveDisplayResolver.activeDisplayID(preferPointer: false)
+        }
+        return displayID
     }
 
     /// Capture Text is the odd one out: it recognizes the text inside the drawn
