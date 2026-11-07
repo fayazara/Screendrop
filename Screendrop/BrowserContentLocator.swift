@@ -106,7 +106,7 @@ enum BrowserContentLocator {
         alert.alertStyle = .informational
         alert.messageText = "No browser tab found"
         alert.informativeText = """
-        Bring the browser window you want to capture to the front, then try \
+        Open the page you want to capture in a browser window, then try \
         again. Chrome, Safari, Arc, Edge, Brave and Firefox are supported.
         """
         alert.addButton(withTitle: "OK")
@@ -138,39 +138,6 @@ enum BrowserContentLocator {
         return nil
     }
 
-    /// The frontmost browser page on screen: the frontmost app's windows
-    /// first, then everything else front to back.
-    static func frontmostContent() async -> BrowserContent? {
-        let windows = onScreenWindows()
-        let frontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
-        let ordered = windows.filter { $0.processID == frontmostPID }
-            + windows.filter { $0.processID != frontmostPID }
-
-        // Cheap pass first, so an already-awake browser behind a
-        // non-browser front window wins without waking anything.
-        for window in ordered.prefix(8) {
-            if let content = locate(
-                windowID: window.windowID,
-                processID: window.processID,
-                windowFrame: window.frame,
-                windowTitle: window.title
-            ) {
-                return content
-            }
-        }
-        for window in ordered.prefix(8) where isLikelyBrowser(processID: window.processID) {
-            if let content = await self.content(
-                windowID: window.windowID,
-                processID: window.processID,
-                windowFrame: window.frame,
-                windowTitle: window.title
-            ) {
-                return content
-            }
-        }
-        return nil
-    }
-
     /// Finds the same page again at the window's current position, for a
     /// window that may have moved or resized since it was first found.
     static func relocate(_ content: BrowserContent) -> BrowserContent? {
@@ -197,7 +164,7 @@ enum BrowserContentLocator {
         windowFrame: CGRect,
         windowTitle: String? = nil
     ) -> BrowserContent? {
-        guard AXIsProcessTrusted(), processID != getpid() else { return nil }
+        guard AXIsProcessTrusted(), processID != getpid(), isBrowser(processID: processID) else { return nil }
 
         let application = AXUIElementCreateApplication(processID)
         AXUIElementSetMessagingTimeout(application, messagingTimeout)
@@ -267,7 +234,7 @@ enum BrowserContentLocator {
     /// leaves window animations alone (`AXEnhancedUserInterface` does not).
     /// Returns false when the app is not one worth waiting on.
     private static func wakeAccessibilityTree(processID: pid_t) -> Bool {
-        guard isLikelyBrowser(processID: processID) else { return false }
+        guard isBrowser(processID: processID) else { return false }
         guard !enabledProcesses.contains(processID) else { return true }
         enabledProcesses.insert(processID)
         let application = AXUIElementCreateApplication(processID)
@@ -276,19 +243,31 @@ enum BrowserContentLocator {
         return true
     }
 
-    /// Browsers declare they open web URLs. This only gates the slow path
-    /// (waking a tree and waiting); a page found on the fast path counts
-    /// whatever app it's in.
-    private static func isLikelyBrowser(processID: pid_t) -> Bool {
-        guard let bundleURL = NSRunningApplication(processIdentifier: processID)?.bundleURL,
-              let bundle = Bundle(url: bundleURL),
-              let urlTypes = bundle.object(forInfoDictionaryKey: "CFBundleURLTypes") as? [[String: Any]] else {
+    /// Web browsers, by bundle ID, plus whatever the user has set as their
+    /// default browser. Opening web links doesn't qualify an app: plenty of
+    /// Electron apps (editors, chat clients) register http(s) and expose a
+    /// full-window web area, and they must not be offered as browser tabs.
+    private static let knownBrowserBundleIDs: Set<String> = [
+        "com.google.Chrome", "com.google.Chrome.beta", "com.google.Chrome.dev", "com.google.Chrome.canary",
+        "org.chromium.Chromium",
+        "com.brave.Browser", "com.brave.Browser.beta", "com.brave.Browser.nightly",
+        "com.microsoft.edgemac", "com.microsoft.edgemac.Beta", "com.microsoft.edgemac.Dev",
+        "com.microsoft.edgemac.Canary",
+        "company.thebrowser.Browser", "company.thebrowser.dia",
+        "com.vivaldi.Vivaldi", "com.operasoftware.Opera", "com.operasoftware.OperaGX",
+        "com.apple.Safari", "com.apple.SafariTechnologyPreview",
+        "org.mozilla.firefox", "org.mozilla.firefoxdeveloperedition", "org.mozilla.nightly",
+        "app.zen-browser.zen", "com.kagi.kagimacOS", "net.imput.helium"
+    ]
+
+    static func isBrowser(processID: pid_t) -> Bool {
+        guard let bundleID = NSRunningApplication(processIdentifier: processID)?.bundleIdentifier else {
             return false
         }
-        return urlTypes.contains { type in
-            let schemes = type["CFBundleURLSchemes"] as? [String] ?? []
-            return schemes.contains { $0.caseInsensitiveCompare("https") == .orderedSame }
-        }
+        if knownBrowserBundleIDs.contains(bundleID) { return true }
+        guard let probe = URL(string: "https://example.com"),
+              let defaultBrowser = NSWorkspace.shared.urlForApplication(toOpen: probe) else { return false }
+        return Bundle(url: defaultBrowser)?.bundleIdentifier == bundleID
     }
 
     private static func attribute(_ element: AXUIElement, _ name: String) -> AnyObject? {
@@ -315,39 +294,5 @@ enum BrowserContentLocator {
             return nil
         }
         return CGRect(origin: position, size: size)
-    }
-
-    // MARK: Window list
-
-    private struct OnScreenWindow {
-        let windowID: CGWindowID
-        let processID: pid_t
-        let title: String?
-        let frame: CGRect
-    }
-
-    /// Ordinary app windows front to back, Quartz frames.
-    private static func onScreenWindows() -> [OnScreenWindow] {
-        let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
-        guard let list = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else { return [] }
-        let ownPID = getpid()
-        return list.compactMap { info in
-            guard (info[kCGWindowLayer as String] as? NSNumber)?.intValue == 0,
-                  (info[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1 > 0,
-                  let number = info[kCGWindowNumber as String] as? NSNumber,
-                  let pid = (info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value, pid != ownPID,
-                  let boundsDictionary = info[kCGWindowBounds as String] as? NSDictionary,
-                  let bounds = CGRect(dictionaryRepresentation: boundsDictionary),
-                  bounds.width >= minimumContentSize.width,
-                  bounds.height >= minimumContentSize.height else { return nil }
-            let title = (info[kCGWindowName as String] as? String)?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            return OnScreenWindow(
-                windowID: CGWindowID(number.uint32Value),
-                processID: pid,
-                title: title?.isEmpty == false ? title : nil,
-                frame: bounds
-            )
-        }
     }
 }

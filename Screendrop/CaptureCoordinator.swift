@@ -49,8 +49,19 @@ final class CaptureCoordinator {
         Task { await performCaptureText() }
     }
 
+    /// Opens the tab picker: point at a browser window and click (or press
+    /// Return for the frontmost one) to capture its page.
     func captureBrowserTab() {
-        Task { await performCaptureBrowserTab() }
+        let picker = RecordingSourceTargetPresenter.shared
+        if picker.isActive, picker.purpose == .screenshot {
+            picker.cancel()
+            return
+        }
+        picker.begin(.browserTab, purpose: .screenshot)
+    }
+
+    func captureBrowserTab(_ content: BrowserContent) {
+        Task { await performCaptureBrowserTab(content) }
     }
 
     // MARK: - Awaitable Capture Actions
@@ -73,11 +84,6 @@ final class CaptureCoordinator {
     @discardableResult
     func captureAreaAwaiting() async -> URL? {
         await performCaptureArea()
-    }
-
-    @discardableResult
-    func captureBrowserTabAwaiting() async -> URL? {
-        await performCaptureBrowserTab()
     }
 
     /// Returns the recognized text rather than a URL - Capture Text produces
@@ -135,26 +141,20 @@ final class CaptureCoordinator {
         return finishCapture(url: url, displayID: displayID, source: source)
     }
 
-    /// Captures the page of the frontmost browser window, without its tab
-    /// strip, toolbar or bookmarks bar. There is nothing to pick: the
-    /// frontmost browser is the target, and the self-timer runs first so the
-    /// page can be scrolled or hovered into place.
+    /// Captures the page picked in the tab picker. The self-timer runs after
+    /// the pick, like screencapture's `-T`, so the page can be scrolled or
+    /// hovered into place first.
     @discardableResult
-    private func performCaptureBrowserTab() async -> URL? {
-        guard BrowserContentLocator.ensureAccessibilityAccess() else { return nil }
-        guard let found = await BrowserContentLocator.frontmostContent() else {
-            BrowserContentLocator.presentNoBrowserFound()
-            return nil
-        }
-        let displayID = Self.displayID(containing: found.contentFrame)
+    private func performCaptureBrowserTab(_ picked: BrowserContent) async -> URL? {
+        let displayID = Self.displayID(containing: picked.contentFrame)
         CaptureShelfPresenter.shared.setTargetDisplay(displayID)
 
         guard await CaptureCountdownPresenter.shared.runIfNeeded(
             seconds: ScreendropPreferences.captureDelaySeconds,
             displayID: displayID
         ) else { return nil }
-        // The page may have moved or resized during the countdown.
-        let content = BrowserContentLocator.relocate(found) ?? found
+        // The page may have moved or resized since it was picked.
+        let content = BrowserContentLocator.relocate(picked) ?? picked
         guard let url = await ScreenshotManager.shared.captureBrowserContent(content) else { return nil }
         return finishCapture(url: url, displayID: displayID, source: content.captureSource)
     }
