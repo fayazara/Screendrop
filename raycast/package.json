@@ -1,0 +1,94 @@
+{
+  "$schema": "https://www.raycast.com/schemas/extension.json",
+  "name": "screendrop",
+  "title": "Screendrop",
+  "description": "Capture and record your screen with Screendrop.",
+  "icon": "command-icon.png",
+  "author": "kikobeats",
+  "license": "MIT",
+  "platforms": ["macOS"],
+  "categories": ["Applications"],
+  "commands": [
+    {
+      "name": "capture-area",
+      "title": "Capture Area",
+      "subtitle": "Screendrop",
+      "description": "Capture a region you drag out",
+      "icon": "capture-area.png",
+      "mode": "no-view"
+    },
+    {
+      "name": "capture-fullscreen",
+      "title": "Capture Fullscreen",
+      "subtitle": "Screendrop",
+      "description": "Capture the entire screen",
+      "icon": "capture-fullscreen.png",
+      "mode": "no-view"
+    },
+    {
+      "name": "capture-window",
+      "title": "Capture Window",
+      "subtitle": "Screendrop",
+      "description": "Capture a window you click",
+      "icon": "capture-window.png",
+      "mode": "no-view"
+    },
+    {
+      "name": "capture-text",
+      "title": "Capture Text (OCR)",
+      "subtitle": "Screendrop",
+      "description": "Copy the text inside a region you drag out",
+      "icon": "capture-text.png",
+      "mode": "no-view",
+      "keywords": ["ocr"]
+    },
+    {
+      "name": "record-screen",
+      "title": "Record Screen",
+      "subtitle": "Screendrop",
+      "description": "Choose a display, window, or area and start recording",
+      "icon": "record-screen.png",
+      "mode": "no-view"
+    },
+    {
+      "name": "open-library",
+      "title": "Open Library",
+      "subtitle": "Screendrop",
+      "description": "Show captured screenshots and recordings",
+      "icon": "open-library.png",
+      "mode": "no-view"
+    },
+    {
+      "name": "open-settings",
+      "title": "Open Settings",
+      "subtitle": "Screendrop",
+      "description": "Open Screendrop settings",
+      "icon": "open-settings.png",
+      "mode": "no-view",
+      "disabledByDefault": true,
+      "arguments": [
+        {
+          "name": "tab",
+          "type": "dropdown",
+          "placeholder": "Tab",
+          "required": false,
+          "data": [
+            { "title": "General", "value": "general" },
+            { "title": "Screenshots", "value": "screenshots" },
+            { "title": "Screen Recordings", "value": "video" },
+            { "title": "Overlay", "value": "overlay" },
+            { "title": "Cloud", "value": "cloud" },
+            { "title": "About", "value": "about" }
+          ]
+        }
+      ]
+    }
+  ],
+  "dependencies": {
+    "@raycast/api": "^2.9.0"
+  },
+  "scripts": {
+    "dev": "ray develop",
+    "build": "ray build -e dist"
+  }
+}

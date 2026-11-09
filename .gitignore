@@ -3,3 +3,6 @@ output/launch-video/
 # Local API keys, bundled into the app when present: a plist with an
 # UnsplashAccessKey string. Builds without it ask for a key in the picker.
 Screendrop/Secrets.plist
+
+raycast/node_modules/
+raycast/dist/

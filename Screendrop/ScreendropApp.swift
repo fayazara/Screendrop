@@ -138,12 +138,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// before `onOpenFiles` is wired up, e.g. a cold launch where SwiftUI's
     /// scene body - and therefore the `openWindow` closure - hasn't run yet.
     private var pendingOpenURLs: [URL] = []
+    /// `screendrop://` commands queued for the same reason: the preview and
+    /// Library openers are installed in the same place as `onOpenFiles`.
+    private var pendingCommands: [URL] = []
     var onOpenFiles: (([URL]) -> Void)? {
         didSet {
-            guard let onOpenFiles, !pendingOpenURLs.isEmpty else { return }
-            let urls = pendingOpenURLs
-            pendingOpenURLs = []
-            onOpenFiles(urls)
+            guard let onOpenFiles else { return }
+            if !pendingOpenURLs.isEmpty {
+                let urls = pendingOpenURLs
+                pendingOpenURLs = []
+                onOpenFiles(urls)
+            }
+            performPendingCommands()
         }
     }
 
@@ -169,6 +175,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             CaptureLibraryIndex.shared.start()
         }
         let launchEvent = NSAppleEventManager.shared().currentAppleEvent
+        // A `screendrop://` launch is delivered after this returns. Mark it
+        // handled now so the queued Library open below doesn't also run.
+        if let launchEvent,
+           launchEvent.eventClass == kInternetEventClass,
+           launchEvent.eventID == kAEGetURL {
+            openedFilesAtLaunch = true
+        }
         let launchReason = launchEvent?.paramDescriptor(forKeyword: keyAEPropData)?.enumCodeValue
         let launchedInBackground = launchReason == keyAELaunchedAsLogInItem
             || launchReason == keyAELaunchedAsServiceItem
@@ -181,14 +194,59 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Finder "Open With" / `open -a Screendrop file.png` entry point.
+    /// Finder "Open With", `open -a Screendrop file.png`, and `screendrop://` commands.
     func application(_ application: NSApplication, open urls: [URL]) {
-        openedFilesAtLaunch = true
+        let commands = urls.filter { $0.scheme?.lowercased() == "screendrop" }
+        let files = urls.filter(\.isFileURL)
+        if !commands.isEmpty || !files.isEmpty {
+            openedFilesAtLaunch = true
+        }
+        if !commands.isEmpty {
+            pendingCommands.append(contentsOf: commands)
+            performPendingCommands()
+        }
+        guard !files.isEmpty else { return }
         guard let onOpenFiles else {
-            pendingOpenURLs.append(contentsOf: urls)
+            pendingOpenURLs.append(contentsOf: files)
             return
         }
-        onOpenFiles(urls)
+        onOpenFiles(files)
+    }
+
+    /// Runs once the SwiftUI openers exist. Host is the command:
+    /// `screendrop://capture-area`, `screendrop://open-settings?tab=screenshots`.
+    private func performPendingCommands() {
+        guard onOpenFiles != nil, !pendingCommands.isEmpty else { return }
+        let commands = pendingCommands
+        pendingCommands = []
+        for url in commands {
+            switch url.host?.lowercased() {
+            case "capture-fullscreen":
+                CaptureCoordinator.shared.captureFullscreen()
+            case "capture-window":
+                CaptureCoordinator.shared.captureWindow()
+            case "capture-area":
+                CaptureCoordinator.shared.captureArea()
+            case "capture-text":
+                CaptureCoordinator.shared.captureText()
+            case "record-screen":
+                RecordingPickerPresenter.shared.show()
+            case "open-library":
+                CaptureLibraryModel.shared.show()
+            case "open-settings":
+                SettingsWindowController.show(tab: settingsTab(from: url))
+            default:
+                break
+            }
+        }
+    }
+
+    private func settingsTab(from url: URL) -> SettingsTab? {
+        guard let raw = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+            .queryItems?
+            .first(where: { $0.name == "tab" })?
+            .value else { return nil }
+        return SettingsTab(rawValue: raw)
     }
 
     /// Finder, Spotlight and the Dock all reopen the same Library window.
