@@ -69,6 +69,7 @@ final class RecordingSourceTargetPresenter {
     /// nil when a browser is only open in the background, because an agent
     /// may be driving it: raising its windows never makes it frontmost.
     @ObservationIgnored private var frontmostBrowserWindowID: CGWindowID?
+    @ObservationIgnored private var titleRefreshTask: Task<Void, Never>?
     @ObservationIgnored private var keyMonitors: [Any] = []
 
     private init() {}
@@ -121,6 +122,7 @@ final class RecordingSourceTargetPresenter {
                     return
                 }
                 hasFoundBrowserWindows = true
+                startTitleRefresh()
             }
             updateTarget(at: NSEvent.mouseLocation)
         }
@@ -152,6 +154,32 @@ final class RecordingSourceTargetPresenter {
         browserContents = found
     }
 
+    /// Keeps the highlighted title on the page actually showing, which can
+    /// change under the sheet when another app is driving the browser.
+    private func startTitleRefresh() {
+        titleRefreshTask?.cancel()
+        titleRefreshTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(300))
+                guard let self, self.mode == .browserTab else { return }
+                self.refreshPageTitles()
+            }
+        }
+    }
+
+    private func refreshPageTitles() {
+        var changed = false
+        for (windowID, content) in browserContents {
+            guard let title = BrowserContentLocator.currentWindowTitle(of: windowID),
+                  title != content.windowTitle else { continue }
+            browserContents[windowID]?.windowTitle = title
+            changed = true
+        }
+        if changed {
+            updateTarget(at: NSEvent.mouseLocation)
+        }
+    }
+
     func cancel() {
         mode = nil
         target = nil
@@ -159,6 +187,8 @@ final class RecordingSourceTargetPresenter {
         browserContents = [:]
         frontmostBrowserWindowID = nil
         hasFoundBrowserWindows = false
+        titleRefreshTask?.cancel()
+        titleRefreshTask = nil
         purpose = .record
         removeKeyMonitors()
         for panel in panels {
@@ -194,8 +224,12 @@ final class RecordingSourceTargetPresenter {
         guard let target else { return }
         if purpose == .screenshot, case let .browserTab(windowID) = target.source {
             guard let content = browserContents[windowID] else { return }
+            // Keep the title the card showed, so a page that changed since
+            // the highlight still counts as having changed.
+            var picked = BrowserContentLocator.relocate(content) ?? content
+            picked.windowTitle = content.windowTitle
             cancel()
-            CaptureCoordinator.shared.captureBrowserTab(content)
+            CaptureCoordinator.shared.captureBrowserTab(picked)
             return
         }
         let sources = RecordingSourceCatalog.shared

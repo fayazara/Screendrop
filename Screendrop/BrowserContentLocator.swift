@@ -20,7 +20,9 @@ import CoreGraphics
 nonisolated struct BrowserContent: Sendable, Equatable {
     let windowID: CGWindowID
     let processID: pid_t
-    let windowTitle: String?
+    var windowTitle: String?
+    /// The address of the tab showing in the window. Only ever compared.
+    let pageURL: URL?
     /// Global Quartz coordinates (top-left origin), like `SCWindow.frame`.
     let windowFrame: CGRect
     /// Global Quartz coordinates (top-left origin).
@@ -45,6 +47,13 @@ nonisolated struct BrowserContent: Sendable, Equatable {
             width: contentFrame.width,
             height: contentFrame.height
         )
+    }
+
+    /// Whether the window still shows this page. A browser window only draws
+    /// its active tab, so another app switching tabs changes what's captured.
+    func showsSamePage(as other: BrowserContent) -> Bool {
+        if let pageURL, let otherURL = other.pageURL, pageURL != otherURL { return false }
+        return windowTitle == other.windowTitle
     }
 
     var captureSource: CaptureSource {
@@ -147,8 +156,16 @@ enum BrowserContentLocator {
             windowID: content.windowID,
             processID: content.processID,
             windowFrame: frame,
-            windowTitle: content.windowTitle
+            windowTitle: currentWindowTitle(of: content.windowID) ?? content.windowTitle
         )
+    }
+
+    /// Asks the window server, not the browser, so it's cheap enough to poll
+    /// while the picker is up and can't stall on a busy app.
+    static func currentWindowTitle(of windowID: CGWindowID) -> String? {
+        let info = (CGWindowListCopyWindowInfo([.optionIncludingWindow], windowID) as? [[String: Any]])?.first
+        guard let title = info?[kCGWindowName as String] as? String, !title.isEmpty else { return nil }
+        return title
     }
 
     static func currentWindowFrame(of windowID: CGWindowID) -> CGRect? {
@@ -179,8 +196,9 @@ enum BrowserContentLocator {
             windowID: windowID,
             processID: processID,
             windowTitle: title?.isEmpty == false ? title : nil,
+            pageURL: page.url,
             windowFrame: windowFrame,
-            contentFrame: page
+            contentFrame: page.frame
         )
     }
 
@@ -203,10 +221,10 @@ enum BrowserContentLocator {
     /// Breadth-first, stopping at each web area: nested ones are iframes.
     /// Of the top-level web areas (the page, and in Chromium any side panel
     /// or docked DevTools), the largest is the tab.
-    private static func largestWebArea(in window: AXUIElement, within bounds: CGRect) -> CGRect? {
+    private static func largestWebArea(in window: AXUIElement, within bounds: CGRect) -> (frame: CGRect, url: URL?)? {
         var queue: [(AXUIElement, Int)] = [(window, 0)]
         var index = 0
-        var best: CGRect?
+        var best: (frame: CGRect, element: AXUIElement)?
 
         while index < queue.count, index < maximumVisitedElements {
             let (element, depth) = queue[index]
@@ -217,8 +235,8 @@ enum BrowserContentLocator {
                    !frame.isNull,
                    frame.width >= minimumContentSize.width,
                    frame.height >= minimumContentSize.height,
-                   frame.width * frame.height > (best.map { $0.width * $0.height } ?? 0) {
-                    best = frame
+                   frame.width * frame.height > (best.map { $0.frame.width * $0.frame.height } ?? 0) {
+                    best = (frame, element)
                 }
                 continue
             }
@@ -227,7 +245,7 @@ enum BrowserContentLocator {
                   let children = attribute(element, kAXChildrenAttribute) as? [AXUIElement] else { continue }
             queue.append(contentsOf: children.map { ($0, depth + 1) })
         }
-        return best
+        return best.map { ($0.frame, attribute($0.element, kAXURLAttribute) as? URL) }
     }
 
     /// Chromium-based browsers only build their tree once an assistive app

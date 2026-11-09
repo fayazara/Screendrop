@@ -149,14 +149,29 @@ final class CaptureCoordinator {
         let displayID = Self.displayID(containing: picked.contentFrame)
         CaptureShelfPresenter.shared.setTargetDisplay(displayID)
 
+        let delaySeconds = ScreendropPreferences.captureDelaySeconds
         guard await CaptureCountdownPresenter.shared.runIfNeeded(
-            seconds: ScreendropPreferences.captureDelaySeconds,
+            seconds: delaySeconds,
             displayID: displayID
         ) else { return nil }
         // The page may have moved or resized since it was picked.
         let content = BrowserContentLocator.relocate(picked) ?? picked
         guard let url = await ScreenshotManager.shared.captureBrowserContent(content) else { return nil }
-        return finishCapture(url: url, displayID: displayID, source: content.captureSource)
+
+        // The self-timer exists so the page can be changed before the shot;
+        // without one, a different page means something else changed it.
+        let expected = delaySeconds > 0 ? content : picked
+        let pageChanged = BrowserContentLocator.relocate(content).map { !$0.showsSamePage(as: expected) } ?? false
+        let historyURL = finishCapture(url: url, displayID: displayID, source: content.captureSource)
+        if pageChanged {
+            CaptureTextFeedbackPresenter.shared.showBrowserPageChanged(
+                appName: content.captureSource.appName,
+                displayID: displayID
+            ) { [weak self] in
+                self?.captureBrowserTab()
+            }
+        }
+        return historyURL
     }
 
     private static func displayID(containing rect: CGRect) -> CGDirectDisplayID? {
