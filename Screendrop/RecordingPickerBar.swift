@@ -58,6 +58,16 @@ struct RecordingPickerControls: View {
             displaySource.disabled(CaptureCountdownPresenter.shared.isRunning)
             windowSource.disabled(CaptureCountdownPresenter.shared.isRunning || sources.isLoading)
             BarActionButton(
+                id: .browserTab,
+                title: "Point at a browser tab to record",
+                systemImage: "globe",
+                isSelected: target.mode == .browserTab,
+                accessibility: "Browser tab - point at a browser window to record just its page, then click it"
+            ) {
+                target.toggle(.browserTab)
+            }
+            .disabled(CaptureCountdownPresenter.shared.isRunning || sources.isLoading)
+            BarActionButton(
                 id: .area,
                 title: "Drag to select a region",
                 systemImage: "rectangle.dashed",
@@ -145,9 +155,10 @@ struct RecordingPickerControls: View {
                 Button("Retry") { Task { await sources.refresh() } }
                 if !CGPreflightScreenCaptureAccess() {
                     Button("Open Screen Recording Settings…") {
-                        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
-                            NSWorkspace.shared.open(url)
-                        }
+                        PermissionGuidePresenter.shared.show(
+                            .screenRecording,
+                            reason: "Screendrop needs this to capture your screen."
+                        )
                     }
                 }
             } label: {

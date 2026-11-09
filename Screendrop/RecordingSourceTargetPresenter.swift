@@ -22,12 +22,15 @@ final class RecordingSourceTargetPresenter {
     enum Mode: Equatable {
         case display
         case window
+        /// A browser window, highlighted and recorded as just its page.
+        case browserTab
     }
 
     struct Target: Equatable {
         enum Source: Equatable {
             case display(CGDirectDisplayID)
             case window(CGWindowID)
+            case browserTab(CGWindowID)
         }
 
         let source: Source
@@ -38,19 +41,45 @@ final class RecordingSourceTargetPresenter {
         let icon: NSImage?
     }
 
+    /// What a click does. Browser Tab is also the screenshot picker: the
+    /// same sheet, but the click takes a picture instead of recording.
+    enum Purpose: Equatable {
+        case record
+        case screenshot
+    }
+
     private(set) var mode: Mode?
+    private(set) var purpose: Purpose = .record
     private(set) var target: Target?
+    /// Set once the browser windows have been looked up, so the hint doesn't
+    /// flash while the first highlight is still on its way.
+    private var hasFoundBrowserWindows = false
 
     @ObservationIgnored private var panels: [NSPanel] = []
     /// On-screen, layer-0 windows front to back, snapshotted when the sheet
     /// goes up. Nothing behind the sheet can be moved or raised while it's
     /// up, so the snapshot stays true for as long as it's needed.
     @ObservationIgnored private var windowStack: [(id: CGWindowID, frame: CGRect)] = []
+    /// Pages of the browser windows in the stack, found when the sheet goes
+    /// up so hovering never waits on another app.
+    @ObservationIgnored private var browserContents: [CGWindowID: BrowserContent] = [:]
+    /// The window of the browser in use when the shortcut fired, if one was.
+    /// A screenshot pick lights it up while the pointer is elsewhere, so the
+    /// shortcut followed by Return captures the tab already in front. Left
+    /// nil when a browser is only open in the background, because an agent
+    /// may be driving it: raising its windows never makes it frontmost.
+    @ObservationIgnored private var frontmostBrowserWindowID: CGWindowID?
+    @ObservationIgnored private var titleRefreshTask: Task<Void, Never>?
     @ObservationIgnored private var keyMonitors: [Any] = []
 
     private init() {}
 
     var isActive: Bool { mode != nil }
+
+    /// With nothing lit up, the sheet is invisible, yet it still takes clicks.
+    var showsPointHint: Bool {
+        purpose == .screenshot && hasFoundBrowserWindows && target == nil
+    }
 
     /// Pressing the button for the mode that's already up puts the sheet
     /// away; pressing the other one switches it in place.
@@ -62,10 +91,15 @@ final class RecordingSourceTargetPresenter {
         }
     }
 
-    func begin(_ mode: Mode) {
+    func begin(_ mode: Mode, purpose: Purpose = .record) {
         RecordingAreaSelectionPresenter.shared.cancel()
+        if mode == .browserTab, !BrowserContentLocator.ensureAccessibilityAccess() {
+            cancel()
+            return
+        }
         self.mode = mode
-        if mode == .window {
+        self.purpose = mode == .browserTab ? purpose : .record
+        if mode != .display {
             snapshotWindowStack()
         }
         showPanels()
@@ -76,9 +110,72 @@ final class RecordingSourceTargetPresenter {
             // opened since then would otherwise be unpickable.
             await RecordingSourceCatalog.shared.refresh()
             guard self.mode == mode else { return }
-            if mode == .window {
+            if mode != .display {
                 snapshotWindowStack()
             }
+            if mode == .browserTab {
+                await findBrowserContents()
+                guard self.mode == mode else { return }
+                if browserContents.isEmpty, self.purpose == .screenshot {
+                    cancel()
+                    BrowserContentLocator.presentNoBrowserFound()
+                    return
+                }
+                hasFoundBrowserWindows = true
+                startTitleRefresh()
+            }
+            updateTarget(at: NSEvent.mouseLocation)
+        }
+    }
+
+    private func findBrowserContents() async {
+        var found: [CGWindowID: BrowserContent] = [:]
+        // Front to back, so the frontmost browser lights up first.
+        let catalog = RecordingSourceCatalog.shared.windows
+        let windows = windowStack.compactMap { entry in catalog.first { $0.windowID == entry.id } }
+        let frontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        for window in windows {
+            guard let processID = window.owningApplication?.processID,
+                  let content = await BrowserContentLocator.content(
+                      windowID: window.windowID,
+                      processID: processID,
+                      windowFrame: window.frame,
+                      windowTitle: window.title
+                  ) else { continue }
+            found[window.windowID] = content
+            if frontmostBrowserWindowID == nil, processID == frontmostPID {
+                frontmostBrowserWindowID = window.windowID
+            }
+            guard mode == .browserTab else { return }
+            // Light up the window under the pointer as soon as it's known.
+            browserContents = found
+            updateTarget(at: NSEvent.mouseLocation)
+        }
+        browserContents = found
+    }
+
+    /// Keeps the highlighted title on the page actually showing, which can
+    /// change under the sheet when another app is driving the browser.
+    private func startTitleRefresh() {
+        titleRefreshTask?.cancel()
+        titleRefreshTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(300))
+                guard let self, self.mode == .browserTab else { return }
+                self.refreshPageTitles()
+            }
+        }
+    }
+
+    private func refreshPageTitles() {
+        var changed = false
+        for (windowID, content) in browserContents {
+            guard let title = BrowserContentLocator.currentWindowTitle(of: windowID),
+                  title != content.windowTitle else { continue }
+            browserContents[windowID]?.windowTitle = title
+            changed = true
+        }
+        if changed {
             updateTarget(at: NSEvent.mouseLocation)
         }
     }
@@ -87,6 +184,12 @@ final class RecordingSourceTargetPresenter {
         mode = nil
         target = nil
         windowStack = []
+        browserContents = [:]
+        frontmostBrowserWindowID = nil
+        hasFoundBrowserWindows = false
+        titleRefreshTask?.cancel()
+        titleRefreshTask = nil
+        purpose = .record
         removeKeyMonitors()
         for panel in panels {
             panel.orderOut(nil)
@@ -100,6 +203,7 @@ final class RecordingSourceTargetPresenter {
         let next: Target? = switch mode {
         case .display: displayTarget(at: point)
         case .window: windowTarget(at: point)
+        case .browserTab: browserTabTarget(at: point)
         case nil: nil
         }
         guard next != target else { return }
@@ -110,7 +214,24 @@ final class RecordingSourceTargetPresenter {
 
     fileprivate func commit(at point: CGPoint) {
         updateTarget(at: point)
+        // A click has to land on a browser window. Only Return may take the
+        // preselected tab, or any stray click would fire a capture.
+        if purpose == .screenshot, browserWindowID(at: point) == nil { return }
+        commitTarget()
+    }
+
+    fileprivate func commitTarget() {
         guard let target else { return }
+        if purpose == .screenshot, case let .browserTab(windowID) = target.source {
+            guard let content = browserContents[windowID] else { return }
+            // Keep the title the card showed, so a page that changed since
+            // the highlight still counts as having changed.
+            var picked = BrowserContentLocator.relocate(content) ?? content
+            picked.windowTitle = content.windowTitle
+            cancel()
+            CaptureCoordinator.shared.captureBrowserTab(picked)
+            return
+        }
         let sources = RecordingSourceCatalog.shared
 
         switch target.source {
@@ -124,6 +245,11 @@ final class RecordingSourceTargetPresenter {
             cancel()
             RecordingBarPresenter.shared.closeTeleprompter()
             CaptureCoordinator.shared.recordWindow(window)
+        case let .browserTab(windowID):
+            guard let window = sources.windows.first(where: { $0.windowID == windowID }) else { return }
+            cancel()
+            RecordingBarPresenter.shared.closeTeleprompter()
+            CaptureCoordinator.shared.recordBrowserTab(window)
         }
     }
 
@@ -173,6 +299,35 @@ final class RecordingSourceTargetPresenter {
         )
     }
 
+    /// Like a window pick, but only browser windows light up, and only
+    /// their page.
+    private func browserTabTarget(at point: CGPoint) -> Target? {
+        let windowID = browserWindowID(at: point) ?? (purpose == .screenshot ? frontmostBrowserWindowID : nil)
+        guard let windowID, let content = browserContents[windowID] else { return nil }
+
+        let app = NSRunningApplication(processIdentifier: content.processID)
+        let appName = app?.localizedName ?? "Browser"
+        let frame = content.appKitContentFrame
+        let scale = NSScreen.screens
+            .first { NSMouseInRect(CGPoint(x: frame.midX, y: frame.midY), $0.frame, false) }?
+            .backingScaleFactor ?? 2
+        let size = "\(Int(frame.width * scale))×\(Int(frame.height * scale))"
+
+        return Target(
+            source: .browserTab(windowID),
+            frame: frame,
+            title: content.windowTitle ?? appName,
+            detail: "\(appName) tab · \(size)",
+            icon: app?.icon
+        )
+    }
+
+    private func browserWindowID(at point: CGPoint) -> CGWindowID? {
+        guard let hit = windowStack.first(where: { $0.frame.contains(point) }),
+              browserContents[hit.id] != nil else { return nil }
+        return hit.id
+    }
+
     private func snapshotWindowStack() {
         let recordable = Set(RecordingSourceCatalog.shared.windows.map(\.windowID))
         let info = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
@@ -208,16 +363,35 @@ final class RecordingSourceTargetPresenter {
     private func installKeyMonitors() {
         guard keyMonitors.isEmpty else { return }
         let isEscape: (NSEvent) -> Bool = { $0.keyCode == 53 }
+        // Return / Enter takes the highlighted tab, for a keyboard-only
+        // shortcut-then-confirm screenshot.
+        let isReturn: (NSEvent) -> Bool = { $0.keyCode == 36 || $0.keyCode == 76 }
         if let local = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: { [weak self] event in
-            guard isEscape(event), let self, self.isActive else { return event }
-            self.cancel()
-            return nil
+            guard let self, self.isActive else { return event }
+            if isEscape(event) {
+                self.cancel()
+                return nil
+            }
+            if isReturn(event), self.purpose == .screenshot {
+                self.commitTarget()
+                return nil
+            }
+            return event
         }) {
             keyMonitors.append(local)
         }
         if let global = NSEvent.addGlobalMonitorForEvents(matching: .keyDown, handler: { [weak self] event in
-            guard isEscape(event) else { return }
-            MainActor.assumeIsolated { self?.cancel() }
+            let escape = isEscape(event)
+            let enter = isReturn(event)
+            guard escape || enter else { return }
+            MainActor.assumeIsolated {
+                guard let self, self.isActive else { return }
+                if escape {
+                    self.cancel()
+                } else if self.purpose == .screenshot {
+                    self.commitTarget()
+                }
+            }
         }) {
             keyMonitors.append(global)
         }
@@ -313,7 +487,8 @@ private final class RecordingSourceTargetSheetView: NSView {
     }
 
     override func mouseMoved(with event: NSEvent) {
-        NSCursor.arrow.set()
+        let presenter = RecordingSourceTargetPresenter.shared
+        (presenter.purpose == .screenshot ? CameraCursor.shared : NSCursor.arrow).set()
         RecordingSourceTargetPresenter.shared.updateTarget(at: NSEvent.mouseLocation)
     }
 
@@ -358,6 +533,20 @@ private struct RecordingSourceTargetOverlay: View {
                         .position(x: visible.midX, y: visible.midY)
                         .transition(.opacity)
                 }
+            } else if presenter.showsPointHint {
+                VStack(spacing: 2) {
+                    Text("Point at a browser tab")
+                        .font(.system(size: 15, weight: .semibold))
+                    Text("Esc to cancel")
+                        .font(.system(size: 12, weight: .medium))
+                        .opacity(0.8)
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
+                // Solid for the same reason as the card's pill below.
+                .background(.black.opacity(0.7), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .position(x: screenFrame.width / 2, y: screenFrame.height / 2)
             }
         }
         .ignoresSafeArea()
@@ -367,8 +556,11 @@ private struct RecordingSourceTargetOverlay: View {
     /// Displays are lit edge to edge; windows follow the system's window
     /// corners so the highlight sits on the window rather than around it.
     private func highlightRadius(for target: RecordingSourceTargetPresenter.Target) -> CGFloat {
-        if case .display = target.source { return 0 }
-        return 16
+        switch target.source {
+        case .display: 0
+        case .window: 16
+        case .browserTab: 8
+        }
     }
 
     /// The target's frame in this screen's SwiftUI space (top-left origin),
@@ -404,6 +596,10 @@ private struct RecordingSourceTargetCard: View {
         return false
     }
 
+    private var isScreenshot: Bool {
+        RecordingSourceTargetPresenter.shared.purpose == .screenshot
+    }
+
     var body: some View {
         VStack(spacing: 10) {
             if let icon = target.icon {
@@ -425,9 +621,9 @@ private struct RecordingSourceTargetCard: View {
             .shadow(color: .black.opacity(0.45), radius: 6, y: 1)
 
             HStack(spacing: 6) {
-                Image(systemName: "record.circle")
+                Image(systemName: isScreenshot ? "camera.fill" : "record.circle")
                     .font(.system(size: 13, weight: .semibold))
-                Text("Start Recording")
+                Text(isScreenshot ? "Capture Tab" : "Start Recording")
                     .font(.system(size: 13, weight: .semibold))
             }
             .foregroundStyle(.white)
@@ -435,7 +631,7 @@ private struct RecordingSourceTargetCard: View {
             .frame(height: 32)
             // Solid rather than glass: glass in this never-key panel renders
             // untinted, and the pill has to read over any content.
-            .background(Palette.record, in: Capsule())
+            .background(isScreenshot ? Palette.accent : Palette.record, in: Capsule())
             .overlay {
                 Capsule().strokeBorder(.white.opacity(0.25), lineWidth: 0.5)
             }
@@ -445,4 +641,40 @@ private struct RecordingSourceTargetCard: View {
         .frame(maxWidth: 420)
         .padding(20)
     }
+}
+
+/// The camera pointer `screencapture -w` uses while picking: a white camera
+/// with a dark outline, so it reads over any page.
+@MainActor
+private enum CameraCursor {
+    static let shared: NSCursor = {
+        let size = CGSize(width: 28, height: 24)
+        let image = NSImage(size: size, flipped: false) { rect in
+            let configuration = NSImage.SymbolConfiguration(pointSize: 17, weight: .semibold)
+            guard let symbol = NSImage(systemSymbolName: "camera.fill", accessibilityDescription: nil)?
+                .withSymbolConfiguration(configuration) else { return false }
+            let symbolRect = CGRect(
+                x: (rect.width - symbol.size.width) / 2,
+                y: (rect.height - symbol.size.height) / 2,
+                width: symbol.size.width,
+                height: symbol.size.height
+            )
+            for (color, offsets) in [
+                (NSColor.black.withAlphaComponent(0.85), [(-1.5, 0), (1.5, 0), (0, -1.5), (0, 1.5)]),
+                (NSColor.white, [(0, 0)])
+            ] as [(NSColor, [(CGFloat, CGFloat)])] {
+                let tinted = NSImage(size: symbol.size, flipped: false) { tintRect in
+                    symbol.draw(in: tintRect)
+                    color.set()
+                    tintRect.fill(using: .sourceAtop)
+                    return true
+                }
+                for (dx, dy) in offsets {
+                    tinted.draw(in: symbolRect.offsetBy(dx: dx, dy: dy))
+                }
+            }
+            return true
+        }
+        return NSCursor(image: image, hotSpot: CGPoint(x: size.width / 2, y: size.height / 2))
+    }()
 }
