@@ -51,6 +51,9 @@ final class RecordingSourceTargetPresenter {
     private(set) var mode: Mode?
     private(set) var purpose: Purpose = .record
     private(set) var target: Target?
+    /// Set once the browser windows have been looked up, so the hint doesn't
+    /// flash while the first highlight is still on its way.
+    private var hasFoundBrowserWindows = false
 
     @ObservationIgnored private var panels: [NSPanel] = []
     /// On-screen, layer-0 windows front to back, snapshotted when the sheet
@@ -60,15 +63,22 @@ final class RecordingSourceTargetPresenter {
     /// Pages of the browser windows in the stack, found when the sheet goes
     /// up so hovering never waits on another app.
     @ObservationIgnored private var browserContents: [CGWindowID: BrowserContent] = [:]
-    /// The frontmost browser window. A screenshot pick lights it up while
-    /// the pointer is over anything else, so the shortcut followed by a
-    /// click (or Return) captures the tab already in front.
+    /// The window of the browser in use when the shortcut fired, if one was.
+    /// A screenshot pick lights it up while the pointer is elsewhere, so the
+    /// shortcut followed by Return captures the tab already in front. Left
+    /// nil when a browser is only open in the background, because an agent
+    /// may be driving it: raising its windows never makes it frontmost.
     @ObservationIgnored private var frontmostBrowserWindowID: CGWindowID?
     @ObservationIgnored private var keyMonitors: [Any] = []
 
     private init() {}
 
     var isActive: Bool { mode != nil }
+
+    /// With nothing lit up, the sheet is invisible, yet it still takes clicks.
+    var showsPointHint: Bool {
+        purpose == .screenshot && hasFoundBrowserWindows && target == nil
+    }
 
     /// Pressing the button for the mode that's already up puts the sheet
     /// away; pressing the other one switches it in place.
@@ -110,6 +120,7 @@ final class RecordingSourceTargetPresenter {
                     BrowserContentLocator.presentNoBrowserFound()
                     return
                 }
+                hasFoundBrowserWindows = true
             }
             updateTarget(at: NSEvent.mouseLocation)
         }
@@ -130,10 +141,7 @@ final class RecordingSourceTargetPresenter {
                       windowTitle: window.title
                   ) else { continue }
             found[window.windowID] = content
-            // The topmost browser window, unless the frontmost app owns one
-            // further back (it was the one in use when the shortcut fired).
-            let current = frontmostBrowserWindowID.flatMap { found[$0] }
-            if current == nil || (processID == frontmostPID && current?.processID != frontmostPID) {
+            if frontmostBrowserWindowID == nil, processID == frontmostPID {
                 frontmostBrowserWindowID = window.windowID
             }
             guard mode == .browserTab else { return }
@@ -150,6 +158,7 @@ final class RecordingSourceTargetPresenter {
         windowStack = []
         browserContents = [:]
         frontmostBrowserWindowID = nil
+        hasFoundBrowserWindows = false
         purpose = .record
         removeKeyMonitors()
         for panel in panels {
@@ -175,6 +184,9 @@ final class RecordingSourceTargetPresenter {
 
     fileprivate func commit(at point: CGPoint) {
         updateTarget(at: point)
+        // A click has to land on a browser window. Only Return may take the
+        // preselected tab, or any stray click would fire a capture.
+        if purpose == .screenshot, browserWindowID(at: point) == nil { return }
         commitTarget()
     }
 
@@ -256,15 +268,7 @@ final class RecordingSourceTargetPresenter {
     /// Like a window pick, but only browser windows light up, and only
     /// their page.
     private func browserTabTarget(at point: CGPoint) -> Target? {
-        let hit = windowStack.first(where: { $0.frame.contains(point) })
-        let windowID: CGWindowID?
-        if let hit, browserContents[hit.id] != nil {
-            windowID = hit.id
-        } else if purpose == .screenshot {
-            windowID = frontmostBrowserWindowID
-        } else {
-            windowID = nil
-        }
+        let windowID = browserWindowID(at: point) ?? (purpose == .screenshot ? frontmostBrowserWindowID : nil)
         guard let windowID, let content = browserContents[windowID] else { return nil }
 
         let app = NSRunningApplication(processIdentifier: content.processID)
@@ -282,6 +286,12 @@ final class RecordingSourceTargetPresenter {
             detail: "\(appName) tab · \(size)",
             icon: app?.icon
         )
+    }
+
+    private func browserWindowID(at point: CGPoint) -> CGWindowID? {
+        guard let hit = windowStack.first(where: { $0.frame.contains(point) }),
+              browserContents[hit.id] != nil else { return nil }
+        return hit.id
     }
 
     private func snapshotWindowStack() {
@@ -489,6 +499,20 @@ private struct RecordingSourceTargetOverlay: View {
                         .position(x: visible.midX, y: visible.midY)
                         .transition(.opacity)
                 }
+            } else if presenter.showsPointHint {
+                VStack(spacing: 2) {
+                    Text("Point at a browser tab")
+                        .font(.system(size: 15, weight: .semibold))
+                    Text("Esc to cancel")
+                        .font(.system(size: 12, weight: .medium))
+                        .opacity(0.8)
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
+                // Solid for the same reason as the card's pill below.
+                .background(.black.opacity(0.7), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .position(x: screenFrame.width / 2, y: screenFrame.height / 2)
             }
         }
         .ignoresSafeArea()
