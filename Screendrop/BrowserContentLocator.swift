@@ -6,9 +6,10 @@
 //  tab strip, toolbar, bookmarks bar or side panels. Browsers draw all of that
 //  into one window, so ScreenCaptureKit can only see the whole window; the
 //  page's own rectangle comes from the Accessibility tree, where every major
-//  engine (Chromium, WebKit, Gecko) exposes it as an `AXWebArea`. Captures
+//  engine (Chromium, WebKit, Gecko) exposes it as an `AXWebArea`. Recordings
 //  then crop the window to it with `SCStreamConfiguration.sourceRect`, which
 //  for a window filter is in window-local points with a top-left origin.
+//  Screenshots capture the whole window and crop the image to the same rect.
 //
 
 import AppKit

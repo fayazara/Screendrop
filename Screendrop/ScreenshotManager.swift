@@ -73,9 +73,11 @@ final class ScreenshotManager {
     
     // MARK: - Browser Tab Capture
 
-    /// Captures only the page of a browser window, cropped from the window
-    /// by ScreenCaptureKit at the window's native pixel scale. The window is
-    /// captured on its own, so anything overlapping it stays out.
+    /// Captures only the page of a browser window at the window's native
+    /// pixel scale. The window is captured on its own, so anything overlapping
+    /// it stays out. The whole window is requested and cropped here because
+    /// ScreenCaptureKit can refuse a `sourceRect` on a window (error -3811)
+    /// that it will capture whole.
     func captureBrowserContent(_ content: BrowserContent) async -> URL? {
         do {
             let shareable = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
@@ -87,13 +89,19 @@ final class ScreenshotManager {
             guard crop.width >= 1, crop.height >= 1 else { return nil }
 
             let configuration = SCStreamConfiguration()
-            configuration.sourceRect = crop
-            configuration.width = Int((crop.width * scale).rounded())
-            configuration.height = Int((crop.height * scale).rounded())
+            configuration.width = Int((window.frame.width * scale).rounded())
+            configuration.height = Int((window.frame.height * scale).rounded())
             configuration.showsCursor = false
             configuration.captureResolution = .best
 
-            let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
+            let windowImage = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
+            let pixelCrop = CGRect(
+                x: crop.minX * scale,
+                y: crop.minY * scale,
+                width: crop.width * scale,
+                height: crop.height * scale
+            ).integral
+            guard let image = windowImage.cropping(to: pixelCrop) else { return nil }
             return writePNG(image, pointPixelScale: scale)
         } catch {
             print("Browser tab capture failed: \(error)")
