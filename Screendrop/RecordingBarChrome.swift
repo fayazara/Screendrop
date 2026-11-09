@@ -110,6 +110,7 @@ enum BarTooltip {
 enum BarTooltipID: String {
     case display
     case window
+    case browserTab
     case area
     case areaWidth
     case areaHeight

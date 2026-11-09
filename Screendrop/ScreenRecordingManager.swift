@@ -62,6 +62,8 @@ struct ScreenRecordingSource {
     enum Kind {
         case fullscreen(SCDisplay)
         case window(SCWindow)
+        /// A browser window cropped to its page (see BrowserContentLocator).
+        case browserTab(SCWindow)
         case area(display: SCDisplay, rect: CGRect)
     }
 
@@ -71,7 +73,7 @@ struct ScreenRecordingSource {
     /// back to the frontmost app's window on that display.
     var captureSource: CaptureSource? {
         switch kind {
-        case .window(let window):
+        case .window(let window), .browserTab(let window):
             guard let app = window.owningApplication else { return nil }
             let title = window.title?.trimmingCharacters(in: .whitespacesAndNewlines)
             return CaptureSource(
@@ -88,11 +90,19 @@ struct ScreenRecordingSource {
         switch kind {
         case .fullscreen(let display):
             display.displayID
-        case .window:
+        case .window, .browserTab:
             nil
         case .area(let display, _):
             display.displayID
         }
+    }
+}
+
+private enum BrowserTabRecordingError: LocalizedError {
+    case pageNotFound
+
+    var errorDescription: String? {
+        "Screendrop couldn't find the page in that browser window."
     }
 }
 
@@ -148,6 +158,10 @@ final class ScreenRecordingManager {
     private var currentSource: ScreenRecordingSource?
     private var activityToken: NSObjectProtocol?
     private var terminationCompletion: ((RecordingSession?) -> Void)?
+    /// The page being recorded in browser-tab mode, kept current while the
+    /// recording runs so the crop follows the page.
+    private var browserContent: BrowserContent?
+    private var browserContentTimer: Timer?
 
     var isActive: Bool {
         state != .idle
@@ -204,7 +218,25 @@ final class ScreenRecordingManager {
                 self.session = session
                 let content = try await ScreenRecordingCapture.availableContent()
                 guard isStarting(session: session) else { return }
-                let target = try Self.captureTarget(for: source, content: content, options: options)
+                var browserContent: BrowserContent?
+                if case .browserTab(let window) = source.kind {
+                    let freshWindow = content.windows.first(where: { $0.windowID == window.windowID }) ?? window
+                    browserContent = await BrowserContentLocator.content(
+                        windowID: freshWindow.windowID,
+                        processID: freshWindow.owningApplication?.processID ?? 0,
+                        windowFrame: freshWindow.frame,
+                        windowTitle: freshWindow.title
+                    )
+                    guard isStarting(session: session) else { return }
+                    guard browserContent != nil else { throw BrowserTabRecordingError.pageNotFound }
+                }
+                self.browserContent = browserContent
+                let target = try Self.captureTarget(
+                    for: source,
+                    content: content,
+                    browserContent: browserContent,
+                    options: options
+                )
 
                 try writer.setupWriter(
                     outputURL: session.screenURL,
@@ -257,7 +289,8 @@ final class ScreenRecordingManager {
                 // the writer's first presentation timestamp becomes known.
                 pointerActivityRecorder.start(
                     mapping: target.inputMapping,
-                    tracksDynamicGeometry: target.tracksDynamicGeometry
+                    tracksDynamicGeometry: target.tracksDynamicGeometry,
+                    sourceCrop: browserContent?.rectInWindow
                 )
                 keystrokeRecorder.start()
 
@@ -290,6 +323,7 @@ final class ScreenRecordingManager {
                 state = .recording
                 beginActivity()
                 startTimer()
+                startBrowserContentTracking()
             } catch {
                 await finishFailedStart(error: error)
             }
@@ -677,9 +711,43 @@ final class ScreenRecordingManager {
         elapsedTime = max(0, Date().timeIntervalSince(startedAt) - pauseDuration)
     }
 
+    /// Follows the page while a browser tab records: resizing the window,
+    /// toggling the bookmarks bar or opening a side panel moves the page
+    /// inside the window. The output size stays fixed, so ScreenCaptureKit
+    /// scales a resized page to fit, the same as a resized window.
+    private func startBrowserContentTracking() {
+        browserContentTimer?.invalidate()
+        guard browserContent != nil else { return }
+        browserContentTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
+            Task { @MainActor in
+                ScreenRecordingManager.shared.updateBrowserContent()
+            }
+        }
+    }
+
+    private func updateBrowserContent() {
+        guard state == .recording || state == .paused,
+              let current = browserContent,
+              let next = BrowserContentLocator.relocate(current) else { return }
+        browserContent = next
+        let crop = next.rectInWindow
+        guard crop != current.rectInWindow, crop.width >= 1, crop.height >= 1 else { return }
+        pointerActivityRecorder.updateSourceCrop(crop)
+        Task {
+            do {
+                try await capture.updateSourceRect(crop)
+            } catch {
+                print("Browser tab crop update failed: \(error)")
+            }
+        }
+    }
+
     private func cleanupAfterRecording() {
         timer?.invalidate()
         timer = nil
+        browserContentTimer?.invalidate()
+        browserContentTimer = nil
+        browserContent = nil
         capture.onVideoFrame = nil
         capture.onAudioSample = nil
         capture.onError = nil
@@ -702,6 +770,7 @@ final class ScreenRecordingManager {
     private static func captureTarget(
         for source: ScreenRecordingSource,
         content: SCShareableContent,
+        browserContent: BrowserContent?,
         options: ScreenRecordingCaptureOptions
     ) throws -> ScreenRecordingCaptureTarget {
         let filter: SCContentFilter
@@ -737,6 +806,19 @@ final class ScreenRecordingManager {
             // as soon as the first frame lands; it only covers events that
             // beat the stream's first frame.
             captureRect = freshWindow.frame
+            displayID = nil
+            tracksDynamicGeometry = true
+        case .browserTab(let window):
+            guard let browserContent else { throw BrowserTabRecordingError.pageNotFound }
+            let freshWindow = content.windows.first(where: { $0.windowID == window.windowID }) ?? window
+            filter = SCContentFilter(desktopIndependentWindow: freshWindow)
+            // Window-local points, top-left origin. Per-frame geometry
+            // reports the whole window; the pointer recorder offsets it by
+            // this crop.
+            let crop = browserContent.rectInWindow
+            sourceRect = crop
+            sourceSize = crop.size
+            captureRect = browserContent.contentFrame
             displayID = nil
             tracksDynamicGeometry = true
         case .area(let display, let rect):
@@ -863,6 +945,7 @@ nonisolated enum ScreenRecordingAudioKind: Sendable {
 
 nonisolated final class ScreenRecordingCapture: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
     private var stream: SCStream?
+    private var configuration: SCStreamConfiguration?
     private var streamHasAudio = false
     private var streamHasMicrophone = false
     private let videoQueue = DispatchQueue(label: "com.screendrop.screen-recording.video", qos: .userInteractive)
@@ -889,11 +972,20 @@ nonisolated final class ScreenRecordingCapture: NSObject, SCStreamOutput, SCStre
         }
         try await stream.startCapture()
         self.stream = stream
+        self.configuration = configuration
+    }
+
+    /// Moves the crop of a running stream; the output size is unchanged.
+    func updateSourceRect(_ sourceRect: CGRect) async throws {
+        guard let stream, let configuration else { return }
+        configuration.sourceRect = sourceRect
+        try await stream.updateConfiguration(configuration)
     }
 
     func stopCapture() async throws {
         guard let stream else { return }
         self.stream = nil
+        configuration = nil
         defer {
             try? stream.removeStreamOutput(self, type: .screen)
             if streamHasAudio {

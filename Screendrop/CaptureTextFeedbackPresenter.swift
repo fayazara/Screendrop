@@ -19,13 +19,14 @@ final class CaptureTextFeedbackPresenter {
     private static let toastSize = NSSize(width: 300, height: 52)
     /// Room around the glass for the shadow it casts.
     private static let shadowSlack: CGFloat = 24
-    private static var panelSize: NSSize {
-        NSSize(width: toastSize.width + 2 * shadowSlack, height: toastSize.height + 2 * shadowSlack)
-    }
+    /// Wide enough for the Retake button beside the text.
+    private static let actionToastSize = NSSize(width: 390, height: 52)
     /// Clears the bottom edge by more than the toast is tall, so it reads as
     /// floating over the work rather than stuck to the screen edge.
     private static let bottomInset: CGFloat = 96
     private static let visibleDuration: Duration = .seconds(1.8)
+    /// Long enough to read the toast and reach for its button.
+    private static let actionVisibleDuration: Duration = .seconds(6)
     private static let fadeOutDuration: TimeInterval = 0.2
 
     private var panel: NSPanel?
@@ -59,22 +60,48 @@ final class CaptureTextFeedbackPresenter {
         )
     }
 
+    /// The browser showed a different page by the time the shot finished,
+    /// usually because another app is driving it. The capture is kept.
+    func showBrowserPageChanged(
+        appName: String,
+        displayID: CGDirectDisplayID?,
+        onRetake: @escaping @MainActor () -> Void
+    ) {
+        present(
+            symbol: "exclamationmark.triangle",
+            title: "\(appName) changed during capture",
+            detail: "Another app may be controlling it.",
+            displayID: displayID,
+            action: ToastAction(title: "Retake", perform: onRetake)
+        )
+    }
+
     private func present(
         symbol: String,
         title: String,
         detail: String,
-        displayID: CGDirectDisplayID?
+        displayID: CGDirectDisplayID?,
+        action: ToastAction? = nil
     ) {
         dismissTask?.cancel()
         dismiss()
 
-        let size = Self.panelSize
+        let toastSize = action == nil ? Self.toastSize : Self.actionToastSize
+        let size = NSSize(width: toastSize.width + 2 * Self.shadowSlack, height: toastSize.height + 2 * Self.shadowSlack)
+        let boundAction = action.map { action in
+            ToastAction(title: action.title) { [weak self] in
+                self?.dismissTask?.cancel()
+                self?.dismiss()
+                action.perform()
+            }
+        }
         let hostingView = NSHostingView(
             rootView: CaptureTextFeedbackView(
                 symbol: symbol,
                 title: title,
                 detail: detail,
-                size: Self.toastSize
+                action: boundAction,
+                size: toastSize
             )
             .padding(Self.shadowSlack)
         )
@@ -92,7 +119,7 @@ final class CaptureTextFeedbackPresenter {
         panel.backgroundColor = .clear
         panel.hasShadow = false
         panel.level = .statusBar
-        panel.ignoresMouseEvents = true
+        panel.ignoresMouseEvents = action == nil
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
         panel.contentView = hostingView
         panel.setFrame(
@@ -112,7 +139,7 @@ final class CaptureTextFeedbackPresenter {
 
         self.panel = panel
         dismissTask = Task { [weak self] in
-            try? await Task.sleep(for: Self.visibleDuration)
+            try? await Task.sleep(for: action == nil ? Self.visibleDuration : Self.actionVisibleDuration)
             guard !Task.isCancelled else { return }
             await self?.fadeOutAndDismiss()
         }
@@ -156,10 +183,16 @@ final class CaptureTextFeedbackPresenter {
     }
 }
 
+private struct ToastAction {
+    let title: String
+    let perform: @MainActor () -> Void
+}
+
 private struct CaptureTextFeedbackView: View {
     let symbol: String
     let title: String
     let detail: String
+    let action: ToastAction?
     let size: NSSize
 
     var body: some View {
@@ -182,6 +215,16 @@ private struct CaptureTextFeedbackView: View {
             }
 
             Spacer(minLength: 0)
+
+            if let action {
+                Button(action.title, action: action.perform)
+                    .buttonStyle(.plain)
+                    .font(.dsCaption.weight(.semibold))
+                    .foregroundStyle(Palette.label)
+                    .padding(.horizontal, 12)
+                    .frame(height: 30)
+                    .background(Palette.fill, in: Capsule())
+            }
         }
         .padding(.horizontal, 11)
         .frame(width: size.width, height: size.height)

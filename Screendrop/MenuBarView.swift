@@ -28,6 +28,12 @@ struct MenuBarView: View {
             } label: {
                 Label("Capture Window", systemImage: "macwindow.on.rectangle")
             }
+
+            Button {
+                CaptureCoordinator.shared.captureBrowserTab()
+            } label: {
+                Label("Capture Browser Tab", systemImage: "globe")
+            }
             
             Button {
                 CaptureCoordinator.shared.captureArea()
