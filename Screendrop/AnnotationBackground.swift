@@ -438,7 +438,16 @@ struct AnnotationCustomWallpaper: Identifiable, Equatable, Hashable {
     }
 
     var title: String {
-        url.deletingPathExtension().lastPathComponent
+        let name = url.deletingPathExtension().lastPathComponent
+        // System wallpapers can carry resource names like "TahoeLight";
+        // names that already have spaces ("iMac Blue") are left alone.
+        guard url.path.hasPrefix("/System/"), !name.contains(" ") else { return name }
+        var spaced = ""
+        for character in name {
+            if character.isUppercase, spaced.last?.isLowercase == true { spaced.append(" ") }
+            spaced.append(character)
+        }
+        return spaced
     }
 }
 

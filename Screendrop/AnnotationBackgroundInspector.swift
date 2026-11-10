@@ -376,7 +376,7 @@ struct InspectorBackgroundFillPicker: View {
                 recentWallpaperGrid
             }
 
-            ForEach(AnnotationWallpaperPack.builtIn, id: \.id) { pack in
+            ForEach(visiblePacks, id: \.id) { pack in
                 VStack(alignment: .leading, spacing: InspectorMetrics.groupLabelSpacing) {
                     packHeader(pack)
                     packContent(pack, limit: expandedPackIDs.contains(pack.id) ? nil : Self.packPreviewCount)
@@ -386,6 +386,14 @@ struct InspectorBackgroundFillPicker: View {
             UnsplashBackgroundSection(selectedURL: customWallpaper?.url) { url in
                 selectWallpaper(AnnotationCustomWallpaper(url: url))
             }
+        }
+    }
+
+    /// The system pack has nothing to download, so it only shows when this
+    /// Mac has at least one system wallpaper on disk.
+    private var visiblePacks: [AnnotationWallpaperPack] {
+        AnnotationWallpaperPack.builtIn.filter { pack in
+            pack.source != .system || !wallpaperStore.wallpapers(for: pack).isEmpty
         }
     }
 
@@ -439,7 +447,9 @@ struct InspectorBackgroundFillPicker: View {
             wallpaperGrid(wallpapers)
         }
 
-        AnnotationWallpaperCreditView(pack: pack)
+        if let author = pack.author {
+            AnnotationWallpaperCreditView(authorName: author.name, authorURL: author.url)
+        }
     }
 
     private var visibleRecentWallpapers: [AnnotationCustomWallpaper] {
@@ -630,14 +640,15 @@ private struct AnnotationAddWallpaperTile: View {
 
 /// A tiny, unobtrusive credit linking to the wallpaper pack's author.
 private struct AnnotationWallpaperCreditView: View {
-    let pack: AnnotationWallpaperPack
+    let authorName: String
+    let authorURL: URL
 
     @State private var isHovering = false
 
     var body: some View {
-        Link(destination: pack.authorURL) {
+        Link(destination: authorURL) {
             HStack(spacing: 3) {
-                Text("Wallpapers by \(pack.authorName)")
+                Text("Wallpapers by \(authorName)")
                     .underline(isHovering)
                 Image(systemName: "arrow.up.right")
                     .font(.system(size: 8, weight: .semibold))
@@ -646,7 +657,7 @@ private struct AnnotationWallpaperCreditView: View {
             .foregroundStyle(.secondary)
         }
         .buttonStyle(.plain)
-        .help("Open \(pack.authorName) on X")
+        .help("Open \(authorName) on X")
         .onHover { isHovering = $0 }
         .padding(.top, 2)
     }

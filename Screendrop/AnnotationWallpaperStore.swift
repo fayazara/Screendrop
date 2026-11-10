@@ -7,29 +7,45 @@ import Foundation
 import Observation
 
 struct AnnotationWallpaperPack: Identifiable, Equatable, Hashable {
+    enum Source: Equatable, Hashable {
+        /// A zip downloaded into `Wallpapers/<id>` on request.
+        case remote(URL)
+        /// The wallpapers macOS keeps on this Mac. Read in place, never copied.
+        case system
+    }
+
     let id: String
     let title: String
     let subtitle: String
-    let remoteURL: URL
-    let authorName: String
-    let authorURL: URL
+    let source: Source
+    let author: (name: String, url: URL)?
+
+    static func == (lhs: Self, rhs: Self) -> Bool { lhs.id == rhs.id }
+    func hash(into hasher: inout Hasher) { hasher.combine(id) }
+
+    static let system = AnnotationWallpaperPack(
+        id: "macos",
+        title: "macOS",
+        subtitle: "System Wallpapers",
+        source: .system,
+        author: nil
+    )
 
     static let builtIn: [AnnotationWallpaperPack] = [
+        system,
         AnnotationWallpaperPack(
             id: "uihssn",
             title: "UIHSSN",
             subtitle: "Wallpaper Pack",
-            remoteURL: URL(string: "https://static.fayazahmed.com/uihssn-wallpaper-pack.zip")!,
-            authorName: "Ahmed Hassan",
-            authorURL: URL(string: "https://x.com/uihssn")!
+            source: .remote(URL(string: "https://static.fayazahmed.com/uihssn-wallpaper-pack.zip")!),
+            author: ("Ahmed Hassan", URL(string: "https://x.com/uihssn")!)
         ),
         AnnotationWallpaperPack(
             id: "fayaz",
             title: "Fayazara",
             subtitle: "Author Picks",
-            remoteURL: URL(string: "https://static.fayazahmed.com/fayaz-wallpaper-pack.zip")!,
-            authorName: "Fayaz Ahmed",
-            authorURL: URL(string: "https://x.com/fayazara")!
+            source: .remote(URL(string: "https://static.fayazahmed.com/fayaz-wallpaper-pack.zip")!),
+            author: ("Fayaz Ahmed", URL(string: "https://x.com/fayazara")!)
         )
     ]
 }
@@ -63,12 +79,18 @@ final class AnnotationWallpaperStore {
     /// stall the UI; only the resulting state assignment happens on-main.
     func reload() async {
         let wallpapersDirectory = Self.wallpapersDirectory
-        let packDirectories = AnnotationWallpaperPack.builtIn.map { pack in
-            (pack.id, wallpapersDirectory.appendingPathComponent(pack.id, isDirectory: true))
+        let systemPackID = AnnotationWallpaperPack.system.id
+        let packDirectories = AnnotationWallpaperPack.builtIn.compactMap { pack -> (String, URL)? in
+            guard case .remote = pack.source else { return nil }
+            return (pack.id, wallpapersDirectory.appendingPathComponent(pack.id, isDirectory: true))
         }
 
         let snapshot = await Task.detached(priority: .userInitiated) {
-            Self.loadURLSnapshot(wallpapersDirectory: wallpapersDirectory, packDirectories: packDirectories)
+            Self.loadURLSnapshot(
+                wallpapersDirectory: wallpapersDirectory,
+                packDirectories: packDirectories,
+                systemPackID: systemPackID
+            )
         }.value
 
         recentWallpapers = snapshot.recent.map { AnnotationCustomWallpaper(url: $0) }
@@ -116,12 +138,11 @@ final class AnnotationWallpaperStore {
     }
 
     func installPack(_ pack: AnnotationWallpaperPack) async {
-        guard !isInstalling(pack) else { return }
+        guard !isInstalling(pack), case .remote(let remoteURL) = pack.source else { return }
 
         installingPackIDs.insert(pack.id)
         packErrorsByID[pack.id] = nil
 
-        let remoteURL = pack.remoteURL
         let wallpapersDirectory = Self.wallpapersDirectory
         let targetURL = wallpapersDirectory.appendingPathComponent(pack.id, isDirectory: true)
 
@@ -148,11 +169,13 @@ final class AnnotationWallpaperStore {
 
     nonisolated private static func loadURLSnapshot(
         wallpapersDirectory: URL,
-        packDirectories: [(String, URL)]
+        packDirectories: [(String, URL)],
+        systemPackID: String
     ) -> WallpaperURLSnapshot {
-        let installed = Dictionary(uniqueKeysWithValues: packDirectories.map { id, directory in
+        var installed = Dictionary(uniqueKeysWithValues: packDirectories.map { id, directory in
             (id, wallpaperURLs(in: directory))
         })
+        installed[systemPackID] = systemWallpaperURLs()
         return WallpaperURLSnapshot(
             recent: loadRecentWallpaperURLs(),
             installed: installed
@@ -171,6 +194,45 @@ final class AnnotationWallpaperStore {
         }
 
         return availablePaths.map { URL(fileURLWithPath: $0) }
+    }
+
+    /// Every system wallpaper that exists on disk as a full-size image.
+    /// Most of the System Settings catalog is not: `.madesktop` entries are
+    /// stubs until the user downloads them there, Sequoia/Sonoma/Ventura are
+    /// rendered live, and aerials are videos. These locations are private
+    /// layout, so each is checked at runtime and a missing one is skipped.
+    nonisolated private static func systemWallpaperURLs() -> [URL] {
+        let fileManager = FileManager.default
+
+        // Tahoe ships inside its wallpaper extension rather than in
+        // Desktop Pictures.
+        let tahoe = ["TahoeLight.heic", "TahoeDark.heic"].map {
+            URL(fileURLWithPath: "/System/Library/ExtensionKit/Extensions/NeptuneOneWallpaper.appex/Contents/Resources")
+                .appendingPathComponent($0)
+        }
+
+        // Top level only: `Solid Colors` duplicates the colour swatches.
+        let desktopPictures = URL(fileURLWithPath: "/System/Library/Desktop Pictures", isDirectory: true)
+        let local = ((try? fileManager.contentsOfDirectory(
+            at: desktopPictures,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )) ?? []).sorted(by: isOrderedByName)
+
+        // Full images for `.madesktop` entries the user has downloaded in
+        // System Settings.
+        let downloaded = wallpaperURLs(
+            in: URL(fileURLWithPath: "/System/Library/AssetsV2/com_apple_MobileAsset_DesktopPicture", isDirectory: true)
+        )
+
+        var seenNames = Set<String>()
+        return (tahoe + local + downloaded).filter { url in
+            isSupportedImageFile(url) && seenNames.insert(url.lastPathComponent).inserted
+        }
+    }
+
+    nonisolated private static func isOrderedByName(_ lhs: URL, _ rhs: URL) -> Bool {
+        lhs.lastPathComponent.localizedStandardCompare(rhs.lastPathComponent) == .orderedAscending
     }
 
     nonisolated private static func downloadAndInstall(
@@ -259,9 +321,7 @@ final class AnnotationWallpaperStore {
         return enumerator
             .compactMap { $0 as? URL }
             .filter(isSupportedImageFile)
-            .sorted { lhs, rhs in
-                lhs.lastPathComponent.localizedStandardCompare(rhs.lastPathComponent) == .orderedAscending
-            }
+            .sorted(by: isOrderedByName)
     }
 
     nonisolated private static func isSupportedImageFile(_ url: URL) -> Bool {
