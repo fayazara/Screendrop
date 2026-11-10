@@ -12,6 +12,7 @@ struct GeneralSettingsPane: View {
     @AppStorage(ScreendropPreferences.saveButtonUsesFolderKey) private var saveButtonUsesFolder = false
     @AppStorage(ScreendropPreferences.playSoundsKey) private var playSounds = true
     @AppStorage(ScreendropPreferences.showMenuBarIconKey) private var showMenuBarIcon = true
+    @AppStorage(ScreendropPreferences.hideDockIconKey) private var hideDockIcon = false
     @AppStorage(ScreendropPreferences.includeAppWindowsInCapturesKey)
     private var includeAppWindowsInCaptures = false
     @AppStorage(ScreendropPreferences.libraryAnalyzeCapturesKey) private var analyzeCaptures = true
@@ -141,6 +142,14 @@ struct GeneralSettingsPane: View {
                     )
                 }
                 .toggleStyle(.ink)
+
+                Toggle(isOn: $hideDockIcon) {
+                    SettingsControlLabel(
+                        "Hide Dock icon",
+                        detail: "Keep Screendrop out of the Dock and Cmd-Tab, even while its windows are open. The menu bar won't show Screendrop's menus."
+                    )
+                }
+                .toggleStyle(.ink)
             }
 
             Section("Capture Visibility") {
@@ -155,6 +164,9 @@ struct GeneralSettingsPane: View {
         }
         .onAppear {
             refreshLaunchAtLoginStatus()
+        }
+        .onChange(of: hideDockIcon) { _, _ in
+            AppActivationPolicy.dockIconPreferenceDidChange()
         }
         .onChange(of: includeAppWindowsInCaptures) { _, _ in
             PreviewWindowCaptureExclusion.shared.refreshRegisteredWindows()

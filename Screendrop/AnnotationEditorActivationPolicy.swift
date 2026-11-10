@@ -10,7 +10,7 @@ import AppKit
 /// reference counting so the policy stays `.regular` until *all* windows leave.
 @MainActor
 enum AppActivationPolicy {
-    private static var activeWindowCount = 0
+    fileprivate static var activeWindowCount = 0
     /// Editors opened from the capture shelf, which tuck it while open.
     private static var shelfEditorCount = 0
 
@@ -24,7 +24,7 @@ enum AppActivationPolicy {
             shelfEditorCount += 1
             CaptureShelf.shared.tuck(.editor)
         }
-        NSApp.setActivationPolicy(.regular)
+        NSApp.setActivationPolicy(windowPolicy)
         NSApp.unhide(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
@@ -45,6 +45,21 @@ enum AppActivationPolicy {
             guard activeWindowCount == 0 else { return }
             NSApp.setActivationPolicy(.accessory)
         }
+    }
+}
+
+extension AppActivationPolicy {
+    /// The policy while a regular window is open: `.regular`, unless the user
+    /// keeps Screendrop out of the Dock.
+    static var windowPolicy: NSApplication.ActivationPolicy {
+        ScreendropPreferences.hideDockIcon ? .accessory : .regular
+    }
+
+    /// Applies a change to the Hide Dock icon setting to the open windows.
+    static func dockIconPreferenceDidChange() {
+        guard activeWindowCount > 0 else { return }
+        NSApp.setActivationPolicy(windowPolicy)
+        NSApp.activate(ignoringOtherApps: true)
     }
 }
 
