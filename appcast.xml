@@ -27,6 +27,26 @@
     -->
 
     <item>
+      <title>Version 0.38.0</title>
+      <sparkle:version>40</sparkle:version>
+      <sparkle:shortVersionString>0.38.0</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.4</sparkle:minimumSystemVersion>
+      <pubDate>Tue, 10 Nov 2026 02:38:05 +0000</pubDate>
+      <description><![CDATA[
+        <h2>What's New in 0.38.0</h2>
+        <ul>
+          <li>Added a Hide Dock icon setting (Settings → General → System) that keeps Screendrop out of the Dock and Cmd-Tab, even while its windows are open</li>
+        </ul>
+      ]]></description>
+      <enclosure
+        url="https://github.com/fayazara/screendrop/releases/download/v0.38.0/Screendrop.dmg"
+        type="application/octet-stream"
+        sparkle:edSignature="OWMTjwIGCgFtJ7JeArhZkzUJ7i22eQwetNJCSkrD8dH16AXAKLJMb1KR9Ghdqw2wyK5w9BCjS2yApViHBDB1DA=="
+        length="9704922"
+      />
+    </item>
+
+    <item>
       <title>Version 0.37.1</title>
       <sparkle:version>39</sparkle:version>
       <sparkle:shortVersionString>0.37.1</sparkle:shortVersionString>
