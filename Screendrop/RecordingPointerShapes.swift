@@ -132,8 +132,24 @@ nonisolated enum PointerShape: String, CaseIterable, Sendable {
         return self == .hand ? 24 : 22
     }
 
+    /// The drawings point diagonally; the system arrow leans only about 22°
+    /// from upright, so the arrows are turned clockwise about the artwork's
+    /// centre and shrunk a little to stay inside the canvas.
+    private var uprightTransform: CGAffineTransform {
+        guard !isCircle, self != .hand else { return .identity }
+        let centre = Self.canvas / 2
+        return CGAffineTransform(translationX: centre, y: centre)
+            .rotated(by: 22 * .pi / 180)
+            .scaledBy(x: 0.88, y: 0.88)
+            .translatedBy(x: -centre, y: -centre)
+    }
+
     /// The tip, in canvas units with a top-left origin.
     private var hotSpot: CGPoint {
+        baseHotSpot.applying(uprightTransform)
+    }
+
+    private var baseHotSpot: CGPoint {
         switch self {
         case .pointer: CGPoint(x: 31, y: 31)
         case .rounded: CGPoint(x: 27, y: 27)
@@ -199,6 +215,7 @@ nonisolated enum PointerShape: String, CaseIterable, Sendable {
         if isCircle {
             drawCircle(in: context, scale: scale)
         } else {
+            context.concatenate(uprightTransform)
             drawOutlines(in: context, scale: scale, inverted: inverted)
         }
 

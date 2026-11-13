@@ -575,8 +575,22 @@ struct StudioAudioClipInspectorControls: View {
     var body: some View {
         VStack(alignment: .leading, spacing: InspectorMetrics.groupSpacing) {
             VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
-                InspectorHalfField {
-                    InspectorSlider("Volume", value: value(\.volume, action: "Change Audio Volume"), range: 0...1, format: .percent())
+                InspectorFieldPair {
+                    InspectorSlider(
+                        "Volume",
+                        value: value(\.volume, action: "Change Audio Volume"),
+                        range: CGFloat(RecordingAudioClip.volumeRange.lowerBound)...CGFloat(RecordingAudioClip.volumeRange.upperBound),
+                        format: .percent()
+                    )
+                    .disabled(clip.isMuted)
+                } trailing: {
+                    InspectorActionButton(
+                        clip.isMuted ? "Unmute" : "Mute",
+                        systemImage: clip.isMuted ? "speaker.slash.fill" : "speaker.wave.2"
+                    ) {
+                        model.toggleAudioClipMuted(id: clip.id)
+                    }
+                    .help("Silence this clip (V)")
                 }
                 InspectorFieldPair {
                     InspectorSlider(
@@ -595,7 +609,35 @@ struct StudioAudioClipInspectorControls: View {
                 }
             }
 
-            InspectorHint("Plays \(Self.clock(clip.duration)) of \(Self.clock(clip.fileDuration)) from \(Self.clock(clip.start)) in the video. Drag its edges on the timeline to trim it. It stays put when the recording is cut.")
+            VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
+                InspectorToggleRow(
+                    "Cut with the video",
+                    isOn: Binding(
+                        get: { clip.isLinked },
+                        set: { model.setAudioClipLinked($0, id: clip.id) }
+                    )
+                )
+                InspectorHint(
+                    clip.isLinked
+                        ? "Linked: cutting, trimming or speeding up the video above does the same to this sound."
+                        : "Not linked: it stays in one piece when the video is cut, and keeps its starting moment."
+                )
+
+                HStack(spacing: InspectorMetrics.rowSpacing) {
+                    InspectorActionButton("Split", systemImage: "scissors") {
+                        model.blade(at: model.currentTime)
+                    }
+                    .disabled(StudioAudioConform.split(clip, at: model.currentTime) == nil)
+                    .help("Split at the playhead (⌘B)")
+
+                    InspectorActionButton("Duplicate", systemImage: "plus.square.on.square") {
+                        model.duplicateAudioClip(id: clip.id)
+                    }
+                    .help("Place a copy straight after it (⌘D)")
+                }
+            }
+
+            InspectorHint("Plays \(Self.clock(clip.fileSpan)) of \(Self.clock(clip.fileDuration)) from \(Self.clock(clip.start)) in the video. Drag its edges on the timeline to trim it.")
         }
     }
 

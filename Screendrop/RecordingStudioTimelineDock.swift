@@ -11,6 +11,10 @@
 //  edits, and the fit chip grows out of the zoom buttons once the lanes are
 //  zoomed.
 //
+//  Sound has its own lanes under the video: one per layer of overlapping
+//  audio, added as clips need them. The blade, trims and the transport all
+//  have keys that work anywhere in the window (`StudioKeyCommands`).
+//
 //  Under the row the tracks follow the web editor: a gutter of glyphs names
 //  each track, every track is a flat full-width row, and the ruler labels
 //  its major ticks from their leading edge.
@@ -49,6 +53,9 @@ struct StudioTimelineDock: View {
     /// How far the tracks are scrolled down, which the gutter follows.
     @State private var scrollY: CGFloat = 0
     @State private var verticalScrollPosition = ScrollPosition(edge: .top)
+    /// Audio edits catch on the playhead, the video's cuts and the other
+    /// audio clips.
+    @AppStorage("StudioTimelineSnapping") private var snapsEdits = true
     @Namespace private var glass
 
     /// Below this track width the opened + shows bare glyphs, so the edit
@@ -91,6 +98,14 @@ struct StudioTimelineDock: View {
                 .frame(height: 0.5)
         }
         .overlay(alignment: .top) { resizeHandle }
+        .background {
+            StudioKeyCommands(model: model) { command in
+                switch command {
+                case .toggleSnapping: snapsEdits.toggle()
+                case .delete: deleteSelection()
+                }
+            }
+        }
     }
 
     // MARK: Height
@@ -179,8 +194,11 @@ struct StudioTimelineDock: View {
     private var editCluster: some View {
         GlassEffectContainer(spacing: GlassMetrics.containerSpacing) {
             HStack(spacing: GlassMetrics.gap) {
-                GlassIconButton(systemImage: "scissors", help: "Split at Playhead (⌘B)") {
-                    model.splitClip(at: model.currentTime)
+                GlassIconButton(
+                    systemImage: "scissors",
+                    help: "Split at Playhead (⌘B). ⇧⌘B splits the video and every audio clip."
+                ) {
+                    model.blade(at: model.currentTime)
                 }
                 .keyboardShortcut("b", modifiers: .command)
                 .disabled(!model.isLoaded)
@@ -343,6 +361,16 @@ struct StudioTimelineDock: View {
                     .glassEffectID("fit", in: glass)
                 }
 
+                GlassIconButton(
+                    systemImage: "arrow.right.and.line.vertical.and.arrow.left",
+                    help: snapsEdits ? "Snapping On (N)" : "Snapping Off (N)",
+                    isOn: snapsEdits
+                ) {
+                    snapsEdits.toggle()
+                }
+                .glassEffectID("snap", in: glass)
+                .padding(.trailing, 6)
+
                 GlassIconButton(systemImage: "minus.magnifyingglass", help: "Zoom Out (⌘-)") {
                     applyZoom(factor: 1 / Self.zoomStep, anchorTime: buttonZoomAnchor)
                 }
@@ -368,7 +396,8 @@ struct StudioTimelineDock: View {
     private var tracks: [StudioTrack] {
         var tracks: [StudioTrack] = [.text, .overlay, .clips, .zooms]
         if model.hasCameraVideo { tracks.append(.layouts) }
-        tracks.append(.audio)
+        // One lane per layer of sound, and always at least one.
+        for lane in 0..<model.audioLaneCount { tracks.append(.audio(lane)) }
         return tracks
     }
 
@@ -610,9 +639,11 @@ struct StudioTimelineDock: View {
                 visibleRange: scale.visibleRange(scrollX: scrollX),
                 onScrubbing: { isScrubbing = $0 }
             )
-        case .audio:
+        case .audio(let lane):
             StudioAudioLane(
                 model: model,
+                lane: lane,
+                snaps: snapsEdits,
                 scale: scale,
                 visibleRange: scale.visibleRange(scrollX: scrollX),
                 onScrubbing: { isScrubbing = $0 }
@@ -674,8 +705,13 @@ struct StudioTimelineDock: View {
                 model.timelineHoverTime = time
                 model.hoverPreviewTime = time
             },
+            soundRevision: model.clipSoundRevision,
+            soundPeak: model.hasAudio ? { model.clipSoundPeak(fromSource: $0, to: $1) } : nil,
             onSplit: { model.splitClip(at: $0) },
             onDelete: { deleteSelection() },
+            onToggleMute: { model.toggleClipMuted(id: $0) },
+            onDetachAudio: { model.detachAudio(fromClipID: $0) },
+            canDetachAudio: { model.canDetachAudio(fromClipID: $0) },
             onTrim: { model.trimClip($0) },
             onZoom: { factor, anchorTime in
                 applyZoom(factor: factor, anchorTime: anchorTime)
@@ -823,20 +859,32 @@ private enum StudioTimelineMetrics {
 }
 
 /// A row of the timeline, named by its glyph in the gutter.
-private enum StudioTrack: String, Identifiable {
+private enum StudioTrack: Hashable, Identifiable {
     case text
     case overlay
     case clips
     case zooms
     case layouts
-    case audio
+    /// An audio lane, 0 at the top.
+    case audio(Int)
 
-    var id: String { rawValue }
+    var id: String {
+        switch self {
+        case .text: "text"
+        case .overlay: "overlay"
+        case .clips: "clips"
+        case .zooms: "zooms"
+        case .layouts: "layouts"
+        case .audio(let lane): "audio\(lane)"
+        }
+    }
+
+    static let audioHeight: CGFloat = 36
 
     var height: CGFloat {
         switch self {
-        case .clips: 52
-        case .audio: 36
+        case .clips: 60
+        case .audio: Self.audioHeight
         case .text, .overlay, .zooms, .layouts: 30
         }
     }
@@ -859,7 +907,7 @@ private enum StudioTrack: String, Identifiable {
         case .clips: "Clips"
         case .zooms: "Zooms"
         case .layouts: "Camera Layouts"
-        case .audio: "Audio"
+        case .audio(let lane): lane == 0 ? "Audio" : "Audio \(lane + 1)"
         }
     }
 }
@@ -1316,8 +1364,8 @@ private struct StudioMediaDropDelegate: DropDelegate {
         }
         var tracks: Set<StudioTrack> = []
         if info.hasItemsConforming(to: [.image]) { tracks.insert(.overlay) }
-        if info.hasItemsConforming(to: [.audio]) { tracks.insert(.audio) }
-        if tracks.isEmpty { tracks = [.overlay, .audio] }
+        if info.hasItemsConforming(to: [.audio]) { tracks.insert(.audio(0)) }
+        if tracks.isEmpty { tracks = [.overlay, .audio(0)] }
         onPreview(StudioMediaDrop(tracks: tracks, time: time(info.location)))
         return DropProposal(operation: .copy)
     }
@@ -1944,16 +1992,22 @@ private struct StudioOverlayBlockContent: View {
     }
 }
 
-// MARK: - Audio track
+// MARK: - Audio lanes
 
-/// Music and sound under the video. Blocks sit on the edited video's clock:
-/// the body moves a clip along the video, its ends trim the file. A drag
-/// across empty track scrubs.
+/// One lane of sound under the video. Blocks sit on the edited video's
+/// clock: the body moves a clip along the video, its ends trim the file.
+/// A linked clip wears a link mark and is cut with the video above it. A
+/// drag across empty lane scrubs.
 private struct StudioAudioLane: View {
     @Bindable var model: RecordingStudioModel
+    let lane: Int
+    let snaps: Bool
     let scale: StudioTimelineScale
     let visibleRange: ClosedRange<TimeInterval>
     let onScrubbing: (Bool) -> Void
+
+    /// How near, in points, an edge has to come to a snap point to catch.
+    private static let snapDistance: CGFloat = 7
 
     var body: some View {
         StudioBlockLane(
@@ -1961,7 +2015,7 @@ private struct StudioAudioLane: View {
             blocks: visibleBlocks,
             selectedID: model.selectedAudioClipID,
             scale: scale,
-            height: StudioTrack.audio.height,
+            height: StudioTrack.audioHeight,
             empty: .scrub,
             onScrubbing: onScrubbing,
             actions: StudioBlockLaneActions(
@@ -1971,31 +2025,72 @@ private struct StudioAudioLane: View {
                 end: { kind in model.endAudioClipEdit(actionName: kind == .move ? "Move Audio" : "Trim Audio") }
             ),
             content: { block, state in content(for: block.item, state: state) },
-            menu: { block in
-                Button("Delete Audio", systemImage: "trash", role: .destructive) {
-                    model.removeAudioClip(id: block.id)
-                }
-            },
-            help: { block in "\(block.item.displayName). Drag to move, drag an end to trim, right-click for options." }
+            menu: { block in menu(for: block.item) },
+            help: { block in
+                "\(block.item.displayName). Drag to move, drag an end to trim, right-click for more."
+            }
         )
     }
 
-    /// Its name over a waveform of the stretch that plays.
+    @ViewBuilder
+    private func menu(for clip: RecordingAudioClip) -> some View {
+        let playhead = model.currentTime
+        Button("Split at Playhead", systemImage: "scissors") {
+            model.selectAudioClip(id: clip.id)
+            model.blade(at: playhead)
+        }
+        .disabled(StudioAudioConform.split(clip, at: playhead) == nil)
+        Button("Duplicate", systemImage: "plus.square.on.square") {
+            model.duplicateAudioClip(id: clip.id)
+        }
+        Divider()
+        Button(clip.isMuted ? "Unmute" : "Mute", systemImage: clip.isMuted ? "speaker.wave.2" : "speaker.slash") {
+            model.toggleAudioClipMuted(id: clip.id)
+        }
+        Button(
+            clip.isLinked ? "Unlink from Video" : "Link to Video",
+            systemImage: clip.isLinked ? "personalhotspot.slash" : "link"
+        ) {
+            model.setAudioClipLinked(!clip.isLinked, id: clip.id)
+        }
+        Divider()
+        Button("Move Up a Lane", systemImage: "arrow.up") {
+            model.moveAudioClip(id: clip.id, byLanes: -1)
+        }
+        .disabled(clip.lane == 0)
+        Button("Move Down a Lane", systemImage: "arrow.down") {
+            model.moveAudioClip(id: clip.id, byLanes: 1)
+        }
+        Divider()
+        Button("Delete Audio", systemImage: "trash", role: .destructive) {
+            model.removeAudioClip(id: clip.id)
+        }
+    }
+
+    /// Its name over a waveform of the stretch that plays, with its fades
+    /// drawn in. A muted clip dims.
     private func content(for clip: RecordingAudioClip, state: StudioBlockState) -> some View {
         let style = StudioBlockStyle.audio
+        let pointsPerSecond = max(scale.pointsPerSecond, 1)
         return ZStack(alignment: .topLeading) {
             StudioWaveform(
-                peaks: model.audioPeaks[clip.fileName] ?? [],
+                peaks: model.waveformPeaks(for: clip),
                 color: style.onTint.opacity(0.55),
                 from: clip.trimStart,
-                to: clip.trimStart + Double(state.width / max(scale.pointsPerSecond, 1))
+                to: clip.trimStart + Double(state.width / pointsPerSecond) * clip.speed,
+                gain: CGFloat(min(clip.volume, 1.6))
             )
             .padding(.top, 13)
             .padding(.bottom, 3)
             .padding(.horizontal, 2)
 
+            StudioFadeShade(
+                fadeIn: CGFloat(min(clip.fadeIn, clip.duration / 2)) * pointsPerSecond,
+                fadeOut: CGFloat(min(clip.fadeOut, clip.duration / 2)) * pointsPerSecond
+            )
+
             StudioBlockLabel(
-                systemImage: "music.note",
+                systemImage: clip.isMuted ? "speaker.slash.fill" : clip.isLinked ? "link" : glyph(for: clip),
                 title: clip.displayName,
                 detail: studioTimecode(clip.duration),
                 state: state,
@@ -2006,32 +2101,91 @@ private struct StudioAudioLane: View {
         }
         .frame(width: state.width, height: state.height, alignment: .topLeading)
         .background { StudioBlockSurface(fill: style.fill(isHovering: state.isHovered)) }
+        .opacity(clip.isMuted ? 0.45 : 1)
         .studioBlockClip()
+    }
+
+    private func glyph(for clip: RecordingAudioClip) -> String {
+        clip.source == .file ? "music.note" : "waveform"
     }
 
     private func apply(_ edit: StudioBlockEdit<RecordingAudioClip>) {
         let base = edit.base.item
         let minimum = RecordingAudioClip.minimumDuration
+        let speed = max(base.speed, 0.01)
         var edited = base
         switch edit.kind {
         case .move:
-            edited.start = max(0, base.start + edit.delta)
+            var start = max(0, base.start + edit.delta)
+            // Whichever end is nearer a snap point catches on it.
+            let byStart = snapped(start, excluding: base.id)
+            let byEnd = snapped(start + base.duration, excluding: base.id) - base.duration
+            if abs(byStart - start) > 0, abs(byStart - start) <= abs(byEnd - start) || byEnd == start {
+                start = byStart
+            } else if byEnd != start {
+                start = byEnd
+            }
+            edited.start = max(0, start)
         case .trimLeading:
             // The start can't run before the file's first sample or the
             // video's first frame.
-            let shift = min(max(edit.delta, -base.trimStart, -base.start), base.duration - minimum)
+            let wanted = snapped(base.start + edit.delta, excluding: base.id) - base.start
+            let shift = min(max(wanted, -base.trimStart / speed, -base.start), base.duration - minimum)
             edited.start = base.start + shift
-            edited.trimStart = base.trimStart + shift
+            edited.trimStart = base.trimStart + shift * speed
         case .trimTrailing:
-            edited.trimEnd = min(max(base.trimEnd + edit.delta, base.trimStart + minimum), base.fileDuration)
+            let wanted = snapped(base.end + edit.delta, excluding: base.id) - base.end
+            edited.trimEnd = min(max(base.trimEnd + wanted * speed, base.trimStart + minimum * speed), base.fileDuration)
         }
         model.setAudioClip(edited)
     }
 
+    private func snapped(_ time: TimeInterval, excluding id: UUID) -> TimeInterval {
+        guard snaps, scale.pointsPerSecond > 0 else { return time }
+        return StudioAudioConform.snapped(
+            time,
+            to: StudioAudioConform.snapPoints(
+                timeline: model.clipTimeline,
+                clips: model.audioClips,
+                excluding: id,
+                playhead: model.currentTime
+            ),
+            tolerance: Double(Self.snapDistance / scale.pointsPerSecond)
+        )
+    }
+
     private var visibleBlocks: [StudioLaneBlock<RecordingAudioClip>] {
         model.audioClips
-            .filter { $0.end >= visibleRange.lowerBound && $0.start <= visibleRange.upperBound }
+            .filter { $0.lane == lane && $0.end >= visibleRange.lowerBound && $0.start <= visibleRange.upperBound }
             .map { StudioLaneBlock(item: $0, editorStart: $0.start, editorEnd: $0.end) }
+    }
+}
+
+/// A clip's fades: the block darkens toward the end it fades from, under a
+/// line tracing the level.
+private struct StudioFadeShade: View {
+    let fadeIn: CGFloat
+    let fadeOut: CGFloat
+
+    var body: some View {
+        Canvas { context, size in
+            func ramp(from edge: CGFloat, to inner: CGFloat) {
+                guard abs(inner - edge) >= 3 else { return }
+                var wedge = Path()
+                wedge.move(to: CGPoint(x: edge, y: 0))
+                wedge.addLine(to: CGPoint(x: inner, y: 0))
+                wedge.addLine(to: CGPoint(x: edge, y: size.height))
+                wedge.closeSubpath()
+                context.fill(wedge, with: .color(.black.opacity(0.28)))
+                var line = Path()
+                line.move(to: CGPoint(x: edge, y: size.height))
+                line.addLine(to: CGPoint(x: inner, y: 0))
+                context.stroke(line, with: .color(.white.opacity(0.7)), lineWidth: 1)
+            }
+            ramp(from: 0, to: min(fadeIn, size.width / 2))
+            ramp(from: size.width, to: size.width - min(fadeOut, size.width / 2))
+        }
+        .allowsHitTesting(false)
     }
 }
 
@@ -2041,6 +2195,8 @@ private struct StudioWaveform: View {
     let color: Color
     let from: TimeInterval
     let to: TimeInterval
+    /// Scales the bars with the clip's level.
+    var gain: CGFloat = 1
 
     var body: some View {
         Canvas { context, size in
@@ -2059,7 +2215,7 @@ private struct StudioWaveform: View {
                 if i0 < i1 {
                     for index in i0..<i1 { value = max(value, peaks[index]) }
                 }
-                let height = max(bar, CGFloat(value) * size.height)
+                let height = max(bar, min(1, CGFloat(value) * gain) * size.height)
                 path.addRoundedRect(
                     in: CGRect(x: x, y: (size.height - height) / 2, width: bar, height: height),
                     cornerSize: CGSize(width: bar / 2, height: bar / 2)

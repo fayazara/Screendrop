@@ -2,14 +2,18 @@
 //  RecordingAudioClip.swift
 //  Screendrop
 //
-//  Music and sound placed under a Studio recording. Unlike everything that
-//  sits over the picture, audio clips live on the finished video's clock:
-//  a soundtrack belongs to the cut, so trimming the recording never
-//  chops a song in two.
+//  Sound placed under a Studio recording: music, effects, a voiceover, or
+//  a clip's own sound detached from its picture. Clips sit on audio lanes
+//  on the finished video's clock.
 //
-//  Each clip is its own track in the playback and export compositions,
-//  mixed with the recording's audio through one shared set of mix
-//  parameters (volume and fades), so what plays is what exports.
+//  How a clip answers a cut of the video is its own choice. A linked clip
+//  belongs to the picture above it: cutting, trimming or speeding up the
+//  video does the same to the sound under it. An unlinked clip (music)
+//  stays in one piece and only keeps its starting moment, so removing
+//  video ahead of it moves it earlier. `StudioAudioConform` applies both.
+//
+//  Playback and export build their sound through `StudioAudioComposer`,
+//  so what plays is what exports.
 //
 
 import AVFoundation
@@ -17,11 +21,25 @@ import Foundation
 import UniformTypeIdentifiers
 
 nonisolated struct RecordingAudioClip: Identifiable, Codable, Equatable, Hashable, Sendable {
+    /// Where a clip's sound comes from.
+    enum Source: String, Codable, Sendable {
+        /// A file copied into the project's media folder.
+        case file
+        /// The recording's own audio, detached from its picture.
+        case recording
+        /// The soundtrack that stands in for the recording's audio.
+        case replacement
+    }
+
     static let minimumDuration: TimeInterval = 0.1
     static let fadeRange: ClosedRange<TimeInterval> = 0...5
+    static let volumeRange: ClosedRange<Double> = 0...2
+    static let speedRange: ClosedRange<Double> = 0.25...8
 
     var id = UUID()
-    /// The copy inside the project's media folder.
+    var source: Source = .file
+    /// The copy inside the project's media folder; empty for sound taken
+    /// from the recording.
     var fileName: String
     var displayName: String
     /// Where it starts in the edited video.
@@ -31,13 +49,27 @@ nonisolated struct RecordingAudioClip: Identifiable, Codable, Equatable, Hashabl
     var trimEnd: TimeInterval
     /// The file's own length, the most a trim can open up to.
     var fileDuration: TimeInterval
-    /// 0...1.
+    /// 0...2; above 1 amplifies.
     var volume: Double = 1
     var fadeIn: TimeInterval = 0
     var fadeOut: TimeInterval = 0
+    /// File seconds played per second of video. Follows the speed of the
+    /// video above a linked clip.
+    var speed: Double = 1
+    /// The audio lane it sits on, 0 at the top.
+    var lane = 0
+    /// Cut, trimmed and retimed with the video above it.
+    var isLinked = false
+    var isMuted = false
 
-    var duration: TimeInterval { trimEnd - trimStart }
+    /// How much of the file plays.
+    var fileSpan: TimeInterval { max(0, trimEnd - trimStart) }
+    /// How long it lasts in the video.
+    var duration: TimeInterval { fileSpan / max(speed, 0.01) }
     var end: TimeInterval { start + duration }
+    var audibleVolume: Double {
+        isMuted ? 0 : min(max(volume, Self.volumeRange.lowerBound), Self.volumeRange.upperBound)
+    }
 
     init(fileName: String, displayName: String, start: TimeInterval, fileDuration: TimeInterval) {
         self.fileName = fileName
@@ -47,10 +79,16 @@ nonisolated struct RecordingAudioClip: Identifiable, Codable, Equatable, Hashabl
         trimEnd = fileDuration
     }
 
+    private enum CodingKeys: String, CodingKey {
+        case id, source, fileName, displayName, start, trimStart, trimEnd, fileDuration
+        case volume, fadeIn, fadeOut, speed, lane, isLinked, isMuted
+    }
+
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
-        fileName = try container.decode(String.self, forKey: .fileName)
+        source = try container.decodeIfPresent(Source.self, forKey: .source) ?? .file
+        fileName = try container.decodeIfPresent(String.self, forKey: .fileName) ?? ""
         displayName = try container.decodeIfPresent(String.self, forKey: .displayName) ?? fileName
         start = try container.decode(TimeInterval.self, forKey: .start)
         trimStart = try container.decodeIfPresent(TimeInterval.self, forKey: .trimStart) ?? 0
@@ -59,119 +97,49 @@ nonisolated struct RecordingAudioClip: Identifiable, Codable, Equatable, Hashabl
         volume = try container.decodeIfPresent(Double.self, forKey: .volume) ?? 1
         fadeIn = try container.decodeIfPresent(TimeInterval.self, forKey: .fadeIn) ?? 0
         fadeOut = try container.decodeIfPresent(TimeInterval.self, forKey: .fadeOut) ?? 0
+        speed = try container.decodeIfPresent(Double.self, forKey: .speed) ?? 1
+        lane = try container.decodeIfPresent(Int.self, forKey: .lane) ?? 0
+        isLinked = try container.decodeIfPresent(Bool.self, forKey: .isLinked) ?? false
+        isMuted = try container.decodeIfPresent(Bool.self, forKey: .isMuted) ?? false
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        if source != .file { try container.encode(source, forKey: .source) }
+        try container.encode(fileName, forKey: .fileName)
+        try container.encode(displayName, forKey: .displayName)
+        try container.encode(start, forKey: .start)
+        try container.encode(trimStart, forKey: .trimStart)
+        try container.encode(trimEnd, forKey: .trimEnd)
+        try container.encode(fileDuration, forKey: .fileDuration)
+        try container.encode(volume, forKey: .volume)
+        try container.encode(fadeIn, forKey: .fadeIn)
+        try container.encode(fadeOut, forKey: .fadeOut)
+        if speed != 1 { try container.encode(speed, forKey: .speed) }
+        if lane != 0 { try container.encode(lane, forKey: .lane) }
+        if isLinked { try container.encode(isLinked, forKey: .isLinked) }
+        if isMuted { try container.encode(isMuted, forKey: .isMuted) }
+    }
+
+    /// Kept inside its file, its ranges and the video.
+    func sanitized() -> RecordingAudioClip {
+        var clip = self
+        let minimum = Self.minimumDuration
+        clip.speed = min(max(clip.speed.isFinite ? clip.speed : 1, Self.speedRange.lowerBound), Self.speedRange.upperBound)
+        clip.trimStart = min(max(0, clip.trimStart), max(0, clip.fileDuration - minimum))
+        clip.trimEnd = min(max(clip.trimEnd, clip.trimStart + minimum), max(clip.fileDuration, clip.trimStart + minimum))
+        clip.start = max(0, clip.start)
+        clip.volume = min(max(clip.volume, Self.volumeRange.lowerBound), Self.volumeRange.upperBound)
+        clip.fadeIn = min(max(clip.fadeIn, Self.fadeRange.lowerBound), Self.fadeRange.upperBound)
+        clip.fadeOut = min(max(clip.fadeOut, Self.fadeRange.lowerBound), Self.fadeRange.upperBound)
+        clip.lane = max(0, clip.lane)
+        return clip
     }
 
     static func canImport(_ url: URL) -> Bool {
         guard let type = UTType(filenameExtension: url.pathExtension) else { return false }
         return type.conforms(to: .audio)
-    }
-}
-
-/// An audio file's track, resolved once. The asset is kept with it: a
-/// track only weakly holds its asset, and once the asset goes the track
-/// inserts nothing.
-nonisolated struct RecordingAudioFileTrack: @unchecked Sendable {
-    let asset: AVURLAsset
-    let track: AVAssetTrack
-
-    static func load(url: URL) async -> RecordingAudioFileTrack? {
-        let asset = AVURLAsset(url: url)
-        guard let track = try? await asset.loadTracks(withMediaType: .audio).first else { return nil }
-        return RecordingAudioFileTrack(asset: asset, track: track)
-    }
-}
-
-/// A clip with its file's audio track resolved, ready to compose.
-nonisolated struct RecordingAudioClipSource: @unchecked Sendable {
-    let clip: RecordingAudioClip
-    let file: RecordingAudioFileTrack
-
-    var track: AVAssetTrack { file.track }
-
-    static func load(_ clip: RecordingAudioClip, in directory: URL) async -> RecordingAudioClipSource? {
-        guard let file = await RecordingAudioFileTrack.load(url: directory.appendingPathComponent(clip.fileName)) else {
-            return nil
-        }
-        return RecordingAudioClipSource(clip: clip, file: file)
-    }
-}
-
-nonisolated enum RecordingAudioClipMixer {
-    /// Adds each clip as its own audio track, cut to the part that falls
-    /// inside the video. Returns the composition track each clip landed on.
-    @discardableResult
-    static func insert(
-        _ sources: [RecordingAudioClipSource],
-        into composition: AVMutableComposition,
-        videoDuration: TimeInterval
-    ) -> [UUID: CMPersistentTrackID] {
-        var trackIDs: [UUID: CMPersistentTrackID] = [:]
-        for source in sources {
-            let clip = source.clip
-            let visibleStart = max(clip.start, 0)
-            let visibleEnd = min(clip.end, videoDuration)
-            guard visibleEnd - visibleStart >= 0.01,
-                  let track = composition.addMutableTrack(
-                      withMediaType: .audio,
-                      preferredTrackID: kCMPersistentTrackID_Invalid
-                  ) else { continue }
-            let fileStart = clip.trimStart + (visibleStart - clip.start)
-            let range = CMTimeRange(
-                start: CMTime(seconds: fileStart, preferredTimescale: 600),
-                duration: CMTime(seconds: visibleEnd - visibleStart, preferredTimescale: 600)
-            )
-            do {
-                try track.insertTimeRange(range, of: source.track, at: CMTime(seconds: visibleStart, preferredTimescale: 600))
-                trackIDs[clip.id] = track.trackID
-            } catch {
-                composition.removeTrack(track)
-            }
-        }
-        return trackIDs
-    }
-
-    /// The mix for a composition holding the recording's audio and the
-    /// clips: the recording at `recordingVolume`, each clip at its volume
-    /// with its fades. Nil when nothing needs changing.
-    static func mix(
-        recordingTracks: [AVAssetTrack],
-        recordingVolume: Double,
-        clips: [RecordingAudioClip],
-        trackIDs: [UUID: CMPersistentTrackID]
-    ) -> AVAudioMix? {
-        var parameters = RecordingAudioGain.inputParameters(tracks: recordingTracks, volume: recordingVolume)
-        for clip in clips {
-            guard let trackID = trackIDs[clip.id] else { continue }
-            parameters.append(inputParameters(for: clip, trackID: trackID))
-        }
-        guard !parameters.isEmpty else { return nil }
-        let mix = AVMutableAudioMix()
-        mix.inputParameters = parameters
-        return mix
-    }
-
-    private static func inputParameters(for clip: RecordingAudioClip, trackID: CMPersistentTrackID) -> AVMutableAudioMixInputParameters {
-        let parameters = AVMutableAudioMixInputParameters()
-        parameters.trackID = trackID
-        let volume = Float(min(max(clip.volume, 0), 1))
-        func time(_ seconds: TimeInterval) -> CMTime { CMTime(seconds: max(0, seconds), preferredTimescale: 600) }
-        // Fades are squeezed into half the clip each, so they never cross.
-        let fadeIn = min(clip.fadeIn, clip.duration / 2)
-        let fadeOut = min(clip.fadeOut, clip.duration / 2)
-        parameters.setVolume(volume, at: .zero)
-        if fadeIn > 0 {
-            parameters.setVolumeRamp(
-                fromStartVolume: 0, toEndVolume: volume,
-                timeRange: CMTimeRange(start: time(clip.start), duration: time(fadeIn))
-            )
-        }
-        if fadeOut > 0 {
-            parameters.setVolumeRamp(
-                fromStartVolume: volume, toEndVolume: 0,
-                timeRange: CMTimeRange(start: time(clip.end - fadeOut), duration: time(fadeOut))
-            )
-        }
-        return parameters
     }
 }
 

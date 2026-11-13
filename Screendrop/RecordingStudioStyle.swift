@@ -85,6 +85,10 @@ struct RecordingEditDocument: Codable, Equatable {
     var replacementAudioFileName: String?
     /// The imported file's original name, for the inspector.
     var replacementAudioDisplayName: String?
+    /// How that soundtrack lines up with the recording, so it is cut with
+    /// the picture. Nil in projects saved before it was tracked: there the
+    /// file lies flat over the cut it was saved with.
+    var replacementAudioSync: RecordingAudioSync?
     /// Raw RecordingAudioFormat value for the audio-only export.
     var audioExportFormat: String?
     var audioVolume: Double?
@@ -122,6 +126,7 @@ struct RecordingEditDocument: Codable, Equatable {
         case canvasCropRect
         case replacementAudioFileName
         case replacementAudioDisplayName
+        case replacementAudioSync
         case audioExportFormat
         case audioVolume
     }
@@ -152,6 +157,7 @@ struct RecordingEditDocument: Codable, Equatable {
         videoCropRect: CGRect? = nil,
         replacementAudioFileName: String? = nil,
         replacementAudioDisplayName: String? = nil,
+        replacementAudioSync: RecordingAudioSync? = nil,
         audioExportFormat: RecordingAudioFormat? = nil,
         audioVolume: Double? = nil
     ) {
@@ -189,6 +195,7 @@ struct RecordingEditDocument: Codable, Equatable {
         self.videoCropRect = videoCropRect
         self.replacementAudioFileName = replacementAudioFileName
         self.replacementAudioDisplayName = replacementAudioDisplayName
+        self.replacementAudioSync = replacementAudioFileName == nil ? nil : replacementAudioSync
         self.audioExportFormat = audioExportFormat.map(\.rawValue)
         self.audioVolume = audioVolume
     }
@@ -287,6 +294,10 @@ struct RecordingEditDocument: Codable, Equatable {
             String.self,
             forKey: .replacementAudioDisplayName
         )
+        replacementAudioSync = try container.decodeIfPresent(
+            RecordingAudioSync.self,
+            forKey: .replacementAudioSync
+        )
         audioExportFormat = try container.decodeIfPresent(String.self, forKey: .audioExportFormat)
         audioVolume = try container.decodeIfPresent(Double.self, forKey: .audioVolume)
     }
@@ -325,6 +336,7 @@ struct RecordingEditDocument: Codable, Equatable {
             replacementAudioDisplayName,
             forKey: .replacementAudioDisplayName
         )
+        try container.encodeIfPresent(replacementAudioSync, forKey: .replacementAudioSync)
         try container.encodeIfPresent(audioExportFormat, forKey: .audioExportFormat)
         try container.encodeIfPresent(audioVolume, forKey: .audioVolume)
     }

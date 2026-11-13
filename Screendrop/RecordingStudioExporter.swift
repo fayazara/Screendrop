@@ -61,9 +61,11 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
         let clipTimeline: RecordingClipTimeline
         var exportSettings: VideoCompressionSettings
         /// Non-nil when an imported soundtrack stands in for the recorded
-        /// audio. It is already the finished cut's audio, so it plays flat
-        /// from zero instead of being re-cut through the clip timeline.
+        /// audio.
         let audioReplacementURL: URL?
+        /// How that soundtrack lines up with the recording, so it is cut
+        /// where the picture is. Nil lays it flat over the cut.
+        var audioReplacementSync: RecordingAudioSync?
         let audioVolume: Double
         /// Non-nil when exporting into a different aspect ratio; drives the
         /// crop-and-follow virtual camera in place of the zoom viewport.
@@ -109,6 +111,7 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
             clipTimeline: RecordingClipTimeline,
             exportSettings: VideoCompressionSettings,
             audioReplacementURL: URL? = nil,
+            audioReplacementSync: RecordingAudioSync? = nil,
             audioVolume: Double = 1,
             reframe: ReframeTrack? = nil,
             fitContentAspect: CGFloat? = nil,
@@ -141,6 +144,7 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
             self.clipTimeline = clipTimeline
             self.exportSettings = exportSettings
             self.audioReplacementURL = audioReplacementURL
+            self.audioReplacementSync = audioReplacementSync
             self.audioVolume = audioVolume
             self.reframe = reframe
             self.fitContentAspect = fitContentAspect
@@ -224,7 +228,6 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
         guard let videoTrack = try await screenAsset.loadTracks(withMediaType: .video).first else {
             throw ExportError.noVideoTrack
         }
-        let audioTracks = try await screenAsset.loadTracks(withMediaType: .audio)
         let exportStartTime = CMTime.zero
         let exportTimeRange = CMTimeRange(
             start: exportStartTime,
@@ -253,67 +256,42 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
         screenReader.add(videoOutput)
         screenReader.timeRange = exportTimeRange
 
-        // An imported soundtrack replaces the recorded one wholesale, and it
-        // needs its own reader: it is a different file, already carrying the
-        // finished cut's timing, so it plays straight through from zero
-        // while the screen reader stays on the composed video.
+        // All of the project's sound comes from one composition, built the
+        // way Studio's player builds it, read on a reader of its own.
         var audioOutput: AVAssetReaderAudioMixOutput?
-        var replacementReader: AVAssetReader?
-        // Held for the whole export: the clips' tracks need their assets
-        // alive while the audio is read.
-        var clipSources: [RecordingAudioClipSource] = []
+        var audioReader: AVAssetReader?
+        // Held for the whole export: the tracks need their assets alive
+        // while the audio is read.
+        var audioSources: StudioAudioSources?
         if !configuration.exportSettings.removeAudio {
-            if let directory = configuration.mediaDirectory {
-                for clip in configuration.audioClips {
-                    if let source = await RecordingAudioClipSource.load(clip, in: directory) {
-                        clipSources.append(source)
-                    }
-                }
-            }
-            // Added audio mixes with the soundtrack on a reader of its own,
-            // over a composition of the cut's audio and each clip.
-            let mixed: (reader: AVAssetReader, output: AVAssetReaderAudioMixOutput)? = clipSources.isEmpty
-                ? nil
-                : try await Self.makeMixedAudio(
-                    recordingTracks: audioTracks,
-                    replacementURL: configuration.audioReplacementURL,
-                    clips: clipSources,
-                    timeRange: exportTimeRange,
-                    volume: configuration.audioVolume
-                )
-            if let mixed {
-                replacementReader = mixed.reader
-                audioOutput = mixed.output
-            } else if let replacementURL = configuration.audioReplacementURL {
-                let replacementAsset = AVURLAsset(url: replacementURL)
-                let replacementTracks = try await replacementAsset.loadTracks(withMediaType: .audio)
-                if !replacementTracks.isEmpty {
-                    let reader = try AVAssetReader(asset: replacementAsset)
-                    // Clamps a soundtrack that overruns the cut; a shorter
-                    // one simply leaves the tail silent.
-                    reader.timeRange = exportTimeRange
-                    let output = AVAssetReaderAudioMixOutput(
-                        audioTracks: replacementTracks,
-                        audioSettings: nil
-                    )
-                    output.audioMix = RecordingAudioGain.makeMix(tracks: replacementTracks, volume: configuration.audioVolume)
-                    output.alwaysCopiesSampleData = false
-                    reader.add(output)
-                    replacementReader = reader
-                    audioOutput = output
-                }
-            } else if !audioTracks.isEmpty {
-                let output = AVAssetReaderAudioMixOutput(
-                    audioTracks: audioTracks,
-                    audioSettings: nil
-                )
-                output.audioMix = RecordingAudioGain.makeMix(tracks: audioTracks, volume: configuration.audioVolume)
+            let sources = await StudioAudioSources.load(
+                screenAsset: sourceAsset,
+                replacementURL: configuration.audioReplacementURL,
+                clips: configuration.audioClips,
+                mediaDirectory: configuration.mediaDirectory
+            )
+            audioSources = sources
+            let plan = StudioAudioPlan(
+                timeline: clipTimeline,
+                sync: sources.replacement.isEmpty
+                    ? nil
+                    : configuration.audioReplacementSync ?? .flat(over: clipTimeline),
+                clips: configuration.audioClips,
+                volume: configuration.audioVolume
+            )
+            let audio = StudioAudioComposer.makeComposition(plan: plan, sources: sources)
+            let tracks = try await audio.composition.loadTracks(withMediaType: .audio)
+            if !tracks.isEmpty, !audio.layout.isEmpty {
+                let reader = try AVAssetReader(asset: audio.composition)
+                reader.timeRange = exportTimeRange
+                let output = AVAssetReaderAudioMixOutput(audioTracks: tracks, audioSettings: nil)
+                output.audioMix = StudioAudioComposer.mix(for: audio.layout, plan: plan)
                 output.alwaysCopiesSampleData = false
-                screenReader.add(output)
+                reader.add(output)
+                audioReader = reader
                 audioOutput = output
             }
         }
-
         let cameraFeed = try await CameraFrameFeed(
             url: configuration.cameraURL,
             offset: configuration.cameraOffset,
@@ -383,9 +361,9 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
         guard screenReader.startReading() else {
             throw screenReader.error ?? ExportError.writerFailed(nil)
         }
-        if let replacementReader, !replacementReader.startReading() {
+        if let audioReader, !audioReader.startReading() {
             screenReader.cancelReading()
-            throw replacementReader.error ?? ExportError.writerFailed(nil)
+            throw audioReader.error ?? ExportError.writerFailed(nil)
         }
         guard writer.startWriting() else {
             throw ExportError.writerFailed(writer.error)
@@ -461,7 +439,7 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
             _ = try await (videoDone, audioDone)
         } catch {
             screenReader.cancelReading()
-            replacementReader?.cancelReading()
+            audioReader?.cancelReading()
             cameraFeed?.cancel()
             cutoutMattes?.cancel()
             writer.cancelWriting()
@@ -471,7 +449,7 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
 
         cameraFeed?.cancel()
         cutoutMattes?.cancel()
-        withExtendedLifetime(clipSources) {}
+        withExtendedLifetime(audioSources) {}
 
         await withCheckedContinuation { continuation in
             writer.finishWriting {
@@ -623,54 +601,6 @@ nonisolated final class RecordingStudioExporter: @unchecked Sendable {
             try await finishAndAppend(previous.frame, at: previous.index)
         }
         input.markAsFinished()
-    }
-
-    /// The finished video's audio: the recording's cut audio (or the
-    /// imported soundtrack standing in for it) at the project's volume,
-    /// plus every added clip with its own volume and fades.
-    private static func makeMixedAudio(
-        recordingTracks: [AVAssetTrack],
-        replacementURL: URL?,
-        clips: [RecordingAudioClipSource],
-        timeRange: CMTimeRange,
-        volume: Double
-    ) async throws -> (reader: AVAssetReader, output: AVAssetReaderAudioMixOutput)? {
-        let composition = AVMutableComposition()
-        var recordingTrackIDs: [CMPersistentTrackID] = []
-        if let replacementURL {
-            let replacement = AVURLAsset(url: replacementURL)
-            if let track = try await replacement.loadTracks(withMediaType: .audio).first {
-                let length = min(try await replacement.load(.duration), timeRange.duration)
-                if let added = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) {
-                    try added.insertTimeRange(CMTimeRange(start: .zero, duration: length), of: track, at: .zero)
-                    recordingTrackIDs.append(added.trackID)
-                }
-            }
-        } else {
-            for track in recordingTracks {
-                guard let added = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) else { continue }
-                let available = try await track.load(.timeRange)
-                let range = CMTimeRangeGetIntersection(timeRange, otherRange: available)
-                guard range.duration > .zero else { continue }
-                try added.insertTimeRange(range, of: track, at: range.start)
-                recordingTrackIDs.append(added.trackID)
-            }
-        }
-        let clipTrackIDs = RecordingAudioClipMixer.insert(clips, into: composition, videoDuration: timeRange.duration.seconds)
-        let tracks = composition.tracks(withMediaType: .audio)
-        guard !tracks.isEmpty else { return nil }
-        let reader = try AVAssetReader(asset: composition)
-        reader.timeRange = timeRange
-        let output = AVAssetReaderAudioMixOutput(audioTracks: tracks, audioSettings: nil)
-        output.audioMix = RecordingAudioClipMixer.mix(
-            recordingTracks: tracks.filter { recordingTrackIDs.contains($0.trackID) },
-            recordingVolume: volume,
-            clips: clips.map(\.clip),
-            trackIDs: clipTrackIDs
-        )
-        output.alwaysCopiesSampleData = false
-        reader.add(output)
-        return (reader, output)
     }
 
     private func pumpAudio(

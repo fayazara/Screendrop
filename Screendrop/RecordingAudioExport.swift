@@ -8,9 +8,10 @@
 //  it through the tool, drop the cleaned file back in, and re-export the
 //  video - without leaving Screendrop for ffmpeg and a second app.
 //
-//  Both halves speak the same timeline. The exported audio is the finished
-//  cut's soundtrack, so whatever comes back lies flat on the edited
-//  timeline from zero rather than being re-cut through the clip list.
+//  The exported audio is the finished cut's soundtrack, so whatever comes
+//  back lines up with that cut. Studio remembers that alignment
+//  (`RecordingAudioSync`), and from then on the soundtrack is cut, trimmed
+//  and retimed with the picture like the recording's own audio.
 //
 
 import AVFoundation
@@ -76,12 +77,15 @@ nonisolated final class RecordingAudioExporter: @unchecked Sendable {
     struct Configuration: Sendable {
         let screenURL: URL
         let clipTimeline: RecordingClipTimeline
-        /// When set, this file *is* the soundtrack: the recording's own
-        /// audio is ignored and the file is simply transcoded, clamped to
-        /// the edited timeline's length.
+        /// A soundtrack standing in for the recording's own audio, and how
+        /// it lines up with the recording.
         let replacementURL: URL?
+        var replacementSync: RecordingAudioSync?
         let format: RecordingAudioFormat
         var volume: Double = 1
+        /// Audio clips under the video, mixed in as the video export does.
+        var audioClips: [RecordingAudioClip] = []
+        var mediaDirectory: URL?
     }
 
     enum ExportError: LocalizedError {
@@ -110,30 +114,31 @@ nonisolated final class RecordingAudioExporter: @unchecked Sendable {
             throw VideoTrimExportError.invalidRange
         }
 
-        let audioAsset: AVAsset = if let replacementURL = configuration.replacementURL {
-            AVURLAsset(url: replacementURL)
-        } else {
-            try RecordingCompositionBuilder.makeAsset(
-                from: sourceAsset,
-                timeline: timeline,
-                sourceDuration: sourceDuration
-            )
-        }
-
-        let tracks = try await audioAsset.loadTracks(withMediaType: .audio)
-        guard !tracks.isEmpty else {
+        let sources = await StudioAudioSources.load(
+            screenAsset: sourceAsset,
+            replacementURL: configuration.replacementURL,
+            clips: configuration.audioClips,
+            mediaDirectory: configuration.mediaDirectory
+        )
+        let plan = StudioAudioPlan(
+            timeline: timeline,
+            sync: sources.replacement.isEmpty ? nil : configuration.replacementSync ?? .flat(over: timeline),
+            clips: configuration.audioClips,
+            volume: configuration.volume
+        )
+        let audio = StudioAudioComposer.makeComposition(plan: plan, sources: sources)
+        let tracks = try await audio.composition.loadTracks(withMediaType: .audio)
+        guard !tracks.isEmpty, !audio.layout.isEmpty else {
             throw ExportError.noAudioTrack
         }
 
-        let reader = try AVAssetReader(asset: audioAsset)
-        // Clamps a replacement that overruns the cut; a shorter one simply
-        // ends early rather than being stretched.
+        let reader = try AVAssetReader(asset: audio.composition)
         reader.timeRange = CMTimeRange(
             start: .zero,
             duration: CMTime(seconds: duration, preferredTimescale: 600)
         )
         let output = AVAssetReaderAudioMixOutput(audioTracks: tracks, audioSettings: nil)
-        output.audioMix = RecordingAudioGain.makeMix(tracks: tracks, volume: configuration.volume)
+        output.audioMix = StudioAudioComposer.mix(for: audio.layout, plan: plan)
         output.alwaysCopiesSampleData = false
         reader.add(output)
 
@@ -215,6 +220,8 @@ nonisolated struct RecordingReplacementAudio {
     /// asset is gone fails every insert into a composition.
     let asset: AVURLAsset
     let track: AVAssetTrack
+    /// The part of the file that holds sound.
+    let range: CMTimeRange
     let duration: TimeInterval
 
     /// Resolves a picked file, or nil when it carries no audio.
@@ -222,6 +229,7 @@ nonisolated struct RecordingReplacementAudio {
         let asset = AVURLAsset(url: url)
         guard let track = try? await asset.loadTracks(withMediaType: .audio).first,
               let duration = try? await asset.load(.duration).seconds,
+              let range = try? await track.load(.timeRange),
               duration.isFinite, duration > 0 else {
             return nil
         }
@@ -230,6 +238,7 @@ nonisolated struct RecordingReplacementAudio {
             displayName: displayName,
             asset: asset,
             track: track,
+            range: range,
             duration: duration
         )
     }

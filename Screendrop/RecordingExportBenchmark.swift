@@ -20,6 +20,7 @@
 //
 
 #if DEBUG
+import AVFoundation
 import AppKit
 import Foundation
 
@@ -38,6 +39,10 @@ enum RecordingExportBenchmark {
                 print("benchmarkMatteCache seconds=\(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - started)) complete=\(complete)")
                 exit(complete ? 0 : 1)
             }
+            return true
+        }
+        if let path = UserDefaults.standard.string(forKey: "studioEngineCheck") {
+            Task { await runEngineCheck(projectPath: path) }
             return true
         }
         guard let path = UserDefaults.standard.string(forKey: argumentKey) else { return false }
@@ -67,6 +72,76 @@ enum RecordingExportBenchmark {
             }
         }
         return true
+    }
+
+    /// `-studioEngineCheck <project> [-studioEngineCheckAudio <file>]`: loads
+    /// the project through Studio's model with no window, runs the editing
+    /// operations a person would (split, delete, cut, link, detach, undo,
+    /// redo), prints the clips and audio after each, and leaves the result
+    /// in the project's draft for `-benchmarkExport` to render. Run it on a
+    /// copy: it edits the project.
+    private static func runEngineCheck(projectPath: String) async {
+        let model = RecordingStudioModel(url: URL(fileURLWithPath: projectPath).standardizedFileURL)
+        model.isAgentSession = true
+        await model.load()
+        guard model.isLoaded else {
+            FileHandle.standardError.write(Data("studioEngineCheck: could not load\n".utf8))
+            exit(1)
+        }
+        func show(_ step: String) {
+            let clips = model.clipTimeline.segments.map {
+                String(format: "%.2f-%.2f@%gx%@", $0.sourceStart, $0.sourceEnd, $0.speed, $0.isMuted ? " muted" : "")
+            }
+            let audio = model.audioClips.map {
+                String(
+                    format: "[%@ L%d %.2f-%.2f file %.2f-%.2f@%gx%@%@]",
+                    $0.source.rawValue, $0.lane, $0.start, $0.end, $0.trimStart, $0.trimEnd, $0.speed,
+                    $0.isLinked ? " linked" : "", $0.isMuted ? " muted" : ""
+                )
+            }
+            print("\(step): duration=\(String(format: "%.2f", model.duration)) clips=\(clips) audio=\(audio)")
+        }
+        func step(_ name: String, _ edit: () -> Void) {
+            model.performAgentEdit(edit)
+            show(name)
+        }
+        show("loaded")
+        step("split at 2") { model.blade(at: 2) }
+        step("delete second clip") {
+            model.selectClip(id: model.clipTimeline.segments[1].id)
+            model.deleteSelectedClip()
+        }
+        if let audioPath = UserDefaults.standard.string(forKey: "studioEngineCheckAudio") {
+            _ = await model.importMediaFile(URL(fileURLWithPath: audioPath), atEditorTime: 1)
+            model.closeOpenUndoGroups()
+            show("import audio at 1")
+            if let id = model.audioClips.last?.id {
+                step("link audio") { model.setAudioClipLinked(true, id: id) }
+                step("cut source 9-10") { model.cutSourceRanges([9...10], actionName: "Cut") }
+                step("mute audio pieces") {
+                    for clip in model.audioClips where clip.source == .file {
+                        model.toggleAudioClipMuted(id: clip.id)
+                    }
+                }
+            }
+        }
+        step("split everything at 0.5") { model.blade(at: 0.5, everything: true) }
+        step("detach audio of first clip") { model.detachAudio(fromClipID: model.clipTimeline.segments[0].id) }
+        step("trim start to playhead at 1") {
+            model.seek(to: 1)
+            model.clearTimelineSelection()
+            model.trimToPlayhead(.start)
+        }
+        let edited = model.editDocument
+        var undone = 0
+        while model.canUndo { model.undo(); undone += 1 }
+        show("undo x\(undone)")
+        while model.canRedo { model.redo() }
+        show("redo all")
+        print("redo restores the edit: \(model.editDocument == edited)")
+        print("player item duration: \(String(format: "%.2f", model.screenPlayer.currentItem?.asset.duration.seconds ?? -1))")
+        model.flushDraft()
+        exit(0)
     }
 
     private static func applyOverrides(to settings: inout VideoCompressionSettings) {

@@ -988,6 +988,42 @@ struct StudioInspector: View {
         )
     }
 
+    /// The clip's own sound: its level, muting it, and lifting it off the
+    /// picture onto an audio lane.
+    @ViewBuilder
+    private func clipSoundControls(for clip: RecordingClipSegment) -> some View {
+        InspectorFieldPair {
+            InspectorSlider(
+                "Clip Volume",
+                value: Binding(
+                    get: { CGFloat(clip.volume) },
+                    set: { value in
+                        model.editClipSound(id: clip.id, actionName: "Change Clip Volume") {
+                            $0.volume = Double(value)
+                        }
+                    }
+                ),
+                range: 0...2,
+                format: .percent()
+            )
+            .disabled(clip.isMuted)
+        } trailing: {
+            InspectorActionButton(
+                clip.isMuted ? "Unmute" : "Mute",
+                systemImage: clip.isMuted ? "speaker.slash.fill" : "speaker.wave.2"
+            ) {
+                model.toggleClipMuted(id: clip.id)
+            }
+            .help("Silence this clip's own sound (V)")
+        }
+
+        InspectorActionButton("Detach Audio", systemImage: "waveform.badge.minus") {
+            withAnimation(.morphIfAllowed) { model.detachAudio(fromClipID: clip.id) }
+        }
+        .disabled(!model.canDetachAudio(fromClipID: clip.id))
+        .help("Move this clip's sound onto an audio lane, where it can be trimmed, moved and faded on its own. It stays linked to the video (⌥⌘B)")
+    }
+
     private func zoomTargetPositionText(_ position: CGPoint) -> String {
         let x = Int((position.x * 100).rounded())
         let y = Int((position.y * 100).rounded())
@@ -1014,6 +1050,10 @@ struct StudioInspector: View {
                         withAnimation(.morphIfAllowed) { model.deleteSelectedClip() }
                     }
                 }
+            }
+
+            if model.hasAudio {
+                clipSoundControls(for: clip)
             }
 
             if clip.speed > 1.001, !model.showsSpeedBadge {
@@ -1291,7 +1331,7 @@ struct StudioInspector: View {
                 }
                 .help(
                     model.hasRecordedAudio
-                        ? "Swap in an audio file, aligned to the start of the edited timeline"
+                        ? "Swap in an audio file for the video's sound, lined up with the cut as it stands. Later cuts cut it with the video"
                         : "Lay an audio file over this silent recording"
                 )
             }
@@ -1400,8 +1440,8 @@ struct StudioInspector: View {
                     .foregroundStyle(.orange)
                     .help(
                         drift > 0
-                            ? "Runs \(Self.spanText(drift)) longer than the cut - the tail is dropped"
-                            : "Runs \(Self.spanText(-drift)) shorter than the cut - the end plays silent"
+                            ? "Runs \(Self.spanText(drift)) longer than the cut it was added to - the tail is dropped"
+                            : "Runs \(Self.spanText(-drift)) shorter than the cut it was added to - the end plays the recorded audio"
                     )
             }
 

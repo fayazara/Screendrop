@@ -82,7 +82,8 @@ enum AgentTools {
     seconds into the cut movie, after cuts and speed changes. Every tool that takes a time asks which \
     clock it is on, and outputs give both where they exist. Zooms, text, redactions, camera layouts and \
     captions are stored on the source clock, so they stay attached to their footage when you cut; \
-    added audio clips are on the edited clock.
+    added audio clips are on the edited clock: a linked one (isLinked) is cut with the video above it, \
+    an unlinked one stays whole and keeps its starting moment.
 
     Coordinates are normalized 0...1 with a top-left origin. Points encode as [x, y] and rects as \
     [[x, y], [width, height]].
@@ -232,7 +233,7 @@ enum AgentTools {
             tool(
                 "add_media",
                 title: "Add media",
-                description: "Copies an image, GIF, or audio file into the project and places it at a time. Images become overlays (move them with update_items kind \"image\"); audio becomes a clip under the video.",
+                description: "Copies an image, GIF, or audio file into the project and places it at a time. Images become overlays (move them with update_items kind \"image\"); audio becomes a clip on an audio lane under the video, unlinked (set isLinked with update_items to have later cuts of the video cut it too).",
                 properties: [
                     "recording": recordingProperty,
                     "path": ["type": "string", "description": "Absolute path to the file."],
@@ -244,7 +245,7 @@ enum AgentTools {
             tool(
                 "update_project",
                 title: "Update project",
-                description: "Applies a JSON merge patch (RFC 7386) to the project document from get_recording: objects merge, arrays replace, null removes. Use it for style (background, padding, cornerRadius, shadow, cursor, camera), toggles (zoomEnabled, showsSubtitles, showsKeystrokes, showsClickEffects, showsSpeedBadge), subtitle look, exportAspect/exportAspectMode, videoCropRect, audioVolume, exportSettings, or the `clips` list itself (source ranges with speeds, in order). Rejected if the result is not a valid project.",
+                description: "Applies a JSON merge patch (RFC 7386) to the project document from get_recording: objects merge, arrays replace, null removes. Use it for style (background, padding, cornerRadius, shadow, cursor, camera), toggles (zoomEnabled, showsSubtitles, showsKeystrokes, showsClickEffects, showsSpeedBadge), subtitle look, exportAspect/exportAspectMode, videoCropRect, audioVolume, exportSettings, or the `clips` list itself (source ranges with speeds, in order; each clip may also carry `volume` 0-2 and `isMuted` for its own sound). Changing `clips` cuts the video's own sound and any linked audio clips with it. Rejected if the result is not a valid project.",
                 properties: [
                     "recording": recordingProperty,
                     "patch": ["type": "object", "description": "Merge patch against get_recording's `document`."],
@@ -386,7 +387,7 @@ enum AgentTools {
     camera_layout: start, end, layout (see get_editing_guide). \
     caption: start, end, text. \
     image: start, end, center [x,y], width (fraction of canvas width), rotation (degrees), opacity, cornerRadius, shadow, fadeIn, fadeOut. \
-    audio: start (edited clock), trimStart, trimEnd, volume 0-1, fadeIn, fadeOut.
+    audio: start (edited clock), trimStart, trimEnd (seconds of its file), volume 0-2, fadeIn, fadeOut, isMuted, lane (0 is the top audio lane; overlapping clips are moved to a free lane), isLinked (true: cut, trimmed and retimed with the video above it; false: stays whole and keeps its starting moment when the video is cut).
     """
 
     private static func tool(

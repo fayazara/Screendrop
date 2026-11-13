@@ -91,6 +91,10 @@ enum RecordingSessionRenderer {
             )
         ).sanitizedCapture
         let document = editDocument
+        let replacementAudioURL: URL? = document?.replacementAudioFileName.flatMap { name in
+            let url = session.directoryURL.appendingPathComponent(name)
+            return FileManager.default.fileExists(atPath: url.path) ? url : nil
+        }
         var style = document?.style.value ?? RecordingStudioStyle()
         // Selecting a camera means the default delivered recording includes
         // it; a saved Studio project that explicitly hid the bubble wins.
@@ -210,6 +214,10 @@ enum RecordingSessionRenderer {
             videoCropRect: videoCropRect,
             clipTimeline: clipTimeline,
             exportSettings: document?.exportSettings ?? VideoCompressionSettings(),
+            // A soundtrack imported in Studio stands in for the recording's
+            // audio here too, cut where the picture is.
+            audioReplacementURL: replacementAudioURL,
+            audioReplacementSync: document?.replacementAudioSync,
             audioVolume: document?.audioVolume ?? 1,
             reframe: reframe,
             fitContentAspect: fitContentAspect,

@@ -20,8 +20,16 @@ struct RecordingClipTimelineView: NSViewRepresentable {
     let onSelect: (UUID) -> Void
     let onSeek: (TimeInterval) -> Void
     let onHover: (TimeInterval?) -> Void
+    /// Changes when the clips' waveform would draw differently.
+    var soundRevision = 0
+    /// Loudness of the video's own sound over a stretch of the recording,
+    /// 0...1; nil when the recording is silent.
+    var soundPeak: ((TimeInterval, TimeInterval) -> Float)?
     let onSplit: (TimeInterval) -> Void
     let onDelete: () -> Void
+    var onToggleMute: ((UUID) -> Void)?
+    var onDetachAudio: ((UUID) -> Void)?
+    var canDetachAudio: ((UUID) -> Bool)?
     let onTrim: (RecordingClipSegment) -> Void
     /// Pinch or ⌘-scroll over the lane: `(factor, anchor editor time)`. The
     /// anchor is the time under the pointer, which the caller keeps pinned to
@@ -75,6 +83,10 @@ struct RecordingClipTimelineView: NSViewRepresentable {
         )
         nsView.scrubbingDidChange = onScrubbing
         nsView.resetRequested = onResetAll
+        nsView.muteRequested = onToggleMute
+        nsView.detachAudioRequested = onDetachAudio
+        nsView.canDetachAudio = canDetachAudio
+        nsView.updateSound(revision: soundRevision, peak: soundPeak)
         nsView.update(
             title: title,
             timeline: timeline,
@@ -193,6 +205,20 @@ final class RecordingClipTimelineControl: NSView {
     var speedRequested: ((UUID, Double) -> Void)?
     var scrubbingDidChange: ((Bool) -> Void)?
     var resetRequested: (() -> Void)?
+    var muteRequested: ((UUID) -> Void)?
+    var detachAudioRequested: ((UUID) -> Void)?
+    var canDetachAudio: ((UUID) -> Bool)?
+    private var soundPeak: ((TimeInterval, TimeInterval) -> Float)?
+    private var soundRevision = 0
+
+    func updateSound(revision: Int, peak: ((TimeInterval, TimeInterval) -> Float)?) {
+        let hadSound = soundPeak != nil
+        soundPeak = peak
+        if revision != soundRevision || hadSound != (peak != nil) {
+            soundRevision = revision
+            needsDisplay = true
+        }
+    }
 
     private enum Edge: Equatable {
         case leading
@@ -218,6 +244,8 @@ final class RecordingClipTimelineControl: NSView {
         static let titleShadeHeight: CGFloat = 24
         /// Narrowest clip that still names itself.
         static let minimumTitledWidth: CGFloat = 56
+        /// The band along the bottom of a clip that shows its sound.
+        static let waveformHeight: CGFloat = 16
         /// Scroll distance that equals one doubling of the timeline scale
         /// under ⌘-scroll.
         static let zoomScrollPointsPerDoubling: CGFloat = 220
@@ -310,7 +338,6 @@ final class RecordingClipTimelineControl: NSView {
     }
 
     override func mouseEntered(with event: NSEvent) {
-        window?.makeFirstResponder(self)
         updateHover(with: event, forceCallback: true)
     }
 
@@ -419,31 +446,6 @@ final class RecordingClipTimelineControl: NSView {
         editorTime(forX: convert(event.locationInWindow, from: nil).x)
     }
 
-    override func keyDown(with event: NSEvent) {
-        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        let characters = event.charactersIgnoringModifiers?.lowercased()
-
-        if modifiers.isEmpty, characters == "c", let hoverTime, hoveredClipID != nil {
-            splitRequested?(hoverTime)
-            return
-        }
-        if modifiers.isEmpty, characters == "s" {
-            splitRequested?(playheadTime)
-            return
-        }
-        if modifiers.subtracting([.shift, .numericPad, .function]).isEmpty,
-           event.keyCode == 123 || event.keyCode == 124 {
-            let magnitude = modifiers.contains(.shift) ? Metrics.coarseStep : Metrics.frameStep
-            stepRequested?(event.keyCode == 123 ? -magnitude : magnitude)
-            return
-        }
-        if modifiers.isEmpty, event.keyCode == 51 || event.keyCode == 117 {
-            deleteRequested?()
-            return
-        }
-        super.keyDown(with: event)
-    }
-
     override func menu(for event: NSEvent) -> NSMenu? {
         let point = convert(event.locationInWindow, from: nil)
         guard timelineRect.contains(point), timeline.duration > 0 else { return nil }
@@ -494,6 +496,32 @@ final class RecordingClipTimelineControl: NSView {
 
         menu.addItem(.separator())
 
+        let isMuted = timeline.segments.first { $0.id == location.segmentID }?.isMuted ?? false
+        let mute = NSMenuItem(
+            title: isMuted ? "Unmute Clip Audio" : "Mute Clip Audio",
+            action: #selector(muteFromContextMenu),
+            keyEquivalent: ""
+        )
+        mute.target = self
+        mute.image = NSImage(
+            systemSymbolName: isMuted ? "speaker.wave.2" : "speaker.slash",
+            accessibilityDescription: nil
+        )
+        mute.isEnabled = soundPeak != nil
+        menu.addItem(mute)
+
+        let detach = NSMenuItem(
+            title: "Detach Audio",
+            action: #selector(detachFromContextMenu),
+            keyEquivalent: ""
+        )
+        detach.target = self
+        detach.image = NSImage(systemSymbolName: "waveform.badge.minus", accessibilityDescription: nil)
+        detach.isEnabled = canDetachAudio?(location.segmentID) ?? false
+        menu.addItem(detach)
+
+        menu.addItem(.separator())
+
         let delete = NSMenuItem(
             title: "Delete Clip",
             action: #selector(deleteFromContextMenu),
@@ -516,6 +544,16 @@ final class RecordingClipTimelineControl: NSView {
             menu.addItem(reset)
         }
         return menu
+    }
+
+    @objc private func muteFromContextMenu() {
+        guard let contextClipID else { return }
+        muteRequested?(contextClipID)
+    }
+
+    @objc private func detachFromContextMenu() {
+        guard let contextClipID else { return }
+        detachAudioRequested?(contextClipID)
     }
 
     @objc private func resetFromContextMenu() {
@@ -683,6 +721,7 @@ final class RecordingClipTimelineControl: NSView {
             if showsTitle(on: clip, in: rect) {
                 drawTitleShade(in: rect)
             }
+            drawWaveform(in: rect, clip: clip, dirtyRect: dirtyRect)
             NSGraphicsContext.restoreGraphicsState()
 
             // A hairline inner edge so neighbouring clips and the track read
@@ -696,6 +735,44 @@ final class RecordingClipTimelineControl: NSView {
             edge.lineWidth = 1
             edge.stroke()
         }
+    }
+
+    /// The clip's own sound along its bottom edge, over a dark band so it
+    /// reads on any picture: where the words are is where to cut. A muted
+    /// clip's sound is drawn faint.
+    private func drawWaveform(in rect: CGRect, clip: RecordingClipSegment, dirtyRect: CGRect) {
+        guard let soundPeak, rect.height >= Metrics.waveformHeight * 2, rect.width >= 8 else { return }
+        let band = CGRect(
+            x: rect.minX,
+            y: rect.maxY - Metrics.waveformHeight,
+            width: rect.width,
+            height: Metrics.waveformHeight
+        )
+        let visible = band.intersection(dirtyRect)
+        guard !visible.isNull, visible.width > 0 else { return }
+
+        NSColor.black.withAlphaComponent(0.55).setFill()
+        visible.fill()
+
+        let bar: CGFloat = 2
+        let pitch: CGFloat = 3
+        let level = CGFloat(min(clip.volume, 1.5))
+        let color = clip.isMuted
+            ? NSColor.white.withAlphaComponent(0.22)
+            : NSColor.white.withAlphaComponent(0.85)
+        color.setFill()
+        let secondsPerPoint = clip.duration / Double(rect.width)
+        var x = rect.minX + floor((visible.minX - rect.minX) / pitch) * pitch
+        let path = NSBezierPath()
+        while x < visible.maxX {
+            let from = clip.sourceStart + Double(x - rect.minX) * secondsPerPoint
+            let to = from + Double(pitch) * secondsPerPoint
+            let peak = min(1, CGFloat(soundPeak(from, to)) * level)
+            let height = max(1, peak * (band.height - 4))
+            path.appendRect(CGRect(x: x, y: band.midY - height / 2, width: bar, height: height))
+            x += pitch
+        }
+        path.fill()
     }
 
     /// Darkens the top of a clip so its title reads over any picture.
@@ -861,10 +938,25 @@ final class RecordingClipTimelineControl: NSView {
                 }
             }
 
+            if clip.isMuted, soundPeak != nil {
+                let badge = badgeRect(
+                    text: "Muted",
+                    symbol: "speaker.slash.fill",
+                    origin: CGPoint(x: leadingX, y: content.minY),
+                    maxX: content.maxX
+                )
+                if let badge {
+                    drawBadge(badge)
+                    leadingX = badge.frame.maxX + 4
+                }
+            }
+
             if clip.id == selectedClipID {
                 let length = Self.durationText(clip.editorDuration)
                 let size = Self.badgeSize(text: length, hasSymbol: false)
-                let origin = CGPoint(x: content.maxX - size.width, y: content.maxY - size.height)
+                // Above the waveform band when the clip shows one.
+                let lift = soundPeak != nil ? Metrics.waveformHeight - 3 : 0
+                let origin = CGPoint(x: content.maxX - size.width, y: content.maxY - size.height - lift)
                 if origin.x >= leadingX {
                     drawBadge(BadgeLayout(
                         frame: CGRect(origin: origin, size: size),
