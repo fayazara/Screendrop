@@ -227,7 +227,33 @@ final class RecordingStudioModel {
     /// Linked clips are cut with the video above them; the rest keep their
     /// place (`StudioAudioConform`).
     private(set) var audioClips: [RecordingAudioClip] = []
-    var selectedAudioClipID: UUID?
+    /// The audio clip the inspector shows: the last one clicked.
+    var selectedAudioClipID: UUID? {
+        didSet {
+            // Picking one clip on its own drops the rest of a multiple
+            // selection; extending a selection sets both.
+            if let selectedAudioClipID {
+                if !selectedAudioClipIDs.contains(selectedAudioClipID) { selectedAudioClipIDs = [selectedAudioClipID] }
+            } else {
+                selectedAudioClipIDs = []
+            }
+        }
+    }
+    /// Every selected audio clip; ⇧- or ⌘-click adds to it. Move, delete,
+    /// mute and link act on all of them.
+    private(set) var selectedAudioClipIDs: Set<UUID> = []
+    /// A stretch of the edited video marked with I and O, for deleting
+    /// the stretch in one go.
+    var rangeSelection: ClosedRange<TimeInterval>?
+    /// Moments flagged with M, on the source clock so they follow the
+    /// footage through cuts.
+    private(set) var markers: [RecordingMarker] = []
+    /// A short word shown over the picture when a key does something
+    /// that is otherwise hard to see ("Muted", "2×").
+    private(set) var notice: StudioNotice?
+    private var noticeTask: Task<Void, Never>?
+    /// One frame of the recording, for frame stepping and timecode.
+    private(set) var frameDuration: TimeInterval = 1.0 / 30
     /// Decoded overlay images, shared with the canvas.
     let overlayImages = RecordingOverlayImageStore()
     /// Moves on when an overlay image finishes decoding, so the canvas
@@ -252,6 +278,18 @@ final class RecordingStudioModel {
     private(set) var speedBadgeTimeline = SpeedBadgeTimeline.empty
     var selectedClipID: UUID?
     var timelineHoverTime: TimeInterval?
+    /// A block or a clip edge is being dragged on the timeline. The preview
+    /// stays on the playhead meanwhile, and audio lanes keep a spare row to
+    /// drag into.
+    var isDraggingTimelineBlock = false {
+        didSet {
+            if isDraggingTimelineBlock, !oldValue { laneCountAtDragStart = usedAudioLaneCount }
+        }
+    }
+    private var laneCountAtDragStart = 1
+    /// A video clip's edge is being dragged; the preview shows the frame
+    /// at that edge rather than skimming.
+    var isTrimmingClip = false
     /// Storyboard tiles for the clip lane, sampled on demand at whatever
     /// density the lane's current zoom needs.
     let timelineThumbnails = RecordingTimelineThumbnailStore()
@@ -308,12 +346,21 @@ final class RecordingStudioModel {
     var audioExportFormat: RecordingAudioFormat = .m4a {
         didSet { scheduleProjectSave() }
     }
+    /// Mixes the audio lanes into the audio-only export. Off by default,
+    /// so the cleanup round trip never bakes music into the replacement.
+    var audioExportIncludesClips = false
     /// The soundtrack standing in for the recording's own audio, resolved
     /// so both playback and export can use it without reloading tracks.
     private(set) var replacementAudio: RecordingReplacementAudio?
     /// How that soundtrack lines up with the recording. It is what lets a
     /// cut of the video cut the soundtrack in the same place.
     private(set) var replacementAudioSync: RecordingAudioSync?
+    /// Every soundtrack and media file this editor has used since it
+    /// opened. Undo can bring any of them back, so cleaning up after a save
+    /// leaves them alone until the editor closes.
+    private var undoReferencedFiles = Set<String>()
+    private var soundtrackOffsetSnapshot: TimeInterval?
+    private var soundtrackOffsetTask: Task<Void, Never>?
     /// Why the last import was rejected, shown next to the Replace control.
     private(set) var replacementAudioError: String?
 
@@ -353,6 +400,8 @@ final class RecordingStudioModel {
     private var audioEditSnapshot: [RecordingAudioClip]?
     private var imageCoalesceTask: Task<Void, Never>?
     private var audioCoalesceTask: Task<Void, Never>?
+    /// What each edit still waiting on its pause will be called in Undo.
+    private var pendingActionNames: [String: String] = [:]
     /// Every audio track the project plays, resolved once so the player
     /// item can be rebuilt synchronously.
     private var audioSources = StudioAudioSources()
@@ -429,8 +478,11 @@ final class RecordingStudioModel {
             duration = sourceDuration
             if let videoTrack = tracks.first(where: { $0.mediaType == .video }) {
                 screenVideoTrack = videoTrack
-                let naturalSize = try await videoTrack.load(.naturalSize)
+                let (naturalSize, frameRate) = try await videoTrack.load(.naturalSize, .nominalFrameRate)
                 guard !isTornDown, !Task.isCancelled else { return }
+                if frameRate.isFinite, frameRate >= 1 {
+                    frameDuration = 1 / Double(frameRate)
+                }
                 if naturalSize.width > 0, naturalSize.height > 0 {
                     videoSize = naturalSize
                 }
@@ -596,6 +648,7 @@ final class RecordingStudioModel {
         redactions = document.redactions ?? []
         imageOverlays = document.imageOverlays ?? []
         audioClips = document.audioClips ?? []
+        markers = (document.markers ?? []).sorted { $0.sourceTime < $1.sourceTime }
         loadOverlayMedia()
         redactionPreview.update(redactions: redactions, clipTimeline: clipTimeline)
         // A project that never chose its own settings inherits whatever
@@ -701,6 +754,10 @@ final class RecordingStudioModel {
         redactions.removeAll()
         imageOverlays.removeAll()
         audioClips.removeAll()
+        markers.removeAll()
+        rangeSelection = nil
+        noticeTask?.cancel()
+        soundtrackOffsetTask?.cancel()
         audioPeaks.removeAll()
         overlayImages.removeAll()
         subtitleCues.removeAll()
@@ -782,23 +839,122 @@ final class RecordingStudioModel {
             shuttleRate = direction
             startPlayback()
         }
+        showNotice(Self.shuttleTitle(shuttleRate))
+    }
+
+    /// "2×", "◀ 1×".
+    static func shuttleTitle(_ rate: Float) -> String {
+        let speed = RecordingClipSegment.speedTitle(Double(abs(rate)))
+        return rate < 0 ? "◀ \(speed)" : speed
     }
 
     /// Moves the paused playhead by whole frames of the recording.
     func stepFrames(_ count: Int) {
         pause()
-        seek(to: currentTime + Double(count) / 30)
+        seek(to: currentTime + Double(count) * frameDuration)
     }
 
-    /// Every moment worth stopping at: the video's cuts and the ends of
-    /// the audio clips.
+    /// Shows a word over the picture for a moment.
+    func showNotice(_ text: String) {
+        notice = StudioNotice(text: text)
+        noticeTask?.cancel()
+        noticeTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(900))
+            guard !Task.isCancelled else { return }
+            self?.notice = nil
+        }
+    }
+
+    /// Every moment worth stopping at: the video's cuts, the ends of the
+    /// audio clips, and markers.
     private var editPoints: [TimeInterval] {
         var points = clipTimeline.editPoints
         for clip in audioClips {
             points.append(clip.start)
             points.append(clip.end)
         }
+        points.append(contentsOf: markerEditorTimes.map(\.time))
         return points.filter { $0 >= 0 && $0 <= duration }.sorted()
+    }
+
+    // MARK: Range
+
+    /// I and O: mark where a stretch starts and ends.
+    func markRange(_ edge: TrimEdge) {
+        let time = currentTime
+        let current = rangeSelection
+        switch edge {
+        case .start:
+            let end = current.map { max($0.upperBound, time) } ?? duration
+            rangeSelection = time...max(time, end)
+        case .end:
+            let start = current.map { min($0.lowerBound, time) } ?? 0
+            rangeSelection = min(start, time)...time
+        }
+        if let range = rangeSelection, range.upperBound - range.lowerBound < RecordingClipSegment.minimumDuration {
+            // An in point at the end and nothing marked out yet: wait for O.
+            if edge == .start { rangeSelection = time...duration }
+        }
+    }
+
+    func clearRange() {
+        rangeSelection = nil
+    }
+
+    /// Removes the marked stretch of video, everything after closing up.
+    /// Linked audio goes with it, as with any cut.
+    func deleteRange() {
+        guard let range = rangeSelection else { return }
+        guard let next = clipTimeline.removingEditorRange(range) else {
+            showNotice("Can't remove the whole video")
+            return
+        }
+        rangeSelection = nil
+        applyClipTimeline(
+            next,
+            selectedID: nil,
+            selectsClip: false,
+            playheadTime: range.lowerBound,
+            actionName: "Delete Range"
+        )
+    }
+
+    // MARK: Markers
+
+    /// Markers that still have footage in the cut, at their edited time.
+    var markerEditorTimes: [(marker: RecordingMarker, time: TimeInterval)] {
+        markers.compactMap { marker in
+            clipTimeline.editorTime(forSourceTime: marker.sourceTime).map { (marker, $0) }
+        }
+    }
+
+    /// M: a marker at the playhead, or off again if one is already there.
+    func toggleMarker() {
+        guard isLoaded else { return }
+        let tolerance = max(frameDuration, 0.02)
+        if let existing = markerEditorTimes.first(where: { abs($0.time - currentTime) <= tolerance }) {
+            applyMarkers(markers.filter { $0.id != existing.marker.id }, actionName: "Remove Marker")
+            showNotice("Marker Removed")
+        } else {
+            let marker = RecordingMarker(sourceTime: clipTimeline.sourceTime(at: currentTime))
+            applyMarkers(markers + [marker], actionName: "Add Marker")
+            showNotice("Marker")
+        }
+    }
+
+    func removeMarker(id: UUID) {
+        applyMarkers(markers.filter { $0.id != id }, actionName: "Remove Marker")
+    }
+
+    private func applyMarkers(_ next: [RecordingMarker], actionName: String) {
+        let sorted = next.sorted { $0.sourceTime < $1.sourceTime }
+        guard sorted != markers else { return }
+        let previous = markers
+        registerUndo(actionName) { target in
+            target.applyMarkers(previous, actionName: actionName)
+        }
+        markers = sorted
+        scheduleProjectSave()
     }
 
     /// Jumps the playhead to the next or previous cut.
@@ -948,6 +1104,7 @@ final class RecordingStudioModel {
     /// Lets go of whatever is selected on the timeline, like clicking
     /// empty canvas.
     func clearTimelineSelection() {
+        selectedAudioClipIDs = []
         selectedCueID = nil
         selectedClipID = nil
         selectedLayoutCueID = nil
@@ -957,7 +1114,27 @@ final class RecordingStudioModel {
         selectedAudioClipID = nil
     }
 
+    /// Registers slider sweeps and typing that are still waiting for their
+    /// pause before landing as an undo step, so undo, save and structural
+    /// edits never act past them.
+    func flushPendingEdits() {
+        textCoalesceTask?.cancel()
+        redactionCoalesceTask?.cancel()
+        imageCoalesceTask?.cancel()
+        audioCoalesceTask?.cancel()
+        clipSoundCoalesceTask?.cancel()
+        let names = pendingActionNames
+        pendingActionNames = [:]
+        endTextEdit(actionName: names["text"] ?? "Edit Text")
+        endRedactionEdit(actionName: names["redaction"] ?? "Edit Pixelate")
+        endImageEdit(actionName: names["image"] ?? "Edit Image")
+        endAudioClipEdit(actionName: names["audio"] ?? "Edit Audio")
+        endClipSoundEdit(actionName: names["clipSound"] ?? "Change Clip Volume")
+        endSoundtrackOffsetEdit()
+    }
+
     func undo() {
+        flushPendingEdits()
         guard editUndoManager.canUndo else { return }
         pause()
         editUndoManager.undo()
@@ -965,6 +1142,7 @@ final class RecordingStudioModel {
     }
 
     func redo() {
+        flushPendingEdits()
         guard editUndoManager.canRedo else { return }
         pause()
         editUndoManager.redo()
@@ -1039,7 +1217,11 @@ final class RecordingStudioModel {
     func blade(at editorTime: TimeInterval, everything: Bool = false) {
         guard isLoaded else { return }
         let time = min(max(editorTime, 0), duration)
-        if !everything, let clip = selectedAudioClip, let halves = StudioAudioConform.split(clip, at: time) {
+        if !everything, let clip = selectedAudioClip, clip.start < time, time < clip.end {
+            guard let halves = StudioAudioConform.split(clip, at: time) else {
+                showNotice("Too close to the end of the clip")
+                return
+            }
             applyAudioClips(
                 audioClips.flatMap { $0.id == clip.id ? [halves.leading, halves.trailing] : [$0] },
                 actionName: "Split Audio"
@@ -1049,6 +1231,10 @@ final class RecordingStudioModel {
         }
 
         let video = clipTimeline.split(at: time)
+        if video == nil, !everything {
+            showNotice(clipTimeline.editPoints.contains { abs($0 - time) < 0.01 } ? "Already a cut here" : "Too close to a cut")
+            return
+        }
         var audio: [RecordingAudioClip]?
         if everything {
             let cut = audioClips.flatMap { clip -> [RecordingAudioClip] in
@@ -1133,6 +1319,7 @@ final class RecordingStudioModel {
         guard next != clipTimeline else { return }
         if clipSoundSnapshot == nil { clipSoundSnapshot = clipTimeline }
         setClipSound(next)
+        pendingActionNames["clipSound"] = actionName
         clipSoundCoalesceTask?.cancel()
         clipSoundCoalesceTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(600))
@@ -1170,7 +1357,10 @@ final class RecordingStudioModel {
         editClipSound(id: id, actionName: segment.isMuted ? "Unmute Clip" : "Mute Clip") {
             $0.isMuted.toggle()
         }
+        clipSoundCoalesceTask?.cancel()
+        pendingActionNames["clipSound"] = nil
         endClipSoundEdit(actionName: segment.isMuted ? "Unmute Clip" : "Mute Clip")
+        showNotice(segment.isMuted ? "Clip Unmuted" : "Clip Muted")
     }
 
     /// True when the clip still plays its own sound, so there is something
@@ -1223,7 +1413,7 @@ final class RecordingStudioModel {
         var cursor = segment.sourceStart
         func recorded(to end: TimeInterval) {
             guard hasRecordedAudio, end - cursor > 0.01,
-                  let clip = piece(.recording, name: "Recording Audio",
+                  let clip = piece(.recording, name: "\(projectDisplayName) audio",
                                    sourceStart: cursor, sourceEnd: end,
                                    fileStart: cursor, fileEnd: end,
                                    fileDuration: sourceDuration) else { return }
@@ -1257,6 +1447,33 @@ final class RecordingStudioModel {
         selectedAudioClipID = detached.first?.id
     }
 
+    /// Puts a clip at another place in the list. The zoom and pointer land
+    /// on cuts that jump back in the recording rather than easing across;
+    /// linked audio moves with its picture.
+    func moveClip(id: UUID, to index: Int) {
+        guard let next = clipTimeline.moving(segmentID: id, to: index) else { return }
+        let playhead = next.editorRange(for: id)?.lowerBound ?? currentTime
+        applyClipTimeline(
+            next,
+            selectedID: id,
+            playheadTime: playhead,
+            actionName: "Move Clip"
+        )
+    }
+
+    /// Plays the clip's recording moment in the preview while its edge is
+    /// dragged, when that moment is in the cut; nil hands back to the
+    /// playhead.
+    func previewSourceTime(_ time: TimeInterval?) {
+        guard let time else {
+            hoverPreviewTime = nil
+            return
+        }
+        if let editor = clipTimeline.editorTime(forSourceTime: time) {
+            hoverPreviewTime = editor
+        }
+    }
+
     func resetClips() {
         let full = RecordingClipTimeline.full(sourceDuration: sourceDuration)
         guard full != clipTimeline else { return }
@@ -1282,6 +1499,7 @@ final class RecordingStudioModel {
         actionName: String,
         hoverTime: TimeInterval? = nil
     ) {
+        flushPendingEdits()
         let next = requestedTimeline.normalized(to: sourceDuration)
         guard !next.segments.isEmpty else { return }
         let nextAudio = requestedAudio.map { StudioAudioConform.resolvingLanes($0) }
@@ -1291,6 +1509,7 @@ final class RecordingStudioModel {
         let previousTimeline = clipTimeline
         let previousAudio = audioClips
         let previousSelection = selectedClipID
+        let hadSelection = selectedClipID != nil
         let previousTime = currentTime
         registerUndo(actionName) { target in
             target.applyClipTimeline(
@@ -1313,17 +1532,24 @@ final class RecordingStudioModel {
             self.selectedAudioClipID = nil
         }
         if selectsClip {
+            // The clip asked for; failing that, whatever is under the new
+            // playhead, but only when a clip was selected to begin with.
+            // Never the first clip: undoing an edit near the end must not
+            // hand the inspector and Delete a clip far away.
+            let clamped = min(max(playheadTime, 0), next.duration)
             selectedClipID = selectedID.flatMap { id in
                 next.segments.contains(where: { $0.id == id }) ? id : nil
-            } ?? next.segments.first?.id
+            } ?? (hadSelection ? next.location(at: clamped)?.segmentID : nil)
         } else {
             selectedClipID = nil
         }
         // Both motion timelines integrate along editor time, so a cut, trim,
         // or speed change invalidates them even when their source data did not
-        // change.
-        rebuildPointerTimeline()
-        rebuildViewportTimeline()
+        // change. A change to a clip's sound alone leaves them be.
+        if Self.motionShape(of: next) != Self.motionShape(of: previousTimeline) {
+            rebuildPointerTimeline()
+            rebuildViewportTimeline()
+        }
 
         do {
             try rebuildScreenPlayerItem(preserving: min(max(playheadTime, 0), duration))
@@ -1335,6 +1561,11 @@ final class RecordingStudioModel {
         }
         updateActiveTranscriptWord()
         scheduleProjectSave()
+    }
+
+    /// What the motion timelines depend on: the clips' ranges and speeds.
+    private static func motionShape(of timeline: RecordingClipTimeline) -> [Double] {
+        timeline.segments.flatMap { [$0.sourceStart, $0.sourceEnd, $0.speed] }
     }
 
     private func rebuildScreenPlayerItem(preserving editorTime: TimeInterval) throws {
@@ -1357,6 +1588,8 @@ final class RecordingStudioModel {
             composedAsset = screenAsset
         }
         let item = AVPlayerItem(asset: composedAsset)
+        // Sped-up speech keeps its pitch, as it does in the export.
+        item.audioTimePitchAlgorithm = .timeDomain
         // Regions are filtered into the picture before the card draws it,
         // so the preview's zoom and crop carry them exactly as the export's.
         redactionPreview.update(redactions: redactions, clipTimeline: clipTimeline)
@@ -1928,6 +2161,7 @@ final class RecordingStudioModel {
     func editText(_ overlay: RecordingTextOverlay, actionName: String) {
         beginTextEdit()
         setText(overlay)
+        pendingActionNames["text"] = actionName
         textCoalesceTask?.cancel()
         textCoalesceTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(600))
@@ -2032,6 +2266,7 @@ final class RecordingStudioModel {
     func editRedaction(_ redaction: RecordingRedaction, actionName: String) {
         beginRedactionEdit()
         setRedaction(redaction)
+        pendingActionNames["redaction"] = actionName
         redactionCoalesceTask?.cancel()
         redactionCoalesceTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(600))
@@ -2233,10 +2468,15 @@ final class RecordingStudioModel {
             return nil
         }
         audioSources.files[fileName] = tracks
+        undoReferencedFiles.insert(fileName)
         loadPeaks(for: fileName, url: storedURL)
         // A file dropped right at the end starts from the top instead of
         // landing past everything.
-        let start = time > duration - 0.5 ? 0 : max(0, time)
+        // Dropped at the very end, it ends there instead of starting past
+        // everything.
+        let start = time > duration - 0.5
+            ? max(0, duration - min(fileDuration, duration))
+            : max(0, time)
         var clip = RecordingAudioClip(
             fileName: fileName,
             displayName: url.deletingPathExtension().lastPathComponent,
@@ -2253,7 +2493,11 @@ final class RecordingStudioModel {
         guard audioPeaks[fileName] == nil else { return }
         Task { [weak self] in
             let peaks = await Task.detached(priority: .utility) { await RecordingAudioPeaks.load(url: url) }.value
-            self?.audioPeaks[fileName] = peaks
+            guard let self else { return }
+            // A soundtrack replaced while this one was being read must not
+            // have its outline taken over by the old file's.
+            if fileName == Self.soundtrackPeaksKey, self.replacementAudio?.url != url { return }
+            self.audioPeaks[fileName] = peaks
         }
     }
 
@@ -2264,6 +2508,8 @@ final class RecordingStudioModel {
         mediaLoadTask?.cancel()
         guard let directory = mediaDirectoryURL, !imageOverlays.isEmpty || !audioClips.isEmpty else { return }
         let imageFiles = Set(imageOverlays.map(\.fileName))
+        undoReferencedFiles.formUnion(imageFiles)
+        undoReferencedFiles.formUnion(audioClips.filter { $0.source == .file }.map(\.fileName))
         let audioFiles = Set(audioClips.filter { $0.source == .file }.map(\.fileName))
             .subtracting(audioSources.files.keys)
         let store = overlayImages
@@ -2358,6 +2604,7 @@ final class RecordingStudioModel {
     func editImage(_ overlay: RecordingImageOverlay, actionName: String) {
         beginImageEdit()
         setImage(overlay)
+        pendingActionNames["image"] = actionName
         imageCoalesceTask?.cancel()
         imageCoalesceTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(600))
@@ -2385,9 +2632,29 @@ final class RecordingStudioModel {
         audioClips.first { $0.id == selectedAudioClipID }
     }
 
+    /// Audio clips that start after the last frame and so never play,
+    /// usually left there by removing video under unlinked music.
+    var audioClipsPastEnd: [RecordingAudioClip] {
+        audioClips.filter { $0.start >= duration - 0.01 }
+    }
+
+    func removeAudioClipsPastEnd() {
+        let ids = Set(audioClipsPastEnd.map(\.id))
+        guard !ids.isEmpty else { return }
+        applyAudioClips(audioClips.filter { !ids.contains($0.id) }, actionName: "Remove Audio After the End")
+    }
+
     /// How many audio lanes the timeline shows: every lane in use, and
     /// always at least one.
     var audioLaneCount: Int {
+        // While a clip is dragged, lanes never close under it, and one spare
+        // lane waits below to drop it into.
+        isDraggingTimelineBlock
+            ? max(usedAudioLaneCount, laneCountAtDragStart) + 1
+            : usedAudioLaneCount
+    }
+
+    private var usedAudioLaneCount: Int {
         max(1, (audioClips.map(\.lane).max() ?? 0) + 1)
     }
 
@@ -2436,9 +2703,87 @@ final class RecordingStudioModel {
         selectedAudioClipID = id
     }
 
+    /// ⇧- or ⌘-click: adds a clip to the selection, or takes a selected one
+    /// back out.
+    func toggleAudioClipInSelection(id: UUID) {
+        guard audioClips.contains(where: { $0.id == id }) else { return }
+        var ids = selectedAudioClipIDs
+        if ids.contains(id) {
+            ids.remove(id)
+        } else {
+            ids.insert(id)
+        }
+        let primary = ids.contains(id) ? id : ids.first
+        clearTimelineSelection()
+        selectedAudioClipIDs = ids
+        selectedAudioClipID = primary
+    }
+
+    /// The clips an audio command acts on: the whole selection when the
+    /// clip is part of it, otherwise just that clip.
+    private func audioTargets(for id: UUID) -> Set<UUID> {
+        selectedAudioClipIDs.contains(id) ? selectedAudioClipIDs : [id]
+    }
+
+    /// Moves every selected clip by the same amount, measured from where
+    /// the drag started.
+    func moveSelectedAudioClips(by delta: TimeInterval, lanes laneDelta: Int, anchor: UUID) {
+        let base = audioEditSnapshot ?? audioClips
+        let ids = audioTargets(for: anchor)
+        let earliest = base.filter { ids.contains($0.id) }.map(\.start).min() ?? 0
+        let shift = max(delta, -earliest)
+        let topLane = base.filter { ids.contains($0.id) }.map(\.lane).min() ?? 0
+        let laneShift = max(laneDelta, -topLane)
+        replaceAudioClips(base.map { clip in
+            guard ids.contains(clip.id) else { return clip }
+            var moved = clip
+            moved.start = clip.start + shift
+            moved.lane = clip.lane + laneShift
+            return moved
+        })
+    }
+
+    /// Mutes or unmutes every clip on a lane in one step.
+    func setAudioLaneMuted(_ muted: Bool, lane: Int) {
+        let next = audioClips.map { clip in
+            var clip = clip
+            if clip.lane == lane { clip.isMuted = muted }
+            return clip
+        }
+        applyAudioClips(next, actionName: muted ? "Mute Lane" : "Unmute Lane")
+    }
+
+    /// Mutes every lane but `lane`, or, given the lanes' earlier state,
+    /// puts them back.
+    func soloAudioLane(_ lane: Int) -> [UUID: Bool] {
+        let before = Dictionary(uniqueKeysWithValues: audioClips.map { ($0.id, $0.isMuted) })
+        let next = audioClips.map { clip in
+            var clip = clip
+            clip.isMuted = clip.lane != lane
+            return clip
+        }
+        applyAudioClips(next, actionName: "Solo Lane")
+        return before
+    }
+
+    func restoreAudioMutes(_ mutes: [UUID: Bool]) {
+        let next = audioClips.map { clip in
+            var clip = clip
+            if let muted = mutes[clip.id] { clip.isMuted = muted }
+            return clip
+        }
+        applyAudioClips(next, actionName: "Unsolo Lane")
+    }
+
+    func isAudioLaneMuted(_ lane: Int) -> Bool {
+        let onLane = audioClips.filter { $0.lane == lane }
+        return !onLane.isEmpty && onLane.allSatisfy(\.isMuted)
+    }
+
     func removeAudioClip(id: UUID) {
-        applyAudioClips(audioClips.filter { $0.id != id }, actionName: "Remove Audio")
-        if selectedAudioClipID == id { selectedAudioClipID = nil }
+        let ids = audioTargets(for: id)
+        applyAudioClips(audioClips.filter { !ids.contains($0.id) }, actionName: ids.count > 1 ? "Remove Audio Clips" : "Remove Audio")
+        if let selectedAudioClipID, ids.contains(selectedAudioClipID) { self.selectedAudioClipID = nil }
     }
 
     func beginAudioClipEdit() {
@@ -2468,6 +2813,7 @@ final class RecordingStudioModel {
     func editAudioClip(_ clip: RecordingAudioClip, actionName: String) {
         beginAudioClipEdit()
         setAudioClip(clip)
+        pendingActionNames["audio"] = actionName
         audioCoalesceTask?.cancel()
         audioCoalesceTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(600))
@@ -2486,12 +2832,29 @@ final class RecordingStudioModel {
 
     func toggleAudioClipMuted(id: UUID) {
         guard let clip = audioClips.first(where: { $0.id == id }) else { return }
-        changeAudioClip(id: id, actionName: clip.isMuted ? "Unmute Audio" : "Mute Audio") { $0.isMuted.toggle() }
+        let ids = audioTargets(for: id)
+        let muted = !clip.isMuted
+        applyAudioClips(audioClips.map { other in
+            var other = other
+            if ids.contains(other.id) { other.isMuted = muted }
+            return other
+        }, actionName: muted ? "Mute Audio" : "Unmute Audio")
+        showNotice(muted ? "Muted" : "Unmuted")
     }
 
     /// Whether the clip is cut along with the video above it.
     func setAudioClipLinked(_ linked: Bool, id: UUID) {
-        changeAudioClip(id: id, actionName: linked ? "Link Audio to Video" : "Unlink Audio") { $0.isLinked = linked }
+        let ids = audioTargets(for: id)
+        applyAudioClips(audioClips.map { other in
+            var other = other
+            if ids.contains(other.id) { other.isLinked = linked }
+            return other
+        }, actionName: linked ? "Link Audio to Video" : "Unlink Audio")
+    }
+
+    /// Plays an unlinked clip faster or slower; it keeps its start.
+    func setAudioClipSpeed(_ speed: Double, id: UUID) {
+        changeAudioClip(id: id, actionName: "Change Audio Speed") { $0.speed = speed }
     }
 
     /// Moves a clip a lane up or down. Whatever is in the way there makes
@@ -2514,6 +2877,12 @@ final class RecordingStudioModel {
     /// A copy placed straight after the clip.
     func duplicateAudioClip(id: UUID) {
         guard let clip = audioClips.first(where: { $0.id == id }) else { return }
+        // A copy past the end of the video would never play.
+        guard clip.end < duration - RecordingAudioClip.minimumDuration else {
+            NSSound.beep()
+            showNotice("No room after the video ends")
+            return
+        }
         var copy = clip
         copy.id = UUID()
         copy.start = clip.end
@@ -2635,12 +3004,11 @@ final class RecordingStudioModel {
         zoomCues
             .filter { !$0.isImplicit }
             .compactMap { cue in
-                let slices = clipTimeline.slices(overlapping: cue.start, sourceEnd: cue.end)
-                guard let first = slices.first, let last = slices.last else { return nil }
+                guard let span = clipTimeline.editorSpan(overlapping: cue.start, sourceEnd: cue.end) else { return nil }
                 return RecordingZoomTimelineBlock(
                     cue: cue,
-                    editorStart: first.editorStart,
-                    editorEnd: last.editorEnd
+                    editorStart: span.lowerBound,
+                    editorEnd: span.upperBound
                 )
             }
     }
@@ -2738,6 +3106,7 @@ final class RecordingStudioModel {
             replacementAudioFileName: replacementAudio?.url.lastPathComponent,
             replacementAudioDisplayName: replacementAudio?.displayName,
             replacementAudioSync: replacementAudio == nil ? nil : replacementAudioSync,
+            markers: markers.isEmpty ? nil : markers,
             audioExportFormat: audioExportFormat,
             audioVolume: Double(audioVolume)
         )
@@ -2797,6 +3166,7 @@ final class RecordingStudioModel {
     /// socket never get one, so without an explicit group every agent edit
     /// would pile into a single step that undoes them all at once.
     func performAgentEdit(_ edit: () throws -> Void) rethrows {
+        flushPendingEdits()
         let manager = editUndoManager
         closeOpenUndoGroups()
         manager.groupsByEvent = false
@@ -2826,7 +3196,13 @@ final class RecordingStudioModel {
         let previous = currentDocument()
         document.replacementAudioFileName = previous.replacementAudioFileName
         document.replacementAudioDisplayName = previous.replacementAudioDisplayName
-        document.replacementAudioSync = previous.replacementAudioSync
+        // How the soundtrack lines up stays as it is; only its offset is
+        // an agent's to change.
+        var sync = previous.replacementAudioSync
+        if let requestedOffset = requested.replacementAudioSync?.offset {
+            sync?.offset = min(max(requestedOffset, -RecordingAudioSync.offsetLimit), RecordingAudioSync.offsetLimit)
+        }
+        document.replacementAudioSync = sync
         guard document != previous else { return }
 
         registerUndo(actionName) { target in
@@ -2838,6 +3214,7 @@ final class RecordingStudioModel {
         timelineHoverTime = nil
 
         let implicitZoomCues = zoomCues.filter(\.isImplicit)
+        if replacementAudio != nil { replacementAudioSync = document.replacementAudioSync }
         applyDocumentSettings(document)
         isApplyingDocument = true
         zoomCues = document.zoomCues + implicitZoomCues
@@ -2868,11 +3245,13 @@ final class RecordingStudioModel {
     @discardableResult
     func saveProject() -> Bool {
         guard isLoaded, let session else { return false }
+        flushPendingEdits()
         projectSaveTask?.cancel()
         let document = currentDocument()
         do {
             try session.writeEditDocument(document)
             session.removeDraftDocument()
+            removeUnreferencedFiles(in: session, keeping: document)
             lastSavedDocument = document
             hasUnsavedChanges = false
             session.updateProjectMetadata { $0.savedAt = Date() }
@@ -3818,7 +4197,9 @@ final class RecordingStudioModel {
             replacementURL: replacementAudio?.url,
             replacementSync: replacementAudio == nil ? nil : replacementAudioSync,
             format: audioExportFormat,
-            volume: Double(audioVolume)
+            volume: Double(audioVolume),
+            audioClips: audioExportIncludesClips ? audioClips : [],
+            mediaDirectory: audioExportIncludesClips ? mediaDirectoryURL : nil
         )
         let suggestedFileName = audioExportSuggestedFileName
         let dockProgressID = DockExportProgressCoordinator.shared.start()
@@ -3861,9 +4242,10 @@ final class RecordingStudioModel {
     }
 
     /// The inbound half: adopts a cleaned-up soundtrack as the project's
-    /// audio. The file is copied into the session so the project keeps
-    /// playing after the original is moved, and playback switches to it
-    /// immediately rather than only revealing itself at export.
+    /// audio. The file is copied into the session under a name of its own,
+    /// so the project keeps playing after the original is moved, and the
+    /// previous soundtrack stays on disk for undo. Files nothing refers to
+    /// any more are cleared up when the project is saved.
     func replaceAudio(with pickedURL: URL) {
         guard isLoaded else { return }
         pause()
@@ -3871,22 +4253,24 @@ final class RecordingStudioModel {
 
         replacementAudioError = nil
         let displayName = pickedURL.lastPathComponent
+        var copiedURL: URL?
         let storedURL: URL
         if let session {
             let destination = session.directoryURL
-                .appendingPathComponent(RecordingSession.replacementAudioBaseName)
+                .appendingPathComponent(
+                    "\(RecordingSession.replacementAudioBaseName)-\(UUID().uuidString.prefix(8).lowercased())"
+                )
                 .appendingPathExtension(pickedURL.pathExtension.isEmpty ? "m4a" : pickedURL.pathExtension)
             do {
-                // Clear every previous import, whatever extension it had,
-                // so the session never accumulates orphaned soundtracks.
-                removeStoredReplacementAudio(in: session)
+                let accessing = pickedURL.startAccessingSecurityScopedResource()
+                defer { if accessing { pickedURL.stopAccessingSecurityScopedResource() } }
                 try FileManager.default.copyItem(at: pickedURL, to: destination)
             } catch {
                 replacementAudioError = "Could not import that file: \(error.localizedDescription)"
-                clearReplacementAudio()
                 return
             }
             storedURL = destination
+            copiedURL = destination
         } else {
             // Bare movies have no project folder to copy into; they
             // reference the picked file where it sits.
@@ -3900,25 +4284,23 @@ final class RecordingStudioModel {
             )
             guard let self, !Task.isCancelled else { return }
             guard let resolved else {
-                if let session = self.session {
-                    self.removeStoredReplacementAudio(in: session)
-                }
+                // Never adopted, so nothing can refer to the copy.
+                if let copiedURL { try? FileManager.default.removeItem(at: copiedURL) }
                 self.replacementAudioError = "That file has no audio track."
-                self.clearReplacementAudio()
                 return
             }
             // The file is the sound of the cut as it stands; from here on
             // it follows the picture.
-            self.adoptReplacementAudio(resolved, sync: .flat(over: self.clipTimeline))
-            self.applyReplacementAudioToPlayback()
+            self.setSoundtrack(
+                SoundtrackState(audio: resolved, sync: .flat(over: self.clipTimeline), clips: self.audioClips),
+                actionName: "Replace Audio"
+            )
         }
     }
 
-    /// Makes a soundtrack (or none) the video's own sound, with how it
-    /// lines up with the recording. A soundtrack saved before that was
-    /// tracked lies flat over the current cut, as it always played.
     private func adoptReplacementAudio(_ audio: RecordingReplacementAudio?, sync: RecordingAudioSync?) {
         replacementAudio = audio
+        if let audio { undoReferencedFiles.insert(audio.url.lastPathComponent) }
         audioPeaks[Self.soundtrackPeaksKey] = nil
         guard let audio else {
             replacementAudioSync = nil
@@ -3932,25 +4314,75 @@ final class RecordingStudioModel {
         loadPeaks(for: Self.soundtrackPeaksKey, url: audio.url)
     }
 
+    /// Slides the soundtrack against the picture. A slider sweep undoes
+    /// as one step; the player is rebuilt once it settles.
+    func setReplacementAudioOffset(_ offset: TimeInterval) {
+        guard var sync = replacementAudioSync, replacementAudio != nil else { return }
+        let clamped = min(max(offset, -RecordingAudioSync.offsetLimit), RecordingAudioSync.offsetLimit)
+        guard abs(sync.offset - clamped) > 0.000_1 else { return }
+        if soundtrackOffsetSnapshot == nil { soundtrackOffsetSnapshot = sync.offset }
+        sync.offset = clamped
+        replacementAudioSync = sync
+        scheduleProjectSave()
+        scheduleAudioPlaybackRebuild()
+        soundtrackOffsetTask?.cancel()
+        soundtrackOffsetTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(600))
+            guard !Task.isCancelled else { return }
+            self?.endSoundtrackOffsetEdit()
+        }
+    }
+
+    private func endSoundtrackOffsetEdit() {
+        soundtrackOffsetTask?.cancel()
+        guard let previous = soundtrackOffsetSnapshot else { return }
+        soundtrackOffsetSnapshot = nil
+        guard let current = replacementAudioSync?.offset, abs(current - previous) > 0.000_1 else { return }
+        registerUndo("Change Audio Sync") { target in
+            target.restoreSoundtrackOffset(previous, redoing: current)
+        }
+    }
+
+    private func restoreSoundtrackOffset(_ offset: TimeInterval, redoing other: TimeInterval) {
+        guard var sync = replacementAudioSync else { return }
+        registerUndo("Change Audio Sync") { target in
+            target.restoreSoundtrackOffset(other, redoing: offset)
+        }
+        sync.offset = offset
+        replacementAudioSync = sync
+        scheduleProjectSave()
+        scheduleAudioPlaybackRebuild()
+    }
+
     func removeReplacementAudio() {
         guard replacementAudio != nil else { return }
         replacementAudioTask?.cancel()
         replacementAudioTask = nil
-        pause()
-        if let session {
-            removeStoredReplacementAudio(in: session)
-        }
         replacementAudioError = nil
-        clearReplacementAudio()
+        // Sound detached from the soundtrack has nothing left to play.
+        setSoundtrack(
+            SoundtrackState(audio: nil, sync: nil, clips: audioClips.filter { $0.source != .replacement }),
+            actionName: "Remove Replaced Audio"
+        )
     }
 
-    /// Drops back to the recorded audio, whether that follows a removal or
-    /// a failed import that already deleted the copy.
-    private func clearReplacementAudio() {
-        guard replacementAudio != nil else { return }
-        adoptReplacementAudio(nil, sync: nil)
-        // Sound detached from the soundtrack has nothing left to play.
-        audioClips.removeAll { $0.source == .replacement }
+    /// The soundtrack and everything that depends on it, as one undoable
+    /// value. Holding the resolved audio makes undo synchronous.
+    private struct SoundtrackState {
+        var audio: RecordingReplacementAudio?
+        var sync: RecordingAudioSync?
+        var clips: [RecordingAudioClip]
+    }
+
+    private func setSoundtrack(_ state: SoundtrackState, actionName: String) {
+        flushPendingEdits()
+        let previous = SoundtrackState(audio: replacementAudio, sync: replacementAudioSync, clips: audioClips)
+        registerUndo(actionName) { target in
+            target.setSoundtrack(previous, actionName: actionName)
+        }
+        pause()
+        adoptReplacementAudio(state.audio, sync: state.sync)
+        audioClips = StudioAudioConform.resolvingLanes(state.clips)
         if let selectedAudioClipID, !audioClips.contains(where: { $0.id == selectedAudioClipID }) {
             self.selectedAudioClipID = nil
         }
@@ -3966,15 +4398,27 @@ final class RecordingStudioModel {
         scheduleProjectSave()
     }
 
-    private func removeStoredReplacementAudio(in session: RecordingSession) {
-        let names = (try? FileManager.default.contentsOfDirectory(
-            atPath: session.directoryURL.path
-        )) ?? []
-        for name in names
-        where name.hasPrefix("\(RecordingSession.replacementAudioBaseName).") {
-            try? FileManager.default.removeItem(
-                at: session.directoryURL.appendingPathComponent(name)
-            )
+    /// Deletes soundtracks and media files that neither the saved project
+    /// nor anything this editor has used refers to. Only run after a save:
+    /// until then undo, a discard or the draft may still need any of them.
+    private func removeUnreferencedFiles(in session: RecordingSession, keeping document: RecordingEditDocument) {
+        var kept = undoReferencedFiles
+        if let name = document.replacementAudioFileName { kept.insert(name) }
+        for image in document.imageOverlays ?? [] { kept.insert(image.fileName) }
+        for clip in document.audioClips ?? [] where clip.source == .file { kept.insert(clip.fileName) }
+        let directory = session.directoryURL
+        let mediaDirectory = directory.appendingPathComponent("media", isDirectory: true)
+        let prefix = RecordingSession.replacementAudioBaseName
+        Task.detached(priority: .utility) {
+            let fileManager = FileManager.default
+            for name in (try? fileManager.contentsOfDirectory(atPath: directory.path)) ?? []
+            where name.hasPrefix(prefix) && !kept.contains(name) {
+                try? fileManager.removeItem(at: directory.appendingPathComponent(name))
+            }
+            for name in (try? fileManager.contentsOfDirectory(atPath: mediaDirectory.path)) ?? []
+            where !kept.contains(name) {
+                try? fileManager.removeItem(at: mediaDirectory.appendingPathComponent(name))
+            }
         }
     }
 

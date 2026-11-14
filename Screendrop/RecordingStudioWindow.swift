@@ -330,6 +330,16 @@ private struct StudioCanvas: View {
                         .transition(.blurPop)
                 }
 
+                if let notice = model.notice {
+                    // What a key just did, when the change is hard to see.
+                    StudioCanvasBadge(text: notice.text)
+                        .padding(.top, 12)
+                        .frame(width: canvasSize.width, alignment: .top)
+                        .id(notice.id)
+                        .allowsHitTesting(false)
+                        .transition(.opacity)
+                }
+
                 if let playbackFlash {
                     StudioPlaybackFlashView(systemImage: playbackFlash.systemImage)
                         .frame(width: canvasSize.width, height: canvasSize.height)

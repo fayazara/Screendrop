@@ -126,6 +126,30 @@ enum RecordingExportBenchmark {
             }
         }
         step("split everything at 0.5") { model.blade(at: 0.5, everything: true) }
+        step("move last clip first") {
+            if let last = model.clipTimeline.segments.last { model.moveClip(id: last.id, to: 0) }
+        }
+        print("hard cuts: \(model.clipTimeline.hardCuts)")
+        step("marker at 0.25") {
+            model.seek(to: 0.25)
+            model.toggleMarker()
+        }
+        print("markers: \(model.markerEditorTimes.map(\.time))")
+        step("mark 0.1-0.3 and delete it") {
+            model.seek(to: 0.1)
+            model.markRange(.start)
+            model.seek(to: 0.3)
+            model.markRange(.end)
+            model.deleteRange()
+        }
+        if model.replacementAudio != nil {
+            let file = model.replacementAudio?.url.lastPathComponent ?? ""
+            step("remove replaced audio") { model.removeReplacementAudio() }
+            model.undo()
+            print("undo brings replaced audio back: \(model.replacementAudio?.url.lastPathComponent == file) file exists: \(FileManager.default.fileExists(atPath: model.replacementAudio?.url.path ?? ""))")
+            model.redo()
+            model.undo()
+        }
         step("detach audio of first clip") { model.detachAudio(fromClipID: model.clipTimeline.segments[0].id) }
         step("trim start to playhead at 1") {
             model.seek(to: 1)

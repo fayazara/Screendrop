@@ -617,11 +617,18 @@ struct StudioAudioClipInspectorControls: View {
                         set: { model.setAudioClipLinked($0, id: clip.id) }
                     )
                 )
-                InspectorHint(
-                    clip.isLinked
-                        ? "Linked: cutting, trimming or speeding up the video above does the same to this sound."
-                        : "Not linked: it stays in one piece when the video is cut, and keeps its starting moment."
-                )
+                if clip.isLinked {
+                    InspectorHint("Linked: cutting, trimming or speeding up the video above does the same to this sound. Plays \(Self.clock(clip.fileSpan)) of its \(Self.clock(clip.fileDuration)) file.")
+                } else {
+                    InspectorSegmented(
+                        options: RecordingAudioClip.speedPresets,
+                        isSelected: { abs($0 - clip.speed) < 0.001 },
+                        onTap: { model.setAudioClipSpeed($0, id: clip.id) },
+                        label: { Text(RecordingClipSegment.speedTitle($0)).font(.inspectorSegment) }
+                    )
+                    .help("How fast this clip plays. It keeps its start.")
+                    InspectorHint("Not linked: it stays in one piece when the video is cut, and keeps its starting moment. Plays \(Self.clock(clip.fileSpan)) of its \(Self.clock(clip.fileDuration)) file.")
+                }
 
                 HStack(spacing: InspectorMetrics.rowSpacing) {
                     InspectorActionButton("Split", systemImage: "scissors") {
@@ -637,7 +644,6 @@ struct StudioAudioClipInspectorControls: View {
                 }
             }
 
-            InspectorHint("Plays \(Self.clock(clip.fileSpan)) of \(Self.clock(clip.fileDuration)) from \(Self.clock(clip.start)) in the video. Drag its edges on the timeline to trim it.")
         }
     }
 

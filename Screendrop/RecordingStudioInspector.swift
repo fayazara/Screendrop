@@ -420,14 +420,19 @@ struct StudioInspector: View {
         return model.clipTimeline.segments.first { $0.id == location.segmentID }
     }
 
+    /// Which clip the section acts on, so a scrub that moves it to another
+    /// clip never goes unnoticed: its place, where it plays, its speed, and
+    /// "At playhead" when it isn't one the user picked.
     private func clipSummary(for clip: RecordingClipSegment) -> String {
         let segments = model.clipTimeline.segments
         let speed = RecordingClipSegment.speedTitle(clip.speed)
         guard segments.count > 1,
-              let index = segments.firstIndex(where: { $0.id == clip.id }) else {
+              let index = segments.firstIndex(where: { $0.id == clip.id }),
+              let range = model.clipTimeline.editorRange(for: clip.id) else {
             return speed
         }
-        return "\(index + 1) of \(segments.count) · \(speed)"
+        let place = "\(index + 1) of \(segments.count) · \(studioTimecode(range.lowerBound))–\(studioTimecode(range.upperBound)) · \(speed)"
+        return model.selectedClipID == clip.id ? place : "At playhead · \(place)"
     }
 
     // MARK: Pages
@@ -1339,6 +1344,39 @@ struct StudioInspector: View {
             if let replacement = model.replacementAudio {
                 replacementChip(for: replacement)
                     .transition(.blurPop)
+
+                InspectorHalfField {
+                    InspectorSlider(
+                        "Sync",
+                        value: Binding(
+                            get: { CGFloat(model.replacementAudioSync?.offset ?? 0) },
+                            set: { model.setReplacementAudioOffset(Double($0)) }
+                        ),
+                        range: CGFloat(-RecordingAudioSync.offsetLimit)...CGFloat(RecordingAudioSync.offsetLimit),
+                        format: .seconds
+                    )
+                    .help("Slide the replaced audio against the picture, if it came back from a cleanup tool a little late or early")
+                }
+
+                InspectorHint(
+                    model.replacementAudioDrift == nil
+                        ? "Lined up with the cut when it was added. Later cuts cut it with the video."
+                        : "Lined up with the cut when it was added. Later cuts cut it with the video. Export the audio again after your edits for a full-length replacement."
+                )
+            }
+
+            if !model.audioClipsPastEnd.isEmpty {
+                HStack(spacing: InspectorMetrics.rowSpacing) {
+                    InspectorHint(
+                        model.audioClipsPastEnd.count == 1
+                            ? "1 audio clip starts after the video ends."
+                            : "\(model.audioClipsPastEnd.count) audio clips start after the video ends.",
+                        tint: .orange
+                    )
+                    InspectorActionButton("Remove", systemImage: "trash") {
+                        model.removeAudioClipsPastEnd()
+                    }
+                }
             }
 
             if let message = model.replacementAudioError {
@@ -1362,7 +1400,10 @@ struct StudioInspector: View {
                 }
                 .help("Export just the soundtrack of the current cut")
                 .popover(isPresented: $isAudioExportOptionsPresented, arrowEdge: .bottom) {
-                    StudioAudioExportOptions(format: $model.audioExportFormat) {
+                    StudioAudioExportOptions(
+                        format: $model.audioExportFormat,
+                        includesAddedAudio: $model.audioExportIncludesClips
+                    ) {
                         isAudioExportOptionsPresented = false
                         model.exportAudio()
                     }
@@ -1773,6 +1814,7 @@ private struct TranscriptFlowLayout: Layout {
 /// Asks for the soundtrack format at export time.
 private struct StudioAudioExportOptions: View {
     @Binding var format: RecordingAudioFormat
+    @Binding var includesAddedAudio: Bool
     let onExport: () -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -1797,6 +1839,13 @@ private struct StudioAudioExportOptions: View {
                     format == .m4a
                         ? "Compact AAC audio, accepted by most enhancement tools."
                         : "Uncompressed, for tools that accept nothing else."
+                )
+
+                InspectorToggleRow("Include added audio", isOn: $includesAddedAudio)
+                InspectorHint(
+                    includesAddedAudio
+                        ? "Music and sound on the audio lanes are mixed in."
+                        : "Just the video's own sound, ready to clean up and bring back with Replace."
                 )
             }
         }

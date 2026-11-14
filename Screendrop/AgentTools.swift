@@ -245,7 +245,7 @@ enum AgentTools {
             tool(
                 "update_project",
                 title: "Update project",
-                description: "Applies a JSON merge patch (RFC 7386) to the project document from get_recording: objects merge, arrays replace, null removes. Use it for style (background, padding, cornerRadius, shadow, cursor, camera), toggles (zoomEnabled, showsSubtitles, showsKeystrokes, showsClickEffects, showsSpeedBadge), subtitle look, exportAspect/exportAspectMode, videoCropRect, audioVolume, exportSettings, or the `clips` list itself (source ranges with speeds, in order; each clip may also carry `volume` 0-2 and `isMuted` for its own sound). Changing `clips` cuts the video's own sound and any linked audio clips with it. Rejected if the result is not a valid project.",
+                description: "Applies a JSON merge patch (RFC 7386) to the project document from get_recording: objects merge, arrays replace, null removes. Use it for style (background, padding, cornerRadius, shadow, cursor, camera), toggles (zoomEnabled, showsSubtitles, showsKeystrokes, showsClickEffects, showsSpeedBadge), subtitle look, exportAspect/exportAspectMode, videoCropRect, audioVolume, exportSettings, or the `clips` list itself (source ranges with speeds, in order; each clip may also carry `volume` 0-2 and `isMuted` for its own sound). Changing `clips` cuts the video's own sound and any linked audio clips with it. Clips may be listed in any order (a clip can play before footage recorded earlier), but no moment of the recording may appear twice. Also `markers` (an array of {sourceTime, note}) for flags on the timeline, and `replacementAudioSync.offset` (seconds, -1 to 1) to slide an imported soundtrack against the picture. Rejected if the result is not a valid project.",
                 properties: [
                     "recording": recordingProperty,
                     "patch": ["type": "object", "description": "Merge patch against get_recording's `document`."],
@@ -387,7 +387,7 @@ enum AgentTools {
     camera_layout: start, end, layout (see get_editing_guide). \
     caption: start, end, text. \
     image: start, end, center [x,y], width (fraction of canvas width), rotation (degrees), opacity, cornerRadius, shadow, fadeIn, fadeOut. \
-    audio: start (edited clock), trimStart, trimEnd (seconds of its file), volume 0-2, fadeIn, fadeOut, isMuted, lane (0 is the top audio lane; overlapping clips are moved to a free lane), isLinked (true: cut, trimmed and retimed with the video above it; false: stays whole and keeps its starting moment when the video is cut).
+    audio: start (edited clock), trimStart, trimEnd (seconds of its file), volume 0-2, fadeIn, fadeOut, isMuted, lane (0 is the top audio lane, up to 7; overlapping clips are moved to a free lane), speed (file seconds per video second, 0.25-8; a linked clip follows its video), isLinked (true: cut, trimmed and retimed with the video above it; false: stays whole and keeps its starting moment when the video is cut).
     """
 
     private static func tool(

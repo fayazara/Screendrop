@@ -95,6 +95,9 @@ struct StudioBlockEdit<Item: Identifiable> where Item.ID == UUID {
     let kind: StudioBlockEditKind
     /// Editor seconds the pointer has travelled since the press.
     let delta: TimeInterval
+    /// Points the pointer has travelled up (negative) or down since the
+    /// press, for tracks whose blocks can change row.
+    var verticalTranslation: CGFloat = 0
 }
 
 /// What a drag across empty track does.
@@ -461,7 +464,11 @@ where Item.ID == UUID {
                 if press == nil {
                     begin(at: value.startLocation.x, frames: frames)
                 }
-                update(translation: value.location.x - value.startLocation.x, x: value.location.x)
+                update(
+                    translation: value.location.x - value.startLocation.x,
+                    vertical: value.location.y - value.startLocation.y,
+                    x: value.location.x
+                )
             }
             .onEnded { _ in finish() }
     }
@@ -493,19 +500,22 @@ where Item.ID == UUID {
         }
     }
 
-    private func update(translation: CGFloat, x: CGFloat) {
+    private func update(translation: CGFloat, vertical: CGFloat, x: CGFloat) {
         let time = scale.time(forX: x)
         switch press {
         case .block(let block, let kind):
             // A trim follows the pointer from the first point; a move waits
             // out a small wobble so a click only selects.
             let threshold = kind == .move ? StudioBlockMetrics.dragThreshold : 0.5
-            guard abs(translation) >= threshold else { return }
+            guard abs(translation) >= threshold || (kind == .move && abs(vertical) >= threshold) else { return }
             actions.begin(kind)
             press = .editing(block, kind)
-            edit(block, kind: kind, translation: translation)
+            // The preview stays on the playhead while a block is dragged,
+            // instead of chasing the pointer.
+            model.isDraggingTimelineBlock = true
+            edit(block, kind: kind, translation: translation, vertical: vertical)
         case .editing(let block, let kind):
-            edit(block, kind: kind, translation: translation)
+            edit(block, kind: kind, translation: translation, vertical: vertical)
         case .empty(let startTime):
             if abs(translation) < StudioBlockMetrics.dragThreshold {
                 model.seek(to: time)
@@ -523,7 +533,7 @@ where Item.ID == UUID {
         }
     }
 
-    private func edit(_ block: StudioLaneBlock<Item>, kind: StudioBlockEditKind, translation: CGFloat) {
+    private func edit(_ block: StudioLaneBlock<Item>, kind: StudioBlockEditKind, translation: CGFloat, vertical: CGFloat) {
         var delta = Double(translation) * scale.secondsPerPoint
         if case .forbidden(let spans) = overlap {
             // Stop at the neighbours here, on the timeline, where the
@@ -541,7 +551,7 @@ where Item.ID == UUID {
                 delta = min(delta, room.upperBound - block.editorEnd)
             }
         }
-        actions.edit(StudioBlockEdit(base: block, kind: kind, delta: delta))
+        actions.edit(StudioBlockEdit(base: block, kind: kind, delta: delta, verticalTranslation: vertical))
     }
 
     /// The gap a block sits in: from the end of the block before it to the
@@ -556,6 +566,7 @@ where Item.ID == UUID {
     private func finish() {
         switch press {
         case .editing(_, let kind):
+            model.isDraggingTimelineBlock = false
             actions.end(kind)
         case .creating:
             if let draft, case .create(_, _, let commit) = empty {

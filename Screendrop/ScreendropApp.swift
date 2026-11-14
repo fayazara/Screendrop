@@ -62,6 +62,7 @@ struct ScreendropApp: App {
         }
         .windowResizability(.contentSize)
         .defaultSize(width: 1360, height: 860)
+        .commands { StudioCommands() }
     }
 
     @MainActor

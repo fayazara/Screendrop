@@ -28,6 +28,16 @@ struct RecordingClipTimelineView: NSViewRepresentable {
     let onSplit: (TimeInterval) -> Void
     let onDelete: () -> Void
     var onToggleMute: ((UUID) -> Void)?
+    /// ⌥-drag or the menu put a clip at a new position in the list.
+    var onReorder: ((UUID, Int) -> Void)?
+    /// Editor times a trimmed edge catches on, and whether it does.
+    var snapPoints: [TimeInterval] = []
+    var snaps = true
+    /// While an edge is caught on a snap point, that point; nil otherwise.
+    var onSnapGuide: ((TimeInterval?) -> Void)?
+    /// The recording moment at the edge being trimmed, so the preview can
+    /// show it; nil when the trim ends.
+    var onTrimPreview: ((TimeInterval?) -> Void)?
     var onDetachAudio: ((UUID) -> Void)?
     var canDetachAudio: ((UUID) -> Bool)?
     let onTrim: (RecordingClipSegment) -> Void
@@ -84,6 +94,11 @@ struct RecordingClipTimelineView: NSViewRepresentable {
         nsView.scrubbingDidChange = onScrubbing
         nsView.resetRequested = onResetAll
         nsView.muteRequested = onToggleMute
+        nsView.reorderRequested = onReorder
+        nsView.snapPoints = snapPoints
+        nsView.snaps = snaps
+        nsView.snapGuideDidChange = onSnapGuide
+        nsView.trimPreviewDidChange = onTrimPreview
         nsView.detachAudioRequested = onDetachAudio
         nsView.canDetachAudio = canDetachAudio
         nsView.updateSound(revision: soundRevision, peak: soundPeak)
@@ -206,6 +221,14 @@ final class RecordingClipTimelineControl: NSView {
     var scrubbingDidChange: ((Bool) -> Void)?
     var resetRequested: (() -> Void)?
     var muteRequested: ((UUID) -> Void)?
+    var reorderRequested: ((UUID, Int) -> Void)?
+    var snapPoints: [TimeInterval] = []
+    var snaps = true
+    var snapGuideDidChange: ((TimeInterval?) -> Void)?
+    var trimPreviewDidChange: ((TimeInterval?) -> Void)?
+    /// Where a clip being reordered would land, as an index in the list.
+    private var reorderDestination: Int?
+    private var lastSnapGuide: TimeInterval?
     var detachAudioRequested: ((UUID) -> Void)?
     var canDetachAudio: ((UUID) -> Bool)?
     private var soundPeak: ((TimeInterval, TimeInterval) -> Float)?
@@ -228,6 +251,8 @@ final class RecordingClipTimelineControl: NSView {
     private enum DragTarget {
         case scrub
         case trim(clipID: UUID, edge: Edge)
+        /// ⌥-drag: the clip is being moved to another place in the list.
+        case reorder(clipID: UUID)
     }
 
     private enum Metrics {
@@ -274,6 +299,26 @@ final class RecordingClipTimelineControl: NSView {
     private var lastHoverCallbackTimestamp: TimeInterval = 0
 
     override var isFlipped: Bool { true }
+
+    // Drawn by hand, so each clip is described to VoiceOver here.
+    override func isAccessibilityElement() -> Bool { false }
+
+    override func accessibilityChildren() -> [Any]? {
+        timeline.segments.enumerated().compactMap { index, clip in
+            guard let rect = clipRect(for: clip.id), let range = timeline.editorRange(for: clip.id) else { return nil }
+            var parts = ["Clip \(index + 1) of \(timeline.segments.count)",
+                         "\(Self.durationText(range.lowerBound)) to \(Self.durationText(range.upperBound))"]
+            if abs(clip.speed - 1) > 0.001 { parts.append("\(RecordingClipSegment.speedTitle(clip.speed)) speed") }
+            if clip.isMuted { parts.append("muted") }
+            if clip.id == selectedClipID { parts.append("selected") }
+            return NSAccessibilityElement.element(
+                withRole: .button,
+                frame: NSAccessibility.screenRect(fromView: self, rect: rect),
+                label: parts.joined(separator: ", "),
+                parent: self
+            )
+        }
+    }
     override var acceptsFirstResponder: Bool { true }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
@@ -288,8 +333,15 @@ final class RecordingClipTimelineControl: NSView {
         selectedClipID: UUID?,
         playheadTime: TimeInterval
     ) {
-        if dragTarget == nil {
+        // Only what the strip draws asks for a redraw. The playhead is the
+        // overlay's to draw, so its ticks during playback cost nothing here.
+        var changed = false
+        if dragTarget == nil, self.timeline != timeline {
             self.timeline = timeline
+            changed = true
+        }
+        if self.title != title || self.selectedClipID != selectedClipID || self.sourceDuration != sourceDuration {
+            changed = true
         }
         self.title = title
         self.sourceDuration = sourceDuration
@@ -303,7 +355,7 @@ final class RecordingClipTimelineControl: NSView {
         }
         self.selectedClipID = selectedClipID
         self.playheadTime = min(max(playheadTime, 0), max(timeline.duration, 0))
-        needsDisplay = true
+        if changed { needsDisplay = true }
     }
 
     override func updateTrackingAreas() {
@@ -335,6 +387,31 @@ final class RecordingClipTimelineControl: NSView {
         drawClips(in: dirtyRect)
         drawSelectionGrooves()
         drawBadges(in: dirtyRect)
+        drawReorderMark()
+    }
+
+    /// While ⌥-dragging, a yellow bar where the clip will land.
+    private func drawReorderMark() {
+        guard case .reorder(let clipID) = dragTarget, let destination = reorderDestination else { return }
+        if let rect = clipRect(for: clipID) {
+            NSColor.black.withAlphaComponent(0.45).setFill()
+            NSBezierPath(roundedRect: rect, xRadius: clipRadius(for: rect), yRadius: clipRadius(for: rect)).fill()
+        }
+        let points = timeline.editPoints
+        guard points.indices.contains(destination) else { return }
+        let x = xPosition(for: points[destination])
+        NSColor.systemYellow.setFill()
+        NSBezierPath(
+            roundedRect: CGRect(x: x - 1.5, y: timelineRect.minY, width: 3, height: timelineRect.height),
+            xRadius: 1.5,
+            yRadius: 1.5
+        ).fill()
+    }
+
+    private func setSnapGuide(_ time: TimeInterval?) {
+        guard time != lastSnapGuide else { return }
+        lastSnapGuide = time
+        snapGuideDidChange?(time)
     }
 
     override func mouseEntered(with event: NSEvent) {
@@ -379,6 +456,9 @@ final class RecordingClipTimelineControl: NSView {
            let clip = timeline.segments.first(where: { $0.id == hit.clipID }) {
             dragTarget = .trim(clipID: hit.clipID, edge: hit.edge)
             dragStartClip = clip
+        } else if event.modifierFlags.contains(.option), timeline.segments.count > 1, reorderRequested != nil {
+            dragTarget = .reorder(clipID: location.segmentID)
+            reorderDestination = location.segmentIndex
         } else {
             dragTarget = .scrub
             scrubbingDidChange?(true)
@@ -398,9 +478,25 @@ final class RecordingClipTimelineControl: NSView {
             playheadTime = time
             playheadDidChange?(time)
         case .trim(let clipID, let edge):
-            updateTrim(clipID: clipID, edge: edge, point: point)
+            updateTrim(clipID: clipID, edge: edge, point: point, invertsSnapping: event.modifierFlags.contains(.command))
+        case .reorder:
+            reorderDestination = insertionIndex(at: point.x)
         }
         needsDisplay = true
+    }
+
+    /// The list position a clip dropped at `x` takes: before the first
+    /// clip whose middle lies after it.
+    private func insertionIndex(at x: CGFloat) -> Int {
+        let time = editorTime(forX: x)
+        var editorStart: TimeInterval = 0
+        var index = 0
+        for segment in timeline.segments {
+            if time < editorStart + segment.editorDuration / 2 { return index }
+            editorStart += segment.editorDuration
+            index += 1
+        }
+        return timeline.segments.count
     }
 
     override func mouseUp(with event: NSEvent) {
@@ -413,6 +509,18 @@ final class RecordingClipTimelineControl: NSView {
         if case .scrub = dragTarget {
             scrubbingDidChange?(false)
         }
+        if case .trim = dragTarget {
+            setSnapGuide(nil)
+            trimPreviewDidChange?(nil)
+        }
+        if case .reorder(let clipID) = dragTarget,
+           let destination = reorderDestination,
+           let index = timeline.segments.firstIndex(where: { $0.id == clipID }) {
+            // Dropping after itself means the same place.
+            let target = destination > index ? destination - 1 : destination
+            if target != index { reorderRequested?(clipID, target) }
+        }
+        reorderDestination = nil
 
         dragTarget = nil
         dragStartPoint = nil
@@ -422,29 +530,6 @@ final class RecordingClipTimelineControl: NSView {
         needsDisplay = true
     }
 
-    /// ⌘-scroll zooms around the pointer; a plain scroll is left to the
-    /// enclosing scroll view so two-finger swipes still pan the timeline.
-    override func scrollWheel(with event: NSEvent) {
-        guard event.modifierFlags.contains(.command), zoomRequested != nil else {
-            super.scrollWheel(with: event)
-            return
-        }
-        let rawDelta = event.hasPreciseScrollingDeltas
-            ? event.scrollingDeltaY
-            : event.scrollingDeltaY * 16
-        guard abs(rawDelta) > 0.001 else { return }
-        let factor = pow(2, Double(rawDelta / Metrics.zoomScrollPointsPerDoubling))
-        zoomRequested?(factor, anchorTime(for: event))
-    }
-
-    override func magnify(with event: NSEvent) {
-        guard event.magnification != 0 else { return }
-        zoomRequested?(1 + Double(event.magnification), anchorTime(for: event))
-    }
-
-    private func anchorTime(for event: NSEvent) -> TimeInterval {
-        editorTime(forX: convert(event.locationInWindow, from: nil).x)
-    }
 
     override func menu(for event: NSEvent) -> NSMenu? {
         let point = convert(event.locationInWindow, from: nil)
@@ -493,6 +578,19 @@ final class RecordingClipTimelineControl: NSView {
         speed.image = NSImage(systemSymbolName: "hare", accessibilityDescription: nil)
         speed.submenu = speedMenu
         menu.addItem(speed)
+
+        if reorderRequested != nil, timeline.segments.count > 1 {
+            let earlier = NSMenuItem(title: "Move Clip Earlier", action: #selector(moveEarlierFromContextMenu), keyEquivalent: "")
+            earlier.target = self
+            earlier.image = NSImage(systemSymbolName: "arrow.left", accessibilityDescription: nil)
+            earlier.isEnabled = location.segmentIndex > 0
+            menu.addItem(earlier)
+            let later = NSMenuItem(title: "Move Clip Later", action: #selector(moveLaterFromContextMenu), keyEquivalent: "")
+            later.target = self
+            later.image = NSImage(systemSymbolName: "arrow.right", accessibilityDescription: nil)
+            later.isEnabled = location.segmentIndex < timeline.segments.count - 1
+            menu.addItem(later)
+        }
 
         menu.addItem(.separator())
 
@@ -544,6 +642,16 @@ final class RecordingClipTimelineControl: NSView {
             menu.addItem(reset)
         }
         return menu
+    }
+
+    @objc private func moveEarlierFromContextMenu() {
+        guard let contextClipID, let index = timeline.segments.firstIndex(where: { $0.id == contextClipID }) else { return }
+        reorderRequested?(contextClipID, index - 1)
+    }
+
+    @objc private func moveLaterFromContextMenu() {
+        guard let contextClipID, let index = timeline.segments.firstIndex(where: { $0.id == contextClipID }) else { return }
+        reorderRequested?(contextClipID, index + 1)
     }
 
     @objc private func muteFromContextMenu() {
@@ -613,11 +721,11 @@ final class RecordingClipTimelineControl: NSView {
         needsDisplay = true
     }
 
-    private func updateTrim(clipID: UUID, edge: Edge, point: CGPoint) {
+    private func updateTrim(clipID: UUID, edge: Edge, point: CGPoint, invertsSnapping: Bool) {
         guard let dragStartPoint,
               let startTimeline = dragStartTimeline,
               let original = dragStartClip,
-              let index = startTimeline.segments.firstIndex(where: { $0.id == clipID }) else {
+              let startRange = startTimeline.editorRange(for: clipID) else {
             return
         }
 
@@ -625,13 +733,29 @@ final class RecordingClipTimelineControl: NSView {
         // width, but sourceStart/sourceEnd are source-space - a clip playing
         // at 2x covers twice as many source seconds per dragged editor
         // second, so the delta must be rescaled by the clip's own speed.
-        let editorDelta = Double((point.x - dragStartPoint.x) / max(timelineRect.width, 1))
+        var editorDelta = Double((point.x - dragStartPoint.x) / max(timelineRect.width, 1))
             * startTimeline.duration
+
+        // The edge where the pointer has it catches on the playhead, the
+        // audio and recorded clicks. ⌘ turns that around for the drag.
+        let edgeTime = (edge == .leading ? startRange.lowerBound : startRange.upperBound) + editorDelta
+        var guide: TimeInterval?
+        if snaps != invertsSnapping, startTimeline.duration > 0 {
+            let tolerance = Double(7 / max(timelineRect.width, 1)) * startTimeline.duration
+            let snapped = StudioAudioConform.snapped(edgeTime, to: snapPoints, tolerance: tolerance)
+            if snapped != edgeTime {
+                editorDelta += snapped - edgeTime
+                guide = snapped
+            }
+        }
+        setSnapGuide(guide)
         let delta = editorDelta * original.speed
-        let previousEnd = index > 0 ? startTimeline.segments[index - 1].sourceEnd : 0
-        let nextStart = index + 1 < startTimeline.segments.count
-            ? startTimeline.segments[index + 1].sourceStart
-            : sourceDuration
+
+        // Clips may play in any order, so the room an edge has is up to
+        // the nearest stretch of the recording another clip uses.
+        let others = startTimeline.segments.filter { $0.id != clipID }
+        let previousEnd = others.map(\.sourceEnd).filter { $0 <= original.sourceStart + 0.000_5 }.max() ?? 0
+        let nextStart = others.map(\.sourceStart).filter { $0 >= original.sourceEnd - 0.000_5 }.min() ?? sourceDuration
         var replacement = original
 
         switch edge {
@@ -640,11 +764,14 @@ final class RecordingClipTimelineControl: NSView {
                 max(original.sourceStart + delta, previousEnd),
                 original.sourceEnd - RecordingClipSegment.minimumDuration
             )
+            trimPreviewDidChange?(replacement.sourceStart)
         case .trailing:
             replacement.sourceEnd = max(
                 original.sourceStart + RecordingClipSegment.minimumDuration,
                 min(original.sourceEnd + delta, nextStart)
             )
+            // The last frame that will play, not the first one cut.
+            trimPreviewDidChange?(max(replacement.sourceStart, replacement.sourceEnd - 0.001))
         }
         timeline = startTimeline.replacing(replacement)
     }
