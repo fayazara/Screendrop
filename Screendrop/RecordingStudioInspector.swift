@@ -1317,7 +1317,15 @@ struct StudioInspector: View {
         VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
             // A silent recording has nothing to send out, but it can still
             // be given a soundtrack - so only the export half is withheld.
-            if model.hasAudio {
+            // With a replaced soundtrack, its sync sits beside the volume:
+            // both are levels of the video's own sound.
+            if model.replacementAudio != nil {
+                InspectorFieldPair {
+                    InspectorSlider("Volume", value: $model.audioVolume, range: 0...2, format: .percent())
+                } trailing: {
+                    soundtrackSyncSlider
+                }
+            } else if model.hasAudio {
                 InspectorHalfField {
                     InspectorSlider("Volume", value: $model.audioVolume, range: 0...2, format: .percent())
                 }
@@ -1345,24 +1353,9 @@ struct StudioInspector: View {
                 replacementChip(for: replacement)
                     .transition(.blurPop)
 
-                InspectorHalfField {
-                    InspectorSlider(
-                        "Sync",
-                        value: Binding(
-                            get: { CGFloat(model.replacementAudioSync?.offset ?? 0) },
-                            set: { model.setReplacementAudioOffset(Double($0)) }
-                        ),
-                        range: CGFloat(-RecordingAudioSync.offsetLimit)...CGFloat(RecordingAudioSync.offsetLimit),
-                        format: .seconds
-                    )
-                    .help("Slide the replaced audio against the picture, if it came back from a cleanup tool a little late or early")
+                if model.replacementAudioDrift != nil {
+                    InspectorHint("It was made for a different cut. Export the audio again after your edits for a full-length replacement.")
                 }
-
-                InspectorHint(
-                    model.replacementAudioDrift == nil
-                        ? "Lined up with the cut when it was added. Later cuts cut it with the video."
-                        : "Lined up with the cut when it was added. Later cuts cut it with the video. Export the audio again after your edits for a full-length replacement."
-                )
             }
 
             if !model.audioClipsPastEnd.isEmpty {
@@ -1460,6 +1453,20 @@ struct StudioInspector: View {
         }
         .buttonStyle(.plain)
         .help(help)
+    }
+
+    /// Slides the replaced soundtrack against the picture.
+    private var soundtrackSyncSlider: some View {
+        InspectorSlider(
+            "Sync",
+            value: Binding(
+                get: { CGFloat(model.replacementAudioSync?.offset ?? 0) },
+                set: { model.setReplacementAudioOffset(Double($0)) }
+            ),
+            range: CGFloat(-RecordingAudioSync.offsetLimit)...CGFloat(RecordingAudioSync.offsetLimit),
+            format: .seconds
+        )
+        .help("Slide the replaced audio against the picture, if it came back from a cleanup tool a little late or early")
     }
 
     private func replacementChip(for replacement: RecordingReplacementAudio) -> some View {
