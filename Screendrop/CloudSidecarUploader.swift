@@ -289,12 +289,11 @@ nonisolated enum CloudSidecarUploader {
         _ end: TimeInterval,
         through timeline: RecordingClipTimeline
     ) -> (Double, Double)? {
-        let slices = timeline.slices(overlapping: start, sourceEnd: end)
-        guard let first = slices.first, let last = slices.last,
-              last.editorEnd > first.editorStart else {
+        guard let span = timeline.editorSpan(overlapping: start, sourceEnd: end),
+              span.upperBound > span.lowerBound else {
             return nil
         }
-        return (first.editorStart, last.editorEnd)
+        return (span.lowerBound, span.upperBound)
     }
 
     // MARK: - Multipart POST

@@ -187,6 +187,11 @@ nonisolated enum RecordingAudioGain {
                             } else if isSigned, bits == 32 {
                                 let samples = data.assumingMemoryBound(to: Int32.self)
                                 samples[index] = Int32(min(Double(Int32.max), max(Double(Int32.min), Double(samples[index]) * Double(gain))))
+                            } else if gain < 0.000_1 {
+                                // A format this can't scale still goes
+                                // silent where it should: mute must never
+                                // let sound through.
+                                memset(data + index * bytesPerSample, 0, bytesPerSample)
                             }
                         }
                     }

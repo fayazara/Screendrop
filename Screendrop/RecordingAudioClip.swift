@@ -35,6 +35,8 @@ nonisolated struct RecordingAudioClip: Identifiable, Codable, Equatable, Hashabl
     static let fadeRange: ClosedRange<TimeInterval> = 0...5
     static let volumeRange: ClosedRange<Double> = 0...2
     static let speedRange: ClosedRange<Double> = 0.25...8
+    /// Speeds offered for an unlinked clip; a linked one follows the video.
+    static let speedPresets: [Double] = [0.5, 0.75, 1, 1.25, 1.5, 2]
 
     var id = UUID()
     var source: Source = .file
@@ -145,15 +147,18 @@ nonisolated struct RecordingAudioClip: Identifiable, Codable, Equatable, Hashabl
 
 /// A coarse loudness outline of an audio file for the timeline.
 nonisolated enum RecordingAudioPeaks {
-    static let peaksPerSecond = 40
+    /// Enough for a bar every few points at the timeline's closest zoom.
+    static let peaksPerSecond = 100
 
     /// Normalized 0...1 peaks, `peaksPerSecond` per second of audio.
     static func load(url: URL) async -> [Float] {
         let asset = AVURLAsset(url: url)
-        guard let track = try? await asset.loadTracks(withMediaType: .audio).first,
+        // Every track, mixed: a recording's system audio and microphone are
+        // separate tracks, and either may be the silent one.
+        guard let tracks = try? await asset.loadTracks(withMediaType: .audio), !tracks.isEmpty,
               let reader = try? AVAssetReader(asset: asset) else { return [] }
         let sampleRate = 8_000
-        let output = AVAssetReaderTrackOutput(track: track, outputSettings: [
+        let output = AVAssetReaderAudioMixOutput(audioTracks: tracks, audioSettings: [
             AVFormatIDKey: kAudioFormatLinearPCM,
             AVSampleRateKey: sampleRate,
             AVNumberOfChannelsKey: 1,

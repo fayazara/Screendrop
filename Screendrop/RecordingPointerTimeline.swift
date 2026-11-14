@@ -128,6 +128,9 @@ nonisolated struct PointerTimeline: Sendable {
         guard duration.isFinite, duration > 0 else { return .empty }
         let timelineDuration = clipTimeline?.duration ?? duration
         guard timelineDuration.isFinite, timelineDuration > 0 else { return .empty }
+        // Frames that open footage from another moment, where the pointer
+        // lands instead of gliding over from where it was.
+        let hardCutFrames = Set((clipTimeline?.hardCuts ?? []).map { Int(($0 * stepRate).rounded(.up)) })
 
         let safeSize = CGSize(
             width: recordingSizeInPoints.width > 0 ? recordingSizeInPoints.width : 1_000,
@@ -223,8 +226,13 @@ nonisolated struct PointerTimeline: Sendable {
             let motion = isDragging
                 ? PointerSpring.track
                 : (approachingPress ? PointerSpring.intercept : PointerSpring.glide)
-            xSpring.step(toward: target.x, using: motion, dt: dt)
-            ySpring.step(toward: target.y, using: motion, dt: dt)
+            if hardCutFrames.contains(frameIndex) {
+                xSpring = DampedSpring(position: target.x)
+                ySpring = DampedSpring(position: target.y)
+            } else {
+                xSpring.step(toward: target.x, using: motion, dt: dt)
+                ySpring.step(toward: target.y, using: motion, dt: dt)
+            }
 
             var isHidden = false
             if let hideAfterInactivity,
@@ -275,8 +283,10 @@ nonisolated struct PointerTimeline: Sendable {
         let tiltOffset = max(1, Int((tiltSampleWindow * stepRate).rounded()))
         let recordingWidth = max(Double(safeSize.width), 1)
         var tiltSpring = DampedSpring(position: 0)
+        var latestHardCut = 0
         for index in frames.indices {
-            let previous = frames[max(0, index - tiltOffset)].location
+            if hardCutFrames.contains(index) { latestHardCut = index }
+            let previous = frames[max(latestHardCut, index - tiltOffset)].location
             let current = frames[index].location
             let deltaInPoints = (current.x - previous.x) * recordingWidth
             let target = min(max(

@@ -716,12 +716,11 @@ nonisolated struct RecordingCameraLayoutTimeline: Equatable, Sendable {
         clipTimeline: RecordingClipTimeline
     ) -> [RecordingCameraLayoutTimelineBlock] {
         cues.compactMap { cue in
-            let slices = clipTimeline.slices(overlapping: cue.start, sourceEnd: cue.end)
-            guard let first = slices.first, let last = slices.last else { return nil }
+            guard let span = clipTimeline.editorSpan(overlapping: cue.start, sourceEnd: cue.end) else { return nil }
             return RecordingCameraLayoutTimelineBlock(
                 cue: cue,
-                editorStart: first.editorStart,
-                editorEnd: last.editorEnd
+                editorStart: span.lowerBound,
+                editorEnd: span.upperBound
             )
         }
         .sorted { $0.editorStart < $1.editorStart }

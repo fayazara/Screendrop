@@ -325,6 +325,9 @@ nonisolated struct ViewportTimeline: Sendable {
         let duration = clipTimeline.duration
         guard duration.isFinite, duration > 0 else { return .identity }
 
+        // Cuts to footage from another moment: the camera lands on them
+        // instead of easing across.
+        let hardCutFrames = Set(clipTimeline.hardCuts.map { Int(($0 * stepRate).rounded(.up)) })
         let pointerSamples = mergedPointerSamples(from: capture)
         let activitySamples = pointerSamples.filter {
             isRetainedSourceEvent($0.time, in: clipTimeline)
@@ -425,9 +428,10 @@ nonisolated struct ViewportTimeline: Sendable {
             let targetY = (0.5 - targetAnchor.y) * targetMagnification
 
             let activeChanged = active?.id != previousActive?.id
-            let shouldSnap = activeChanged
-                && (active?.skipsEasing == true
-                    || previousActive?.skipsEasing == true)
+            let shouldSnap = hardCutFrames.contains(frameIndex)
+                || (activeChanged
+                    && (active?.skipsEasing == true
+                        || previousActive?.skipsEasing == true))
 
             if shouldSnap || !smoothsMotion {
                 scaleSpring.snap(to: targetMagnification)

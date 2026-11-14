@@ -129,6 +129,10 @@ nonisolated struct StudioAudioLayout: Sendable {
         var start: TimeInterval
         var end: TimeInterval
         var owner: Owner
+        /// The stretch of its file it plays, so two placements that simply
+        /// continue each other can be told from a real cut.
+        var mediaStart: TimeInterval = 0
+        var mediaEnd: TimeInterval = 0
     }
 
     var placements: [Placement] = []
@@ -300,23 +304,34 @@ nonisolated enum StudioAudioComposer {
                 guard available.duration.seconds > 0.005 else { continue }
                 let headTrim = (available.start - wanted.start).seconds
 
-                let key = "\(group)#\(index)"
-                let track: AVMutableCompositionTrack
-                if let existing = tracks[key] {
-                    track = existing
-                } else if let added = composition.addMutableTrack(
-                    withMediaType: .audio,
-                    preferredTrackID: kCMPersistentTrackID_Invalid
-                ) {
-                    tracks[key] = added
-                    track = added
-                } else {
-                    continue
+                // The group's first track with room at this moment; sound
+                // that overlaps what a track holds (clips piled on the last
+                // lane) gets a track of its own rather than being pushed
+                // later.
+                let wantedStart = time(editorStart + headTrim / rate)
+                var track: AVMutableCompositionTrack?
+                var copy = 0
+                while track == nil {
+                    let key = copy == 0 ? "\(group)#\(index)" : "\(group)#\(index)~\(copy)"
+                    if let existing = tracks[key] {
+                        let end = existing.timeRange.end
+                        if !end.isValid || (end - wantedStart).seconds < 0.01 { track = existing }
+                    } else if let added = composition.addMutableTrack(
+                        withMediaType: .audio,
+                        preferredTrackID: kCMPersistentTrackID_Invalid
+                    ) {
+                        tracks[key] = added
+                        track = added
+                    } else {
+                        break
+                    }
+                    copy += 1
                 }
+                guard let track else { continue }
 
                 // Never before what the track already holds: inserting
                 // there would push later sound along.
-                var at = time(editorStart + headTrim / rate)
+                var at = wantedStart
                 let trackEnd = track.timeRange.end
                 if trackEnd.isValid, at < trackEnd { at = trackEnd }
                 let target = time(available.duration.seconds / rate)
@@ -333,7 +348,9 @@ nonisolated enum StudioAudioComposer {
                     trackID: track.trackID,
                     start: at.seconds,
                     end: (at + placedDuration).seconds,
-                    owner: owner
+                    owner: owner,
+                    mediaStart: available.start.seconds,
+                    mediaEnd: available.end.seconds
                 ))
             }
         }
@@ -347,19 +364,41 @@ nonisolated enum StudioAudioComposer {
         var level: Double
         var fadeIn: TimeInterval = 0
         var fadeOut: TimeInterval = 0
+        var mediaStart: TimeInterval = 0
+        var mediaEnd: TimeInterval = 0
+        /// The ramps a cut adds at either end; see `cutRamp`.
+        var edgeIn: TimeInterval = 0
+        var edgeOut: TimeInterval = 0
+
+        /// Whether this picks up exactly where `previous` left off, in the
+        /// timeline and in the file, at the same level, with no fade between.
+        func continues(from previous: Gain?) -> Bool {
+            guard let previous else { return false }
+            return abs(previous.end - start) < 0.002
+                && abs(previous.mediaEnd - mediaStart) < 0.002
+                && abs(previous.level - level) < 0.000_1
+                && previous.fadeOut < 0.01 && fadeIn < 0.01
+        }
     }
 
     /// How loud each placed sound plays: a video clip's own sound at its
     /// level times the project's, an audio clip at its level with its
     /// fades. Nil when everything plays as recorded.
+    /// The length of the ramp at every cut. Short enough to be heard as a
+    /// cut, long enough that the waveform never jumps, which clicks.
+    static let cutRamp: TimeInterval = 0.004
+
     static func mix(for layout: StudioAudioLayout, plan: StudioAudioPlan) -> AVAudioMix? {
         let segments = Dictionary(plan.timeline.segments.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let clips = Dictionary(plan.clips.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let projectVolume = RecordingAudioGain.normalized(plan.volume)
+        let videoEnd = editorRanges(for: plan.timeline).last?.end.seconds ?? 0
 
         var gains: [CMPersistentTrackID: [Gain]] = [:]
         for placement in layout.placements {
             var gain = Gain(start: placement.start, end: placement.end, level: 1)
+            gain.mediaStart = placement.mediaStart
+            gain.mediaEnd = placement.mediaEnd
             switch placement.owner {
             case .segment(let id):
                 gain.level = (segments[id]?.audibleVolume ?? 1) * projectVolume
@@ -379,9 +418,28 @@ nonisolated enum StudioAudioComposer {
         }
 
         var parameters: [AVMutableAudioMixInputParameters] = []
-        for (trackID, trackGains) in gains {
+        for (trackID, unsorted) in gains {
+            var trackGains = unsorted.sorted { $0.start < $1.start }
+            // A short ramp at every real cut. Where one placement simply
+            // carries on from the last at the same level (a split with
+            // nothing removed) the sound is continuous and needs none, and
+            // the video's first and last frames need none either.
+            for index in trackGains.indices {
+                let gain = trackGains[index]
+                let length = min(cutRamp, (gain.end - gain.start) / 4)
+                let previous = index > 0 ? trackGains[index - 1] : nil
+                let next = index < trackGains.count - 1 ? trackGains[index + 1] : nil
+                if gain.start > 0.000_5, !gain.continues(from: previous) {
+                    trackGains[index].edgeIn = length
+                }
+                if gain.end < videoEnd - 0.000_5, !(next?.continues(from: gain) ?? false) {
+                    trackGains[index].edgeOut = length
+                }
+            }
+
             let changesNothing = trackGains.allSatisfy {
                 abs($0.level - 1) < 0.000_1 && $0.fadeIn < 0.01 && $0.fadeOut < 0.01
+                    && $0.edgeIn == 0 && $0.edgeOut == 0
             }
             if changesNothing { continue }
 
@@ -391,10 +449,10 @@ nonisolated enum StudioAudioComposer {
             // own volume ramps smear a change over the sound around it,
             // and stop at 1.
             var spans: [RecordingAudioGain.EnvelopeSpan] = []
-            for gain in trackGains.sorted(by: { $0.start < $1.start }) {
+            for gain in trackGains {
                 let level = Float(gain.level)
-                let fadeIn = gain.fadeIn >= 0.01 ? gain.fadeIn : 0
-                let fadeOut = gain.fadeOut >= 0.01 ? gain.fadeOut : 0
+                let fadeIn = max(gain.fadeIn >= 0.01 ? gain.fadeIn : 0, gain.edgeIn)
+                let fadeOut = max(gain.fadeOut >= 0.01 ? gain.fadeOut : 0, gain.edgeOut)
                 let holdStart = gain.start + fadeIn
                 let holdEnd = max(holdStart, gain.end - fadeOut)
                 if fadeIn > 0 {

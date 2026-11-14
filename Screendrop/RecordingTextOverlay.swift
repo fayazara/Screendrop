@@ -325,12 +325,11 @@ nonisolated struct RecordingOverlayTimelineBlock<Item: Identifiable & Sendable>:
     ) -> [RecordingOverlayTimelineBlock<Item>] {
         items.compactMap { item in
             let source = range(item)
-            let slices = clipTimeline.slices(overlapping: source.start, sourceEnd: source.end)
-            guard let first = slices.first, let last = slices.last else { return nil }
+            guard let span = clipTimeline.editorSpan(overlapping: source.start, sourceEnd: source.end) else { return nil }
             return RecordingOverlayTimelineBlock(
                 item: item,
-                editorStart: first.editorStart,
-                editorEnd: last.editorEnd
+                editorStart: span.lowerBound,
+                editorEnd: span.upperBound
             )
         }
     }

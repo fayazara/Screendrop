@@ -46,7 +46,38 @@ nonisolated struct RecordingAudioSync: Codable, Equatable, Sendable {
         var fileEnd: TimeInterval
     }
 
-    var spans: [Span]
+    /// Kept in recording order, which `pieces` relies on.
+    var spans: [Span] {
+        didSet { spans.sort { $0.sourceStart < $1.sourceStart } }
+    }
+    /// Shifts the soundtrack against the picture, in seconds: positive
+    /// plays it later. For files that come back from a cleanup tool with a
+    /// little latency added.
+    var offset: TimeInterval = 0
+    /// How far the soundtrack can be slid either way.
+    static let offsetLimit: TimeInterval = 1
+
+    init(spans: [Span], offset: TimeInterval = 0) {
+        self.spans = spans.sorted { $0.sourceStart < $1.sourceStart }
+        self.offset = offset
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case spans
+        case offset
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        spans = try container.decode([Span].self, forKey: .spans).sorted { $0.sourceStart < $1.sourceStart }
+        offset = try container.decodeIfPresent(TimeInterval.self, forKey: .offset) ?? 0
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(spans, forKey: .spans)
+        if offset != 0 { try container.encode(offset, forKey: .offset) }
+    }
 
     /// The soundtrack laid flat over a cut from its first frame, which is
     /// what an export of that cut's audio lines up with.
@@ -80,20 +111,26 @@ nonisolated struct RecordingAudioSync: Codable, Equatable, Sendable {
     ) -> [Piece] {
         guard sourceEnd > sourceStart else { return [] }
         var pieces: [Piece] = []
-        for span in spans.sorted(by: { $0.sourceStart < $1.sourceStart }) {
+        for span in spans {
             let rate = max(span.rate, 0.01)
+            // An offset moves the file under the recording: the file time
+            // that plays at a moment is `offset` earlier.
+            let fileStart = span.fileStart - offset
             var low = max(sourceStart, span.sourceStart, pieces.last?.sourceEnd ?? sourceStart)
             var high = min(sourceEnd, span.sourceEnd)
-            // The file may be shorter than the cut it was made for.
-            let lastCovered = span.sourceStart + max(0, fileDuration - span.fileStart) * rate
+            // Only where the file has sound: an offset can push its start
+            // past the span's, and the file may be shorter than the cut it
+            // was made for.
+            let firstCovered = span.sourceStart + max(0, -fileStart) * rate
+            let lastCovered = span.sourceStart + max(0, fileDuration - fileStart) * rate
+            low = max(low, firstCovered)
             high = min(high, lastCovered)
-            low = max(low, span.sourceStart)
             guard high - low > 0.001 else { continue }
             pieces.append(Piece(
                 sourceStart: low,
                 sourceEnd: high,
-                fileStart: span.fileStart + (low - span.sourceStart) / rate,
-                fileEnd: span.fileStart + (high - span.sourceStart) / rate
+                fileStart: fileStart + (low - span.sourceStart) / rate,
+                fileEnd: fileStart + (high - span.sourceStart) / rate
             ))
         }
         return pieces
@@ -129,7 +166,60 @@ nonisolated enum StudioAudioConform {
                 result.append(moved)
             }
         }
-        return resolvingLanes(result)
+        return resolvingLanes(healingExtensions(result, from: old, to: new))
+    }
+
+    /// Opening a clip's trim back up brings back the linked sound under
+    /// it, as it brings back the clip's own sound. A linked piece whose
+    /// edge sat on the clip's edge grows with it, as far as its file and
+    /// its neighbours on the lane allow. Sound that was trimmed on its own
+    /// ends somewhere else, so it is left alone.
+    private static func healingExtensions(
+        _ clips: [RecordingAudioClip],
+        from old: RecordingClipTimeline,
+        to new: RecordingClipTimeline
+    ) -> [RecordingAudioClip] {
+        let oldSegments = Dictionary(old.segments.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        var result = clips
+        var editorStart: TimeInterval = 0
+        for segment in new.segments {
+            defer { editorStart += segment.editorDuration }
+            guard let before = oldSegments[segment.id] else { continue }
+            let speed = max(segment.speed, RecordingClipSegment.minimumSpeed)
+            let grewAtEnd = segment.sourceEnd - before.sourceEnd
+            let grewAtStart = before.sourceStart - segment.sourceStart
+            guard grewAtEnd > 0.001 || grewAtStart > 0.001 else { continue }
+
+            // Where the clip's old edges now sit in the new cut.
+            let oldEndHere = editorStart + (before.sourceEnd - segment.sourceStart) / speed
+            let oldStartHere = editorStart + (before.sourceStart - segment.sourceStart) / speed
+
+            for index in result.indices where result[index].isLinked {
+                var clip = result[index]
+                let neighbours = result.enumerated()
+                    .filter { $0.offset != index && $0.element.lane == clip.lane }
+                    .map(\.element)
+                if grewAtEnd > 0.001, abs(clip.end - oldEndHere) < 0.002, clip.trimEnd < clip.fileDuration - 0.001 {
+                    let room = neighbours.map(\.start).filter { $0 >= clip.end - 0.002 }.min() ?? .infinity
+                    let wanted = grewAtEnd / speed
+                    let grow = min(wanted, room - clip.end, (clip.fileDuration - clip.trimEnd) / max(clip.speed, 0.01))
+                    if grow > 0.001 {
+                        clip.trimEnd += grow * clip.speed
+                    }
+                }
+                if grewAtStart > 0.001, abs(clip.start - oldStartHere) < 0.002, clip.trimStart > 0.001 {
+                    let room = neighbours.map(\.end).filter { $0 <= clip.start + 0.002 }.max() ?? -.infinity
+                    let wanted = grewAtStart / speed
+                    let grow = min(wanted, clip.start - max(room, editorStart), clip.trimStart / max(clip.speed, 0.01))
+                    if grow > 0.001 {
+                        clip.start -= grow
+                        clip.trimStart -= grow * clip.speed
+                    }
+                }
+                result[index] = clip
+            }
+        }
+        return result
     }
 
     /// Where a moment of the old cut is in the new one. A moment whose
@@ -287,6 +377,10 @@ nonisolated enum StudioAudioConform {
 
     // MARK: Lanes
 
+    /// The most audio lanes the timeline shows. Past this, overlapping
+    /// clips share the last lane (they still all play).
+    static let maximumLanes = 8
+
     /// Clips on one lane never overlap: a clip that lands on another moves
     /// down to the first lane with room. Earlier clips keep their lane.
     /// `first` is placed before the others, so it gets the lane it asks
@@ -310,8 +404,8 @@ nonisolated enum StudioAudioConform {
         for index in order {
             let clip = clips[index]
             guard clip.end - clip.start > epsilon else { continue }
-            var lane = max(0, clip.lane)
-            while (occupied[lane] ?? []).contains(where: {
+            var lane = min(max(0, clip.lane), maximumLanes - 1)
+            while lane < maximumLanes - 1, (occupied[lane] ?? []).contains(where: {
                 $0.lowerBound < clip.end - 0.001 && $0.upperBound > clip.start + 0.001
             }) {
                 lane += 1

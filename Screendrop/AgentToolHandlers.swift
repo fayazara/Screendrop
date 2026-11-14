@@ -195,9 +195,9 @@ extension AgentTools {
             let end = item["end"]?.doubleValue ?? start
             entry["sourceStart"] = seconds(start)
             entry["sourceEnd"] = seconds(end)
-            let slices = model.clipTimeline.slices(overlapping: start, sourceEnd: end)
-            entry["editedStart"] = slices.first.map { seconds($0.editorStart) } ?? .null
-            entry["editedEnd"] = slices.last.map { seconds($0.editorEnd) } ?? .null
+            let span = model.clipTimeline.editorSpan(overlapping: start, sourceEnd: end)
+            entry["editedStart"] = span.map { seconds($0.lowerBound) } ?? .null
+            entry["editedEnd"] = span.map { seconds($0.upperBound) } ?? .null
         }
         return .object(entry)
     }
