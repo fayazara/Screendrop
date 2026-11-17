@@ -105,12 +105,20 @@ struct StudioInspector: View {
         // A hard edge under the toolbar: with a soft one, a section scrolled
         // up under the Crop and Save buttons looked like it sat beneath them.
         .scrollEdgeEffectStyle(.hard, for: .top)
-        .scrollEdgeEffectStyle(.soft, for: .bottom)
+        // And a hard edge above the footer, closed with a hairline: a
+        // control faded out halfway looked cut off rather than scrolled.
+        .scrollEdgeEffectStyle(.hard, for: .bottom)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             // Backed like the panel, so the list never shows through the
             // buttons as it scrolls.
             StudioActionFooter(model: model)
                 .background(sidebarBackground)
+                .overlay(alignment: .top) {
+                    Rectangle()
+                        .fill(Palette.hairline)
+                        .frame(height: 1)
+                        .allowsHitTesting(false)
+                }
         }
         .background(sidebarBackground)
         .onChange(of: availablePages) { _, available in
@@ -689,7 +697,7 @@ struct StudioInspector: View {
                     .help("Brightens the face's shadows and midtones, like a soft light in front of you")
                 } trailing: {
                     InspectorSlider(
-                        "Smooth skin",
+                        "Smooth",
                         value: $model.style.camera.beauty.skinSmoothing,
                         range: 0...1,
                         format: .percent()

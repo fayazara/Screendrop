@@ -223,7 +223,9 @@ struct InspectorSection<Content: View, Accessory: View>: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .disabled(isExpanded == nil)
+            // Not `.disabled`: that dims the title, so a section that
+            // can't fold (Canvas) read as a sub-label of the one above.
+            .allowsHitTesting(isExpanded != nil)
             .accessibilityLabel(title)
             .accessibilityValue(summary ?? "")
             .accessibilityHint(isExpanded.map { $0.wrappedValue ? "Collapse" : "Expand" } ?? "")
