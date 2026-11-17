@@ -175,7 +175,7 @@ private struct PinnedScreenshotView: View {
                 withAnimation(.morphQuickIfAllowed) { didCopy = false }
             }
         } catch {
-            print("Failed to copy pinned screenshot: \(error)")
+            FailureAlert.present(message: "The screenshot could not be copied", error: error)
         }
     }
 
@@ -183,9 +183,15 @@ private struct PinnedScreenshotView: View {
         let url = url
         Task {
             let text = await ImageTextRecognizer.recognizeText(at: url)
-            guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+            // Nothing else shows this worked, so the same toast Capture
+            // Text uses confirms it.
+            guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                CaptureTextFeedbackPresenter.shared.showNoTextFound(displayID: nil)
+                return
+            }
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(text, forType: .string)
+            CaptureTextFeedbackPresenter.shared.showCopied(text: text, displayID: nil)
         }
     }
 
@@ -200,7 +206,7 @@ private struct PinnedScreenshotView: View {
             do {
                 try ScreenshotFileActions.save(from: url, to: destURL)
             } catch {
-                print("Failed to save pinned screenshot: \(error)")
+                FailureAlert.present(message: "The screenshot could not be saved", error: error)
             }
         }
     }

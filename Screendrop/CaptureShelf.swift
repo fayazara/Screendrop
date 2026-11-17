@@ -34,6 +34,10 @@ enum ShelfFlash: Equatable {
     case linkCopied
     case uploadFailed
     case compressed(summary: String)
+    case textCopied(lines: Int)
+    case noTextFound
+    /// An action on the card that did not go through, named in a few words.
+    case failed(String)
 }
 
 struct ShelfItem: Identifiable {
@@ -183,7 +187,7 @@ final class CaptureShelf {
     func show(existing url: URL, kind: PreviewMediaKind) {
         if let index = items.firstIndex(where: { $0.url == url && $0.kind == kind }) {
             noteMotion()
-        withAnimation(Self.slideIfAllowed) {
+            withAnimation(Self.slideIfAllowed) {
                 let item = items.remove(at: index)
                 items.insert(item, at: 0)
                 tuckReasons.removeAll()
@@ -341,7 +345,10 @@ final class CaptureShelf {
         guard let item = item(id: id) else { return }
         switch item.kind {
         case .image:
-            guard copyImageToClipboard(item.url) else { return }
+            guard copyImageToClipboard(item.url) else {
+                flash(.failed("Couldn’t Copy"), on: id)
+                return
+            }
             dismiss(id: id)
         case .video:
             // Flattening can take a moment, so the card stays up showing
@@ -382,11 +389,18 @@ final class CaptureShelf {
     func copyText(id: ShelfItem.ID) {
         guard let item = item(id: id), item.kind == .image else { return }
         let url = item.url
+        // The result is invisible otherwise: the card says what landed on
+        // the clipboard, or that there was nothing to read.
+        engage(id)
         Task {
             let text = await ImageTextRecognizer.recognizeText(at: url)
-            guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(text, forType: .string)
+            let lines = text.split(separator: "\n", omittingEmptySubsequences: true)
+            guard !lines.isEmpty else {
+                flash(.noTextFound, on: id)
+                return
+            }
+            copyString(text)
+            flash(.textCopied(lines: lines.count), on: id)
         }
     }
 
@@ -506,6 +520,7 @@ final class CaptureShelf {
                 return
             } catch {
                 print("Failed to compress screenshot: \(error)")
+                flash(.failed("Couldn’t Compress"), on: id)
             }
         }
     }

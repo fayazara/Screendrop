@@ -134,6 +134,12 @@ struct CaptureShelfCard: View {
             status("Upload Failed") { flashIcon("exclamationmark.triangle.fill", tint: Palette.warning) }
         case .compressed(let summary):
             status("JPG Copied\n\(summary)") { flashIcon("checkmark") }
+        case .textCopied(let lines):
+            status(lines == 1 ? "Copied 1 Line" : "Copied \(lines) Lines") { flashIcon("checkmark") }
+        case .noTextFound:
+            status("No Text Found") { flashIcon("text.viewfinder") }
+        case .failed(let message):
+            status(message) { flashIcon("exclamationmark.triangle.fill", tint: Palette.warning) }
         }
     }
 
