@@ -742,31 +742,41 @@ struct StudioBlockLabel: View {
             )
     }
 
+    /// Collapses detail first, then the glyph - every block on a lane
+    /// shares its glyph, while the title (a zoom's "1.5×") is what tells
+    /// blocks apart - and only then the title.
     @ViewBuilder
     private var line: some View {
         let width = state.width
         if width >= StudioBlockMetrics.labelInset * 2 + 14 {
-            HStack(spacing: 5) {
-                glyph
-                ViewThatFits(in: .horizontal) {
-                    if let detail {
+            ViewThatFits(in: .horizontal) {
+                if let detail {
+                    HStack(spacing: 5) {
+                        glyph
                         HStack(spacing: 6) {
                             titleText
                             Text(detail)
                                 .font(.system(size: 10.5).monospacedDigit())
                                 .opacity(0.8)
                         }
-                        .fixedSize()
                     }
+                    .fixedSize()
+                }
+                HStack(spacing: 5) {
+                    glyph
                     titleText
-                        .fixedSize()
-                    if width >= 88 {
+                }
+                .fixedSize()
+                if width >= 88 {
+                    HStack(spacing: 5) {
+                        glyph
                         titleText
                             .truncationMode(.tail)
-                    } else {
-                        Color.clear.frame(width: 0, height: 0)
                     }
                 }
+                titleText
+                    .fixedSize()
+                glyph
             }
             .lineLimit(1)
             .foregroundStyle(color)
