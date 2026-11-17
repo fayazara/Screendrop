@@ -1285,19 +1285,28 @@ struct StudioInspector: View {
     /// the explaining is left to tooltips.
     private var audioControls: some View {
         VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
+            // The soundtrack in use comes first: the levels and actions
+            // below act on it.
+            if let replacement = model.replacementAudio {
+                replacementChip(for: replacement)
+                    .transition(.blurPop)
+            }
+
             // A silent recording has nothing to send out, but it can still
             // be given a soundtrack - so only the export half is withheld.
             // With a replaced soundtrack, its sync sits beside the volume:
             // both are levels of the video's own sound.
             if model.replacementAudio != nil {
                 InspectorFieldPair {
-                    InspectorSlider("Volume", value: $model.audioVolume, range: 0...2, format: .percent())
+                    InspectorSlider("Master", value: $model.audioVolume, range: 0...2, format: .percent())
+                        .help("The level of the whole video's sound, on top of each clip's own volume")
                 } trailing: {
                     soundtrackSyncSlider
                 }
             } else if model.hasAudio {
                 InspectorHalfField {
-                    InspectorSlider("Volume", value: $model.audioVolume, range: 0...2, format: .percent())
+                    InspectorSlider("Master", value: $model.audioVolume, range: 0...2, format: .percent())
+                        .help("The level of the whole video's sound, on top of each clip's own volume")
                 }
             }
 
@@ -1319,10 +1328,7 @@ struct StudioInspector: View {
                 )
             }
 
-            if let replacement = model.replacementAudio {
-                replacementChip(for: replacement)
-                    .transition(.blurPop)
-
+            if model.replacementAudio != nil {
                 if model.replacementAudioDrift != nil {
                     InspectorHint("It was made for a different cut. Export the audio again after your edits for a full-length replacement.")
                 }
@@ -1358,7 +1364,7 @@ struct StudioInspector: View {
         Group {
             switch model.audioExportState {
             case .idle:
-                InspectorActionButton("Export…", systemImage: "arrow.down.circle") {
+                InspectorActionButton("Export Audio…", systemImage: "arrow.down.circle") {
                     isAudioExportOptionsPresented = true
                 }
                 .help("Export just the soundtrack of the current cut")
@@ -1445,10 +1451,10 @@ struct StudioInspector: View {
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(Palette.highlight)
 
-            Text(replacement.displayName)
+            Text(Self.soundtrackTitle(replacement.displayName))
                 .font(.inspectorValue)
                 .lineLimit(1)
-                .truncationMode(.middle)
+                .truncationMode(.tail)
 
             Spacer(minLength: 4)
 
@@ -1487,8 +1493,21 @@ struct StudioInspector: View {
     }
 
     private static func clockText(_ seconds: TimeInterval) -> String {
-        let total = Int(max(0, seconds).rounded())
-        return String(format: "%d:%02d", total / 60, total % 60)
+        studioClock(seconds)
+    }
+
+    /// A soundtrack's file name without the extension or the
+    /// `Screendrop_<timestamp>_<id>` stem a round trip through export leaves
+    /// on it, so the chip names what the file is rather than when it was
+    /// made. The full name stays in the tooltip.
+    static func soundtrackTitle(_ fileName: String) -> String {
+        let base = (fileName as NSString).deletingPathExtension
+        let pattern = #"^Screendrop_\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}(_[A-Za-z0-9]+)?"#
+        guard let range = base.range(of: pattern, options: .regularExpression) else {
+            return base.isEmpty ? fileName : base
+        }
+        let rest = base[range.upperBound...].trimmingCharacters(in: CharacterSet(charactersIn: "-_ ."))
+        return rest.isEmpty ? "Exported audio" : "Exported audio · \(rest.replacingOccurrences(of: "-", with: " "))"
     }
 
     /// Short spans read better in seconds than as 0:00 timecode.
