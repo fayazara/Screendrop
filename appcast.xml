@@ -27,6 +27,37 @@
     -->
 
     <item>
+      <title>Version 0.39.0</title>
+      <sparkle:version>41</sparkle:version>
+      <sparkle:shortVersionString>0.39.0</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.4</sparkle:minimumSystemVersion>
+      <pubDate>Tue, 17 Nov 2026 09:11:12 +0000</pubDate>
+      <description><![CDATA[
+        <h2>What's New in 0.39.0</h2>
+        <ul>
+          <li>Studio is now a full video editor: reorder clips (⌥-drag or the Clip menu), mark a range with I and O and delete it, drop markers with M, and trim with snapping and a live preview of the frame</li>
+          <li>New Clip and Playback menus, J/K/L shuttle with frame steps at the recording's real frame rate, and a click-to-type timecode</li>
+          <li>Audio clips: select several at once, drag them between lanes, add fades, mute or solo a lane, and change the speed of unlinked clips</li>
+          <li>Slide an imported soundtrack into sync with the picture; removing or replacing it can now be undone</li>
+          <li>Cuts no longer click, muted clips always stay silent, and waveforms show every audio track</li>
+          <li>New macOS wallpaper pack: use the wallpapers already on your Mac as backgrounds</li>
+          <li>Calmer motion across the app: panels and controls settle into place instead of bouncing</li>
+          <li>Smoother Studio playback: the timeline and inspector no longer redraw on every frame</li>
+          <li>Face light no longer tints the camera preview yellow, looks more natural and brightens under the eyes; skin smoothing evens out redness and keeps texture</li>
+          <li>Copy Text from Image on a capture card or pinned screenshot now confirms what was copied, or says no text was found</li>
+          <li>A cleaner Studio timeline and inspector, with times written one way everywhere</li>
+          <li>Editor windows can be resized freely</li>
+        </ul>
+      ]]></description>
+      <enclosure
+        url="https://github.com/fayazara/screendrop/releases/download/v0.39.0/Screendrop.dmg"
+        type="application/octet-stream"
+        sparkle:edSignature="5iDNRk9mMMqQX9+b8VWeIuiUVQ1a/HSP+B1d2razkGYLTgeH7NbzUBKbvZNd657gCwJzFRRLlaOR/oy8e75wCw=="
+        length="10044995"
+      />
+    </item>
+
+    <item>
       <title>Version 0.38.0</title>
       <sparkle:version>40</sparkle:version>
       <sparkle:shortVersionString>0.38.0</sparkle:shortVersionString>
