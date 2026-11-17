@@ -45,6 +45,14 @@ nonisolated struct StudioFaceShape {
         case leftEye, rightEye, leftEyebrow, rightEyebrow, outerLips
     }
 
+    /// The middle of an eye, or nil when Vision didn't find it.
+    func center(of region: Region) -> CGPoint? {
+        let points = points(region)
+        guard !points.isEmpty else { return nil }
+        let sum = points.reduce(CGPoint.zero) { CGPoint(x: $0.x + $1.x, y: $0.y + $1.y) }
+        return CGPoint(x: sum.x / CGFloat(points.count), y: sum.y / CGFloat(points.count))
+    }
+
     func points(_ region: Region) -> [CGPoint] {
         region.rawValue < regions.count ? regions[region.rawValue] : []
     }
@@ -166,6 +174,10 @@ nonisolated final class StudioCameraBeautyRenderer: @unchecked Sendable {
 
     /// Masks are drawn this many rows tall and scaled up; they're soft.
     private static let maskHeight: CGFloat = 360
+    /// The face's grey in the light mask. The hollows under the eyes are
+    /// drawn white, a third brighter, the way a soft key light reaches
+    /// into them, which is most of what reads as "tired".
+    private static let faceLightLevel: CGFloat = 0.75
 
     /// `image` touched up, over the same extent. `time` is the frame's own
     /// time, which tells the tracker when frames run on and when they jump.
@@ -197,7 +209,10 @@ nonisolated final class StudioCameraBeautyRenderer: @unchecked Sendable {
                 // so the skin doesn't read as plastic.
                 "smoothing": Float(0.95 * blend),
                 "grain": Float(0.6 - 0.3 * smoothing),
-                "light": Float(min(max(beauty.faceLight, 0), 1)),
+                // The light mask's face sits at `faceLightLevel`, so the
+                // shadows under the eyes can take a little more; this puts
+                // the face itself back at full strength.
+                "light": Float(min(max(beauty.faceLight, 0), 1) / Self.faceLightLevel),
                 "pad": smoothing > 0.005 ? ceil(step * 3) + 1 : 0
             ]
         ) else { return image }
@@ -242,12 +257,20 @@ nonisolated final class StudioCameraBeautyRenderer: @unchecked Sendable {
         }), let light = drawMask(width: width, height: height, draw: { context in
             // Kept to the face, so the wall and shirt around it stay as lit
             // as they were.
+            context.setFillColor(gray: faceLightLevel, alpha: 1)
             for face in faces {
                 fillEllipse(face, in: context, size: size, centerOffset: 0.04, radii: CGSize(width: 0.47, height: 0.64))
             }
-            context.setFillColor(gray: 0.6, alpha: 1)
+            context.setFillColor(gray: faceLightLevel * 0.6, alpha: 1)
             for face in faces {
                 fillEllipse(face, in: context, size: size, centerOffset: -0.72, radii: CGSize(width: 0.3, height: 0.32))
+            }
+            context.setFillColor(gray: 1, alpha: 1)
+            for face in faces {
+                for eye in [StudioFaceShape.Region.leftEye, .rightEye] {
+                    guard let center = face.center(of: eye) else { continue }
+                    fillUnderEye(face, below: center, in: context, size: size)
+                }
             }
         }) else { return nil }
 
@@ -287,6 +310,18 @@ nonisolated final class StudioCameraBeautyRenderer: @unchecked Sendable {
         context.rotate(by: face.angle)
         let rx = width * radii.width, ry = height * radii.height
         context.fillEllipse(in: CGRect(x: -rx, y: height * centerOffset - ry, width: rx * 2, height: ry * 2))
+        context.restoreGState()
+    }
+
+    /// The hollow under an eye: a flat ellipse just below its middle,
+    /// turned with the face. The mask's blur feathers it into the cheek.
+    private static func fillUnderEye(_ face: StudioFaceShape, below eye: CGPoint, in context: CGContext, size: CGSize) {
+        let width = face.box.width * size.width, height = face.box.height * size.height
+        context.saveGState()
+        context.translateBy(x: eye.x * size.width, y: eye.y * size.height)
+        context.rotate(by: face.angle)
+        let rx = width * 0.13, ry = height * 0.05
+        context.fillEllipse(in: CGRect(x: -rx, y: -height * 0.075 - ry, width: rx * 2, height: ry * 2))
         context.restoreGState()
     }
 

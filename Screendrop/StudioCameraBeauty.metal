@@ -17,6 +17,14 @@ struct StudioFaceTouchUpParameters {
 
 // The most face light lifts a midtone by, in gamma-ish units.
 constant float maximumLight = 0.2f;
+// The share of the lift added as neutral light rather than scaling the
+// face's own colour. Light reflecting off skin isn't all skin-coloured:
+// scaling alone made a lit face read orange.
+constant float neutralLight = 0.35f;
+// How much further skin colour is evened than skin brightness. Blotches
+// and redness live in colour; pores and texture live in brightness.
+constant float toneEvening = 1.35f;
+constant float3 lumaWeights = float3(0.2126f, 0.7152f, 0.0722f);
 
 // Skin smoothing then face light, for the face Vision found.
 //
@@ -25,9 +33,14 @@ constant float maximumLight = 0.2f;
 // mask, and the range weight keeps any remaining hard edge - a hairline, a
 // beard - from bleeding.
 //
-// Face light lifts brightness alone, on a curve that peaks in the shadows
-// and fades to nothing at white, and scales the colour with it: the face
-// brightens like it's lit, keeping its colour, and never clips.
+// The smoothed result is split into brightness and colour: colour (where
+// redness and blotches are) is evened a little further than brightness,
+// so tone evens out while the skin keeps its texture.
+//
+// Face light lifts brightness on a curve that peaks in the shadows and
+// fades to nothing at white, mostly by scaling the face's colour and partly
+// as neutral light, the way a soft white key light lands: the face
+// brightens without turning orange, and never clips.
 kernel void studioFaceTouchUp(texture2d<float, access::read> source [[texture(0)]],
                               texture2d<float, access::read> skin [[texture(1)]],
                               texture2d<float, access::read> light [[texture(2)]],
@@ -66,7 +79,7 @@ kernel void studioFaceTouchUp(texture2d<float, access::read> source [[texture(0)
                 float w = spatial * range;
                 total += neighbour * w;
                 totalWeight += w;
-                float luma = dot(gamma, float3(0.2126f, 0.7152f, 0.0722f));
+                float luma = dot(gamma, lumaWeights);
                 lumaSum += luma * spatial;
                 lumaSquares += luma * luma * spatial;
                 spatialSum += spatial;
@@ -88,17 +101,25 @@ kernel void studioFaceTouchUp(texture2d<float, access::read> source [[texture(0)
             }
         }
         float3 grain = original.rgb - local / 9.0f;
-        float3 smoothed = max(total / max(totalWeight, 1e-5f) + grain * parameters.grain, 0.0f);
-        color = mix(color, smoothed, smoothWeight);
+        float3 blurred = total / max(totalWeight, 1e-5f);
+        float3 smoothed = max(blurred + grain * parameters.grain, 0.0f);
+
+        float originalLuma = dot(original.rgb, lumaWeights);
+        float smoothedLuma = dot(smoothed, lumaWeights);
+        float blurredLuma = dot(blurred, lumaWeights);
+        float luma = mix(originalLuma, smoothedLuma, smoothWeight);
+        float3 tone = mix(original.rgb - originalLuma, blurred - blurredLuma, min(smoothWeight * toneEvening, 1.0f));
+        color = max(luma + tone, 0.0f);
     }
 
     if (lightWeight >= 0.004f) {
         float3 gamma = sqrt(max(color, 0.0f));
-        float luma = dot(gamma, float3(0.2126f, 0.7152f, 0.0722f));
+        float luma = dot(gamma, lumaWeights);
         if (luma > 1e-4f && luma < 1.0f) {
             // 4v(1-v)^2 peaks at a third and is gentle by the highlights.
             float lift = maximumLight * lightWeight * 4.0f * luma * (1.0f - luma) * (1.0f - luma);
-            float3 lit = gamma * ((luma + lift) / luma);
+            float3 scaled = gamma * ((luma + lift) / luma);
+            float3 lit = mix(scaled, gamma + lift, neutralLight);
             color = lit * lit;
         }
     }
