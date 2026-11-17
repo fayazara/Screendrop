@@ -195,6 +195,19 @@ struct InspectorSection<Content: View, Accessory: View>: View {
                         .foregroundStyle(titleColor)
                         .fixedSize()
 
+                    // The fold mark rides beside the title rather than at
+                    // the row's end, so every section's switch and reset
+                    // button share one trailing column with the switches
+                    // in the section bodies.
+                    if let isExpanded {
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundStyle(Palette.tertiaryLabel)
+                            .rotationEffect(.degrees(isExpanded.wrappedValue ? 0 : -90))
+                            .opacity(isHeaderHovering || !isExpanded.wrappedValue ? 1 : 0.6)
+                            .accessibilityHidden(true)
+                    }
+
                     if let summary, !showsContent {
                         Text(summary)
                             .font(.inspectorLabel)
@@ -213,6 +226,7 @@ struct InspectorSection<Content: View, Accessory: View>: View {
             .disabled(isExpanded == nil)
             .accessibilityLabel(title)
             .accessibilityValue(summary ?? "")
+            .accessibilityHint(isExpanded.map { $0.wrappedValue ? "Collapse" : "Expand" } ?? "")
             .accessibilityAddTraits(.isHeader)
 
             accessory()
@@ -229,19 +243,6 @@ struct InspectorSection<Content: View, Accessory: View>: View {
                 )
             }
 
-            if let isExpanded {
-                Button(action: toggleExpansion) {
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(Palette.secondaryLabel)
-                        .frame(width: 18, height: 24)
-                        .rotationEffect(.degrees(isExpanded.wrappedValue ? 0 : -90))
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .focusable(false)
-                .accessibilityLabel(isExpanded.wrappedValue ? "Collapse \(title)" : "Expand \(title)")
-            }
         }
         .onHover { isHeaderHovering = $0 }
     }

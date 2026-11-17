@@ -102,7 +102,10 @@ struct StudioInspector: View {
         // Each page opens at its top.
         .id(content)
         .scrollContentBackground(.hidden)
-        .scrollEdgeEffectSoftIfAvailable()
+        // A hard edge under the toolbar: with a soft one, a section scrolled
+        // up under the Crop and Save buttons looked like it sat beneath them.
+        .scrollEdgeEffectStyle(.hard, for: .top)
+        .scrollEdgeEffectStyle(.soft, for: .bottom)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             // Backed like the panel, so the list never shows through the
             // buttons as it scrolls.
@@ -287,7 +290,19 @@ struct StudioInspector: View {
         // section never comes and goes - the clip lane selects on every
         // scrub, and a section appearing would shove the list about.
         if let clip = shownClip {
-            InspectorSection("Clip", summary: clipSummary(for: clip), isExpanded: expansion("Clip")) {
+            InspectorSection(
+                "Clip",
+                summary: clipSummary(for: clip),
+                isExpanded: expansion("Clip"),
+                accessory: {
+                    if model.canDeleteSelectedClip, model.selectedClipID == clip.id {
+                        InspectorIconButton(systemName: "trash", help: "Delete Clip") {
+                            withAnimation(.morphIfAllowed) { model.deleteSelectedClip() }
+                        }
+                        .transition(.blurPop)
+                    }
+                }
+            ) {
                 clipControls(for: clip)
             }
         }
@@ -324,7 +339,7 @@ struct StudioInspector: View {
             case .idle:
                 if model.hasSubtitles {
                     InspectorActionButton(
-                        "Edit \(captionsSummary ?? "Captions")",
+                        "Edit Captions (\(model.subtitleCues.count))",
                         systemImage: "text.bubble"
                     ) {
                         open(.captions)
@@ -999,7 +1014,7 @@ struct StudioInspector: View {
     private func clipSoundControls(for clip: RecordingClipSegment) -> some View {
         InspectorFieldPair {
             InspectorSlider(
-                "Clip Volume",
+                "Volume",
                 value: Binding(
                     get: { CGFloat(clip.volume) },
                     set: { value in
@@ -1038,24 +1053,16 @@ struct StudioInspector: View {
     /// The clip under the playhead: its speed, and deleting it.
     private func clipControls(for clip: RecordingClipSegment) -> some View {
         VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
-            HStack(spacing: InspectorMetrics.rowSpacing) {
-                InspectorSegmented(
-                    options: RecordingClipSegment.speedPresets,
-                    isSelected: { abs($0 - clip.speed) < 0.001 },
-                    onTap: { model.setClipSpeed($0, forClipID: clip.id) },
-                    label: { speed in
-                        Text(RecordingClipSegment.speedTitle(speed))
-                            .font(.inspectorSegment)
-                    }
-                )
-                .help("Speed of the clip under the playhead. Audio speeds up with it.")
-
-                if model.canDeleteSelectedClip {
-                    InspectorIconButton(systemName: "trash", help: "Delete Clip") {
-                        withAnimation(.morphIfAllowed) { model.deleteSelectedClip() }
-                    }
+            InspectorSegmented(
+                options: RecordingClipSegment.speedPresets,
+                isSelected: { abs($0 - clip.speed) < 0.001 },
+                onTap: { model.setClipSpeed($0, forClipID: clip.id) },
+                label: { speed in
+                    Text(RecordingClipSegment.speedTitle(speed))
+                        .font(.inspectorSegment)
                 }
-            }
+            )
+            .help("Speed of the clip under the playhead. Audio speeds up with it.")
 
             if model.hasAudio {
                 clipSoundControls(for: clip)
