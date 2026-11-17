@@ -814,7 +814,7 @@ struct StudioInspector: View {
                         : "Turn the \(pressCount == 1 ? "recorded click" : "\(pressCount) recorded clicks") into smooth camera moves"
                 )
 
-                InspectorActionButton("Add Zoom", systemImage: "plus.magnifyingglass") {
+                InspectorActionButton("Add Zoom", systemImage: "plus.viewfinder") {
                     withAnimation(.morphIfAllowed) { model.addZoomCue(at: model.currentTime) }
                 }
                 .help("Add a zoom at the playhead, or drag across the zoom lane")
@@ -857,7 +857,7 @@ struct StudioInspector: View {
     private func selectedZoomPage(for selected: ZoomCue) -> some View {
         pageHeader(
             "Zoom",
-            systemImage: selected.anchorMode == .pinnedAnchor ? "scope" : "plus.magnifyingglass",
+            systemImage: selected.anchorMode == .pinnedAnchor ? "scope" : "viewfinder",
             backTitle: page?.title ?? "Look",
             isOn: Binding(
                 get: { selected.isEnabled },

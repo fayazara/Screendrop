@@ -1070,7 +1070,7 @@ private enum StudioTrack: Hashable, Identifiable {
         case .text: "character.textbox"
         case .overlay: "square.3.layers.3d"
         case .clips: "video"
-        case .zooms: "magnifyingglass"
+        case .zooms: "viewfinder"
         case .layouts: "person.crop.rectangle"
         case .audio: "music.note"
         }
@@ -1716,7 +1716,7 @@ private struct StudioZoomLane: View {
         )
         .opacity(model.zoomEnabled ? 1 : 0.45)
         .contextMenu {
-            Button("Add Zoom at Playhead", systemImage: "plus.magnifyingglass") {
+            Button("Add Zoom at Playhead", systemImage: "plus.viewfinder") {
                 model.addZoomCue(at: model.currentTime)
             }
         }
@@ -1743,7 +1743,7 @@ private struct StudioZoomLane: View {
     private func content(for block: StudioLaneBlock<ZoomCue>, state: StudioBlockState) -> some View {
         let cue = block.item
         StudioBlockLabel(
-            systemImage: cue.anchorMode == .pinnedAnchor ? "scope" : "magnifyingglass",
+            systemImage: cue.anchorMode == .pinnedAnchor ? "scope" : "viewfinder",
             title: cue.isEnabled
                 ? InspectorValueFormat.magnification(fractionDigits: 1).displayString(for: cue.zoom)
                 : "Off",
