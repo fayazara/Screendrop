@@ -1079,50 +1079,13 @@ struct StudioInspector: View {
     // MARK: Text
 
     private var keystrokeControls: some View {
-        VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
-            InspectorRow("Top") {
-                keystrokePlacementRow([.topLeft, .topCenter, .topRight])
-            }
-            InspectorRow("Bottom") {
-                keystrokePlacementRow([.bottomLeft, .bottomCenter, .bottomRight])
-            }
-        }
-        .help("Shortcuts you pressed while recording appear as a caption")
+        StudioPlacementPicker(selection: $model.keystrokePlacement)
+            .help("Shortcuts you pressed while recording appear as a caption")
     }
 
     private var speedBadgeControls: some View {
-        VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
-            InspectorRow("Top") {
-                placementRow([.topLeft, .topCenter, .topRight], selection: $model.speedBadgePlacement)
-            }
-            InspectorRow("Bottom") {
-                placementRow([.bottomLeft, .bottomCenter, .bottomRight], selection: $model.speedBadgePlacement)
-            }
-        }
-        .help("Sped-up clips carry a “2× ›››” badge while they play")
-    }
-
-    private func placementRow(
-        _ options: [RecordingKeystrokePlacement],
-        selection: Binding<RecordingKeystrokePlacement>
-    ) -> some View {
-        InspectorSegmented(
-            options: options,
-            isSelected: { $0 == selection.wrappedValue },
-            onTap: { selection.wrappedValue = $0 },
-            label: { Text($0.title).font(.inspectorSegment) }
-        )
-    }
-
-    private func keystrokePlacementRow(
-        _ options: [RecordingKeystrokePlacement]
-    ) -> some View {
-        InspectorSegmented(
-            options: options,
-            isSelected: { $0 == model.keystrokePlacement },
-            onTap: { model.keystrokePlacement = $0 },
-            label: { Text($0.title).font(.inspectorSegment) }
-        )
+        StudioPlacementPicker(selection: $model.speedBadgePlacement)
+            .help("Sped-up clips carry a “2× ›››” badge while they play")
     }
 
     @ViewBuilder
@@ -1986,5 +1949,93 @@ private struct StudioCursorStylePicker: View {
             width: CGFloat(maxX - minX + 1) / CGFloat(width),
             height: CGFloat(maxY - minY + 1) / CGFloat(height)
         )
+    }
+}
+
+/// Where a caption-like badge sits, picked on a little frame: two rows of
+/// three cells standing for the video's top and bottom edges, each with a
+/// bar drawn where the badge would land. One control instead of a Top and a
+/// Bottom row that read as two separate choices.
+private struct StudioPlacementPicker: View {
+    @Binding var selection: RecordingKeystrokePlacement
+
+    @State private var hovered: RecordingKeystrokePlacement?
+    @Environment(\.colorScheme) private var colorScheme
+
+    private static let inset: CGFloat = 3
+    private static let rows: [[RecordingKeystrokePlacement]] = [
+        [.topLeft, .topCenter, .topRight],
+        [.bottomLeft, .bottomCenter, .bottomRight],
+    ]
+
+    private var trackShape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: InspectorMetrics.fieldRadius, style: .continuous)
+    }
+
+    /// Nested inside the track: its radius less the inset, never equal.
+    private var cellShape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: InspectorMetrics.fieldRadius - Self.inset, style: .continuous)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ForEach(Self.rows, id: \.self) { row in
+                HStack(spacing: 0) {
+                    ForEach(row) { placement in
+                        cell(placement)
+                    }
+                }
+            }
+        }
+        .padding(Self.inset)
+        .frame(height: InspectorMetrics.controlHeight * 2 - 8)
+        .background(trackShape.fill(InspectorControlPalette.trackFill(for: colorScheme)))
+    }
+
+    private func cell(_ placement: RecordingKeystrokePlacement) -> some View {
+        let isSelected = placement == selection
+        return Button {
+            selection = placement
+        } label: {
+            Capsule()
+                .fill(isSelected ? Palette.accent : Color.primary.opacity(hovered == placement ? 0.45 : 0.25))
+                .frame(width: 18, height: 4)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: alignment(of: placement))
+                .background {
+                    if isSelected {
+                        cellShape
+                            .fill(InspectorControlPalette.selectedChipFill(for: colorScheme))
+                            .shadow(color: InspectorControlPalette.selectedChipShadow(for: colorScheme), radius: 1, y: 0.5)
+                    } else if hovered == placement {
+                        cellShape.fill(InspectorControlPalette.hoverFill)
+                    }
+                }
+                .contentShape(cellShape)
+        }
+        .buttonStyle(.plain)
+        .focusEffectDisabled()
+        .onHover { isHovering in
+            if isHovering {
+                hovered = placement
+            } else if hovered == placement {
+                hovered = nil
+            }
+        }
+        .help("\(placement.isTop ? "Top" : "Bottom") \(placement.title.lowercased())")
+        .accessibilityLabel("\(placement.isTop ? "Top" : "Bottom") \(placement.title.lowercased())")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private func alignment(of placement: RecordingKeystrokePlacement) -> Alignment {
+        switch placement {
+        case .topLeft: .topLeading
+        case .topCenter: .top
+        case .topRight: .topTrailing
+        case .bottomLeft: .bottomLeading
+        case .bottomCenter: .bottom
+        case .bottomRight: .bottomTrailing
+        }
     }
 }
