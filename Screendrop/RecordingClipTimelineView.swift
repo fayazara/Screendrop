@@ -1194,13 +1194,9 @@ final class RecordingClipTimelineControl: NSView {
         )
     }
 
+    /// The same `m:ss` as every other length on the timeline.
     private static func durationText(_ seconds: TimeInterval) -> String {
-        let safe = max(0, seconds)
-        if safe < 60 {
-            return String(format: "%.1fs", safe)
-        }
-        let total = Int(safe.rounded())
-        return String(format: "%d:%02d", total / 60, total % 60)
+        studioClock(seconds)
     }
 
     /// Matches the zoom blocks and playhead so the timeline has a single

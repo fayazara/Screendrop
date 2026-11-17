@@ -1482,9 +1482,15 @@ private struct StudioTimelineRuler: View {
                     with: .color(Palette.hairline)
                 )
 
+                // The start needs no label: the playhead's head parks over
+                // it, and the gutter already says where the cut begins.
+                guard time > 0 else { continue }
+
+                // The same face as the transport's readouts, so the ruler
+                // and the times above it read as one family.
                 let label = context.resolve(
                     Text(Self.label(for: time, step: step))
-                        .font(.system(size: 9.5, weight: .regular, design: .monospaced))
+                        .font(.system(size: 9.5, weight: .medium).monospacedDigit())
                         .foregroundStyle(Palette.tertiaryLabel)
                 )
                 let labelSize = label.measure(in: size)
@@ -1540,22 +1546,39 @@ private struct StudioTimelineRuler: View {
     }
 }
 
+// The Studio writes every time one of two ways: `m:ss` for positions and
+// lengths on the ruler, blocks, clips and window title, and `m:ss.f` for the
+// playhead readouts. No leading zero on the minutes, `h:mm:ss` past an hour.
+
+/// A position on the timeline, `m:ss`, rounded down so a label never runs
+/// ahead of the frame it marks.
 func studioTimecode(_ seconds: Double) -> String {
-    let safe = max(0, seconds.isFinite ? seconds : 0)
-    let total = Int(safe.rounded(.down))
+    studioClockText(wholeSeconds: Int(studioSafeSeconds(seconds).rounded(.down)))
+}
+
+/// A length, `m:ss`, rounded to the nearest second.
+func studioClock(_ seconds: Double) -> String {
+    studioClockText(wholeSeconds: Int(studioSafeSeconds(seconds).rounded()))
+}
+
+/// The playhead's time, `m:ss.f`. Counted in tenths so 59.96 reads 1:00.0,
+/// never 0:60.0.
+func studioPreciseTimecode(_ seconds: Double) -> String {
+    let tenths = Int((studioSafeSeconds(seconds) * 10).rounded(.down))
+    return "\(studioClockText(wholeSeconds: tenths / 10)).\(tenths % 10)"
+}
+
+private func studioSafeSeconds(_ seconds: Double) -> Double {
+    max(0, seconds.isFinite ? seconds : 0)
+}
+
+private func studioClockText(wholeSeconds total: Int) -> String {
     let hours = total / 3600
     let minutes = (total % 3600) / 60
     let remainingSeconds = total % 60
     return hours > 0
         ? String(format: "%d:%02d:%02d", hours, minutes, remainingSeconds)
-        : String(format: "%02d:%02d", minutes, remainingSeconds)
-}
-
-func studioPreciseTimecode(_ seconds: Double) -> String {
-    let safe = max(0, seconds.isFinite ? seconds : 0)
-    let totalMinutes = Int(safe) / 60
-    let remaining = safe.truncatingRemainder(dividingBy: 60)
-    return String(format: "%02d:%04.1f", totalMinutes, remaining)
+        : String(format: "%d:%02d", minutes, remainingSeconds)
 }
 
 /// The flat, full-width ground a track sits on. It stays pinned to the

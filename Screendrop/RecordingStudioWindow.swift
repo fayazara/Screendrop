@@ -218,16 +218,14 @@ private struct RecordingStudioContent: View {
     /// says it in words for anyone who reads the title bar first.
     private var windowTitle: String {
         let name = Self.friendlyTitle(for: model.projectDisplayName)
-        return model.hasUnsavedChanges ? "\(name) - Edited" : name
+        return model.hasUnsavedChanges ? "\(name) — Edited" : name
     }
 
     /// Length of the edited cut and the source resolution.
     private var windowSubtitle: String {
         guard model.isLoaded else { return "" }
-        let total = Int(model.duration.rounded())
-        let clock = String(format: "%d:%02d", total / 60, total % 60)
         let size = model.videoSize
-        return "\(clock) · \(Int(size.width))×\(Int(size.height))"
+        return "\(studioClock(model.duration)) · \(Int(size.width))×\(Int(size.height))"
     }
 
     /// Unrenamed recordings are named `Screendrop_<timestamp>_<id>` on disk;
