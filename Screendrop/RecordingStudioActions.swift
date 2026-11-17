@@ -158,7 +158,21 @@ struct StudioActionFooter: View {
     private var status: some View {
         switch currentStatus {
         case .summary(let text):
-            statusLine(text, systemImage: nil, tint: nil)
+            // The format is a setting, so it opens where it's set.
+            Button {
+                isExportOptionsPresented = true
+            } label: {
+                HStack(spacing: 3) {
+                    statusLine(text, systemImage: nil, tint: nil)
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.system(size: 8, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(isExportRunning || isShareRunning)
+            .help("Export options")
         case .exported(let url):
             Button {
                 NSWorkspace.shared.activateFileViewerSelecting([url])
