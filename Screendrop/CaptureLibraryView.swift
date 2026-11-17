@@ -466,7 +466,7 @@ private struct LibrarySortOffer: View {
     }
 }
 
-/// Settings, plus a blue download button while a newer release is waiting.
+/// Settings, plus an accent download button while a newer release is waiting.
 private struct LibrarySidebarFooter: View {
     @ObservedObject private var updater = UpdaterManager.shared
     @State private var isHovering = false
@@ -502,7 +502,7 @@ private struct LibrarySidebarFooter: View {
                     systemImage: "arrow.down",
                     help: "Download Screendrop \(version)",
                     size: 30,
-                    tint: .blue
+                    tint: Palette.accent
                 ) {
                     updater.checkForUpdates()
                 }

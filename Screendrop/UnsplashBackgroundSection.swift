@@ -144,7 +144,7 @@ struct UnsplashBackgroundSection: View {
             if let errorMessage = browser.errorMessage {
                 Text(errorMessage)
                     .font(.system(size: 10))
-                    .foregroundStyle(.red)
+                    .foregroundStyle(Palette.record)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }

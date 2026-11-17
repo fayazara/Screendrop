@@ -1392,7 +1392,7 @@ struct StudioInspector: View {
                 } label: {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.green)
+                        .foregroundStyle(Palette.success)
                     Text("Reveal")
                         .font(.inspectorValue)
                 }
@@ -1402,7 +1402,7 @@ struct StudioInspector: View {
                 } label: {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(Palette.warning)
                     Text("Retry")
                         .font(.inspectorValue)
                 }
@@ -1461,7 +1461,7 @@ struct StudioInspector: View {
             if let drift = model.replacementAudioDrift {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(Palette.warning)
                     .help(
                         drift > 0
                             ? "Runs \(Self.spanText(drift)) longer than the cut it was added to - the tail is dropped"
@@ -1755,7 +1755,7 @@ private struct StudioTranscriptWordView: View {
         } else if isActive, !isCut {
             Palette.highlight.opacity(0.2)
         } else if isFiller, !isCut {
-            Color.orange.opacity(0.16)
+            Palette.warning.opacity(0.16)
         } else {
             Color.clear
         }

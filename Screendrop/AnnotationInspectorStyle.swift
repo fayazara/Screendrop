@@ -507,7 +507,7 @@ struct InspectorActionButton: View {
             }
         }
         .buttonStyle(.plain)
-        .foregroundStyle(role == .destructive ? Color.red.opacity(0.88) : Color.primary.opacity(0.85))
+        .foregroundStyle(role == .destructive ? Palette.record.opacity(0.88) : Color.primary.opacity(0.85))
         .disabled(isBusy)
         .opacity(isEnabled && !isBusy ? 1 : 0.5)
         .onHover { isHovering = $0 }

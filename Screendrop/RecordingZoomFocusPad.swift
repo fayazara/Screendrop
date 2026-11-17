@@ -38,7 +38,7 @@ struct RecordingZoomFocusPad: View {
             )
 
             ZStack(alignment: .topLeading) {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                RoundedRectangle(cornerRadius: Radius.field, style: .continuous)
                     .fill(Color.primary.opacity(isHovering ? 0.055 : 0.035))
 
                 RecordingZoomFocusGrid()
@@ -68,12 +68,12 @@ struct RecordingZoomFocusPad: View {
                         value: isDragging
                     )
             }
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: Radius.field, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                RoundedRectangle(cornerRadius: Radius.field, style: .continuous)
                     .stroke(Color.primary.opacity(0.12), lineWidth: 0.5)
             }
-            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: Radius.field, style: .continuous))
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in

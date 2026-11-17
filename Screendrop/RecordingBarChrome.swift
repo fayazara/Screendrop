@@ -192,7 +192,7 @@ struct BarTooltipPill: View {
     let text: String
 
     private var shape: RoundedRectangle {
-        RoundedRectangle(cornerRadius: 8, style: .continuous)
+        RoundedRectangle(cornerRadius: Radius.field, style: .continuous)
     }
 
     var body: some View {
@@ -253,7 +253,7 @@ struct BarActionLabel: View {
             }
             .animation(.hover, value: isHovering)
             .animation(.hover, value: isSelected)
-            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: Radius.field, style: .continuous))
             .onGeometryChange(for: CGRect.self) {
                 $0.frame(in: .named(BarCoordinateSpace.bar))
             } action: {

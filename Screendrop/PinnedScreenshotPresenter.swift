@@ -107,9 +107,9 @@ private struct PinnedScreenshotView: View {
             .resizable()
             .aspectRatio(contentMode: .fill)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: Radius.thumbnail, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                RoundedRectangle(cornerRadius: Radius.thumbnail, style: .continuous)
                     .strokeBorder(.white.opacity(0.25), lineWidth: 1)
             }
             .overlay(alignment: .top) {
@@ -119,7 +119,7 @@ private struct PinnedScreenshotView: View {
                         .transition(.opacity.combined(with: .move(edge: .top)))
                 }
             }
-            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: Radius.thumbnail, style: .continuous))
             .onHover { hovering in
                 withAnimation(.fade) {
                     isHovered = hovering

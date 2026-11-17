@@ -712,7 +712,7 @@ private struct AnnotationWallpaperPackInstallView: View {
             if let errorMessage {
                 Text(errorMessage)
                     .font(.system(size: 10))
-                    .foregroundStyle(.red)
+                    .foregroundStyle(Palette.record)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
