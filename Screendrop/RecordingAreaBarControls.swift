@@ -115,8 +115,8 @@ private struct RecordingAreaDimensionField: View {
                     .strokeBorder(Palette.accent, lineWidth: 1.5)
                     .opacity(isFocused ? 1 : 0)
             }
-            .animation(.easeOut(duration: 0.12), value: isHovering)
-            .animation(.easeOut(duration: 0.12), value: isFocused)
+            .animation(.hover, value: isHovering)
+            .animation(.hover, value: isFocused)
             .modifier(RecordingAreaBarHover(id: id, title: title, isHovering: $isHovering))
             .onAppear { text = Self.display(value) }
             .onChange(of: value) { _, value in
@@ -175,7 +175,7 @@ private struct RecordingAreaSwapButton: View {
                         .fill(BarMetrics.hoverFill)
                         .opacity(isHovering ? 1 : 0)
                 }
-                .animation(.easeOut(duration: 0.12), value: isHovering)
+                .animation(.hover, value: isHovering)
                 .contentShape(Rectangle())
                 .modifier(RecordingAreaBarHover(id: .areaSwap, title: "Swap width and height", isHovering: $isHovering))
         }
@@ -246,7 +246,7 @@ private struct RecordingAreaAspectMenu: View {
             AreaPillMetrics.boxShape
                 .fill(isHovering ? BarMetrics.hoverFill : AreaPillMetrics.restingFill)
         }
-        .animation(.easeOut(duration: 0.12), value: isHovering)
+        .animation(.hover, value: isHovering)
         .contentShape(AreaPillMetrics.boxShape)
         .modifier(RecordingAreaBarHover(
             id: .areaAspect,

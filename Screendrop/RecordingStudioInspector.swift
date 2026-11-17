@@ -499,7 +499,7 @@ struct StudioInspector: View {
                         isOn: Binding(
                             get: { isOn.wrappedValue },
                             set: { value in
-                                withAnimation(.morphIfAllowed) { isOn.wrappedValue = value }
+                                withAnimation(.foldIfAllowed) { isOn.wrappedValue = value }
                             }
                         ),
                         size: .regular
@@ -587,7 +587,7 @@ struct StudioInspector: View {
                 options: ExportAspectPreset.allCases,
                 isSelected: { $0 == model.exportAspect },
                 onTap: { aspect in
-                    withAnimation(.morphIfAllowed) { model.exportAspect = aspect }
+                    withAnimation(.canvasMoveIfAllowed) { model.exportAspect = aspect }
                 },
                 label: { preset in
                     Text(preset.title)
@@ -603,7 +603,7 @@ struct StudioInspector: View {
                     options: ExportAspectContentMode.allCases,
                     isSelected: { $0 == model.exportAspectMode },
                     onTap: { mode in
-                        withAnimation(.morphIfAllowed) { model.exportAspectMode = mode }
+                        withAnimation(.canvasMoveIfAllowed) { model.exportAspectMode = mode }
                     },
                     label: { mode in
                         Text(mode.title)
@@ -1074,7 +1074,7 @@ struct StudioInspector: View {
                     isOn: Binding(
                         get: { model.showsSpeedBadge },
                         set: { value in
-                            withAnimation(.morphIfAllowed) { model.showsSpeedBadge = value }
+                            withAnimation(.foldIfAllowed) { model.showsSpeedBadge = value }
                         }
                     )
                 )
@@ -1270,7 +1270,7 @@ struct StudioInspector: View {
                 // Follow playback through the list, but never yank the list
                 // around while the user is scrubbing or editing.
                 guard let activeID, model.isPlaying else { return }
-                withAnimation(.easeOut(duration: 0.2)) {
+                withAnimation(.fade) {
                     proxy.scrollTo(activeID, anchor: .center)
                 }
             }
@@ -1651,7 +1651,7 @@ private struct StudioTranscriptEditPanel: View {
                     // Follow playback through the transcript, but never yank
                     // it around while the user is selecting a passage.
                     guard let activeIndex, model.isPlaying, selection == nil else { return }
-                    withAnimation(.easeOut(duration: 0.2)) {
+                    withAnimation(.fade) {
                         proxy.scrollTo(activeIndex, anchor: .center)
                     }
                 }

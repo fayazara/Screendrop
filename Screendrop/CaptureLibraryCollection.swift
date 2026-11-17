@@ -398,8 +398,8 @@ struct LibraryCellContent: View {
                 }
                 .onHover { isHovering = $0 }
                 .onChange(of: item.id) { _, _ in isHovering = false }
-                .animation(reduceMotion ? nil : .morphQuick, value: selected)
-                .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: isHovering)
+                .animation(reduceMotion ? nil : .hover, value: selected)
+                .animation(reduceMotion ? nil : .hover, value: isHovering)
                 .help(layout == .grid ? item.name : "")
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("\(item.name), \(item.kindTitle), \(item.subtitle)")

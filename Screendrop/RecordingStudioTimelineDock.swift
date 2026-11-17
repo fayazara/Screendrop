@@ -163,7 +163,7 @@ struct StudioTimelineDock: View {
                     .onEnded { _ in resizeBase = nil }
             )
             .onTapGesture(count: 2) {
-                withAnimation(.fold) { storedTracksHeight = 0 }
+                withAnimation(.foldIfAllowed) { storedTracksHeight = 0 }
             }
             .help("Drag to resize the timeline. Double-click to show every track.")
             .offset(y: -3)
@@ -1614,8 +1614,8 @@ private struct StudioTrackGround: View {
                     }
                 }
             }
-            .animation(.easeOut(duration: 0.15), value: hint)
-            .animation(.easeOut(duration: 0.15), value: dropX == nil)
+            .animation(.fade, value: hint)
+            .animation(.fade, value: dropX == nil)
             .allowsHitTesting(false)
     }
 }

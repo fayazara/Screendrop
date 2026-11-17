@@ -254,7 +254,7 @@ struct CaptureLibraryInspector: View {
                         }
                         if paragraphs.count > preview {
                             Button(showsAllText ? "Show Less" : "Show All Text") {
-                                withAnimation(.fold) { showsAllText.toggle() }
+                                withAnimation(.foldIfAllowed) { showsAllText.toggle() }
                             }
                             .buttonStyle(.plain)
                             .font(.dsCaption.weight(.medium))

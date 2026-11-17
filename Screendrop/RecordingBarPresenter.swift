@@ -105,7 +105,7 @@ final class RecordingBarPresenter {
 
         let isMorphing = panel.isVisible && isPositioned(panel, onDisplayID: displayID)
         if isMorphing {
-                withAnimation(BarMetrics.modeChange) {
+            withAnimation(BarMetrics.modeChange) {
                 mode = .recording
                 isTeleprompterOpen = false
             }
@@ -380,7 +380,7 @@ private struct RecordingBarView: View {
                     .alignmentGuide(.trailing) { $0[.leading] - BarMetrics.pillGap }
                     .transition(
                         .opacity.combined(with: .offset(x: -12))
-                            .animation(.easeOut(duration: 0.18))
+                            .animation(.fade)
                     )
                     .onGeometryChange(for: CGRect.self) {
                         $0.frame(in: .named(BarCoordinateSpace.panel))
@@ -489,8 +489,8 @@ private struct RecordingBarView: View {
         // Keyed on the id as well as the text so sliding the pointer along
         // the bar glides the pill from control to control rather than
         // cross-fading it in place.
-        .animation(.easeOut(duration: 0.12), value: tooltip.visible?.id)
-        .animation(.easeOut(duration: 0.12), value: tooltip.visible?.text)
+        .animation(.hover, value: tooltip.visible?.id)
+        .animation(.hover, value: tooltip.visible?.text)
     }
 
     private var barShape: RoundedRectangle {

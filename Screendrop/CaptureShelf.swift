@@ -512,9 +512,9 @@ final class CaptureShelf {
 
     // MARK: - Internals
 
-    /// How cards travel through the screen edge: smooth, with no overshoot.
-    /// The app's bouncy `morph` would carry them past their dock and back.
-    static let slide = Animation.smooth(duration: 0.38)
+    /// How cards travel through the screen edge: the app's `panel` motion,
+    /// smooth with no overshoot, so they never pass their dock and come back.
+    static let slide = Animation.panel
 
     static var slideIfAllowed: Animation? {
         NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? nil : slide

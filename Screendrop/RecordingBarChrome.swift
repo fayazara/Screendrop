@@ -251,8 +251,8 @@ struct BarActionLabel: View {
                     )
                     .opacity(isHovering || isSelected ? 1 : 0)
             }
-            .animation(.easeOut(duration: 0.12), value: isHovering)
-            .animation(.easeOut(duration: 0.12), value: isSelected)
+            .animation(.hover, value: isHovering)
+            .animation(.hover, value: isSelected)
             .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             .onGeometryChange(for: CGRect.self) {
                 $0.frame(in: .named(BarCoordinateSpace.bar))

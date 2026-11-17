@@ -121,7 +121,7 @@ private struct PinnedScreenshotView: View {
             }
             .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             .onHover { hovering in
-                withAnimation(.easeOut(duration: 0.15)) {
+                withAnimation(.fade) {
                     isHovered = hovering
                 }
             }

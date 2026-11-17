@@ -197,7 +197,7 @@ struct StudioTextInspectorControls: View {
     /// the pickers.
     private var animationHeader: some View {
         Button {
-            withAnimation(.fold) { isAnimationExpanded.toggle() }
+            withAnimation(.foldIfAllowed) { isAnimationExpanded.toggle() }
         } label: {
             HStack(spacing: 6) {
                 InspectorGroupLabel("Animation")

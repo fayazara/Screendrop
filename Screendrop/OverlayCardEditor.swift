@@ -102,7 +102,7 @@ struct OverlayCardEditor: View {
         // Slot-placeholder highlights animate on their own gentle curve. The
         // floating chip's morph is driven solely by the curve in the drag
         // handler, so it is not double-animated here.
-        .animation(.easeOut(duration: 0.18), value: hoveredZone)
+        .animation(.fade, value: hoveredZone)
     }
 
     private var cardBackground: some View {

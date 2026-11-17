@@ -144,7 +144,7 @@ struct AnnotationEditorInspector: View {
                         if !model.backgroundSettings.camera.isDefault {
                             InspectorResetButton(help: "Reset camera") {
                                 onEditorAction()
-                                withAnimation(.canvasMove) {
+                                withAnimation(.canvasMoveIfAllowed) {
                                     model.backgroundSettings.camera = AnnotationCameraSettings()
                                 }
                             }
@@ -279,7 +279,7 @@ struct AnnotationEditorInspector: View {
     private func sectionResetButton(_ help: String, reset: @escaping () -> Void) -> some View {
         InspectorResetButton(help: help) {
             onEditorAction()
-            withAnimation(.canvasMove) { reset() }
+            withAnimation(.canvasMoveIfAllowed) { reset() }
         }
         .transition(.blurPop)
     }

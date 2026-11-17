@@ -103,7 +103,7 @@ final class RecordingSourceTargetPresenter {
         case nil: nil
         }
         guard next != target else { return }
-        withAnimation(.easeOut(duration: 0.12)) {
+        withAnimation(.hover) {
             target = next
         }
     }

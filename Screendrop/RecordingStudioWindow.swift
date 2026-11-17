@@ -82,7 +82,7 @@ private struct RecordingStudioContent: View {
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
                 Button {
-                    withAnimation(.morphIfAllowed) {
+                    withAnimation(.canvasMoveIfAllowed) {
                         model.beginVideoCrop()
                     }
                 } label: {
@@ -97,7 +97,7 @@ private struct RecordingStudioContent: View {
                 }
 
                 Button {
-                    withAnimation(.morphIfAllowed) {
+                    withAnimation(.panelIfAllowed) {
                         isInspectorPresented.toggle()
                     }
                 } label: {
@@ -161,16 +161,16 @@ private struct RecordingStudioContent: View {
                     GlassCropBar(
                         aspect: model.videoCropAspect,
                         onAspectChange: { aspect in
-                            withAnimation(.morphIfAllowed) { model.setVideoCropAspect(aspect) }
+                            withAnimation(.canvasMoveIfAllowed) { model.setVideoCropAspect(aspect) }
                         },
                         onReset: {
-                            withAnimation(.morphIfAllowed) { model.resetVideoCrop() }
+                            withAnimation(.canvasMoveIfAllowed) { model.resetVideoCrop() }
                         },
                         onCancel: {
-                            withAnimation(.morphIfAllowed) { model.cancelVideoCrop() }
+                            withAnimation(.canvasMoveIfAllowed) { model.cancelVideoCrop() }
                         },
                         onApply: {
-                            withAnimation(.morphIfAllowed) { model.applyVideoCrop() }
+                            withAnimation(.canvasMoveIfAllowed) { model.applyVideoCrop() }
                         },
                         resetHelp: "Reset the selection to the whole video"
                     )
@@ -186,8 +186,8 @@ private struct RecordingStudioContent: View {
                         .transition(.rise)
                 }
             }
-            .motion(.morph, value: model.isCroppingVideo)
-            .motion(.morph, value: isInspectorPresented)
+            .motion(.canvasMove, value: model.isCroppingVideo)
+            .motion(.panel, value: isInspectorPresented)
     }
 
     private var floatsChrome: Bool {
@@ -1347,7 +1347,7 @@ private struct StudioCameraBubble: View {
                         y: min(canvas.width, canvas.height) * 0.009
                     )
                     .opacity(framedOpacity)
-                    .animation(.easeOut(duration: 0.15), value: isCutoutReady)
+                    .animation(.fade, value: isCutoutReady)
                     .contentShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
                     .onHover { isHovering = $0 }
                     .pointerStyle(isMovable ? (dragOffset == nil ? PointerStyle.grabIdle : .grabActive) : nil)

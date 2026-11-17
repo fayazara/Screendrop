@@ -448,8 +448,8 @@ private struct RecordingAreaSheetOverlay: View {
                     .transition(.opacity)
             }
         }
-        .animation(.easeOut(duration: 0.15), value: presenter.isInteracting)
-        .animation(.easeOut(duration: 0.15), value: presenter.selection == nil)
+        .animation(.fade, value: presenter.isInteracting)
+        .animation(.fade, value: presenter.selection == nil)
         .ignoresSafeArea()
         .allowsHitTesting(false)
     }

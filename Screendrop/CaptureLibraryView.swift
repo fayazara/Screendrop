@@ -161,7 +161,7 @@ struct CaptureLibraryView: View {
         .onChange(of: analyzeCaptures) { _, enabled in
             if !enabled, case .category = scope { model.scope = .kind(.all) }
         }
-        .animation(.morphIfAllowed, value: showsSortOffer)
+        .animation(.foldIfAllowed, value: showsSortOffer)
         .alert("Rename Capture", isPresented: Binding(
             get: { model.renamingItem != nil },
             set: { if !$0 { model.renamingItem = nil } }
@@ -333,7 +333,7 @@ struct CaptureLibraryView: View {
             .help("Sort captures")
         }
         ToolbarItem(placement: .primaryAction) {
-            Button { withAnimation(.morphIfAllowed) { inspectorVisible.toggle() } } label: {
+            Button { withAnimation(.panelIfAllowed) { inspectorVisible.toggle() } } label: {
                 Label(inspectorVisible ? "Hide Inspector" : "Show Inspector", systemImage: "sidebar.right")
             }
             .keyboardShortcut("i", modifiers: [.command, .option])

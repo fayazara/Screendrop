@@ -53,7 +53,7 @@ struct RecordingZoomFocusPad: View {
                     .frame(width: viewportSize.width, height: viewportSize.height)
                     .position(viewportCenter)
                     .animation(
-                        accessibilityReduceMotion ? nil : .snappy(duration: 0.16),
+                        accessibilityReduceMotion ? nil : .morphQuick,
                         value: magnification
                     )
 
@@ -64,7 +64,7 @@ struct RecordingZoomFocusPad: View {
                     .shadow(color: Color.black.opacity(0.22), radius: 3, y: 1)
                     .position(targetPoint)
                     .animation(
-                        accessibilityReduceMotion ? nil : .snappy(duration: 0.12),
+                        accessibilityReduceMotion ? nil : .hover,
                         value: isDragging
                     )
             }
@@ -90,7 +90,7 @@ struct RecordingZoomFocusPad: View {
             .simultaneousGesture(
                 TapGesture(count: 2)
                     .onEnded {
-                        withAnimation(accessibilityReduceMotion ? nil : .snappy(duration: 0.18)) {
+                        withAnimation(accessibilityReduceMotion ? nil : .morphQuick) {
                             position = CGPoint(x: 0.5, y: 0.5)
                         }
                     }

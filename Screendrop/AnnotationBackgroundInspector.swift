@@ -412,7 +412,7 @@ struct InspectorBackgroundFillPicker: View {
 
             if count > Self.packPreviewCount {
                 Button {
-                    withAnimation(.morphIfAllowed) {
+                    withAnimation(.foldIfAllowed) {
                         if isExpanded {
                             expandedPackIDs.remove(pack.id)
                         } else {
@@ -747,7 +747,7 @@ private struct AlignmentPositionPicker: View {
             ForEach(AnnotationBackgroundAlignment.allCases) { option in
                 Button {
                     onEditorAction()
-                    withAnimation(accessibilityReduceMotion ? nil : .snappy(duration: 0.18)) {
+                    withAnimation(accessibilityReduceMotion ? nil : .morphQuick) {
                         alignment = option
                     }
                 } label: {

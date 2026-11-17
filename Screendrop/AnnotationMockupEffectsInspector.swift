@@ -119,7 +119,7 @@ struct AnnotationProgressiveBlurInspector: View {
                 )
             }
         }
-        .animation(.snappy(duration: 0.18), value: settings.mode)
+        .animation(.morphQuick, value: settings.mode)
     }
 
     private var focusPositionText: String {
@@ -202,7 +202,7 @@ private struct AnnotationFocusPositionPad: View {
                     .overlay(Circle().stroke(Color.white.opacity(0.9), lineWidth: 1.5))
                     .shadow(color: Color.black.opacity(0.22), radius: 3, y: 1)
                     .position(point)
-                    .animation(.snappy(duration: 0.12), value: isDragging)
+                    .animation(.hover, value: isDragging)
             }
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             .overlay(
@@ -230,7 +230,7 @@ private struct AnnotationFocusPositionPad: View {
                 TapGesture(count: 2)
                     .onEnded {
                         onInteractionBegan()
-                        withAnimation(.snappy(duration: 0.18)) {
+                        withAnimation(.morphQuick) {
                             position = CGPoint(x: 0.5, y: 0.5)
                         }
                     }

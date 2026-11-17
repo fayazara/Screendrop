@@ -353,6 +353,6 @@ struct StudioProgressRing: View {
                 .rotationEffect(.degrees(-90))
         }
         .frame(width: size, height: size)
-        .animation(.easeOut(duration: 0.15), value: progress)
+        .animation(.fade, value: progress)
     }
 }

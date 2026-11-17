@@ -131,8 +131,8 @@ final class TeleprompterOverlayPresenter {
 
     /// One spring for every phase - the "magnetic" feel comes from the
     /// expand, collapse, and scroll all settling with the same physics.
-    static let spring = Animation.spring(response: 0.42, dampingFraction: 0.78)
-    static let scrollSpring = Animation.spring(response: 0.5, dampingFraction: 0.86)
+    static let spring = Animation.spring(duration: 0.4, bounce: 0.1)
+    static let scrollSpring = Animation.smooth(duration: 0.45)
 
     private let model = TeleprompterOverlayModel()
     private var panel: NSPanel?

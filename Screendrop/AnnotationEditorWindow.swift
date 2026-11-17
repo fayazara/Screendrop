@@ -143,7 +143,7 @@ struct AnnotationEditorWindow: View {
 
         Button {
             clearInspectorFocus()
-            withAnimation(.morphIfAllowed) { isInspectorPresented.toggle() }
+            withAnimation(.panelIfAllowed) { isInspectorPresented.toggle() }
         } label: {
             Image(systemName: "sidebar.right")
         }
@@ -257,7 +257,7 @@ struct AnnotationEditorWindow: View {
         // The canvas reframes here; overshoot on the image reads as a whip.
         // Crop changes animate where they are made, not here: applying a crop
         // must land on the box before it moves.
-        .motion(.canvasMove, value: isInspectorPresented)
+        .motion(.panel, value: isInspectorPresented)
     }
 
     private var hasImage: Bool {

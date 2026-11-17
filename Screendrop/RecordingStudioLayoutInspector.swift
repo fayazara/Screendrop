@@ -280,8 +280,8 @@ private struct StudioCameraLayoutTile: View {
         }
         .buttonStyle(StudioCameraLayoutTileButtonStyle())
         .onHover { isHovering = $0 }
-        .animation(.easeOut(duration: 0.15), value: isHovering)
-        .animation(.easeOut(duration: 0.2), value: isSelected)
+        .animation(.fade, value: isHovering)
+        .animation(.fade, value: isSelected)
         .onChange(of: current) { old, _ in
             // Only from what the tile showed itself, so a new corner slides
             // every corner camera over and a slider moves nothing. A newly
@@ -310,7 +310,7 @@ private struct StudioCameraLayoutTileButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .scaleEffect(configuration.isPressed ? 0.97 : 1)
-            .animation(.smooth(duration: 0.18), value: configuration.isPressed)
+            .animation(.hover, value: configuration.isPressed)
     }
 }
 

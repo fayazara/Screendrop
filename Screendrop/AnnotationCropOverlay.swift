@@ -54,7 +54,7 @@ struct CropOverlay: View {
 
             CropGridShape(cropFrame: cropFrame)
                 .stroke(Color.white.opacity(0.45), lineWidth: 0.75)
-                .animation(.easeOut(duration: 0.18)) { $0.opacity(isDragging ? 1 : 0) }
+                .animation(.fade) { $0.opacity(isDragging ? 1 : 0) }
 
             CropBorderShape(cropFrame: cropFrame)
                 .stroke(Color.white.opacity(0.95), lineWidth: 1)
