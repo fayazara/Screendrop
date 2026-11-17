@@ -35,8 +35,9 @@ struct StudioTimelineDock: View {
     @State private var scrollX: CGFloat = 0
     @State private var scrollPosition = ScrollPosition(edge: .leading)
     @State private var isResetClipsConfirmationPresented = false
-    /// The pointer's position over the lanes, in viewport points.
-    @State private var skimX: CGFloat?
+    /// The pointer's position over the lanes. An object rather than plain
+    /// state, so a moving pointer redraws the playhead and not the dock.
+    @State private var skim = StudioSkimState()
     /// The playhead is being dragged along the ruler, the clips or an
     /// empty track, which opens its head into the time readout.
     @State private var isScrubbing = false
@@ -211,14 +212,8 @@ struct StudioTimelineDock: View {
     private var editCluster: some View {
         GlassEffectContainer(spacing: GlassMetrics.containerSpacing) {
             HStack(spacing: GlassMetrics.gap) {
-                GlassIconButton(
-                    systemImage: "scissors",
-                    help: bladeHelp
-                ) {
-                    model.blade(at: model.currentTime)
-                }
-                .disabled(!canBlade)
-                .glassEffectID("split", in: glass)
+                StudioBladeButton(model: model)
+                    .glassEffectID("split", in: glass)
 
                 addTools
 
@@ -260,26 +255,6 @@ struct StudioTimelineDock: View {
     /// One + that opens into the things that can be added over the video,
     /// melting out of it the way Delete grows out of Split, and folding
     /// back once one is picked. Labels show when the row has room for them.
-    /// What the scissors will cut: the selected audio clip when the
-    /// playhead is inside it, otherwise the video.
-    private var cutsAudio: Bool {
-        guard let clip = model.selectedAudioClip else { return false }
-        return clip.start < model.currentTime && model.currentTime < clip.end
-    }
-
-    private var canBlade: Bool {
-        guard model.isLoaded else { return false }
-        if cutsAudio, let clip = model.selectedAudioClip {
-            return StudioAudioConform.split(clip, at: model.currentTime) != nil
-        }
-        return model.clipTimeline.split(at: model.currentTime) != nil
-    }
-
-    private var bladeHelp: String {
-        (cutsAudio ? "Split Audio at Playhead (⌘B)" : "Split Clip at Playhead (⌘B)")
-            + ". ⇧⌘B splits the video and every audio clip."
-    }
-
     @ViewBuilder
     private var addTools: some View {
         GlassIconButton(
@@ -570,7 +545,7 @@ struct StudioTimelineDock: View {
             .onContinuousHover { phase in
                 switch phase {
                 case .active(let location):
-                    skimX = location.x
+                    skim.x = location.x
                     let time = scale.time(forX: location.x + scrollX)
                     model.timelineHoverTime = time
                     // The preview stays on the playhead with skimming off,
@@ -579,24 +554,21 @@ struct StudioTimelineDock: View {
                         model.hoverPreviewTime = time
                     }
                 case .ended:
-                    skimX = nil
+                    skim.x = nil
                     model.timelineHoverTime = nil
                     model.hoverPreviewTime = nil
                 }
             }
             .overlay {
-                StudioTimelinePlayhead(
-                    time: model.currentTime,
+                StudioPlayheadLayer(
+                    model: model,
+                    skim: skim,
                     scale: scale,
                     scrollX: scrollX,
-                    skimX: skimX,
-                    showsSkim: !model.isPlaying && skims && !model.isDraggingTimelineBlock && !model.isTrimmingClip,
-                    isScrubbing: isScrubbing
-                ) { time in
-                    model.pause()
-                    model.seek(to: time)
-                }
-                .transaction { $0.animation = nil }
+                    skims: skims,
+                    isScrubbing: isScrubbing,
+                    onMove: followPlayhead(to:)
+                )
             }
             .overlay(alignment: .topLeading) {
                 if let snapGuideTime {
@@ -652,7 +624,6 @@ struct StudioTimelineDock: View {
             guard new > old, storedTracksHeight > 0, !model.isDraggingTimelineBlock else { return }
             verticalScrollPosition.scrollTo(edge: .bottom)
         }
-        .onChange(of: model.currentTime) { _, time in followPlayhead(to: time) }
     }
 
     /// The ruler scrubs; ⇧-drag marks a range instead (as I and O do), and
@@ -889,10 +860,11 @@ struct StudioTimelineDock: View {
         )
     }
 
-    /// What a trimmed video edge catches on: the playhead, the audio
+    /// What a trimmed video edge catches on, besides the playhead (which
+    /// the strip adds itself, so the dock need not follow it): the audio
     /// clips, markers and recorded clicks.
     private var clipSnapPoints: [TimeInterval] {
-        var points = [model.currentTime]
+        var points: [TimeInterval] = []
         for clip in model.audioClips {
             points.append(clip.start)
             points.append(clip.end)
@@ -1202,6 +1174,76 @@ private struct StudioTimecodeField: View {
             total = total * 60 + value
         }
         return total
+    }
+}
+
+/// The pointer's place over the lanes, in viewport points.
+@MainActor
+@Observable
+final class StudioSkimState {
+    var x: CGFloat?
+}
+
+/// The playhead and the skim line, with the only reads of the playhead's
+/// time and the pointer's place in the dock. Both change many times a
+/// second; kept here, they redraw this layer instead of every lane.
+private struct StudioPlayheadLayer: View {
+    let model: RecordingStudioModel
+    let skim: StudioSkimState
+    let scale: StudioTimelineScale
+    let scrollX: CGFloat
+    let skims: Bool
+    let isScrubbing: Bool
+    /// The playhead moved, so the lanes can scroll to keep it in sight.
+    let onMove: (TimeInterval) -> Void
+
+    var body: some View {
+        StudioTimelinePlayhead(
+            time: model.currentTime,
+            scale: scale,
+            scrollX: scrollX,
+            skimX: skim.x,
+            showsSkim: !model.isPlaying && skims && !model.isDraggingTimelineBlock && !model.isTrimmingClip,
+            isScrubbing: isScrubbing
+        ) { time in
+            model.pause()
+            model.seek(to: time)
+        }
+        .transaction { $0.animation = nil }
+        .onChange(of: model.currentTime) { _, time in onMove(time) }
+    }
+}
+
+/// The scissors. Whether there is anything to cut depends on exactly where
+/// the playhead is, so it is its own view: the playhead moving redraws one
+/// button rather than the tool row.
+private struct StudioBladeButton: View {
+    let model: RecordingStudioModel
+
+    /// What the scissors will cut: the selected audio clip when the
+    /// playhead is inside it, otherwise the video.
+    private var cutsAudio: Bool {
+        guard let clip = model.selectedAudioClip else { return false }
+        return clip.start < model.currentTime && model.currentTime < clip.end
+    }
+
+    private var canBlade: Bool {
+        guard model.isLoaded else { return false }
+        if cutsAudio, let clip = model.selectedAudioClip {
+            return StudioAudioConform.split(clip, at: model.currentTime) != nil
+        }
+        return model.clipTimeline.split(at: model.currentTime) != nil
+    }
+
+    var body: some View {
+        GlassIconButton(
+            systemImage: "scissors",
+            help: (cutsAudio ? "Split Audio at Playhead (⌘B)" : "Split Clip at Playhead (⌘B)")
+                + ". ⇧⌘B splits the video and every audio clip."
+        ) {
+            model.blade(at: model.currentTime)
+        }
+        .disabled(!canBlade)
     }
 }
 
@@ -2341,12 +2383,7 @@ private struct StudioAudioLane: View {
 
     @ViewBuilder
     private func menu(for clip: RecordingAudioClip) -> some View {
-        let playhead = model.currentTime
-        Button("Split at Playhead", systemImage: "scissors") {
-            model.selectAudioClip(id: clip.id)
-            model.blade(at: playhead)
-        }
-        .disabled(StudioAudioConform.split(clip, at: playhead) == nil)
+        StudioAudioSplitMenuItem(model: model, clip: clip)
         Button("Duplicate", systemImage: "plus.square.on.square") {
             model.duplicateAudioClip(id: clip.id)
         }
@@ -2555,6 +2592,21 @@ private struct StudioAudioLane: View {
             }
             // What runs past the last frame is drawn up to it.
             .map { StudioLaneBlock(item: $0, editorStart: $0.start, editorEnd: min($0.end, end)) }
+    }
+}
+
+/// "Split at Playhead" in an audio clip's menu. Its own view, so asking
+/// where the playhead is does not tie the whole lane to playback.
+private struct StudioAudioSplitMenuItem: View {
+    let model: RecordingStudioModel
+    let clip: RecordingAudioClip
+
+    var body: some View {
+        Button("Split at Playhead", systemImage: "scissors") {
+            model.selectAudioClip(id: clip.id)
+            model.blade(at: model.currentTime)
+        }
+        .disabled(StudioAudioConform.split(clip, at: model.currentTime) == nil)
     }
 }
 

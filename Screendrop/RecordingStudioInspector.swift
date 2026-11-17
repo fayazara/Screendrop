@@ -429,10 +429,12 @@ struct StudioInspector: View {
     /// The selected clip, or else the one under the playhead.
     private var shownClip: RecordingClipSegment? {
         if let selected = model.selectedClip { return selected }
-        guard let location = model.clipTimeline.location(at: model.currentTime) else {
+        // Not `currentTime`: reading it here would redraw the whole
+        // inspector on every playback tick.
+        guard let playheadClipID = model.playheadClipID else {
             return model.clipTimeline.segments.first
         }
-        return model.clipTimeline.segments.first { $0.id == location.segmentID }
+        return model.clipTimeline.segments.first { $0.id == playheadClipID }
     }
 
     /// Which clip the section acts on, so a scrub that moves it to another
@@ -1251,7 +1253,7 @@ struct StudioInspector: View {
                         StudioSubtitleRow(
                             model: model,
                             cue: cue,
-                            isActive: model.activeSubtitleCue?.id == cue.id
+                            isActive: model.activeSubtitleCueID == cue.id
                         )
                         .id(cue.id)
 
@@ -1266,7 +1268,7 @@ struct StudioInspector: View {
             .frame(maxHeight: 300)
             .background(shape.fill(InspectorControlPalette.trackFill(for: colorScheme)))
             .clipShape(shape)
-            .onChange(of: model.activeSubtitleCue?.id) { _, activeID in
+            .onChange(of: model.activeSubtitleCueID) { _, activeID in
                 // Follow playback through the list, but never yank the list
                 // around while the user is scrubbing or editing.
                 guard let activeID, model.isPlaying else { return }

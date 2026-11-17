@@ -187,7 +187,9 @@ final class RecordingStudioModel {
     private var reframeFocusTimeline: PointerTimeline?
     private var reframeFocusResolved = false
     private(set) var subtitleCues: [RecordingSubtitleCue] = []
-    private(set) var subtitleTimeline = SubtitleTimeline.empty
+    private(set) var subtitleTimeline = SubtitleTimeline.empty {
+        didSet { refreshPlayheadMarks() }
+    }
     /// Word-level timing behind the cues; empty for projects transcribed
     /// before transcript editing shipped (cues only).
     private(set) var transcriptWords: [RecordingTranscriptWord] = []
@@ -271,6 +273,7 @@ final class RecordingStudioModel {
         didSet {
             if clipTimeline != oldValue {
                 speedBadgeTimeline = SpeedBadgeTimeline(clipTimeline: clipTimeline)
+                refreshPlayheadMarks()
             }
         }
     }
@@ -295,7 +298,17 @@ final class RecordingStudioModel {
     let timelineThumbnails = RecordingTimelineThumbnailStore()
 
     private(set) var isPlaying = false
-    var currentTime: TimeInterval = 0
+    var currentTime: TimeInterval = 0 {
+        didSet {
+            if currentTime != oldValue { refreshPlayheadMarks() }
+        }
+    }
+    /// The clip and the subtitle under the playhead. Stored, and assigned
+    /// only when the playhead crosses into another one, so the inspector
+    /// and the tool row that show them are not redrawn on every 20 ms
+    /// playback tick the way a read of `currentTime` would redraw them.
+    private(set) var playheadClipID: UUID?
+    private(set) var activeSubtitleCueID: UUID?
     /// Live scrub-preview time while the pointer hovers the trim strip
     /// without committing to a new playhead position, matching Final
     /// Cut/iMovie skimming. `nil` shows the real playhead again.
@@ -3634,6 +3647,15 @@ final class RecordingStudioModel {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
         }
         return result
+    }
+
+    private func refreshPlayheadMarks() {
+        let clipID = clipTimeline.location(at: currentTime)?.segmentID
+        if clipID != playheadClipID { playheadClipID = clipID }
+        let cueID = subtitleTimeline.isEmpty
+            ? nil
+            : subtitleTimeline.cue(at: clipTimeline.sourceTime(at: currentTime))?.id
+        if cueID != activeSubtitleCueID { activeSubtitleCueID = cueID }
     }
 
     /// Recomputes which word the playhead is on; assigns only on change so
