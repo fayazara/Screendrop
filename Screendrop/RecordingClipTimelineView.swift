@@ -1028,7 +1028,7 @@ final class RecordingClipTimelineControl: NSView {
     /// selected clip's edited length - each only where the clip is wide
     /// enough to carry it without covering the picture.
     private func drawBadges(in dirtyRect: CGRect) {
-        for clip in timeline.segments {
+        for (index, clip) in timeline.segments.enumerated() {
             guard let rect = clipRect(for: clip.id), rect.intersects(dirtyRect) else { continue }
             let content = rect.insetBy(dx: Metrics.selectionHandleInset * 2 + 2, dy: 5)
             // A clip narrower than the insets leaves a null rect, whose
@@ -1040,10 +1040,12 @@ final class RecordingClipTimelineControl: NSView {
 
             // The title gives way to the speed badge after it, truncating
             // rather than pushing the badge off the clip.
-            if let title, showsTitle(on: clip, in: rect) {
+            if showsTitle(on: clip, in: rect) {
                 let reserved = isSpedUp ? Self.badgeSize(text: speedText, hasSymbol: true).width + 4 : 0
+                // Its place in the cut, not the recording's file name: every
+                // clip shares that name, and it is mostly a timestamp.
                 let titleWidth = drawTitle(
-                    title,
+                    "Clip \(index + 1)",
                     at: CGPoint(x: leadingX, y: content.minY + Self.badgeHeight / 2),
                     maxWidth: content.width - reserved
                 )
@@ -1095,9 +1097,9 @@ final class RecordingClipTimelineControl: NSView {
         }
     }
 
-    /// The recording's name is the same on every clip, so it shows only on
-    /// the clip that's selected or under the pointer, where it says which
-    /// one you're about to act on, and the picture stays clear elsewhere.
+    /// The clip's number shows only on the clip that's selected or under
+    /// the pointer, where it says which one you're about to act on, and the
+    /// picture stays clear elsewhere.
     private func showsTitle(on clip: RecordingClipSegment, in rect: CGRect) -> Bool {
         title != nil
             && rect.width >= Metrics.minimumTitledWidth
