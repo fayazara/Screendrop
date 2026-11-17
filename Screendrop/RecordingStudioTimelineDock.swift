@@ -100,6 +100,24 @@ struct StudioTimelineDock: View {
                 trackGutter
                 lanes
             }
+            .overlay(alignment: .bottom) {
+                // A dock dragged shorter than its tracks scrolls them. The
+                // last row fades out while there is more below, so a track
+                // cut by the window's edge reads as "scroll" and not as
+                // a clipped layout.
+                if fullTracksHeight - visibleTracksHeight - scrollY > 1 {
+                    LinearGradient(
+                        colors: [
+                            Color(nsColor: .windowBackgroundColor).opacity(0),
+                            Color(nsColor: .windowBackgroundColor)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .frame(height: 16)
+                    .allowsHitTesting(false)
+                }
+            }
         }
         .background(Color(nsColor: .windowBackgroundColor))
         .overlay(alignment: .top) {
@@ -546,6 +564,8 @@ struct StudioTimelineDock: View {
                 switch phase {
                 case .active(let location):
                     skim.x = location.x
+                    let hovered = track(atY: location.y)?.id
+                    if skim.trackID != hovered { skim.trackID = hovered }
                     let time = scale.time(forX: location.x + scrollX)
                     model.timelineHoverTime = time
                     // The preview stays on the playhead with skimming off,
@@ -555,6 +575,7 @@ struct StudioTimelineDock: View {
                     }
                 case .ended:
                     skim.x = nil
+                    skim.trackID = nil
                     model.timelineHoverTime = nil
                     model.hoverPreviewTime = nil
                 }
@@ -690,7 +711,9 @@ struct StudioTimelineDock: View {
                     let isDropTarget = mediaDrop?.tracks.contains(track) == true
                     StudioTrackGround(
                         hint: isDropTarget ? dropHint(for: track) : hint(for: track),
-                        dropX: isDropTarget ? mediaDrop.map { scale.x(for: $0.time) - scrollX } : nil
+                        dropX: isDropTarget ? mediaDrop.map { scale.x(for: $0.time) - scrollX } : nil,
+                        trackID: track.id,
+                        skim: skim
                     )
                     .frame(height: track.height)
                 }
@@ -779,8 +802,21 @@ struct StudioTimelineDock: View {
         }
     }
 
-    /// An empty track explains itself at its leading edge instead of
-    /// reading as dead space.
+    /// The track under a point in the lanes' own space (the ruler on top,
+    /// then the tracks, scrolled by `scrollY`).
+    private func track(atY y: CGFloat) -> StudioTrack? {
+        var top = StudioTimelineMetrics.headerHeight + StudioTimelineMetrics.trackSpacing - scrollY
+        guard y >= StudioTimelineMetrics.headerHeight else { return nil }
+        for track in tracks {
+            if y >= top, y < top + track.height { return track }
+            top += track.height + StudioTimelineMetrics.trackSpacing
+        }
+        return nil
+    }
+
+    /// An empty track explains itself at its leading edge, while the
+    /// pointer is over it: every hint at once was three sentences competing
+    /// with the clips for attention.
     private func hint(for track: StudioTrack) -> String? {
         switch track {
         case .zooms:
@@ -1182,6 +1218,8 @@ private struct StudioTimecodeField: View {
 @Observable
 final class StudioSkimState {
     var x: CGFloat?
+    /// The track the pointer is over, which shows that track's hint.
+    var trackID: String?
 }
 
 /// The playhead and the skim line, with the only reads of the playhead's
@@ -1632,12 +1670,20 @@ private struct StudioTrackGround: View {
     /// Where dragged files would land, in viewport points; set only on the
     /// tracks they'll land on.
     var dropX: CGFloat? = nil
+    let trackID: String
+    let skim: StudioSkimState
+
+    /// A drop hint shows as long as files hang over the track; an empty
+    /// track's own hint only while the pointer is on it.
+    private var showsHint: Bool {
+        hint != nil && (dropX != nil || skim.trackID == trackID)
+    }
 
     var body: some View {
         Rectangle()
             .fill(dropX == nil ? Color.primary.opacity(0.04) : Palette.highlight.opacity(0.12))
             .overlay(alignment: .leading) {
-                if let hint {
+                if showsHint, let hint {
                     Text(hint)
                         .font(.system(size: 11))
                         .foregroundStyle(dropX == nil ? Palette.tertiaryLabel : Palette.highlight)
@@ -1657,6 +1703,7 @@ private struct StudioTrackGround: View {
                 }
             }
             .animation(.fade, value: hint)
+            .animation(.fade, value: showsHint)
             .animation(.fade, value: dropX == nil)
             .allowsHitTesting(false)
     }

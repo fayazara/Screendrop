@@ -265,8 +265,6 @@ final class RecordingClipTimelineControl: NSView {
         static let selectionHandleGrooveWidth: CGFloat = 3
         static let selectionHandleGrooveHeight: CGFloat = 18
         static let thumbnailWidth: CGFloat = 58
-        /// The dark wash behind the title, fading down into the picture.
-        static let titleShadeHeight: CGFloat = 24
         /// Narrowest clip that still names itself.
         static let minimumTitledWidth: CGFloat = 56
         /// The band along the bottom of a clip that shows its sound.
@@ -845,15 +843,16 @@ final class RecordingClipTimelineControl: NSView {
             // The picture shows as it is; the selection chrome alone marks
             // the selected clip.
             let isSelected = clip.id == selectedClipID
-            if showsTitle(on: clip, in: rect) {
-                drawTitleShade(in: rect)
-            }
             drawWaveform(in: rect, clip: clip, dirtyRect: dirtyRect)
             NSGraphicsContext.restoreGraphicsState()
 
             // A hairline inner edge so neighbouring clips and the track read
-            // apart even where the thumbnails are dark.
-            NSColor.white.withAlphaComponent(isSelected ? 0.0 : 0.10).setStroke()
+            // apart: light over a dark window, dark over a light one, where
+            // a recording of white pages would otherwise melt into the track.
+            let edgeColor = effectiveAppearance.isDarkAppearance
+                ? NSColor.white.withAlphaComponent(0.10)
+                : NSColor.black.withAlphaComponent(0.16)
+            (isSelected ? NSColor.clear : edgeColor).setStroke()
             let edge = NSBezierPath(
                 roundedRect: rect.insetBy(dx: 0.5, dy: 0.5),
                 xRadius: max(0, clipRadius(for: rect) - 0.5),
@@ -900,22 +899,6 @@ final class RecordingClipTimelineControl: NSView {
             x += pitch
         }
         path.fill()
-    }
-
-    /// Darkens the top of a clip so its title reads over any picture.
-    private func drawTitleShade(in rect: CGRect) {
-        let shade = NSGradient(
-            starting: NSColor.black.withAlphaComponent(0.5),
-            ending: NSColor.black.withAlphaComponent(0)
-        )
-        let band = CGRect(
-            x: rect.minX,
-            y: rect.minY,
-            width: rect.width,
-            height: min(rect.height, Metrics.titleShadeHeight)
-        )
-        // The view is flipped, so 90° runs from the top edge downward.
-        shade?.draw(in: band, angle: 90)
     }
 
     private func drawThumbnails(in rect: CGRect, clip: RecordingClipSegment, dirtyRect: CGRect) {
@@ -1038,20 +1021,19 @@ final class RecordingClipTimelineControl: NSView {
             let isSpedUp = abs(clip.speed - 1) > 0.001
             let speedText = RecordingClipSegment.speedTitle(clip.speed)
 
-            // The title gives way to the speed badge after it, truncating
-            // rather than pushing the badge off the clip.
-            if showsTitle(on: clip, in: rect) {
-                let reserved = isSpedUp ? Self.badgeSize(text: speedText, hasSymbol: true).width + 4 : 0
-                // Its place in the cut, not the recording's file name: every
-                // clip shares that name, and it is mostly a timestamp.
-                let titleWidth = drawTitle(
-                    "Clip \(index + 1)",
-                    at: CGPoint(x: leadingX, y: content.minY + Self.badgeHeight / 2),
-                    maxWidth: content.width - reserved
-                )
-                if titleWidth > 0 {
-                    leadingX += titleWidth + 4
-                }
+            // Its place in the cut, not the recording's file name: every
+            // clip shares that name, and it is mostly a timestamp. A badge
+            // like the others, so it reads on any picture; bare white text
+            // vanished over a recording of white pages.
+            if showsTitle(on: clip, in: rect),
+               let badge = badgeRect(
+                   text: "Clip \(index + 1)",
+                   symbol: nil,
+                   origin: CGPoint(x: leadingX, y: content.minY),
+                   maxX: content.maxX
+               ) {
+                drawBadge(badge)
+                leadingX = badge.frame.maxX + 4
             }
 
             if isSpedUp {
@@ -1104,31 +1086,6 @@ final class RecordingClipTimelineControl: NSView {
         title != nil
             && rect.width >= Metrics.minimumTitledWidth
             && (clip.id == selectedClipID || clip.id == hoveredClipID)
-    }
-
-    private static let titleAttributes: [NSAttributedString.Key: Any] = {
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.lineBreakMode = .byTruncatingTail
-        return [
-            .font: NSFont.systemFont(ofSize: 10, weight: .medium),
-            .foregroundColor: NSColor.white,
-            .paragraphStyle: paragraph
-        ]
-    }()
-
-    /// Draws `title` on one line, vertically centred on `origin.y` and cut
-    /// short with an ellipsis past `maxWidth`. Returns the width it took.
-    private func drawTitle(_ title: String, at origin: CGPoint, maxWidth: CGFloat) -> CGFloat {
-        guard maxWidth > 16 else { return 0 }
-        let text = title as NSString
-        let size = text.size(withAttributes: Self.titleAttributes)
-        let width = min(ceil(size.width), maxWidth)
-        text.draw(
-            with: CGRect(x: origin.x, y: origin.y - size.height / 2, width: width, height: size.height),
-            options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine],
-            attributes: Self.titleAttributes
-        )
-        return width
     }
 
     private struct BadgeLayout {
@@ -1201,10 +1158,11 @@ final class RecordingClipTimelineControl: NSView {
         studioClock(seconds)
     }
 
-    /// Matches the zoom blocks and playhead so the timeline has a single
-    /// selection color.
+    /// The same yellow frame every other block on the timeline is selected
+    /// with (`StudioSelectionFrame`). The accent is left to the playhead
+    /// and the zooms, so "selected" has a colour of its own.
     private var selectionColor: NSColor {
-        .controlAccentColor
+        .systemYellow
     }
 
     private func clipRadius(for rect: CGRect) -> CGFloat {
