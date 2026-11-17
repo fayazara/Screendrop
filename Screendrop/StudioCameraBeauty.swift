@@ -408,11 +408,20 @@ nonisolated final class StudioCameraBeautyPreviewSource: @unchecked Sendable {
     /// A composition that touches up every frame the camera player shows,
     /// on the camera movie's own clock.
     func makeVideoComposition(for asset: AVAsset) -> AVVideoComposition {
-        AVMutableVideoComposition(asset: asset) { [self] request in
+        let composition = AVMutableVideoComposition(asset: asset) { [self] request in
             let beauty = lock.withLock { self.beauty }
             let image = renderer.apply(beauty, to: request.sourceImage, time: request.compositionTime.seconds)
             request.finish(with: image, context: nil)
         }
+        // Rendered frames are RGB. Left to itself the composition tags them
+        // with the camera's video 709 curve, which AVPlayerLayer draws
+        // darker and warmer than the same picture as untouched YUV video:
+        // turning on any touch-up tinted the whole camera, wall and all.
+        // sRGB is read the same way everywhere, so only the face changes.
+        composition.colorPrimaries = AVVideoColorPrimaries_ITU_R_709_2
+        composition.colorTransferFunction = AVVideoTransferFunction_IEC_sRGB
+        composition.colorYCbCrMatrix = AVVideoYCbCrMatrix_ITU_R_709_2
+        return composition
     }
 }
 
