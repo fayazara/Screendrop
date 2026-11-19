@@ -248,12 +248,10 @@ final class RecordingBarPresenter {
         // window, the hosting view and the window fight over sizing every
         // frame until AppKit's constraint watchdog kills the app.
         hostingView.sizingOptions = []
-        hostingView.translatesAutoresizingMaskIntoConstraints = true
-        hostingView.autoresizingMask = [.width, .height]
         hostingView.wantsLayer = true
         hostingView.layer?.backgroundColor = NSColor.clear.cgColor
         hostingView.layer?.isOpaque = false
-        panel.contentView = hostingView
+        panel.setHostedContent(hostingView)
         panel.contentView?.superview?.wantsLayer = true
         panel.contentView?.superview?.layer?.backgroundColor = NSColor.clear.cgColor
         panel.contentView?.superview?.layer?.isOpaque = false

@@ -109,7 +109,7 @@ final class CaptureCountdownPresenter {
         panel.level = .statusBar
         panel.ignoresMouseEvents = false
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
-        panel.contentView = hostingView
+        panel.setHostedContent(hostingView)
         panel.setFrame(NSRect(origin: centeredOrigin(size: size, displayID: displayID), size: size), display: true)
         panel.orderFrontRegardless()
 

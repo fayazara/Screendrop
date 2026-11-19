@@ -94,7 +94,7 @@ final class CaptureTextFeedbackPresenter {
         panel.level = .statusBar
         panel.ignoresMouseEvents = true
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
-        panel.contentView = hostingView
+        panel.setHostedContent(hostingView)
         panel.setFrame(
             NSRect(origin: origin(size: size, displayID: displayID), size: size),
             display: true

@@ -92,8 +92,7 @@ final class CaptureShelfPresenter {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
         PreviewWindowCaptureExclusion.shared.register(window: panel)
 
-        let hostingView = CaptureShelfHostingView(rootView: CaptureShelfView())
-        panel.contentView = hostingView
+        panel.setHostedContent(CaptureShelfHostingView(rootView: CaptureShelfView()))
 
         self.panel = panel
         installMonitors()
@@ -189,7 +188,6 @@ private final class CaptureShelfHostingView<Content: View>: NSHostingView<Conten
         // The panel sets this view's size; letting SwiftUI size the window
         // while it animates feeds a layout loop.
         sizingOptions = []
-        autoresizingMask = [.width, .height]
     }
 
     @available(*, unavailable)

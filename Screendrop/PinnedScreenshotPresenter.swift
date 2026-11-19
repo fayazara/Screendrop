@@ -39,7 +39,7 @@ final class PinnedScreenshotPresenter {
         panel.contentAspectRatio = contentSize
         panel.minSize = NSSize(width: 80, height: 80)
 
-        panel.contentView = NSHostingView(
+        let hostingView = NSHostingView(
             rootView: PinnedScreenshotView(
                 image: image,
                 url: url,
@@ -49,6 +49,10 @@ final class PinnedScreenshotPresenter {
                 }
             )
         )
+        // The panel keeps its own size and aspect ratio while the user
+        // resizes it; the pin only fills it.
+        hostingView.sizingOptions = []
+        panel.setHostedContent(hostingView)
 
         panel.setFrameOrigin(cascadedOrigin(for: contentSize))
         panel.orderFrontRegardless()

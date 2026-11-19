@@ -236,12 +236,10 @@ final class TeleprompterOverlayPresenter {
         // switched off and the hosting view just fills whatever frame the
         // window gives it.
         hostingView.sizingOptions = []
-        hostingView.translatesAutoresizingMaskIntoConstraints = true
-        hostingView.autoresizingMask = [.width, .height]
         hostingView.wantsLayer = true
         hostingView.layer?.backgroundColor = NSColor.clear.cgColor
         hostingView.layer?.isOpaque = false
-        panel.contentView = hostingView
+        panel.setHostedContent(hostingView)
 
         self.panel = panel
         return panel
