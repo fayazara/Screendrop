@@ -291,7 +291,7 @@ final class ScreenRecordingManager {
                 beginActivity()
                 startTimer()
             } catch {
-                await finishFailedStart(error: error)
+                finishFailedStart(error: error)
             }
         }
     }
@@ -392,11 +392,16 @@ final class ScreenRecordingManager {
         let session = session
         let terminationCompletion = terminationCompletion
         var metadataWarnings: [String] = []
+        if let warning = cameraResult?.warningMessage {
+            metadataWarnings.append(warning)
+        }
 
         if let session, result.fileIsUsable {
             manifest.duration = result.duration
-            if let cameraResult, let sessionStart = result.sessionStartUptime {
-                manifest.cameraLeadIn = cameraResult.firstFrameUptime - sessionStart
+            if let cameraResult, cameraResult.fileIsUsable,
+               let cameraStart = cameraResult.firstFrameUptime,
+               let sessionStart = result.sessionStartUptime {
+                manifest.cameraLeadIn = cameraStart - sessionStart
                 manifest.cameraWidth = cameraResult.pixelWidth
                 manifest.cameraHeight = cameraResult.pixelHeight
             }
@@ -432,11 +437,15 @@ final class ScreenRecordingManager {
         cleanupAfterRecording()
 
         guard let session, result.fileIsUsable else {
-            if let session {
+            if let session, (!session.hasCamera && !session.hasCameraRecoveryFile) || action == .discard || action == .restart {
                 RecordingSessionStore.deleteSession(session)
             }
-            errorMessage = result.error.map { "Recording failed: \($0.localizedDescription)" }
-                ?? "Failed to finish recording."
+            errorMessage = [errorMessage, result.error.map { "Recording failed: \($0.localizedDescription)" }]
+                .compactMap { $0 }.joined(separator: "\n\n")
+            if errorMessage?.isEmpty != false { errorMessage = "Failed to finish recording." }
+            if let session, session.hasCamera || session.hasCameraRecoveryFile, action != .discard, action != .restart {
+                errorMessage = "\(errorMessage ?? "Recording failed.") The original recording files were kept at \(session.directoryURL.path) for recovery."
+            }
             RecordingControlPresenter.shared.hide()
             RecordingAreaHighlightPresenter.shared.hide()
             if action == .terminate {
@@ -496,11 +505,10 @@ final class ScreenRecordingManager {
 
         if state == .starting {
             errorMessage = "Screen recording failed to start: \(error.localizedDescription)"
-            finishAction = .discard
         } else {
             errorMessage = "Recording stopped (\(error.localizedDescription)). Everything captured so far was saved."
-            finishAction = .preview
         }
+        finishAction = .preview
         stopCaptureAndFinish()
     }
 
@@ -513,21 +521,11 @@ final class ScreenRecordingManager {
         stopCaptureAndFinish()
     }
 
-    private func finishFailedStart(error: Error) async {
+    private func finishFailedStart(error: Error) {
         guard !isStopping else { return }
-        isStopping = true
-        try? await capture.stopCapture()
-        await writer.cancel()
-        await CameraRecordingManager.shared.cancel()
-        pointerActivityRecorder.stop()
-        if let session {
-            RecordingSessionStore.deleteSession(session)
-        }
-        cleanupAfterRecording()
         errorMessage = "Failed to start screen recording: \(error.localizedDescription)"
-        RecordingControlPresenter.shared.hide()
-        RecordingAreaHighlightPresenter.shared.hide()
-        Self.presentStartFailureAlert(error: error)
+        finishAction = .preview
+        stopCaptureAndFinish()
     }
 
     private func isStarting(session: RecordingSession) -> Bool {
@@ -586,7 +584,7 @@ final class ScreenRecordingManager {
         let alert = NSAlert()
         alert.alertStyle = footageWasSaved ? .informational : .critical
         alert.messageText = footageWasSaved
-            ? "The recording ended early, but your footage was saved"
+            ? "The recording was saved with warnings"
             : "The recording could not be saved"
         alert.informativeText = message
         alert.addButton(withTitle: "OK")
@@ -621,18 +619,6 @@ final class ScreenRecordingManager {
             NSWorkspace.shared.open(url)
         }
         return false
-    }
-
-    /// A recording that never started produced no file, so silence here reads
-    /// as "the button does nothing" - say what went wrong instead.
-    private static func presentStartFailureAlert(error: Error) {
-        NSApp.activate(ignoringOtherApps: true)
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        alert.messageText = "Couldn't start the recording"
-        alert.informativeText = error.localizedDescription
-        alert.addButton(withTitle: "OK")
-        alert.runModal()
     }
 
     /// Keeps App Nap, automatic termination, and idle sleep from stalling or
