@@ -27,6 +27,26 @@
     -->
 
     <item>
+      <title>Version 0.39.1</title>
+      <sparkle:version>42</sparkle:version>
+      <sparkle:shortVersionString>0.39.1</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.4</sparkle:minimumSystemVersion>
+      <pubDate>Thu, 19 Nov 2026 15:50:59 +0000</pubDate>
+      <description><![CDATA[
+        <h2>What's New in 0.39.1</h2>
+        <ul>
+          <li>Fixed a crash that could happen right after taking a screenshot</li>
+        </ul>
+      ]]></description>
+      <enclosure
+        url="https://github.com/fayazara/screendrop/releases/download/v0.39.1/Screendrop.dmg"
+        type="application/octet-stream"
+        sparkle:edSignature="hAcUTOs7XqME8H41uh1BEuEmetMpjG9jndaC3+Y8yMkiLKM8SgcJLwx8yrWtLmvRjvA7ZFWaINveHmMrzVH2BQ=="
+        length="10048321"
+      />
+    </item>
+
+    <item>
       <title>Version 0.39.0</title>
       <sparkle:version>41</sparkle:version>
       <sparkle:shortVersionString>0.39.0</sparkle:shortVersionString>
