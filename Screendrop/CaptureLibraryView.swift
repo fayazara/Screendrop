@@ -303,6 +303,7 @@ struct CaptureLibraryView: View {
             Menu {
                 Button("Capture Fullscreen", systemImage: "macwindow") { CaptureCoordinator.shared.captureFullscreen() }
                 Button("Capture Window", systemImage: "macwindow.on.rectangle") { CaptureCoordinator.shared.captureWindow() }
+                Button("Capture Browser Tab", systemImage: "globe") { CaptureCoordinator.shared.captureBrowserTab() }
                 Button("Capture Area", systemImage: "rectangle.dashed") { CaptureCoordinator.shared.captureArea() }
                 Divider()
                 Button("Record Screen", systemImage: "record.circle") { RecordingPickerPresenter.shared.show() }

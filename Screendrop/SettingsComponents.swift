@@ -86,6 +86,7 @@ struct SettingsButton: View {
 final class SettingsPermissions {
     enum Kind: CaseIterable, Identifiable {
         case screenRecording
+        case accessibility
         case microphone
         case camera
 
@@ -94,6 +95,7 @@ final class SettingsPermissions {
         var title: String {
             switch self {
             case .screenRecording: "Screen Recording"
+            case .accessibility: "Accessibility"
             case .microphone: "Microphone"
             case .camera: "Camera"
             }
@@ -102,6 +104,7 @@ final class SettingsPermissions {
         var detail: String {
             switch self {
             case .screenRecording: "Required for screenshots and recordings."
+            case .accessibility: "Capture just the page of a browser tab."
             case .microphone: "Narrate recordings and transcribe captions."
             case .camera: "Add a camera bubble to recordings."
             }
@@ -110,6 +113,7 @@ final class SettingsPermissions {
         var systemImage: String {
             switch self {
             case .screenRecording: "rectangle.dashed.badge.record"
+            case .accessibility: "globe"
             case .microphone: "mic.fill"
             case .camera: "video.fill"
             }
@@ -120,6 +124,7 @@ final class SettingsPermissions {
         fileprivate var settingsAnchor: String {
             switch self {
             case .screenRecording: "Privacy_ScreenCapture"
+            case .accessibility: "Privacy_Accessibility"
             case .microphone: "Privacy_Microphone"
             case .camera: "Privacy_Camera"
             }
@@ -158,6 +163,7 @@ final class SettingsPermissions {
     func refresh() {
         var next: Set<Kind> = []
         if CGPreflightScreenCaptureAccess() { next.insert(.screenRecording) }
+        if AXIsProcessTrusted() { next.insert(.accessibility) }
         if AVCaptureDevice.authorizationStatus(for: .audio) == .authorized { next.insert(.microphone) }
         if AVCaptureDevice.authorizationStatus(for: .video) == .authorized { next.insert(.camera) }
         if next != granted { granted = next }
@@ -166,7 +172,17 @@ final class SettingsPermissions {
     func request(_ kind: Kind) {
         switch kind {
         case .screenRecording:
-            if !CGRequestScreenCaptureAccess() { openSettings(for: kind) }
+            if !CGRequestScreenCaptureAccess() {
+                PermissionGuidePresenter.shared.show(
+                    .screenRecording,
+                    reason: "Screendrop needs this to capture your screen."
+                )
+            }
+        case .accessibility:
+            PermissionGuidePresenter.shared.show(
+                .accessibility,
+                reason: "Browser Tab captures read where the page sits inside the browser window."
+            )
         case .microphone, .camera:
             let mediaType: AVMediaType = kind == .microphone ? .audio : .video
             if AVCaptureDevice.authorizationStatus(for: mediaType) == .notDetermined {
