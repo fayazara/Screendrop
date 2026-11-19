@@ -49,6 +49,21 @@ final class CaptureCoordinator {
         Task { await performCaptureText() }
     }
 
+    /// Opens the tab picker: point at a browser window and click (or press
+    /// Return for the frontmost one) to capture its page.
+    func captureBrowserTab() {
+        let picker = RecordingSourceTargetPresenter.shared
+        if picker.isActive, picker.purpose == .screenshot {
+            picker.cancel()
+            return
+        }
+        picker.begin(.browserTab, purpose: .screenshot)
+    }
+
+    func captureBrowserTab(_ content: BrowserContent) {
+        Task { await performCaptureBrowserTab(content) }
+    }
+
     // MARK: - Awaitable Capture Actions
 
     /// Awaitable variants for callers (App Intents / Shortcuts) that need the
@@ -126,6 +141,49 @@ final class CaptureCoordinator {
         return finishCapture(url: url, displayID: displayID, source: source)
     }
 
+    /// Captures the page picked in the tab picker. The self-timer runs after
+    /// the pick, like screencapture's `-T`, so the page can be scrolled or
+    /// hovered into place first.
+    @discardableResult
+    private func performCaptureBrowserTab(_ picked: BrowserContent) async -> URL? {
+        let displayID = Self.displayID(containing: picked.contentFrame)
+        CaptureShelfPresenter.shared.setTargetDisplay(displayID)
+
+        let delaySeconds = ScreendropPreferences.captureDelaySeconds
+        guard await CaptureCountdownPresenter.shared.runIfNeeded(
+            seconds: delaySeconds,
+            displayID: displayID
+        ) else { return nil }
+        // The page may have moved or resized since it was picked.
+        let content = BrowserContentLocator.relocate(picked) ?? picked
+        guard let url = await ScreenshotManager.shared.captureBrowserContent(content) else { return nil }
+
+        // The self-timer exists so the page can be changed before the shot;
+        // without one, a different page means something else changed it.
+        let expected = delaySeconds > 0 ? content : picked
+        let pageChanged = BrowserContentLocator.relocate(content).map { !$0.showsSamePage(as: expected) } ?? false
+        let historyURL = finishCapture(url: url, displayID: displayID, source: content.captureSource)
+        if pageChanged {
+            CaptureTextFeedbackPresenter.shared.showBrowserPageChanged(
+                appName: content.captureSource.appName,
+                displayID: displayID
+            ) { [weak self] in
+                self?.captureBrowserTab()
+            }
+        }
+        return historyURL
+    }
+
+    private static func displayID(containing rect: CGRect) -> CGDirectDisplayID? {
+        var displayID: CGDirectDisplayID = 0
+        var count: UInt32 = 0
+        let center = CGPoint(x: rect.midX, y: rect.midY)
+        guard CGGetDisplaysWithPoint(center, 1, &displayID, &count) == .success, count > 0 else {
+            return ActiveDisplayResolver.activeDisplayID(preferPointer: false)
+        }
+        return displayID
+    }
+
     /// Capture Text is the odd one out: it recognizes the text inside the drawn
     /// area, puts it on the clipboard, and throws the image away. It
     /// deliberately skips `finishCapture` - there is no file to import into
@@ -182,6 +240,17 @@ final class CaptureCoordinator {
                 displayID: displayID
             ) else { return }
             ScreenRecordingManager.shared.startRecording(source: ScreenRecordingSource(kind: .window(window)))
+        }
+    }
+
+    func recordBrowserTab(_ window: SCWindow) {
+        Task {
+            let displayID = ActiveDisplayResolver.activeDisplayID(preferPointer: true)
+            guard await CaptureCountdownPresenter.shared.runIfNeeded(
+                seconds: ScreendropPreferences.recordingStartDelaySeconds,
+                displayID: displayID
+            ) else { return }
+            ScreenRecordingManager.shared.startRecording(source: ScreenRecordingSource(kind: .browserTab(window)))
         }
     }
 

@@ -64,6 +64,10 @@ nonisolated final class PointerActivityRecorder: NSObject, @unchecked Sendable {
     private let lock = NSLock()
     private var mapping: RecordingInputMapping?
     private var tracksDynamicGeometry = false
+    /// Window-local crop (top-left points) when only part of a window is
+    /// captured. ScreenCaptureKit's per-frame `screenRect` still describes
+    /// the whole window, so the captured part is that rect offset by this.
+    private var sourceCrop: CGRect?
     private var samples: [CapturedPointerSample] = []
     private var presses: [CapturedPressEvent] = []
     private var frameGeometries: [CapturedFrameGeometry] = []
@@ -85,13 +89,15 @@ nonisolated final class PointerActivityRecorder: NSObject, @unchecked Sendable {
     @MainActor
     func start(
         mapping: RecordingInputMapping,
-        tracksDynamicGeometry: Bool = false
+        tracksDynamicGeometry: Bool = false,
+        sourceCrop: CGRect? = nil
     ) {
         stop()
 
         lock.withLock {
             self.mapping = mapping
             self.tracksDynamicGeometry = tracksDynamicGeometry
+            self.sourceCrop = sourceCrop
             samples = []
             presses = []
             frameGeometries = []
@@ -177,6 +183,12 @@ nonisolated final class PointerActivityRecorder: NSObject, @unchecked Sendable {
         }
     }
 
+    /// The crop moved inside the window (browser-tab recordings follow the
+    /// page). Frames after this are mapped through the new crop.
+    func updateSourceCrop(_ crop: CGRect) {
+        lock.withLock { sourceCrop = crop }
+    }
+
     /// ScreenCaptureKit attaches the source's onscreen bounds and the content
     /// rectangle inside the fixed output surface to every usable video frame.
     /// Keeping changes on the same host clock as pointer samples lets window
@@ -221,15 +233,18 @@ nonisolated final class PointerActivityRecorder: NSObject, @unchecked Sendable {
             }
 
             guard tracksDynamicGeometry,
-                  let screenRect,
-                  screenRect.width > 0,
-                  screenRect.height > 0 else {
+                  let windowRect = screenRect,
+                  windowRect.width > 0,
+                  windowRect.height > 0 else {
                 return
             }
+            let capturedRect = sourceCrop.map {
+                $0.offsetBy(dx: windowRect.minX, dy: windowRect.minY)
+            } ?? windowRect
             let geometry = CapturedFrameGeometry(
                 uptime: uptime,
-                screenRect: screenRect,
-                contentRect: contentRect ?? CGRect(origin: .zero, size: screenRect.size),
+                screenRect: capturedRect,
+                contentRect: contentRect ?? CGRect(origin: .zero, size: capturedRect.size),
                 scaleFactor: max(scaleFactor, 0.001)
             )
             if let last = frameGeometries.last,

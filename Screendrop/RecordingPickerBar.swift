@@ -58,6 +58,16 @@ struct RecordingPickerControls: View {
             displaySource.disabled(CaptureCountdownPresenter.shared.isRunning)
             windowSource.disabled(CaptureCountdownPresenter.shared.isRunning || sources.isLoading)
             BarActionButton(
+                id: .browserTab,
+                title: "Point at a browser tab to record",
+                systemImage: "globe",
+                isSelected: target.mode == .browserTab,
+                accessibility: "Browser tab - point at a browser window to record just its page, then click it"
+            ) {
+                target.toggle(.browserTab)
+            }
+            .disabled(CaptureCountdownPresenter.shared.isRunning || sources.isLoading)
+            BarActionButton(
                 id: .area,
                 title: "Drag to select a region",
                 systemImage: "rectangle.dashed",
