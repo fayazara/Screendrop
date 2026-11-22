@@ -2,9 +2,9 @@
 //  OverlayCardLayoutStore.swift
 //  Screendrop
 //
-//  Observable, UserDefaults-backed store for the preview card layout. Both the
-//  live overlay (`PreviewCardView`) and the settings editor read/write the same
-//  shared instance, so edits apply to the floating card immediately.
+//  Observable, UserDefaults-backed store for the capture card layout. The live
+//  cards (`CaptureShelfCard`) and the Settings editor share this instance, so
+//  edits apply to cards on screen immediately.
 //
 
 import Foundation
@@ -23,8 +23,10 @@ final class OverlayCardLayoutStore {
         layout = Self.load()
     }
 
+    var isDefault: Bool { layout == OverlayCardLayout.default.normalized() }
+
     func reset() {
-        layout = .default
+        layout = OverlayCardLayout.default.normalized()
     }
 
     // MARK: - Persistence

@@ -90,8 +90,6 @@ struct OverlaySettingsPane: View {
 
             Section("Card Actions") {
                 OverlayCardEditor()
-                    .padding(.vertical, 8)
-                    .frame(maxWidth: .infinity)
             }
         }
     }

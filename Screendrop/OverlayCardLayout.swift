@@ -7,8 +7,9 @@
 //  circular icon button) and a center column (an ordered list of actions
 //  rendered as labelled pills). Actions can also be hidden.
 //
-//  All positions are user-customisable from the Overlay settings pane. The
-//  layout is persisted as JSON in UserDefaults via `OverlayCardLayoutStore`.
+//  All positions are user-customisable from Settings → Capture Cards. The
+//  layout is persisted as JSON in UserDefaults via `OverlayCardLayoutStore`;
+//  its keys must stay stable so saved layouts keep loading.
 //
 
 import Foundation
@@ -99,11 +100,23 @@ enum OverlayCardCorner: String, CaseIterable, Codable, Identifiable {
     var id: String { rawValue }
 }
 
-/// A destination region in the card editor.
-enum OverlayCardZone: Hashable {
+extension OverlayCardCorner {
+    var title: String {
+        switch self {
+        case .topLeading: "Top left"
+        case .topTrailing: "Top right"
+        case .bottomLeading: "Bottom left"
+        case .bottomTrailing: "Bottom right"
+        }
+    }
+}
+
+/// One place on the card an action can sit: a corner, or a position in the
+/// center column. `center(center.count)` is the empty slot after the last
+/// center action, while there is room.
+enum OverlayCardSlot: Hashable {
     case corner(OverlayCardCorner)
-    case center
-    case tray
+    case center(Int)
 }
 
 /// The full placement of every action on the card.
@@ -117,7 +130,8 @@ struct OverlayCardLayout: Codable, Equatable {
     var bottomTrailing: OverlayCardAction?
     /// Ordered top-to-bottom list of center pills.
     var center: [OverlayCardAction]
-    /// Actions that are not shown on the card.
+    /// Actions that are not on the card. Derived by `normalized()`; stored
+    /// only because saved layouts carry it.
     var hidden: [OverlayCardAction]
 
     /// Matches the original hard-coded card layout, with the new `view` action
@@ -142,14 +156,22 @@ struct OverlayCardLayout: Codable, Equatable {
         }
     }
 
-    func zone(of action: OverlayCardAction) -> OverlayCardZone? {
+    func action(in slot: OverlayCardSlot) -> OverlayCardAction? {
+        switch slot {
+        case .corner(let corner): action(at: corner)
+        case .center(let index): center.indices.contains(index) ? center[index] : nil
+        }
+    }
+
+    /// Where `action` sits on the card, or nil when it isn't on it.
+    func slot(of action: OverlayCardAction) -> OverlayCardSlot? {
         for corner in OverlayCardCorner.allCases where self.action(at: corner) == action {
             return .corner(corner)
         }
-        if center.contains(action) { return .center }
-        if hidden.contains(action) { return .tray }
-        return nil
+        return center.firstIndex(of: action).map { .center($0) }
     }
+
+    var hasRoomInCenter: Bool { center.count < Self.centerCapacity }
 
     // MARK: - Mutations
 
@@ -162,47 +184,60 @@ struct OverlayCardLayout: Codable, Equatable {
         }
     }
 
-    /// Detaches an action from wherever it currently lives.
-    mutating func remove(_ action: OverlayCardAction) {
-        for corner in OverlayCardCorner.allCases where self.action(at: corner) == action {
-            setCorner(corner, nil)
+    /// Puts `action` in `slot`. If the action was already on the card, the
+    /// slot's previous action takes its old place, so the two swap; if it
+    /// wasn't, the previous action comes off the card.
+    mutating func assign(_ action: OverlayCardAction, to slot: OverlayCardSlot) {
+        // Work on the center as fixed positions, so moving an action out of
+        // it never shifts the index of the slot it's moving to.
+        var slots: [OverlayCardAction?] = center
+        if case .center(let index) = slot, index >= slots.count {
+            slots.append(nil)
         }
-        center.removeAll { $0 == action }
-        hidden.removeAll { $0 == action }
-    }
 
-    /// Moves `action` into `zone`. When dropping onto an occupied corner, the
-    /// displaced action is relocated to `fallback` (typically the dragged
-    /// action's origin) so it stays visible - i.e. a swap.
-    mutating func place(
-        _ action: OverlayCardAction,
-        into zone: OverlayCardZone,
-        centerIndex: Int? = nil,
-        fallback: OverlayCardZone = .center
-    ) {
-        let origin = self.zone(of: action)
-        remove(action)
-
-        switch zone {
-        case .corner(let corner):
-            if let occupant = self.action(at: corner), occupant != action {
-                setCorner(corner, nil)
-                // Send the displaced action back to where the dragged one came
-                // from, so corners feel like a swap rather than an eviction.
-                place(occupant, into: origin ?? fallback)
+        func get(_ slot: OverlayCardSlot) -> OverlayCardAction? {
+            switch slot {
+            case .corner(let corner): self.action(at: corner)
+            case .center(let index): slots.indices.contains(index) ? slots[index] : nil
             }
-            setCorner(corner, action)
-        case .center:
-            let clamped = min(max(centerIndex ?? center.count, 0), center.count)
-            center.insert(action, at: clamped)
-        case .tray:
-            hidden.append(action)
         }
+
+        func put(_ slot: OverlayCardSlot, _ value: OverlayCardAction?) {
+            switch slot {
+            case .corner(let corner): setCorner(corner, value)
+            case .center(let index): if slots.indices.contains(index) { slots[index] = value }
+            }
+        }
+
+        let previous = get(slot)
+        if let origin = self.slot(of: action) {
+            guard origin != slot else { return }
+            put(origin, previous)
+        }
+        put(slot, action)
+        center = slots.compactMap { $0 }
+        self = normalized()
     }
 
-    /// Ensures every action appears exactly once. Unknown/duplicate entries are
-    /// dropped and any action missing entirely (e.g. added in a newer build) is
-    /// appended to the hidden tray.
+    /// Takes whatever is in `slot` off the card.
+    mutating func clear(_ slot: OverlayCardSlot) {
+        switch slot {
+        case .corner(let corner): setCorner(corner, nil)
+        case .center(let index): if center.indices.contains(index) { center.remove(at: index) }
+        }
+        self = normalized()
+    }
+
+    /// Moves a center action up (`-1`) or down (`1`) the column.
+    mutating func moveCenter(at index: Int, by offset: Int) {
+        let target = index + offset
+        guard center.indices.contains(index), center.indices.contains(target) else { return }
+        center.swapAt(index, target)
+    }
+
+    /// Ensures every action appears at most once on the card and the center
+    /// holds no more than `centerCapacity`; everything else, including
+    /// actions added in a newer build, is off the card.
     func normalized() -> OverlayCardLayout {
         var seen = Set<OverlayCardAction>()
         var result = OverlayCardLayout(
@@ -223,20 +258,12 @@ struct OverlayCardLayout: Codable, Equatable {
         result.topTrailing = claim(topTrailing)
         result.bottomLeading = claim(bottomLeading)
         result.bottomTrailing = claim(bottomTrailing)
-        result.center = center.filter { seen.insert($0).inserted }
-        result.hidden = hidden.filter { seen.insert($0).inserted }
-
-        for action in OverlayCardAction.allCases where seen.insert(action).inserted {
-            result.hidden.append(action)
-        }
-
-        // Enforce the center capacity, pushing any overflow into the tray.
-        if result.center.count > Self.centerCapacity {
-            let overflow = result.center.suffix(from: Self.centerCapacity)
-            result.hidden.append(contentsOf: overflow)
-            result.center = Array(result.center.prefix(Self.centerCapacity))
-        }
-
+        result.center = Array(center.filter { seen.insert($0).inserted }.prefix(Self.centerCapacity))
+        let placed = Set(
+            [result.topLeading, result.topTrailing, result.bottomLeading, result.bottomTrailing]
+                .compactMap { $0 } + result.center
+        )
+        result.hidden = OverlayCardAction.allCases.filter { !placed.contains($0) }
         return result
     }
 }
