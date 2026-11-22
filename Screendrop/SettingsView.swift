@@ -30,7 +30,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         case .overlay: "Capture Cards"
         case .library: "Library"
         case .cloud: "Cloud"
-        case .mcp: "AI Agents"
+        case .mcp: "MCP"
         case .about: "About"
         }
     }
@@ -62,7 +62,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         case .overlay: ["shelf", "quick access", "preview", "screen edge", "auto-close", "drag", "actions", "cards"]
         case .library: ["analyze", "ocr", "search", "text", "categories", "sort", "apple intelligence", "similar"]
         case .cloud: ["upload", "worker", "token", "cloudflare", "r2", "share", "link"]
-        case .mcp: ["mcp", "claude", "codex", "agent", "server", "ai"]
+        case .mcp: ["ai agents", "claude", "codex", "agent", "server", "model context protocol", "ai"]
         case .about: ["version", "updates", "github", "license"]
         }
     }
