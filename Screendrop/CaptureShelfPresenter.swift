@@ -159,6 +159,13 @@ enum CaptureShelfMetrics {
     /// Room above the top card for the header that appears on hover.
     static let headerHeight: CGFloat = 26
     static let headerSpacing: CGFloat = 10
+    /// The round action buttons in a card's corners, and their inset.
+    static let cornerButtonSize: CGFloat = 26
+    static let controlInset: CGFloat = 7
+    /// Every middle button is this wide whatever its label, so a column of
+    /// them lines up however the layout is customised.
+    static let centerButtonWidth: CGFloat = 80
+    static let centerButtonSpacing: CGFloat = 6
     /// Clear room on the inner side for the cards' shadows.
     static let shadowRoom: CGFloat = 28
     static var panelWidth: CGFloat { edgeInset + cardSize.width + shadowRoom }

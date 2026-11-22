@@ -189,9 +189,9 @@ struct CaptureShelfCard: View {
             corner(layout.bottomLeading, .bottomLeading)
             corner(layout.bottomTrailing, .bottomTrailing)
 
-            VStack(spacing: 6) {
+            VStack(spacing: CaptureShelfMetrics.centerButtonSpacing) {
                 ForEach(layout.center.filter(isAvailable)) { action in
-                    ShelfChipButton(help: centerHelp(for: action), width: Self.centerButtonWidth) {
+                    ShelfChipButton(help: centerHelp(for: action), width: CaptureShelfMetrics.centerButtonWidth) {
                         perform(action)
                     } label: {
                         Text(centerTitle(for: action))
@@ -213,20 +213,16 @@ struct CaptureShelfCard: View {
             }
             .disabled(isBlocked(action))
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: alignment)
-            .padding(7)
+            .padding(CaptureShelfMetrics.controlInset)
         }
     }
 
     private func cornerButton(_ systemImage: String, help: String, action: @escaping () -> Void) -> some View {
-        ShelfChipButton(help: help, width: 26, action: action) {
+        ShelfChipButton(help: help, width: CaptureShelfMetrics.cornerButtonSize, action: action) {
             Image(systemName: systemImage)
                 .font(.system(size: 10.5, weight: .bold))
         }
     }
-
-    /// Every middle button is this wide whatever its label, so a column of
-    /// them lines up however the layout is customised.
-    private static let centerButtonWidth: CGFloat = 80
 
     private func isAvailable(_ action: OverlayCardAction) -> Bool {
         switch action {
@@ -328,17 +324,9 @@ private struct ShelfChipButton<Label: View>: View {
     @State private var isHovered = false
     @Environment(\.isEnabled) private var isEnabled
 
-    private var isCircle: Bool { width <= 30 }
-    private var height: CGFloat { isCircle ? width : 26 }
-
     var body: some View {
         Button(action: action) {
-            label()
-                .foregroundStyle(.black.opacity(isEnabled ? 0.85 : 0.3))
-                .padding(.horizontal, isCircle ? 0 : 8)
-                .frame(width: width, height: height)
-                .background(.white.opacity(isEnabled ? (isHovered ? 1 : 0.88) : 0.6), in: Capsule())
-                .shadow(color: .black.opacity(0.18), radius: 3, y: 1)
+            ShelfChip(width: width, isEnabled: isEnabled, isHovered: isHovered, label: label)
                 .scaleEffect(isHovered && isEnabled ? 1.04 : 1)
                 .contentShape(Capsule())
         }
@@ -347,5 +335,26 @@ private struct ShelfChipButton<Label: View>: View {
         .motion(.morphQuick, value: isHovered)
         .help(help)
         .accessibilityLabel(help)
+    }
+}
+
+/// How a card control looks, apart from what it does: shared by the card
+/// and the Settings editor that previews it.
+struct ShelfChip<Label: View>: View {
+    let width: CGFloat
+    var isEnabled = true
+    var isHovered = false
+    @ViewBuilder let label: () -> Label
+
+    private var isCircle: Bool { width <= 30 }
+    private var height: CGFloat { isCircle ? width : 26 }
+
+    var body: some View {
+        label()
+            .foregroundStyle(.black.opacity(isEnabled ? 0.85 : 0.3))
+            .padding(.horizontal, isCircle ? 0 : 8)
+            .frame(width: width, height: height)
+            .background(.white.opacity(isEnabled ? (isHovered ? 1 : 0.88) : 0.6), in: Capsule())
+            .shadow(color: .black.opacity(0.18), radius: 3, y: 1)
     }
 }
