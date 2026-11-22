@@ -76,7 +76,6 @@ struct SettingsAboutPane: View {
                         detail: "Screendrop looks for a new version in the background and asks before installing it."
                     )
                 }
-                .toggleStyle(.ink)
             }
 
             Section {

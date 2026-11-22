@@ -15,7 +15,7 @@ import SwiftUI
 // MARK: - Page
 
 /// The scaffold for one pane: a grouped form with the standard insets and
-/// the app's accent switch in place of the system one.
+/// the system's own switches, so Settings reads like the rest of the Mac.
 struct SettingsPage<Content: View>: View {
     @ViewBuilder var content: () -> Content
 
@@ -24,7 +24,8 @@ struct SettingsPage<Content: View>: View {
             .formStyle(.grouped)
             .scrollContentBackground(.hidden)
             .contentMargins(.top, 8, for: .scrollContent)
-            .toggleStyle(.ink)
+            // A Form's toggles are checkboxes on macOS unless told otherwise.
+            .toggleStyle(.switch)
     }
 }
 

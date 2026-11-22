@@ -37,7 +37,6 @@ private struct AfterCaptureToggleRow: View {
         Toggle(isOn: $isOn) {
             SettingsControlLabel(title, detail: subtitle)
         }
-        .toggleStyle(.ink)
         .disabled(action == .upload && !isOn && !CloudCredentialStore.shared.isConfigured)
 
         if action == .upload && !CloudCredentialStore.shared.isConfigured {

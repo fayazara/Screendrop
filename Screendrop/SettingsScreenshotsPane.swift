@@ -47,7 +47,6 @@ struct ScreenshotsSettingsPane: View {
                         detail: "Include the window's drop shadow when capturing a window."
                     )
                 }
-                .toggleStyle(.ink)
 
                 Toggle(isOn: $trimFullscreenMenuBar) {
                     SettingsControlLabel(
@@ -55,7 +54,6 @@ struct ScreenshotsSettingsPane: View {
                         detail: "On notched Macs, removes the empty black bar at the top of a fullscreen capture. A visible menu bar is kept."
                     )
                 }
-                .toggleStyle(.ink)
             }
 
             AfterCaptureActionsSection(type: .screenshot, title: "After Capture")

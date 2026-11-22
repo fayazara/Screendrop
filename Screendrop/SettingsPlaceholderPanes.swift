@@ -15,7 +15,6 @@ struct VideoSettingsPane: View {
                         detail: "Select the exported file in Finder once the render finishes."
                     )
                 }
-                .toggleStyle(.ink)
             }
 
             Section("Projects") {
@@ -85,7 +84,6 @@ struct OverlaySettingsPane: View {
                         detail: "Dismiss a card once you drag it out to another app."
                     )
                 }
-                .toggleStyle(.ink)
             }
 
             Section("Card Actions") {

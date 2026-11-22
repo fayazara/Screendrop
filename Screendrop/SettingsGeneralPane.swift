@@ -46,7 +46,6 @@ struct GeneralSettingsPane: View {
                 Toggle(isOn: launchAtLoginBinding) {
                     Text("Launch at login")
                 }
-                .toggleStyle(.ink)
 
                 if let launchAtLoginError {
                     Text(launchAtLoginError)
@@ -64,7 +63,6 @@ struct GeneralSettingsPane: View {
                         detail: "When hidden, reopen Screendrop to get back to Settings."
                     )
                 }
-                .toggleStyle(.ink)
 
                 Toggle(isOn: $hideDockIcon) {
                     SettingsControlLabel(
@@ -72,7 +70,6 @@ struct GeneralSettingsPane: View {
                         detail: "Keep Screendrop out of the Dock and Cmd-Tab, even while its windows are open. The menu bar won't show Screendrop's menus."
                     )
                 }
-                .toggleStyle(.ink)
             }
 
             Section("Capture") {
@@ -82,7 +79,6 @@ struct GeneralSettingsPane: View {
                         detail: "Show capture cards, recording controls, Settings, and other Screendrop windows in screenshots and screen recordings."
                     )
                 }
-                .toggleStyle(.ink)
             }
 
             Section("Sounds") {
@@ -92,7 +88,6 @@ struct GeneralSettingsPane: View {
                         detail: "Play the camera shutter sound when a screenshot is taken."
                     )
                 }
-                .toggleStyle(.ink)
             }
 
             Section("Export") {
@@ -132,7 +127,6 @@ struct GeneralSettingsPane: View {
                         detail: "When you click Save, write straight to the export folder instead of asking where to put it."
                     )
                 }
-                .toggleStyle(.ink)
             }
         }
         .onAppear {

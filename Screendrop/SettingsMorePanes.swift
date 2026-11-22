@@ -38,7 +38,6 @@ struct AnnotateSettingsPane: View {
                         detail: "Shows a downscaled image while editing to reduce memory use. Saved and exported screenshots are always full resolution."
                     )
                 }
-                .toggleStyle(.ink)
             }
         }
     }
@@ -59,7 +58,6 @@ struct LibrarySettingsPane: View {
                         detail: "Read the text in screenshots and recordings so search can find it, and sort new captures into categories. Everything runs on this Mac."
                     )
                 }
-                .toggleStyle(.ink)
 
                 if analyzeCaptures, CaptureLibraryAnalyzer.isModelAvailable {
                     Toggle(isOn: $sortExistingCaptures) {
@@ -68,7 +66,6 @@ struct LibrarySettingsPane: View {
                             detail: "Use Apple Intelligence on captures taken before sorting was turned on. It works in the background and can take an hour or more for a large Library."
                         )
                     }
-                    .toggleStyle(.ink)
                     .transition(.blurPop)
                 }
             }
