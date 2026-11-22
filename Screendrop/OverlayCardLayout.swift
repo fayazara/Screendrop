@@ -228,6 +228,29 @@ struct OverlayCardLayout: Codable, Equatable {
         self = normalized()
     }
 
+    /// Puts `action` in the center column at `index`, counted among the
+    /// other center actions (so for an action already in the center, this
+    /// reorders it). Does nothing when the column is full and the action
+    /// isn't already in it.
+    mutating func insertIntoCenter(_ action: OverlayCardAction, at index: Int) {
+        switch slot(of: action) {
+        case .center(let current):
+            center.remove(at: current)
+        case .corner(let corner):
+            guard hasRoomInCenter else { return }
+            setCorner(corner, nil)
+        case nil:
+            guard hasRoomInCenter else { return }
+        }
+        center.insert(action, at: min(max(index, 0), center.count))
+        self = normalized()
+    }
+
+    /// Takes `action` off the card, wherever it is.
+    mutating func takeOff(_ action: OverlayCardAction) {
+        if let slot = slot(of: action) { clear(slot) }
+    }
+
     /// Moves a center action up (`-1`) or down (`1`) the column.
     mutating func moveCenter(at index: Int, by offset: Int) {
         let target = index + offset
