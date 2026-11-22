@@ -49,7 +49,7 @@ struct MCPSettingsPane: View {
 
     var body: some View {
         SettingsPage {
-            Section("AI Agents") {
+            Section {
                 Toggle(isOn: $agentServerEnabled) {
                     SettingsControlLabel(
                         "Allow AI agents",
@@ -64,7 +64,7 @@ struct MCPSettingsPane: View {
             if agentServerEnabled {
                 Section {
                     ForEach(Setup.allCases) { setup in
-                        HStack(alignment: .firstTextBaseline, spacing: 12) {
+                        HStack(alignment: .center, spacing: 12) {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(setup.rawValue)
                                 Text(command(for: setup))

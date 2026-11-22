@@ -11,9 +11,7 @@ struct ScreenshotsSettingsPane: View {
     @AppStorage(ScreendropPreferences.compressionQualityKey) private var compressionQuality = 0.8
     @AppStorage(ScreendropPreferences.captureWindowShadowKey) private var captureWindowShadow = false
     @AppStorage(ScreendropPreferences.captureDelaySecondsKey) private var captureDelaySeconds = 0
-    @AppStorage(ScreendropPreferences.lowResolutionEditorPreviewKey) private var lowResolutionEditorPreview = true
     @AppStorage(ScreendropPreferences.trimFullscreenMenuBarKey) private var trimFullscreenMenuBar = true
-    @AppStorage(ScreendropPreferences.annotationStartingToolKey) private var startingTool = AnnotationTool.select.rawValue
 
     private let delayOptions: [Int] = [0, 3, 5, 10]
 
@@ -29,13 +27,13 @@ struct ScreenshotsSettingsPane: View {
 
     var body: some View {
         SettingsPage {
-            CaptureHotkeySettingsSection(actions: [.fullscreen, .window, .area, .textCapture])
-
             Section("Capture") {
-                Picker(selection: $captureDelaySeconds) {
-                    ForEach(delayOptions, id: \.self) { seconds in
-                        Text(seconds == 0 ? "Off" : "\(seconds) seconds").tag(seconds)
-                    }
+                SettingsRow {
+                    SettingsSegmented(
+                        options: delayOptions,
+                        selection: $captureDelaySeconds,
+                        title: { $0 == 0 ? "Off" : "\($0)s" }
+                    )
                 } label: {
                     SettingsControlLabel(
                         "Self-timer",
@@ -60,43 +58,22 @@ struct ScreenshotsSettingsPane: View {
                 .toggleStyle(.ink)
             }
 
-            Section("Annotation Editor") {
-                Picker(selection: $startingTool) {
-                    Text("Last Used").tag(ScreendropPreferences.startingToolLastUsed)
-                    Divider()
-                    ForEach(AnnotationTool.allCases) { tool in
-                        Text(tool.title).tag(tool.rawValue)
-                    }
-                } label: {
-                    SettingsControlLabel(
-                        "Starting tool",
-                        detail: "The tool picked when the editor opens."
-                    )
-                }
-
-                Toggle(isOn: $lowResolutionEditorPreview) {
-                    SettingsControlLabel(
-                        "Use low-resolution preview to save memory",
-                        detail: "Shows a downscaled image while editing to reduce memory use. Saved and exported screenshots are always full resolution."
-                    )
-                }
-                .toggleStyle(.ink)
-            }
-
             AfterCaptureActionsSection(type: .screenshot, title: "After Capture")
 
             Section("File Format") {
-                Picker("Format", selection: Binding(
-                    get: { exportFormat },
-                    set: { exportFormat = $0 }
-                )) {
-                    ForEach(ScreenshotExportFormat.allCases) { format in
-                        Text(format.title).tag(format)
-                    }
+                SettingsRow("Format") {
+                    SettingsSegmented(
+                        options: ScreenshotExportFormat.allCases,
+                        selection: Binding(
+                            get: { exportFormat },
+                            set: { exportFormat = $0 }
+                        ),
+                        title: \.title
+                    )
                 }
 
                 if exportFormat.usesLossyQuality {
-                    LabeledContent("Compression quality") {
+                    SettingsRow("Compression quality") {
                         HStack(spacing: 12) {
                             Slider(value: $compressionQuality, in: 0.1...1, step: 0.05)
                                 .frame(width: 180)

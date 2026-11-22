@@ -105,19 +105,14 @@ struct CloudSettingsPane: View {
                         regenerateToken()
                     }
 
-                    Spacer()
+                    Spacer(minLength: 0)
 
-                    if case .checking = workerStatus {
-                        connectionStatusIndicator(workerStatus)
-                    }
-                    SettingsButton(
-                        workerStatus == .connected ? "Connected" : "Verify Connection",
-                        systemImage: workerStatus == .connected ? "checkmark.circle.fill" : "bolt.horizontal"
-                    ) {
+                    // Progress and the result show in the toolbar status badge,
+                    // so this row never changes width while a check runs.
+                    SettingsButton("Verify Connection") {
                         Task { await testWorkerConnection() }
                     }
-                    .disabled(!isWorkerConfigured)
-                    .motion(.morphQuick, value: workerStatus == .connected)
+                    .disabled(!isWorkerConfigured || workerStatus == .checking)
                 }
             } header: {
                 Text("Connection")
@@ -226,9 +221,15 @@ struct CloudSettingsPane: View {
         .toolbar {
             ToolbarItem(placement: .automatic) {
                 HStack(spacing: 6) {
-                    Circle()
-                        .fill(overallStatusColor)
-                        .frame(width: 7, height: 7)
+                    if workerStatus == .checking {
+                        ProgressView()
+                            .controlSize(.mini)
+                            .frame(width: 7, height: 7)
+                    } else {
+                        Circle()
+                            .fill(overallStatusColor)
+                            .frame(width: 7, height: 7)
+                    }
 
                     Text(overallStatusText)
                         .font(.system(size: 12))
@@ -437,48 +438,23 @@ struct CloudSettingsPane: View {
     // MARK: - Status Display
 
     private var overallStatusColor: Color {
-        if isWorkerConfigured {
-            if workerStatus == .connected {
-                return Palette.success
-            }
-            return Palette.warning
+        guard isWorkerConfigured else { return .gray }
+        switch workerStatus {
+        case .connected: return Palette.success
+        case .failed: return Palette.record
+        case .checking, .unchecked: return Palette.warning
         }
-        return .gray
     }
 
     private var overallStatusText: String {
         if !isWorkerConfigured {
             return "Not configured"
         }
-        if workerStatus == .connected {
-            return "Connected"
-        }
-        return "Not verified"
-    }
-
-    @ViewBuilder
-    private func connectionStatusIndicator(_ status: ConnectionStatus) -> some View {
-        switch status {
-        case .unchecked:
-            EmptyView()
-        case .checking:
-            ProgressView()
-                .scaleEffect(0.6)
-                .frame(width: 16, height: 16)
-        case .connected:
-            Image(systemName: "checkmark.circle.fill")
-                .foregroundStyle(Palette.success)
-                .font(.system(size: 13))
-        case .failed(let message):
-            HStack(spacing: 4) {
-                Image(systemName: "xmark.circle.fill")
-                    .foregroundStyle(Palette.record)
-                    .font(.system(size: 13))
-                Text(message)
-                    .font(.system(size: 11))
-                    .foregroundStyle(Palette.record)
-                    .lineLimit(1)
-            }
+        switch workerStatus {
+        case .checking: return "Verifying…"
+        case .connected: return "Connected"
+        case .failed: return "Failed"
+        case .unchecked: return "Not verified"
         }
     }
 }

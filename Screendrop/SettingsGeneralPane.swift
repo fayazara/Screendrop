@@ -15,8 +15,6 @@ struct GeneralSettingsPane: View {
     @AppStorage(ScreendropPreferences.hideDockIconKey) private var hideDockIcon = false
     @AppStorage(ScreendropPreferences.includeAppWindowsInCapturesKey)
     private var includeAppWindowsInCaptures = false
-    @AppStorage(ScreendropPreferences.libraryAnalyzeCapturesKey) private var analyzeCaptures = true
-    @AppStorage(ScreendropPreferences.librarySortExistingKey) private var sortExistingCaptures = false
     @State private var launchAtLoginStatus = LaunchAtLoginController.status
     @State private var launchAtLoginError: String?
 
@@ -44,76 +42,9 @@ struct GeneralSettingsPane: View {
                 }
             }
 
-            Section("Save Location") {
-                HStack(spacing: 10) {
-                    Image(systemName: "folder.fill")
-                        .font(.system(size: 14))
-                        .foregroundStyle(Palette.secondaryLabel)
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Export folder")
-                        Text(ScreendropPreferences.exportDirectory.abbreviatedPath)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .help(ScreendropPreferences.exportDirectory.path)
-                    }
-
-                    Spacer(minLength: 8)
-
-                    if !exportDirectoryPath.isEmpty {
-                        InspectorResetButton(help: "Use the default folder") {
-                            exportDirectoryPath = ""
-                        }
-                        .transition(.blurPop)
-                    }
-
-                    SettingsButton("Change…") {
-                        chooseExportDirectory()
-                    }
-                }
-                .motion(value: exportDirectoryPath.isEmpty)
-
-                Toggle(isOn: saveButtonUsesFolderBinding) {
-                    SettingsControlLabel(
-                        "Save without choosing a location",
-                        detail: "When you click Save, write straight to the export folder instead of asking where to put it."
-                    )
-                }
-                .toggleStyle(.ink)
-            }
-
-            Section("Library") {
-                Toggle(isOn: $analyzeCaptures) {
-                    SettingsControlLabel(
-                        "Analyze captures",
-                        detail: "Read the text in screenshots and recordings so search can find it, and sort new captures into categories. Everything runs on this Mac."
-                    )
-                }
-                .toggleStyle(.ink)
-
-                if analyzeCaptures, CaptureLibraryAnalyzer.isModelAvailable {
-                    Toggle(isOn: $sortExistingCaptures) {
-                        SettingsControlLabel(
-                            "Sort existing captures",
-                            detail: "Use Apple Intelligence on captures taken before sorting was turned on. It works in the background and can take an hour or more for a large Library."
-                        )
-                    }
-                    .toggleStyle(.ink)
-                    .transition(.blurPop)
-                }
-            }
-            .motion(value: analyzeCaptures)
-            .onChange(of: analyzeCaptures) { _, _ in CaptureLibraryIndex.shared.settingsDidChange() }
-            .onChange(of: sortExistingCaptures) { _, _ in CaptureLibraryIndex.shared.settingsDidChange() }
-
-            Section("System") {
+            Section("App") {
                 Toggle(isOn: launchAtLoginBinding) {
-                    SettingsControlLabel(
-                        "Launch at login",
-                        detail: "Start Screendrop automatically when you sign in."
-                    )
+                    Text("Launch at login")
                 }
                 .toggleStyle(.ink)
 
@@ -126,14 +57,6 @@ struct GeneralSettingsPane: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-
-                Toggle(isOn: $playSounds) {
-                    SettingsControlLabel(
-                        "Play sounds",
-                        detail: "Play the camera shutter sound when a screenshot is taken."
-                    )
-                }
-                .toggleStyle(.ink)
 
                 Toggle(isOn: $showMenuBarIcon) {
                     SettingsControlLabel(
@@ -152,11 +75,61 @@ struct GeneralSettingsPane: View {
                 .toggleStyle(.ink)
             }
 
-            Section("Capture Visibility") {
+            Section("Capture") {
                 Toggle(isOn: $includeAppWindowsInCaptures) {
                     SettingsControlLabel(
                         "Include Screendrop windows in captures",
-                        detail: "Show preview cards, recording controls, Settings, and other Screendrop windows in screenshots and screen recordings."
+                        detail: "Show capture cards, recording controls, Settings, and other Screendrop windows in screenshots and screen recordings."
+                    )
+                }
+                .toggleStyle(.ink)
+            }
+
+            Section("Sounds") {
+                Toggle(isOn: $playSounds) {
+                    SettingsControlLabel(
+                        "Play sounds",
+                        detail: "Play the camera shutter sound when a screenshot is taken."
+                    )
+                }
+                .toggleStyle(.ink)
+            }
+
+            Section("Export") {
+                HStack(spacing: Space.l) {
+                    Text("Export location")
+
+                    Spacer(minLength: Space.m)
+
+                    Label {
+                        Text(ScreendropPreferences.exportDirectory.lastPathComponent)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    } icon: {
+                        Image(nsImage: NSWorkspace.shared.icon(forFile: ScreendropPreferences.exportDirectory.path))
+                            .resizable()
+                            .frame(width: 16, height: 16)
+                    }
+                    .foregroundStyle(.secondary)
+                    .help(ScreendropPreferences.exportDirectory.abbreviatedPath)
+
+                    if !exportDirectoryPath.isEmpty {
+                        InspectorResetButton(help: "Use the default folder") {
+                            exportDirectoryPath = ""
+                        }
+                        .transition(.blurPop)
+                    }
+
+                    SettingsButton("Choose…") {
+                        chooseExportDirectory()
+                    }
+                }
+                .motion(value: exportDirectoryPath.isEmpty)
+
+                Toggle(isOn: saveButtonUsesFolderBinding) {
+                    SettingsControlLabel(
+                        "Save without choosing a location",
+                        detail: "When you click Save, write straight to the export folder instead of asking where to put it."
                     )
                 }
                 .toggleStyle(.ink)

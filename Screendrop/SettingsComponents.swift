@@ -50,6 +50,30 @@ struct SettingsControlLabel: View {
     }
 }
 
+/// A form row with its label on the left and a control on the right,
+/// centered on the row's height. `LabeledContent` in a grouped form lines
+/// the control up with the label's first baseline instead, so a field or
+/// button rides high, and sits on the top line of a two-line label.
+struct SettingsRow<Label: View, Content: View>: View {
+    @ViewBuilder var content: () -> Content
+    @ViewBuilder var label: () -> Label
+
+    var body: some View {
+        HStack(alignment: .center, spacing: Space.l) {
+            label()
+                .frame(maxWidth: .infinity, alignment: .leading)
+            content()
+        }
+    }
+}
+
+extension SettingsRow where Label == Text {
+    init(_ title: String, @ViewBuilder content: @escaping () -> Content) {
+        self.content = content
+        self.label = { Text(title) }
+    }
+}
+
 /// A compact glass button for actions inside a form row.
 struct SettingsButton: View {
     let title: String

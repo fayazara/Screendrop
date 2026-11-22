@@ -11,6 +11,10 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     private static var shared: SettingsWindowController?
     private var didEnterActivationPolicy = false
 
+    /// The 200pt sidebar plus room for the widest settings row (the Cloud
+    /// pane's token buttons).
+    static let minimumSize = NSSize(width: 720, height: 560)
+
     static func show(tab: SettingsTab? = nil) {
         if let tab {
             SettingsNavigation.shared.selectedTab = tab
@@ -25,7 +29,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 
     private init() {
         let window = NSWindow(
-            contentRect: NSRect(origin: .zero, size: CGSize(width: 700, height: 540)),
+            contentRect: NSRect(origin: .zero, size: CGSize(width: 760, height: 600)),
             styleMask: [
                 .titled,
                 .closable,
@@ -62,9 +66,19 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         // makes the whole content area move the window, which both feels off and
         // swallows in-content drag gestures (e.g. the overlay card editor).
         window.isMovableByWindowBackground = false
-        window.setFrameAutosaveName("SettingsWindow")
-        window.minSize = NSSize(width: 620, height: 460)
+        window.minSize = Self.minimumSize
         window.center()
+        window.setFrameAutosaveName("SettingsWindow")
+        // A frame saved before the minimum existed can be smaller than it;
+        // AppKit restores it as is, so grow it back.
+        var frame = window.frame
+        if frame.width < Self.minimumSize.width || frame.height < Self.minimumSize.height {
+            let top = frame.maxY
+            frame.size.width = max(frame.width, Self.minimumSize.width)
+            frame.size.height = max(frame.height, Self.minimumSize.height)
+            frame.origin.y = top - frame.height
+            window.setFrame(frame, display: false)
+        }
         window.delegate = self
 
         let hostingController = NSHostingController(rootView: SettingsView())

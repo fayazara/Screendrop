@@ -8,11 +8,14 @@ import SwiftUI
 
 enum SettingsTab: String, CaseIterable, Identifiable {
     case general
+    case shortcuts
     case screenshots
     case video
+    case annotate
     case overlay
-    case mcp
+    case library
     case cloud
+    case mcp
     case about
 
     var id: Self { self }
@@ -20,11 +23,14 @@ enum SettingsTab: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .general: "General"
+        case .shortcuts: "Shortcuts"
         case .screenshots: "Screenshots"
-        case .video: "Screen Recordings"
-        case .overlay: "Overlay"
-        case .mcp: "MCP"
+        case .video: "Screen Recording"
+        case .annotate: "Annotate"
+        case .overlay: "Capture Cards"
+        case .library: "Library"
         case .cloud: "Cloud"
+        case .mcp: "AI Agents"
         case .about: "About"
         }
     }
@@ -32,12 +38,40 @@ enum SettingsTab: String, CaseIterable, Identifiable {
     var systemImage: String {
         switch self {
         case .general: "gearshape.fill"
-        case .screenshots: "camera.viewfinder"
-        case .video: "record.circle.fill"
-        case .overlay: "square.stack.fill"
-        case .mcp: "point.3.filled.connected.trianglepath.dotted"
-        case .cloud: "icloud.fill"
+        case .shortcuts: "command"
+        case .screenshots: "camera.fill"
+        case .video: "video.fill"
+        case .annotate: "pencil.tip.crop.circle"
+        case .overlay: "photo.on.rectangle"
+        case .library: "photo.on.rectangle.angled"
+        case .cloud: "cloud.fill"
+        case .mcp: "sparkle"
         case .about: "info.circle.fill"
+        }
+    }
+
+    /// Words a search for this pane should match besides its title: the
+    /// settings it holds, and what people are likely to call them.
+    var keywords: [String] {
+        switch self {
+        case .general: ["permissions", "screen recording", "microphone", "camera", "privacy", "allow", "access", "launch at login", "startup", "menu bar", "dock", "sounds", "shutter", "save location", "export folder", "include windows", "visibility"]
+        case .shortcuts: ["hotkeys", "keyboard", "keys", "fullscreen", "window", "area", "capture text", "ocr", "record"]
+        case .screenshots: ["self-timer", "delay", "countdown", "shadow", "menu bar", "notch", "after capture", "copy", "clipboard", "format", "png", "jpeg", "heic", "compression", "quality"]
+        case .video: ["recording", "after recording", "export", "reveal in finder", "projects", "studio"]
+        case .annotate: ["editor", "starting tool", "preview", "memory", "resolution", "markup"]
+        case .overlay: ["shelf", "quick access", "preview", "screen edge", "auto-close", "drag", "actions", "cards"]
+        case .library: ["analyze", "ocr", "search", "text", "categories", "sort", "apple intelligence", "similar"]
+        case .cloud: ["upload", "worker", "token", "cloudflare", "r2", "share", "link"]
+        case .mcp: ["mcp", "claude", "codex", "agent", "server", "ai"]
+        case .about: ["version", "updates", "github", "license"]
+        }
+    }
+
+    func matches(_ query: String) -> Bool {
+        let needle = query.trimmingCharacters(in: .whitespaces)
+        guard !needle.isEmpty else { return true }
+        return ([title] + keywords).contains {
+            $0.range(of: needle, options: [.caseInsensitive, .diacriticInsensitive]) != nil
         }
     }
 }
@@ -60,6 +94,7 @@ struct SettingsView: View {
     @State private var navigationHistory: [SettingsTab] = [.general]
     @State private var historyIndex = 0
     @State private var isHistoryNavigation = false
+    @State private var searchText = ""
 
     private var activeTab: SettingsTab {
         navigation.selectedTab ?? .general
@@ -67,24 +102,31 @@ struct SettingsView: View {
 
     var body: some View {
         NavigationSplitView(columnVisibility: .constant(.all)) {
-            SettingsSidebarView(selectedTab: $navigation.selectedTab)
-                .safeAreaInset(edge: .bottom, spacing: 0) {
-                    SettingsStatusFooter(permissions: permissions)
-                }
-                .frame(width: 200)
-                .navigationSplitViewColumnWidth(
-                    min: 200,
-                    ideal: 200,
-                    max: 200
-                )
-                .toolbar(removing: .sidebarToggle)
+            SettingsSidebarView(
+                selectedTab: $navigation.selectedTab,
+                searchText: searchText
+            )
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                SettingsStatusFooter(permissions: permissions)
+            }
+            .frame(width: 200)
+            .navigationSplitViewColumnWidth(
+                min: 200,
+                ideal: 200,
+                max: 200
+            )
+            .toolbar(removing: .sidebarToggle)
         } detail: {
             SettingsDetailView(tab: activeTab)
                 .environment(permissions)
         }
+        .searchable(text: $searchText, placement: .sidebar, prompt: "Search Settings")
         .navigationTitle("Settings")
         .navigationSplitViewStyle(.balanced)
-        .frame(minWidth: 660, minHeight: 540)
+        .frame(
+            minWidth: SettingsWindowController.minimumSize.width,
+            minHeight: SettingsWindowController.minimumSize.height
+        )
         .toolbar {
             ToolbarItemGroup(placement: .navigation) {
                 Button {
@@ -114,6 +156,14 @@ struct SettingsView: View {
         .onDisappear { permissions.endWatching() }
         .onChange(of: navigation.selectedTab) { _, _ in
             recordNavigation()
+        }
+        .onChange(of: searchText) { _, query in
+            // Typing jumps to the first pane that matches, so a search for
+            // "shadow" lands on Screenshots without another click.
+            guard !query.isEmpty, !activeTab.matches(query) else { return }
+            if let first = SettingsTab.allCases.first(where: { $0.matches(query) }) {
+                navigation.selectedTab = first
+            }
         }
     }
 
@@ -159,12 +209,31 @@ struct SettingsView: View {
 
 private struct SettingsSidebarView: View {
     @Binding var selectedTab: SettingsTab?
+    let searchText: String
+
+    private var isSearching: Bool {
+        !searchText.trimmingCharacters(in: .whitespaces).isEmpty
+    }
 
     var body: some View {
         List(selection: $selectedTab) {
-            ForEach(SettingsTab.allCases) { tab in
-                SettingsSidebarRow(tab: tab)
-                    .tag(tab)
+            if isSearching {
+                let results = SettingsTab.allCases.filter { $0.matches(searchText) }
+                if results.isEmpty {
+                    Text("No Results")
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.top, Space.xl)
+                        .selectionDisabled()
+                } else {
+                    ForEach(results) { tab in
+                        SettingsSidebarRow(tab: tab).tag(tab)
+                    }
+                }
+            } else {
+                ForEach(SettingsTab.allCases) { tab in
+                    SettingsSidebarRow(tab: tab).tag(tab)
+                }
             }
         }
         .listStyle(.sidebar)
@@ -199,12 +268,18 @@ private struct SettingsDetailView: View {
             switch tab {
             case .general:
                 GeneralSettingsPane()
+            case .shortcuts:
+                ShortcutsSettingsPane()
             case .screenshots:
                 ScreenshotsSettingsPane()
             case .video:
                 VideoSettingsPane()
+            case .annotate:
+                AnnotateSettingsPane()
             case .overlay:
                 OverlaySettingsPane()
+            case .library:
+                LibrarySettingsPane()
             case .mcp:
                 MCPSettingsPane()
             case .cloud:
