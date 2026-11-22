@@ -9,9 +9,10 @@
 //  or has just finished something, that state takes the actions' place.
 //  Every action is also in its context menu, and it drags out as a file.
 //
-//  The controls are solid light chips rather than the app's glass: they sit
-//  on arbitrary screenshot content, where a fixed light-on-frost contrast
-//  reads best, and the shelf's never-key panel would draw glass flat.
+//  The controls are light Liquid Glass. The shelf's panel is rarely key, so
+//  it reports itself active (see CaptureShelfPanel) or the glass would draw
+//  in its flat, inactive state. They stay light in dark mode: they sit on a
+//  screenshot, not on the window.
 //
 
 import AppKit
@@ -311,10 +312,8 @@ struct CaptureShelfCard: View {
     }
 }
 
-/// A solid light control over the frosted card: a circle when its width
-/// matches its height, a capsule otherwise. Solid rather than glass: the
-/// shelf's panel is never key, and glass in a non-key window draws flat.
-/// Light on any screenshot, so it stays the same in dark mode.
+/// A glass control over the frosted card: a circle when its width matches
+/// its height, a capsule otherwise.
 private struct ShelfChipButton<Label: View>: View {
     let help: String
     let width: CGFloat
@@ -326,7 +325,7 @@ private struct ShelfChipButton<Label: View>: View {
 
     var body: some View {
         Button(action: action) {
-            ShelfChip(width: width, isEnabled: isEnabled, isHovered: isHovered, label: label)
+            ShelfChip(width: width, isEnabled: isEnabled, label: label)
                 .scaleEffect(isHovered && isEnabled ? 1.04 : 1)
                 .contentShape(Capsule())
         }
@@ -343,7 +342,6 @@ private struct ShelfChipButton<Label: View>: View {
 struct ShelfChip<Label: View>: View {
     let width: CGFloat
     var isEnabled = true
-    var isHovered = false
     @ViewBuilder let label: () -> Label
 
     private var isCircle: Bool { width <= 30 }
@@ -354,7 +352,12 @@ struct ShelfChip<Label: View>: View {
             .foregroundStyle(.black.opacity(isEnabled ? 0.85 : 0.3))
             .padding(.horizontal, isCircle ? 0 : 8)
             .frame(width: width, height: height)
-            .background(.white.opacity(isEnabled ? (isHovered ? 1 : 0.88) : 0.6), in: Capsule())
-            .shadow(color: .black.opacity(0.18), radius: 3, y: 1)
+            .glassEffect(.regular.interactive(isEnabled), in: Capsule())
+            .opacity(isEnabled ? 1 : 0.6)
+            // Light glass in either appearance: it sits on a screenshot.
+            .environment(\.colorScheme, .light)
+            // Glass draws flat in a window that doesn't look active; the
+            // shelf's panel is rarely key, so these always claim to be.
+            .environment(\.appearsActive, true)
     }
 }

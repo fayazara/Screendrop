@@ -181,6 +181,17 @@ enum CaptureShelfMetrics {
 private final class CaptureShelfPanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
+
+    // The cards' Liquid Glass buttons draw "subdued" (flat and grey) unless
+    // their window has an active appearance, which AppKit only gives windows
+    // of the active app. This panel is non-activating, so Screendrop is
+    // usually not active while it shows. These private NSWindow hooks are
+    // what AppKit and NSGlassEffectView ask; answering yes keeps the glass
+    // live. Unknown to the SDK, so they're declared by selector, and harmless
+    // if a later macOS stops calling them.
+    @objc(_hasActiveAppearance) private func hasActiveAppearance() -> Bool { true }
+    @objc(_hasActiveAppearanceIgnoringKeyFocus) private func hasActiveAppearanceIgnoringKeyFocus() -> Bool { true }
+    @objc(_hasKeyAppearance) private func hasKeyAppearancePrivate() -> Bool { true }
 }
 
 /// Hosts the shelf at the panel's size, and turns two-finger swipes into
