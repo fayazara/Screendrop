@@ -40,6 +40,10 @@ struct ScreendropApp: App {
         .defaultSize(width: 1180, height: 760)
         .defaultLaunchBehavior(.suppressed)
         .restorationBehavior(.disabled)
+        // SwiftUI opens a window scene for every incoming URL or file unless
+        // each one opts out. AppDelegate handles both, so without this every
+        // `screendrop://` command (Raycast) also opened the Library.
+        .handlesExternalEvents(matching: [])
         .commands {
             CommandGroup(after: .newItem) {
                 Button("Show Library") { CaptureLibraryModel.shared.show() }
@@ -56,12 +60,14 @@ struct ScreendropApp: App {
         }
         .windowResizability(.contentMinSize)
         .defaultSize(width: 1100, height: 760)
+        .handlesExternalEvents(matching: [])
 
         WindowGroup("Screendrop Recording Editor", id: "VIDEO_EDITOR", for: URL.self) { value in
             RecordingStudioWindow(url: value)
         }
         .windowResizability(.contentMinSize)
         .defaultSize(width: 1360, height: 860)
+        .handlesExternalEvents(matching: [])
         .commands { StudioCommands() }
     }
 
