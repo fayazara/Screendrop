@@ -6,7 +6,7 @@ Take screenshots, copy text from the screen, and record your screen with [Screen
 
 This extension controls the Screendrop app through its `screendrop://` URL scheme, so Screendrop must be installed.
 
-- **Screendrop v0.40.0 or later.** Earlier versions don't have the URL scheme. Download the latest release from [GitHub Releases](https://github.com/fayazara/Screendrop/releases).
+- **Screendrop v0.40.1 or later.** Earlier versions either lack the URL scheme or open the Library on every command. Download the latest release from [GitHub Releases](https://github.com/fayazara/Screendrop/releases).
 
 ## Commands
 
