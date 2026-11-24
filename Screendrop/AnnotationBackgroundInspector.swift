@@ -30,10 +30,14 @@ struct AnnotationFrameInspector: View {
     let onPreview: (AnnotationBackgroundStyle, Bool) -> Void
     let onEndPreview: () -> Void
 
+    /// Padding and corners from before the background was set to None, put
+    /// back when a fill is picked again.
+    @State private var frameBeforeNone: (padding: CGFloat, cornerRadius: CGFloat)?
+
     var body: some View {
         VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
             InspectorBackgroundRow(
-                style: $settings.style,
+                style: style,
                 rememberedWallpaper: settings.customWallpaper,
                 wallpaperStore: wallpaperStore,
                 onEditorAction: onEditorAction,
@@ -56,13 +60,37 @@ struct AnnotationFrameInspector: View {
         }
     }
 
+    /// None leaves the screenshot bare, so padding and corners go to zero
+    /// with it; picking a fill again brings back what they were.
+    private var style: Binding<AnnotationBackgroundStyle> {
+        Binding {
+            settings.style
+        } set: { newStyle in
+            var updated = settings
+            let wasNone = updated.style == .none
+            updated.style = newStyle
+            if newStyle == .none, !wasNone {
+                frameBeforeNone = (updated.padding, updated.cornerRadius)
+                updated.padding = 0
+                updated.cornerRadius = 0
+            } else if newStyle != .none, wasNone, updated.padding == 0, updated.cornerRadius == 0 {
+                let defaults = AnnotationBackgroundSettings()
+                updated.padding = frameBeforeNone?.padding ?? defaults.padding
+                updated.cornerRadius = frameBeforeNone?.cornerRadius ?? defaults.cornerRadius
+                frameBeforeNone = nil
+            }
+            // One assignment, so the change is a single undo step.
+            settings = updated
+        }
+    }
+
     private var frameControls: some View {
         VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
             InspectorFieldPair {
                 InspectorSlider(
                     "Padding",
                     value: $settings.padding,
-                    range: 0.04...0.45,
+                    range: 0...0.45,
                     format: .percent()
                 )
             } trailing: {
