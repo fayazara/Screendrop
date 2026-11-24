@@ -62,7 +62,7 @@ enum AnnotationImageCropper {
             return nil
         }
 
-        CGImageDestinationAddImage(destination, cropped, nil)
+        CGImageDestinationAddImage(destination, cropped, ImageResolutionMetadata.properties(of: url) as CFDictionary)
         guard CGImageDestinationFinalize(destination) else {
             try? FileManager.default.removeItem(at: destinationURL)
             return nil
