@@ -99,14 +99,28 @@ struct GlassCapsuleButton: View {
     var isProminent = false
     /// A functional color such as `Palette.record`; wins over `isProminent`.
     var tint: Color? = nil
+    /// A round picture, such as an avatar, at the leading end in place of
+    /// a symbol. It sits as far from the capsule's edge as from its top.
+    var avatar: Image? = nil
     let action: () -> Void
 
     @Environment(\.isEnabled) private var isEnabled
 
+    private var horizontalPadding: CGFloat { height < 28 ? 11 : 13 }
+    private var avatarInset: CGFloat { 4 }
+
     var body: some View {
         Button(action: action) {
             HStack(spacing: 6) {
-                if let systemImage {
+                if let avatar {
+                    avatar
+                        .resizable()
+                        .interpolation(.high)
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: height - avatarInset * 2, height: height - avatarInset * 2)
+                        .clipShape(Circle())
+                        .overlay(Circle().strokeBorder(.primary.opacity(0.08), lineWidth: 0.5))
+                } else if let systemImage {
                     Image(systemName: systemImage)
                         .font(.system(size: height < 28 ? 10.5 : GlassMetrics.symbolSize - 1, weight: .semibold))
                         .contentTransition(.symbolEffect(.replace.downUp))
@@ -118,7 +132,8 @@ struct GlassCapsuleButton: View {
                     .contentTransition(.interpolate)
             }
             .foregroundStyle(glassForeground(isInked: isProminent, tint: tint, isEnabled: isEnabled))
-            .padding(.horizontal, height < 28 ? 11 : 13)
+            .padding(.leading, avatar == nil ? horizontalPadding : avatarInset)
+            .padding(.trailing, horizontalPadding)
             .frame(height: height)
             .contentShape(Capsule())
         }

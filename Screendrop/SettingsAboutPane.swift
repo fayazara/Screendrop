@@ -55,7 +55,7 @@ struct SettingsAboutPane: View {
                                 open("https://github.com/fayazara/screendrop")
                             }
 
-                            SettingsButton("@fayazara", systemImage: "at") {
+                            SettingsButton("@fayazara", avatar: Image("AuthorAvatar")) {
                                 open("https://x.com/fayazara")
                             }
                         }

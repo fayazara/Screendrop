@@ -80,11 +80,13 @@ struct SettingsButton: View {
     let title: String
     var systemImage: String? = nil
     var isProminent = false
+    var avatar: Image? = nil
     let action: () -> Void
 
-    init(_ title: String, systemImage: String? = nil, isProminent: Bool = false, action: @escaping () -> Void) {
+    init(_ title: String, systemImage: String? = nil, avatar: Image? = nil, isProminent: Bool = false, action: @escaping () -> Void) {
         self.title = title
         self.systemImage = systemImage
+        self.avatar = avatar
         self.isProminent = isProminent
         self.action = action
     }
@@ -95,6 +97,7 @@ struct SettingsButton: View {
             systemImage: systemImage,
             height: GlassMetrics.compactHeight,
             isProminent: isProminent,
+            avatar: avatar,
             action: action
         )
         .fixedSize()
