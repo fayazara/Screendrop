@@ -219,7 +219,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case "capture-text":
                 CaptureCoordinator.shared.captureText()
             case "record-screen":
-                RecordingPickerPresenter.shared.show()
+                // Showing the picker mid-recording would swap out the
+                // recording bar, so the same link stops it instead.
+                if ScreenRecordingManager.shared.isActive {
+                    ScreenRecordingManager.shared.stopRecording()
+                } else {
+                    RecordingPickerPresenter.shared.show()
+                }
+            case "stop-recording":
+                ScreenRecordingManager.shared.stopRecording()
             case "open-library":
                 CaptureLibraryModel.shared.show()
             case "open-settings":

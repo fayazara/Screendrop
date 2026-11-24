@@ -46,8 +46,16 @@
       "name": "record-screen",
       "title": "Record Screen",
       "subtitle": "Screendrop",
-      "description": "Choose a display, window, or area and start recording",
+      "description": "Choose a display, window, or area and start recording, or stop the current recording",
       "icon": "record-screen.png",
+      "mode": "no-view"
+    },
+    {
+      "name": "stop-recording",
+      "title": "Stop Recording",
+      "subtitle": "Screendrop",
+      "description": "Stop the current screen recording",
+      "icon": "stop-recording.png",
       "mode": "no-view"
     },
     {
