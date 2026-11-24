@@ -183,7 +183,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Finder "Open With", `open -a Screendrop file.png`, and `screendrop://` commands.
     func application(_ application: NSApplication, open urls: [URL]) {
-        let commands = urls.filter { $0.scheme?.lowercased() == "screendrop" }
+        // The Dev build registers `screendrop-dev` so it never steals links
+        // from an installed release build (see SCREENDROP_URL_SCHEME).
+        let commands = urls.filter { ["screendrop", "screendrop-dev"].contains($0.scheme?.lowercased()) }
         let files = urls.filter(\.isFileURL)
         if !commands.isEmpty || !files.isEmpty {
             openedFilesAtLaunch = true
