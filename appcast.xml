@@ -27,6 +27,35 @@
     -->
 
     <item>
+      <title>Version 0.40.0</title>
+      <sparkle:version>43</sparkle:version>
+      <sparkle:shortVersionString>0.40.0</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.4</sparkle:minimumSystemVersion>
+      <pubDate>Tue, 24 Nov 2026 13:30:51 +0000</pubDate>
+      <description><![CDATA[
+        <h2>What's New in 0.40.0</h2>
+        <ul>
+          <li>New screendrop:// links: Raycast, Alfred, Shortcuts or any app can capture an area, a window, the full screen or text, start or stop a recording, and open the Library or Settings</li>
+          <li>Redesigned Settings, with the Mac's own Liquid Glass switches and picture-based choices that look right in Dark Mode</li>
+          <li>Capture card buttons are now Liquid Glass</li>
+          <li>New card actions editor: edit the real card at full size. Click a button to replace, swap, reorder or remove it, or drag buttons into place, and preview screenshot and recording cards separately</li>
+          <li>The AI Agents pane is now MCP: pick Claude Code, Codex or JSON and copy its setup in one click</li>
+          <li>Studio: texts and effects that overlap in time get rows of their own, so none hides another; tuck a track to stack them into one row</li>
+          <li>Studio: a pixelate region inside another can now be picked and edited</li>
+          <li>Annotate: setting the background to None clears padding and corners, and picking a fill brings them back</li>
+          <li>The recording area's size pill stays clear of the menu bar and the Dock</li>
+          <li>Cropped, edited and compressed screenshots keep their Retina resolution, so they no longer open at twice their size and blurry in Preview or when pasted</li>
+        </ul>
+      ]]></description>
+      <enclosure
+        url="https://github.com/fayazara/screendrop/releases/download/v0.40.0/Screendrop.dmg"
+        type="application/octet-stream"
+        sparkle:edSignature="4TRZB2wFzZuwsmn+zZi8E7d12SMegTNsKYa+fY785gJagx0xEL8LY6UlwCqa32TOmdLnsXy4pjAw8UY4jT1cCg=="
+        length="10236214"
+      />
+    </item>
+
+    <item>
       <title>Version 0.39.1</title>
       <sparkle:version>42</sparkle:version>
       <sparkle:shortVersionString>0.39.1</sparkle:shortVersionString>
