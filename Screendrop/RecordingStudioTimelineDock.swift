@@ -66,6 +66,13 @@ struct StudioTimelineDock: View {
     @State private var soloState: (lane: Int, mutes: [UUID: Bool])?
     /// The range being drawn by ⇧-dragging the ruler, from where it began.
     @State private var rangeAnchor: TimeInterval?
+    /// The rows overlapping text and effects are spread over, held still
+    /// while anything on the timeline is dragged.
+    @State private var rowCache = StudioRowCache()
+    /// Whether the text and effects tracks show every row, or are tucked
+    /// into one with overlapping blocks run into stacks. Tucked by default.
+    @AppStorage("StudioTimelineTextRowsOpen") private var textRowsOpen = false
+    @AppStorage("StudioTimelineEffectRowsOpen") private var effectRowsOpen = false
     @Namespace private var glass
 
     /// Below this track width the opened + shows bare glyphs, so the edit
@@ -148,7 +155,106 @@ struct StudioTimelineDock: View {
 
     /// Every track, with the room after the last.
     private var fullTracksHeight: CGFloat {
-        StudioTimelineMetrics.scrollingLanesHeight(tracks: tracks)
+        scrollingLanesHeight
+    }
+
+    /// Every track with the gap after it, and the room under the last.
+    private var scrollingLanesHeight: CGFloat {
+        tracks.reduce(StudioTimelineMetrics.scrollerGutter) {
+            $0 + height(of: $1) + StudioTimelineMetrics.trackSpacing
+        }
+    }
+
+    // MARK: Rows
+
+    /// Texts that overlap in time sit on rows of their own, so none hides
+    /// another.
+    private var textRows: StudioLaneRows {
+        rows(\.text, spans: model.textTimelineBlocks.map {
+            StudioLaneSpan(id: $0.item.id, editorStart: $0.editorStart, editorEnd: $0.editorEnd)
+        })
+    }
+
+    /// Images and effects share a track, so they share its rows: images
+    /// first, as they draw on the video.
+    private var effectRows: StudioLaneRows {
+        let images = model.imageTimelineBlocks.map {
+            StudioLaneSpan(id: $0.item.id, editorStart: $0.editorStart, editorEnd: $0.editorEnd)
+        }
+        let redactions = model.redactionTimelineBlocks.map {
+            StudioLaneSpan(id: $0.item.id, editorStart: $0.editorStart, editorEnd: $0.editorEnd)
+        }
+        return rows(\.effects, spans: images + redactions)
+    }
+
+    /// Packs a track's blocks onto rows. While a block or a clip's edge is
+    /// dragged the rows hold still, so the block stays on its row under the
+    /// pointer and the dock keeps its height; they settle on release.
+    private func rows(
+        _ slot: ReferenceWritableKeyPath<StudioRowCache, StudioRowCache.Entry>,
+        spans: [StudioLaneSpan]
+    ) -> StudioLaneRows {
+        let cached = rowCache[keyPath: slot]
+        if model.isDraggingTimelineBlock || model.isTrimmingClip { return cached.rows }
+        // Measured on the fitted timeline, where a short block is widest
+        // for its length, so zooming never reshuffles the rows.
+        let fitted = StudioTimelineScale(viewportWidth: viewportWidth, duration: model.duration, zoom: 1)
+        let minimumLength = fitted.pointsPerSecond > 0
+            ? Double(StudioBlockMetrics.minimumWidth / fitted.pointsPerSecond)
+            : 0
+        let key = StudioRowCache.Key(spans: spans, minimumLength: minimumLength, duration: model.duration)
+        if cached.key == key { return cached.rows }
+        let rows = StudioLaneRows.packing(spans, minimumLength: minimumLength, duration: model.duration)
+        rowCache[keyPath: slot] = StudioRowCache.Entry(key: key, rows: rows)
+        return rows
+    }
+
+    private func rowCount(of track: StudioTrack) -> Int {
+        switch track {
+        case .text: textRowsOpen ? textRows.count : 1
+        case .overlay: effectRowsOpen ? effectRows.count : 1
+        default: 1
+        }
+    }
+
+    /// Text and effects tracks with blocks overlapping, which can be
+    /// tucked into a row and opened again.
+    private func canTuck(_ track: StudioTrack) -> Bool {
+        switch track {
+        case .text: textRows.count > 1
+        case .overlay: effectRows.count > 1
+        default: false
+        }
+    }
+
+    private func isOpen(_ track: StudioTrack) -> Bool {
+        switch track {
+        case .text: textRowsOpen
+        case .overlay: effectRowsOpen
+        default: true
+        }
+    }
+
+    private func setOpen(_ isOpen: Bool, _ track: StudioTrack) {
+        switch track {
+        case .text: textRowsOpen = isOpen
+        case .overlay: effectRowsOpen = isOpen
+        default: break
+        }
+    }
+
+    /// Picking a block that's tucked into a stack - on the video, or one
+    /// just added - opens its track, so the block it picked can be seen.
+    private func revealSelection(_ id: UUID?, on track: StudioTrack) {
+        guard let id, !isOpen(track) else { return }
+        let rows = track == .text ? textRows : effectRows
+        if rows.stack(containing: id) != nil { setOpen(true, track) }
+    }
+
+    /// A track's height: its rows, a hairline apart.
+    private func height(of track: StudioTrack) -> CGFloat {
+        let rows = CGFloat(rowCount(of: track))
+        return rows * track.height + (rows - 1) * StudioTimelineMetrics.rowSpacing
     }
 
     /// The height the tracks get: what the dock was dragged to, never more
@@ -193,7 +299,7 @@ struct StudioTimelineDock: View {
         var top: CGFloat = 0
         for track in tracks {
             if track == .clips { break }
-            top += track.height + StudioTimelineMetrics.trackSpacing
+            top += self.height(of: track) + StudioTimelineMetrics.trackSpacing
         }
         let bottom = top + StudioTrack.clips.height
         if scrollY > top {
@@ -458,7 +564,12 @@ struct StudioTimelineDock: View {
                 ForEach(tracks) { track in
                     if case .audio(let lane) = track {
                         audioLaneGlyph(lane: lane, track: track)
+                    } else if canTuck(track) {
+                        tuckGlyph(for: track)
+                            .frame(height: height(of: track), alignment: .top)
                     } else {
+                        // A track spread over rows keeps its glyph beside
+                        // the first.
                         Image(systemName: track.systemImage)
                             .font(.system(size: 11.5, weight: .regular))
                             .foregroundStyle(Palette.secondaryLabel)
@@ -467,6 +578,7 @@ struct StudioTimelineDock: View {
                             .contentShape(Rectangle())
                             .help(track.title)
                             .accessibilityLabel(track.title)
+                            .frame(height: height(of: track), alignment: .top)
                     }
                 }
             }
@@ -479,6 +591,55 @@ struct StudioTimelineDock: View {
             Rectangle()
                 .fill(Palette.hairline)
                 .frame(width: 1)
+        }
+    }
+
+    /// A track with overlapping blocks opens and tucks from its glyph. A
+    /// small chevron beside it says which way a click goes; the glyph
+    /// itself stays where every other track's is.
+    private func tuckGlyph(for track: StudioTrack) -> some View {
+        let isOpen = isOpen(track)
+        let rows = rowCountWhenOpen(track)
+        return Button {
+            if isOpen, let id = selectedID(on: track),
+               (track == .text ? textRows : effectRows).stack(containing: id) != nil {
+                // Tucking hides the selected block in a stack; let go of it
+                // rather than edit something out of sight.
+                model.clearTimelineSelection()
+            }
+            setOpen(!isOpen, track)
+        } label: {
+            Image(systemName: track.systemImage)
+                .font(.system(size: 11.5, weight: .regular))
+                .foregroundStyle(Palette.secondaryLabel)
+                .frame(maxWidth: .infinity)
+                .frame(height: track.height)
+                .overlay(alignment: .trailing) {
+                    Image(systemName: isOpen ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 7, weight: .bold))
+                        .foregroundStyle(Palette.tertiaryLabel)
+                        .padding(.trailing, 4)
+                }
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(isOpen ? "\(track.title). Click to tuck overlapping blocks into one row." : "\(track.title). Click to show all \(rows) rows.")
+        .accessibilityLabel(isOpen ? "Tuck \(track.title)" : "Show all \(track.title)")
+    }
+
+    private func selectedID(on track: StudioTrack) -> UUID? {
+        switch track {
+        case .text: model.selectedTextID
+        case .overlay: model.selectedImageID ?? model.selectedRedactionID
+        default: nil
+        }
+    }
+
+    private func rowCountWhenOpen(_ track: StudioTrack) -> Int {
+        switch track {
+        case .text: textRows.count
+        case .overlay: effectRows.count
+        default: 1
         }
     }
 
@@ -533,7 +694,9 @@ struct StudioTimelineDock: View {
                     StudioTimelineRuler(
                         duration: model.duration,
                         pointsPerSecond: scale.pointsPerSecond,
-                        scrollX: scrollX,
+                        // The ruler counts from the timeline's start, which
+                        // sits an edge inset into the lanes.
+                        scrollX: scrollX - scale.startX,
                         range: model.rangeSelection,
                         markers: model.markerEditorTimes.map(\.time)
                     )
@@ -639,10 +802,19 @@ struct StudioTimelineDock: View {
             Text(model.mediaImportError ?? "")
         }
         .onChange(of: model.duration) { _, _ in clampZoom() }
+        .onChange(of: model.selectedTextID) { _, id in revealSelection(id, on: .text) }
+        .onChange(of: model.selectedRedactionID) { _, id in revealSelection(id, on: .overlay) }
+        .onChange(of: model.selectedImageID) { _, id in revealSelection(id, on: .overlay) }
+        // A block dragged or trimmed onto another, while tucked, would
+        // vanish into a stack still selected; open the track instead.
+        .onChange(of: textRows) { _, _ in revealSelection(model.selectedTextID, on: .text) }
+        .onChange(of: effectRows) { _, _ in
+            revealSelection(model.selectedImageID ?? model.selectedRedactionID, on: .overlay)
+        }
         .onChange(of: model.audioLaneCount) { old, new in
             // A lane added below a dock set shorter than the tracks comes
             // into view.
-            guard new > old, storedTracksHeight > 0, !model.isDraggingTimelineBlock else { return }
+            guard new > old, storedTracksHeight > 0, !model.isMovingAudioClip else { return }
             verticalScrollPosition.scrollTo(edge: .bottom)
         }
     }
@@ -709,13 +881,20 @@ struct StudioTimelineDock: View {
             VStack(spacing: StudioTimelineMetrics.trackSpacing) {
                 ForEach(tracks) { track in
                     let isDropTarget = mediaDrop?.tracks.contains(track) == true
-                    StudioTrackGround(
-                        hint: isDropTarget ? dropHint(for: track) : hint(for: track),
-                        dropX: isDropTarget ? mediaDrop.map { scale.x(for: $0.time) - scrollX } : nil,
-                        trackID: track.id,
-                        skim: skim
-                    )
-                    .frame(height: track.height)
+                    // One ground per row, a hairline apart, so the rows of
+                    // a track read as one group.
+                    VStack(spacing: StudioTimelineMetrics.rowSpacing) {
+                        ForEach(0..<rowCount(of: track), id: \.self) { row in
+                            StudioTrackGround(
+                                hint: row > 0 ? nil : isDropTarget ? dropHint(for: track) : hint(for: track),
+                                dropX: isDropTarget ? mediaDrop.map { scale.x(for: $0.time) - scrollX } : nil,
+                                trackID: track.id,
+                                skim: skim
+                            )
+                            .frame(height: track.height)
+                        }
+                    }
+                    .frame(height: height(of: track))
                 }
                 Color.clear
                     .frame(height: StudioTimelineMetrics.scrollerGutter)
@@ -725,7 +904,7 @@ struct StudioTimelineDock: View {
                 VStack(spacing: StudioTimelineMetrics.trackSpacing) {
                     ForEach(tracks) { track in
                         laneContent(for: track, scale: scale)
-                            .frame(width: scale.contentWidth, height: track.height)
+                            .frame(width: scale.contentWidth, height: height(of: track), alignment: .top)
                     }
 
                     Color.clear
@@ -746,14 +925,17 @@ struct StudioTimelineDock: View {
                 }
             }
         }
-        .frame(height: StudioTimelineMetrics.scrollingLanesHeight(tracks: tracks))
+        .frame(height: scrollingLanesHeight)
     }
 
     @ViewBuilder
     private func laneContent(for track: StudioTrack, scale: StudioTimelineScale) -> some View {
         switch track {
         case .clips:
+            // The strip maps time across its own width, so inset it to the
+            // timeline's start and end like every other lane.
             clipLane
+                .padding(.horizontal, StudioTimelineScale.edgeInset)
         case .zooms:
             StudioZoomLane(
                 model: model,
@@ -767,19 +949,39 @@ struct StudioTimelineDock: View {
                 visibleRange: scale.visibleRange(scrollX: scrollX)
             )
         case .text:
-            StudioTextLane(
-                model: model,
-                scale: scale,
-                visibleRange: scale.visibleRange(scrollX: scrollX),
-                onScrubbing: { isScrubbing = $0 }
-            )
+            let rows = textRows
+            let isTucked = !textRowsOpen && rows.count > 1
+            VStack(spacing: StudioTimelineMetrics.rowSpacing) {
+                ForEach(0..<(isTucked ? 1 : rows.count), id: \.self) { row in
+                    StudioTextLane(
+                        model: model,
+                        scale: scale,
+                        visibleRange: scale.visibleRange(scrollX: scrollX),
+                        rows: rows,
+                        row: row,
+                        isTucked: isTucked,
+                        onExpand: { textRowsOpen = true },
+                        onScrubbing: { isScrubbing = $0 }
+                    )
+                }
+            }
         case .overlay:
-            StudioRedactionLane(
-                model: model,
-                scale: scale,
-                visibleRange: scale.visibleRange(scrollX: scrollX),
-                onScrubbing: { isScrubbing = $0 }
-            )
+            let rows = effectRows
+            let isTucked = !effectRowsOpen && rows.count > 1
+            VStack(spacing: StudioTimelineMetrics.rowSpacing) {
+                ForEach(0..<(isTucked ? 1 : rows.count), id: \.self) { row in
+                    StudioRedactionLane(
+                        model: model,
+                        scale: scale,
+                        visibleRange: scale.visibleRange(scrollX: scrollX),
+                        rows: rows,
+                        row: row,
+                        isTucked: isTucked,
+                        onExpand: { effectRowsOpen = true },
+                        onScrubbing: { isScrubbing = $0 }
+                    )
+                }
+            }
         case .audio(let lane):
             StudioAudioLane(
                 model: model,
@@ -808,8 +1010,9 @@ struct StudioTimelineDock: View {
         var top = StudioTimelineMetrics.headerHeight + StudioTimelineMetrics.trackSpacing - scrollY
         guard y >= StudioTimelineMetrics.headerHeight else { return nil }
         for track in tracks {
-            if y >= top, y < top + track.height { return track }
-            top += track.height + StudioTimelineMetrics.trackSpacing
+            let trackHeight = height(of: track)
+            if y >= top, y < top + trackHeight { return track }
+            top += trackHeight + StudioTimelineMetrics.trackSpacing
         }
         return nil
     }
@@ -1036,10 +1239,27 @@ private enum StudioTimelineMetrics {
     /// The shortest the tracks get when the dock is dragged down: the clips
     /// and the space around them.
     static let minimumTracksHeight: CGFloat = 64
+    /// Between the rows of one track: a hairline, so they read as one
+    /// track and not as tracks of their own.
+    static let rowSpacing: CGFloat = 1
+}
 
-    static func scrollingLanesHeight(tracks: [StudioTrack]) -> CGFloat {
-        tracks.reduce(scrollerGutter) { $0 + $1.height + trackSpacing }
+/// The last rows packed for the text and effects tracks, and what they
+/// were packed from. A plain object, so updating it never redraws.
+private final class StudioRowCache {
+    struct Key: Equatable {
+        let spans: [StudioLaneSpan]
+        let minimumLength: TimeInterval
+        let duration: TimeInterval
     }
+
+    struct Entry {
+        var key: Key?
+        var rows = StudioLaneRows.single
+    }
+
+    var text = Entry()
+    var effects = Entry()
 }
 
 /// A row of the timeline, named by its glyph in the gutter.
@@ -1065,6 +1285,8 @@ private enum StudioTrack: Hashable, Identifiable {
 
     static let audioHeight: CGFloat = 36
 
+    /// One row's height. Text and effects grow a row for each layer of
+    /// blocks that overlap; the dock's `height(of:)` is the whole track.
     var height: CGFloat {
         switch self {
         case .clips: 60
@@ -1113,12 +1335,21 @@ struct StudioTimelineScale: Equatable {
     var duration: TimeInterval
     var zoom: Double
 
+    /// Room before the first moment and after the last, where a selected
+    /// block's handles sit when it runs to either end. The tracks' grounds
+    /// still run edge to edge; only the time inside them is inset.
+    static let edgeInset: CGFloat = 12
+
     var contentWidth: CGFloat {
         max(viewportWidth, viewportWidth * CGFloat(zoom))
     }
 
+    /// Where the timeline starts and ends across the content.
+    var startX: CGFloat { Self.edgeInset }
+    var endX: CGFloat { max(startX, contentWidth - Self.edgeInset) }
+
     var pointsPerSecond: CGFloat {
-        duration > 0 ? contentWidth / CGFloat(duration) : 0
+        duration > 0 ? (endX - startX) / CGFloat(duration) : 0
     }
 
     var secondsPerPoint: Double {
@@ -1139,13 +1370,13 @@ struct StudioTimelineScale: Equatable {
     }
 
     func x(for time: TimeInterval) -> CGFloat {
-        guard duration > 0 else { return 0 }
-        return CGFloat(min(max(time, 0), duration)) * pointsPerSecond
+        guard duration > 0 else { return startX }
+        return startX + CGFloat(min(max(time, 0), duration)) * pointsPerSecond
     }
 
     func time(forX x: CGFloat) -> TimeInterval {
         guard pointsPerSecond > 0 else { return 0 }
-        return min(max(Double(x / pointsPerSecond), 0), duration)
+        return min(max(Double((x - startX) / pointsPerSecond), 0), duration)
     }
 
     /// Editor time span currently on screen, padded a little so lane content
@@ -2098,12 +2329,20 @@ private struct StudioLayoutLane: View {
 
 // MARK: - Text and pixelate tracks
 
-/// Text blocks. Dragging across empty track adds a text over the dragged
-/// range; a click scrubs. Texts may overlap.
+/// One row of text blocks. Dragging across empty track adds a text over the
+/// dragged range; a click scrubs. Texts may overlap in time: each sits on
+/// the first row with room for it, or, with the track tucked, overlapping
+/// texts run into one stack that opens the track when clicked.
 private struct StudioTextLane: View {
     @Bindable var model: RecordingStudioModel
     let scale: StudioTimelineScale
     let visibleRange: ClosedRange<TimeInterval>
+    /// Overlapping texts are spread over rows; this lane draws one of them.
+    let rows: StudioLaneRows
+    let row: Int
+    /// The track is folded to one row, overlapping texts shown as stacks.
+    var isTucked = false
+    var onExpand: () -> Void = {}
     let onScrubbing: (Bool) -> Void
 
     var body: some View {
@@ -2118,10 +2357,15 @@ private struct StudioTextLane: View {
             },
             onScrubbing: onScrubbing,
             actions: StudioBlockLaneActions(
-                select: { model.selectText(id: $0.id) },
+                select: { item in
+                    switch item {
+                    case .text(let text): model.selectText(id: text.id)
+                    case .stack: onExpand()
+                    }
+                },
                 begin: { _ in model.beginTextEdit() },
                 edit: { edit in
-                    var text = edit.base.item
+                    guard case .text(var text) = edit.base.item else { return }
                     let range = studioOverlaySourceRange(for: edit, model: model, start: text.start, end: text.end)
                     text.start = range.start
                     text.end = range.end
@@ -2130,20 +2374,44 @@ private struct StudioTextLane: View {
                 end: { kind in model.endTextEdit(actionName: kind == .move ? "Move Text" : "Resize Text") }
             ),
             content: { block, state in
-                StudioOverlayBlockContent(
-                    style: .text,
-                    systemImage: "textformat",
-                    title: title(for: block.item),
-                    length: block.editorLength,
-                    state: state
-                )
-            },
-            menu: { block in
-                Button("Delete Text", systemImage: "trash", role: .destructive) {
-                    model.removeText(id: block.id)
+                switch block.item {
+                case .text(let text):
+                    StudioOverlayBlockContent(
+                        style: .text,
+                        systemImage: "textformat",
+                        title: title(for: text),
+                        length: block.editorLength,
+                        state: state
+                    )
+                case .stack(let stack):
+                    StudioOverlayBlockContent(
+                        style: .text,
+                        systemImage: StudioStackedItem.systemImage,
+                        title: "\(stack.memberIDs.count) Texts",
+                        length: block.editorLength,
+                        state: state
+                    )
                 }
             },
-            help: { block in "\(title(for: block.item)). Drag to move, drag an end to resize, right-click for options." }
+            menu: { block in
+                switch block.item {
+                case .text(let text):
+                    Button("Delete Text", systemImage: "trash", role: .destructive) {
+                        model.removeText(id: text.id)
+                    }
+                case .stack:
+                    Button("Show All Texts", systemImage: "rectangle.expand.vertical", action: onExpand)
+                }
+            },
+            help: { block in
+                switch block.item {
+                case .text(let text):
+                    "\(title(for: text)). Drag to move, drag an end to resize, right-click for options."
+                case .stack(let stack):
+                    "\(stack.memberIDs.count) texts overlap here. Click to show them all."
+                }
+            },
+            isFixed: { $0.isStack }
         )
         .contextMenu {
             Button("Add Text at Playhead", systemImage: "textformat") {
@@ -2156,23 +2424,54 @@ private struct StudioTextLane: View {
         text.text.isEmpty ? "Text" : text.text.replacingOccurrences(of: "\n", with: " ")
     }
 
-    private var visibleBlocks: [StudioLaneBlock<RecordingTextOverlay>] {
-        model.textTimelineBlocks
-            .filter { $0.editorEnd >= visibleRange.lowerBound && $0.editorStart <= visibleRange.upperBound }
-            .map { StudioLaneBlock(item: $0.item, editorStart: $0.editorStart, editorEnd: $0.editorEnd) }
+    private var visibleBlocks: [StudioLaneBlock<StudioTextItem>] {
+        let texts = model.textTimelineBlocks
+            .filter { isTucked ? rows.stack(containing: $0.item.id) == nil : rows.row(of: $0.item.id) == row }
+            .map { StudioLaneBlock(item: StudioTextItem.text($0.item), editorStart: $0.editorStart, editorEnd: $0.editorEnd) }
+        let stacks: [StudioLaneBlock<StudioTextItem>] = isTucked
+            ? rows.stacks.map { StudioLaneBlock(item: StudioTextItem.stack($0), editorStart: $0.editorStart, editorEnd: $0.editorEnd) }
+            : []
+        return (texts + stacks).filter {
+            $0.editorEnd >= visibleRange.lowerBound && $0.editorStart <= visibleRange.upperBound
+        }
     }
 }
 
+/// What sits on the Text track: a text, or, tucked, a stack of them.
+private enum StudioTextItem: Identifiable {
+    case text(RecordingTextOverlay)
+    case stack(StudioLaneRows.Stack)
+
+    var id: UUID {
+        switch self {
+        case .text(let text): text.id
+        case .stack(let stack): stack.id
+        }
+    }
+
+    var isStack: Bool {
+        if case .stack = self { true } else { false }
+    }
+}
+
+/// How a tucked stack of blocks names itself.
+private enum StudioStackedItem {
+    static let systemImage = "square.stack"
+}
+
 /// What sits on the Images and Effects track. Images and pixelate or blur
-/// regions share it, so they hit-test together.
+/// regions share it, so they hit-test together. Tucked, overlapping ones
+/// run into a stack.
 private enum StudioEffectsItem: Identifiable {
     case image(RecordingImageOverlay)
     case redaction(RecordingRedaction)
+    case stack(StudioLaneRows.Stack, title: String, isEffectsOnly: Bool)
 
     var id: UUID {
         switch self {
         case .image(let overlay): overlay.id
         case .redaction(let redaction): redaction.id
+        case .stack(let stack, _, _): stack.id
         }
     }
 
@@ -2180,16 +2479,30 @@ private enum StudioEffectsItem: Identifiable {
         switch self {
         case .image(let overlay): overlay.isAnimated ? "\(overlay.displayName) · GIF" : overlay.displayName
         case .redaction(let redaction): redaction.style.title
+        case .stack(_, let title, _): title
         }
+    }
+
+    var isStack: Bool {
+        if case .stack = self { true } else { false }
     }
 }
 
-/// Images, GIFs, and pixelate and blur blocks, on the Images and Effects
-/// track. A drag across empty track scrubs.
+/// One row of images, GIFs, and pixelate and blur blocks, on the Images and
+/// Effects track. Blocks that overlap in time sit on rows of their own, or,
+/// with the track tucked, run into one stack that opens the track when
+/// clicked. A drag across empty track scrubs.
 private struct StudioRedactionLane: View {
     @Bindable var model: RecordingStudioModel
     let scale: StudioTimelineScale
     let visibleRange: ClosedRange<TimeInterval>
+    /// Overlapping images and effects are spread over rows; this lane draws
+    /// one of them.
+    let rows: StudioLaneRows
+    let row: Int
+    /// The track is folded to one row, overlapping blocks shown as stacks.
+    var isTucked = false
+    var onExpand: () -> Void = {}
     let onScrubbing: (Bool) -> Void
 
     var body: some View {
@@ -2206,6 +2519,7 @@ private struct StudioRedactionLane: View {
                     switch item {
                     case .image(let overlay): model.selectImage(id: overlay.id)
                     case .redaction(let redaction): model.selectRedaction(id: redaction.id)
+                    case .stack: onExpand()
                     }
                 },
                 begin: { _ in
@@ -2240,10 +2554,27 @@ private struct StudioRedactionLane: View {
                         state: state,
                         isHatched: true
                     )
+                case .stack(_, let title, let isEffectsOnly):
+                    StudioOverlayBlockContent(
+                        style: isEffectsOnly ? .effect : .image,
+                        systemImage: StudioStackedItem.systemImage,
+                        title: title,
+                        length: block.editorLength,
+                        state: state,
+                        isHatched: isEffectsOnly
+                    )
                 }
             },
             menu: { block in menu(for: block.item) },
-            help: { block in "\(block.item.title). Drag to move, drag an end to resize, right-click for options." }
+            help: { block in
+                switch block.item {
+                case .stack(let stack, _, _):
+                    "\(stack.memberIDs.count) overlap here. Click to show them all."
+                default:
+                    "\(block.item.title). Drag to move, drag an end to resize, right-click for options."
+                }
+            },
+            isFixed: { $0.isStack }
         )
         .contextMenu {
             Button("Pixelate at Playhead", systemImage: "squareshape.split.3x3") {
@@ -2267,6 +2598,8 @@ private struct StudioRedactionLane: View {
             redaction.start = range.start
             redaction.end = range.end
             model.setRedaction(redaction)
+        case .stack:
+            break
         }
     }
 
@@ -2294,6 +2627,8 @@ private struct StudioRedactionLane: View {
             Button("Delete \(redaction.style.title)", systemImage: "trash", role: .destructive) {
                 model.removeRedaction(id: redaction.id)
             }
+        case .stack:
+            Button("Show All", systemImage: "rectangle.expand.vertical", action: onExpand)
         }
     }
 
@@ -2305,9 +2640,33 @@ private struct StudioRedactionLane: View {
         let redactions = model.redactionTimelineBlocks.map {
             StudioLaneBlock(item: StudioEffectsItem.redaction($0.item), editorStart: $0.editorStart, editorEnd: $0.editorEnd)
         }
-        return (images + redactions).filter {
+        let blocks = (images + redactions).filter {
+            isTucked ? rows.stack(containing: $0.id) == nil : rows.row(of: $0.id) == row
+        }
+        let stacks: [StudioLaneBlock<StudioEffectsItem>] = isTucked ? rows.stacks.map { stack in
+            let summary = summary(of: stack)
+            return StudioLaneBlock(
+                item: StudioEffectsItem.stack(stack, title: summary.title, isEffectsOnly: summary.isEffectsOnly),
+                editorStart: stack.editorStart,
+                editorEnd: stack.editorEnd
+            )
+        } : []
+        return (blocks + stacks).filter {
             $0.editorEnd >= visibleRange.lowerBound && $0.editorStart <= visibleRange.upperBound
         }
+    }
+
+    /// "4 Pixelates" when a stack is all one kind, "4 Effects" for pixelate
+    /// and blur together, "4 Items" with images among them.
+    private func summary(of stack: StudioLaneRows.Stack) -> (title: String, isEffectsOnly: Bool) {
+        let members = Set(stack.memberIDs)
+        let styles = Set(model.redactions.filter { members.contains($0.id) }.map(\.style))
+        let imageCount = model.imageOverlays.filter { members.contains($0.id) }.count
+        let count = stack.memberIDs.count
+        if imageCount == count { return ("\(count) Images", false) }
+        if imageCount > 0 { return ("\(count) Items", false) }
+        if styles.count == 1, let style = styles.first { return ("\(count) \(style.title)s", true) }
+        return ("\(count) Effects", true)
     }
 }
 
@@ -2398,9 +2757,13 @@ private struct StudioAudioLane: View {
             onScrubbing: onScrubbing,
             actions: StudioBlockLaneActions(
                 select: select,
-                begin: { _ in model.beginAudioClipEdit() },
+                begin: { kind in
+                    model.beginAudioClipEdit()
+                    if kind == .move { model.isMovingAudioClip = true }
+                },
                 edit: apply,
                 end: { kind in
+                    model.isMovingAudioClip = false
                     onSnapGuide(nil)
                     model.endAudioClipEdit(actionName: kind == .move ? "Move Audio" : "Trim Audio")
                 }

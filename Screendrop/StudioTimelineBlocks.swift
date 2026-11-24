@@ -38,6 +38,9 @@ enum StudioBlockMetrics {
     static let edgeInset: CGFloat = 6
     /// How far into a selected block its outside handles still answer.
     static let handleOverlap: CGFloat = 2
+    /// The least of a selected block left to move it by between handles
+    /// folded inside its ends.
+    static let foldedMiddleWidth: CGFloat = 16
     static let labelInset: CGFloat = 9
     /// Pointer travel before a press on a block becomes a move, or a press
     /// on empty track becomes a new block.
@@ -192,6 +195,9 @@ struct StudioBlockState {
     let height: CGFloat
     let isSelected: Bool
     let isHovered: Bool
+    /// Selection handles folded over the block's ends, which its label
+    /// keeps clear of.
+    var tuck = StudioHandleTuck()
 }
 
 // MARK: - Geometry and hit-testing
@@ -209,16 +215,48 @@ struct StudioBlockFrame: Equatable {
         let natural = CGFloat(max(0, editorEnd - editorStart)) * scale.pointsPerSecond
         // A block running past the edited video's end is cut there; one
         // drawn wider than it lasts slides inward to stay whole.
-        let visible = min(natural, scale.contentWidth - startX)
-        let width = min(max(StudioBlockMetrics.minimumWidth, visible), scale.contentWidth)
+        let span = scale.endX - scale.startX
+        let visible = min(natural, scale.endX - startX)
+        let width = min(max(StudioBlockMetrics.minimumWidth, visible), span)
         self.width = width
-        self.minX = min(startX, max(0, scale.contentWidth - width))
+        self.minX = min(startX, max(scale.startX, scale.endX - width))
     }
 
     /// How far into this block, when unselected, its ends trim.
     var edgeInset: CGFloat {
         min(StudioBlockMetrics.edgeInset, width * 0.2)
     }
+
+    /// Which of the selection's handles fold inside the block's ends. A
+    /// handle goes outside an end only where there is room for it: over a
+    /// block that touches this one it would hide that block's end and take
+    /// its clicks. (The timeline's own ends always leave room - see
+    /// `StudioTimelineScale.edgeInset`.)
+    func tuckedHandles(neighbours: [StudioBlockFrame]) -> StudioHandleTuck {
+        let reach = StudioBlockMetrics.handleWidth
+        let leadingRoom = (minX - reach)..<minX
+        let trailingRoom = maxX..<(maxX + reach)
+        let wantsLeading = neighbours.contains {
+            $0.maxX > leadingRoom.lowerBound + 0.5 && $0.minX < leadingRoom.upperBound - 0.5
+        }
+        let wantsTrailing = neighbours.contains {
+            $0.minX < trailingRoom.upperBound - 0.5 && $0.maxX > trailingRoom.lowerBound + 0.5
+        }
+        // A folded handle needs a grabbable middle left beside it.
+        let middle = StudioBlockMetrics.foldedMiddleWidth
+        let both = wantsLeading && wantsTrailing && width >= reach * 2 + middle
+        let one = width >= reach + middle
+        return StudioHandleTuck(
+            leading: wantsLeading && (both || (!wantsTrailing && one)),
+            trailing: wantsTrailing && (both || (!wantsLeading && one))
+        )
+    }
+}
+
+/// Selection handles folded inside a block's ends instead of outside them.
+struct StudioHandleTuck: Equatable {
+    var leading = false
+    var trailing = false
 }
 
 enum StudioBlockEdge: Equatable {
@@ -244,6 +282,8 @@ struct StudioBlockHitTester {
     struct Entry {
         let id: UUID
         let frame: StudioBlockFrame
+        /// Answers only as a body, never by its ends.
+        var isFixed = false
     }
 
     /// Bottom to top, as drawn.
@@ -253,14 +293,22 @@ struct StudioBlockHitTester {
     func target(atX x: CGFloat) -> StudioBlockTarget {
         // The selected block draws on top with its handles outside its
         // ends, so it answers first: the handles trim, the block moves.
+        // A handle folded inside an end answers over that much of the block.
         if let selected = entries.last(where: { $0.id == selectedID }) {
             let frame = selected.frame
             let reach = StudioBlockMetrics.handleWidth
             let overlap = StudioBlockMetrics.handleOverlap
-            if x >= frame.minX - reach, x < frame.minX + overlap {
+            let tuck = frame.tuckedHandles(neighbours: entries.filter { $0.id != selected.id }.map(\.frame))
+            let leading = tuck.leading
+                ? frame.minX - overlap..<(frame.minX + reach + overlap)
+                : frame.minX - reach..<(frame.minX + overlap)
+            let trailing = tuck.trailing
+                ? (frame.maxX - reach - overlap)...(frame.maxX + overlap)
+                : (frame.maxX - overlap)...(frame.maxX + reach)
+            if leading.contains(x) {
                 return .edge(selected.id, .leading)
             }
-            if x > frame.maxX - overlap, x <= frame.maxX + reach {
+            if trailing.contains(x) {
                 return .edge(selected.id, .trailing)
             }
             if x >= frame.minX, x <= frame.maxX {
@@ -271,7 +319,8 @@ struct StudioBlockHitTester {
         // Otherwise the topmost block whose middle is under the pointer.
         for entry in entries.reversed() where entry.id != selectedID {
             let frame = entry.frame
-            if x >= frame.minX + frame.edgeInset, x <= frame.maxX - frame.edgeInset {
+            let inset = entry.isFixed ? 0 : frame.edgeInset
+            if x >= frame.minX + inset, x <= frame.maxX - inset {
                 return .body(entry.id)
             }
         }
@@ -279,7 +328,7 @@ struct StudioBlockHitTester {
         // Then the nearest end within reach. Where two blocks meet, the end
         // of the block the pointer is inside wins over a neighbour's reach.
         var nearest: (target: StudioBlockTarget, isInside: Bool, distance: CGFloat)?
-        for entry in entries where entry.id != selectedID {
+        for entry in entries where entry.id != selectedID && !entry.isFixed {
             let frame = entry.frame
             let isInside = x >= frame.minX && x <= frame.maxX
             let candidates: [(StudioBlockEdge, CGFloat, ClosedRange<CGFloat>)] = [
@@ -297,6 +346,125 @@ struct StudioBlockHitTester {
             }
         }
         return nearest?.target ?? .empty
+    }
+}
+
+// MARK: - Rows
+
+/// The rows a track whose blocks may overlap spreads them over, so no block
+/// ever hides another. Blocks are placed in the order they were added, each
+/// on the highest row with room for it: one added later never pushes an
+/// older one down, and a block falls back up when the one it made room for
+/// moves away.
+struct StudioLaneRows: Equatable {
+    /// Blocks that overlap one another as drawn, run into each other, which
+    /// a tucked track shows as one block.
+    struct Stack: Identifiable, Equatable {
+        let id: UUID
+        /// In the order they were added.
+        let memberIDs: [UUID]
+        let editorStart: TimeInterval
+        let editorEnd: TimeInterval
+
+        var editorLength: TimeInterval { max(0, editorEnd - editorStart) }
+    }
+
+    static let single = StudioLaneRows(rowByID: [:], count: 1, stacks: [])
+
+    private(set) var rowByID: [UUID: Int]
+    /// Always at least one.
+    private(set) var count: Int
+    private(set) var stacks: [Stack]
+
+    func row(of id: UUID) -> Int {
+        rowByID[id] ?? 0
+    }
+
+    /// The stack a block is tucked into, if it overlaps another.
+    func stack(containing id: UUID) -> Stack? {
+        stacks.first { $0.memberIDs.contains(id) }
+    }
+
+    /// `spans` in the order the items were added. Two blocks share a row
+    /// only if they don't touch as drawn: `minimumLength` is how long the
+    /// narrowest block draws on a fitted timeline, the widest a short block
+    /// ever looks, so rows never change while the timeline zooms.
+    static func packing(
+        _ spans: [StudioLaneSpan],
+        minimumLength: TimeInterval,
+        duration: TimeInterval
+    ) -> StudioLaneRows {
+        var rows: [[ClosedRange<TimeInterval>]] = []
+        var rowByID: [UUID: Int] = [:]
+        for span in spans {
+            let drawn = drawnRange(of: span, minimumLength: minimumLength, duration: duration)
+            let row = rows.firstIndex { taken in
+                !taken.contains { $0.lowerBound < drawn.upperBound - 0.0001 && drawn.lowerBound < $0.upperBound - 0.0001 }
+            } ?? rows.count
+            if row == rows.count { rows.append([]) }
+            rows[row].append(drawn)
+            rowByID[span.id] = row
+        }
+        return StudioLaneRows(
+            rowByID: rowByID,
+            count: max(1, rows.count),
+            stacks: stacking(spans, minimumLength: minimumLength, duration: duration)
+        )
+    }
+
+    /// Runs of blocks that overlap as drawn, two or more to a run.
+    private static func stacking(
+        _ spans: [StudioLaneSpan],
+        minimumLength: TimeInterval,
+        duration: TimeInterval
+    ) -> [Stack] {
+        let order = Dictionary(uniqueKeysWithValues: spans.enumerated().map { ($0.element.id, $0.offset) })
+        let sorted = spans
+            .map { (span: $0, drawn: drawnRange(of: $0, minimumLength: minimumLength, duration: duration)) }
+            .sorted { $0.drawn.lowerBound < $1.drawn.lowerBound }
+        var runs: [[StudioLaneSpan]] = []
+        var runEnd = -TimeInterval.infinity
+        for entry in sorted {
+            if !runs.isEmpty, entry.drawn.lowerBound < runEnd - 0.0001 {
+                runs[runs.count - 1].append(entry.span)
+                runEnd = max(runEnd, entry.drawn.upperBound)
+            } else {
+                runs.append([entry.span])
+                runEnd = entry.drawn.upperBound
+            }
+        }
+        return runs.filter { $0.count > 1 }.map { run in
+            let members = run.sorted { order[$0.id, default: 0] < order[$1.id, default: 0] }
+            return Stack(
+                id: stackID(for: members[0].id),
+                memberIDs: members.map(\.id),
+                editorStart: run.map(\.editorStart).min() ?? 0,
+                editorEnd: run.map(\.editorEnd).max() ?? 0
+            )
+        }
+    }
+
+    /// A stack's own id, made from its oldest block's so it stays put while
+    /// blocks join or leave, and never equals a block's.
+    private static func stackID(for id: UUID) -> UUID {
+        var bytes = id.uuid
+        bytes.0 ^= 0xA5
+        bytes.15 ^= 0x5A
+        return UUID(uuid: bytes)
+    }
+
+    /// The time a block covers as `StudioBlockFrame` draws it: never shorter
+    /// than `minimumLength`, and slid back from the end to stay whole.
+    private static func drawnRange(
+        of span: StudioLaneSpan,
+        minimumLength: TimeInterval,
+        duration: TimeInterval
+    ) -> ClosedRange<TimeInterval> {
+        let start = max(0, span.editorStart)
+        let visible = min(max(0, span.editorEnd - start), max(0, duration - start))
+        let length = min(max(minimumLength, visible), max(duration, minimumLength))
+        let lower = max(0, min(start, duration - length))
+        return lower...(lower + length)
     }
 }
 
@@ -322,6 +490,9 @@ where Item.ID == UUID {
     @ViewBuilder let content: (StudioLaneBlock<Item>, StudioBlockState) -> Content
     @ViewBuilder let menu: (StudioLaneBlock<Item>) -> Menu
     let help: (StudioLaneBlock<Item>) -> String
+    /// Blocks that only answer a click: no trimming or moving, and the whole
+    /// block is its body. A tucked stack is one.
+    var isFixed: (Item) -> Bool = { _ in false }
 
     /// A press on the track, from mouse-down to mouse-up.
     private enum Press {
@@ -339,6 +510,8 @@ where Item.ID == UUID {
     /// The block a drag across empty track will add on release.
     @State private var draft: ClosedRange<TimeInterval>?
     @State private var hover: StudioBlockTarget = .empty
+    /// The pressed block's folded handles, held until the release.
+    @State private var pressTuck: (id: UUID, tuck: StudioHandleTuck)?
 
     private var blockHeight: CGFloat {
         height - StudioBlockMetrics.inset * 2
@@ -369,14 +542,15 @@ where Item.ID == UUID {
             // neighbours.
             ForEach(blocks.filter { $0.id != selectedID } + (selected.map { [$0] } ?? [])) { block in
                 if let frame = frames[block.id] {
-                    blockView(block, frame: frame)
+                    blockView(block, frame: frame, frames: frames)
                 }
             }
 
             if let selected, let frame = frames[selected.id] {
-                StudioSelectionFrame(blockWidth: frame.width, blockHeight: blockHeight)
+                let tuck = tuck(for: selected.id, frames: frames)
+                StudioSelectionFrame(blockWidth: frame.width, blockHeight: blockHeight, tuck: tuck)
                     .offset(
-                        x: frame.minX - StudioBlockMetrics.handleWidth,
+                        x: frame.minX - (tuck.leading ? 0 : StudioBlockMetrics.handleWidth),
                         y: StudioBlockMetrics.inset - StudioBlockMetrics.rimWidth
                     )
                     .allowsHitTesting(false)
@@ -398,13 +572,14 @@ where Item.ID == UUID {
     }
 
     @ViewBuilder
-    private func blockView(_ block: StudioLaneBlock<Item>, frame: StudioBlockFrame) -> some View {
+    private func blockView(_ block: StudioLaneBlock<Item>, frame: StudioBlockFrame, frames: [UUID: StudioBlockFrame]) -> some View {
         let isSelected = block.id == selectedID
         let state = StudioBlockState(
             width: frame.width,
             height: blockHeight,
             isSelected: isSelected,
-            isHovered: activeTarget.blockID == block.id
+            isHovered: activeTarget.blockID == block.id,
+            tuck: isSelected ? tuck(for: block.id, frames: frames) : StudioHandleTuck()
         )
         let cornerRadius = isSelected ? StudioBlockMetrics.selectedCornerRadius : StudioBlockMetrics.cornerRadius
         content(block, state)
@@ -425,12 +600,23 @@ where Item.ID == UUID {
             .offset(x: frame.minX, y: StudioBlockMetrics.inset)
     }
 
+    /// The selected block's folded handles, from the blocks beside it on
+    /// this track, as the hit tester finds them. Held from the press to the
+    /// release: a trim that crosses a neighbour's reach would otherwise
+    /// flip the handle in and out on every frame.
+    private func tuck(for id: UUID, frames: [UUID: StudioBlockFrame]) -> StudioHandleTuck {
+        if let pressTuck, pressTuck.id == id { return pressTuck.tuck }
+        guard let frame = frames[id] else { return StudioHandleTuck() }
+        let neighbours = frames.filter { $0.key != id }.map(\.value)
+        return frame.tuckedHandles(neighbours: neighbours)
+    }
+
     // MARK: Pointer
 
     private func hitTester(_ frames: [UUID: StudioBlockFrame]) -> StudioBlockHitTester {
         StudioBlockHitTester(
             entries: blocks.compactMap { block in
-                frames[block.id].map { .init(id: block.id, frame: $0) }
+                frames[block.id].map { .init(id: block.id, frame: $0, isFixed: isFixed(block.item)) }
             },
             selectedID: selectedID
         )
@@ -478,6 +664,7 @@ where Item.ID == UUID {
         let target = hitTester(frames).target(atX: x)
         if let id = target.blockID, let block = blocks.first(where: { $0.id == id }) {
             // Selecting on mouse-down shows the handles before any drag.
+            pressTuck = (id, tuck(for: id, frames: frames))
             actions.select(block.item)
             let kind: StudioBlockEditKind = switch target {
             case .edge(_, .leading): .trimLeading
@@ -504,6 +691,8 @@ where Item.ID == UUID {
         let time = scale.time(forX: x)
         switch press {
         case .block(let block, let kind):
+            // A fixed block was answered on the press; it doesn't move.
+            if isFixed(block.item) { return }
             // A trim follows the pointer from the first point; a move waits
             // out a small wobble so a click only selects.
             let threshold = kind == .move ? StudioBlockMetrics.dragThreshold : 0.5
@@ -578,6 +767,7 @@ where Item.ID == UUID {
             break
         }
         press = nil
+        pressTuck = nil
         draft = nil
     }
 
@@ -607,7 +797,8 @@ extension StudioBlockLane where Decoration == EmptyView {
         actions: StudioBlockLaneActions<Item>,
         @ViewBuilder content: @escaping (StudioLaneBlock<Item>, StudioBlockState) -> Content,
         @ViewBuilder menu: @escaping (StudioLaneBlock<Item>) -> Menu,
-        help: @escaping (StudioLaneBlock<Item>) -> String
+        help: @escaping (StudioLaneBlock<Item>) -> String,
+        isFixed: @escaping (Item) -> Bool = { _ in false }
     ) {
         self.init(
             model: model,
@@ -622,7 +813,8 @@ extension StudioBlockLane where Decoration == EmptyView {
             decoration: { EmptyView() },
             content: content,
             menu: menu,
-            help: help
+            help: help,
+            isFixed: isFixed
         )
     }
 }
@@ -742,6 +934,14 @@ struct StudioBlockLabel: View {
             )
     }
 
+    /// A folded handle covers the block's end, so the label starts past it,
+    /// as far from its inner edge as the rim is from an untucked label.
+    private func inset(isTucked: Bool) -> CGFloat {
+        isTucked
+            ? StudioBlockMetrics.handleWidth + StudioBlockMetrics.labelInset - StudioBlockMetrics.rimWidth
+            : StudioBlockMetrics.labelInset
+    }
+
     /// Collapses detail first, then the glyph - every block on a lane
     /// shares its glyph, while the title (a zoom's "1.5×") is what tells
     /// blocks apart - and only then the title.
@@ -780,7 +980,8 @@ struct StudioBlockLabel: View {
             }
             .lineLimit(1)
             .foregroundStyle(color)
-            .padding(.horizontal, StudioBlockMetrics.labelInset)
+            .padding(.leading, inset(isTucked: state.tuck.leading))
+            .padding(.trailing, inset(isTucked: state.tuck.trailing))
             .frame(width: width, alignment: .leading)
             .allowsHitTesting(false)
         } else {
@@ -808,14 +1009,17 @@ struct StudioBlockLabel: View {
 struct StudioSelectionFrame: View {
     let blockWidth: CGFloat
     let blockHeight: CGFloat
+    /// Handles folded inside the block's ends, against the timeline's ends.
+    var tuck = StudioHandleTuck()
 
     var body: some View {
+        let reach = StudioBlockMetrics.handleWidth
         StudioSelectionFrameShape()
             .fill(Color(nsColor: .systemYellow), style: FillStyle(eoFill: true))
             .overlay(alignment: .leading) { grip }
             .overlay(alignment: .trailing) { grip }
             .frame(
-                width: blockWidth + StudioBlockMetrics.handleWidth * 2,
+                width: blockWidth + (tuck.leading ? 0 : reach) + (tuck.trailing ? 0 : reach),
                 height: blockHeight + StudioBlockMetrics.rimWidth * 2
             )
     }
@@ -834,7 +1038,12 @@ private struct StudioSelectionFrameShape: Shape {
     func path(in rect: CGRect) -> Path {
         let rim = StudioBlockMetrics.rimWidth
         var path = Path(roundedRect: rect, cornerRadius: StudioBlockMetrics.selectionCornerRadius, style: .continuous)
-        let block = rect.insetBy(dx: StudioBlockMetrics.handleWidth, dy: rim)
+        // The frame is as wide as it is drawn: outside handles widen it, a
+        // folded one sits over the block's end, so the opening always
+        // starts a handle in from each side.
+        var block = rect.insetBy(dx: 0, dy: rim)
+        block.origin.x += StudioBlockMetrics.handleWidth
+        block.size.width -= StudioBlockMetrics.handleWidth * 2
         if block.width > 0, block.height > 0 {
             path.addPath(Path(roundedRect: block, cornerRadius: StudioBlockMetrics.selectedCornerRadius, style: .continuous))
         }

@@ -282,11 +282,14 @@ final class RecordingStudioModel {
     var selectedClipID: UUID?
     var timelineHoverTime: TimeInterval?
     /// A block or a clip edge is being dragged on the timeline. The preview
-    /// stays on the playhead meanwhile, and audio lanes keep a spare row to
-    /// drag into.
-    var isDraggingTimelineBlock = false {
+    /// stays on the playhead meanwhile.
+    var isDraggingTimelineBlock = false
+    /// An audio clip is being moved; the audio lanes keep a spare row to
+    /// drag it into. Only audio grows the lanes, so dragging a zoom or text
+    /// block never changes the dock's height.
+    var isMovingAudioClip = false {
         didSet {
-            if isDraggingTimelineBlock, !oldValue { laneCountAtDragStart = usedAudioLaneCount }
+            if isMovingAudioClip, !oldValue { laneCountAtDragStart = usedAudioLaneCount }
         }
     }
     private var laneCountAtDragStart = 1
@@ -2662,7 +2665,7 @@ final class RecordingStudioModel {
     var audioLaneCount: Int {
         // While a clip is dragged, lanes never close under it, and one spare
         // lane waits below to drop it into.
-        isDraggingTimelineBlock
+        isMovingAudioClip
             ? max(usedAudioLaneCount, laneCountAtDragStart) + 1
             : usedAudioLaneCount
     }
