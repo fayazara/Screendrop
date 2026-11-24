@@ -2,12 +2,13 @@
   "$schema": "https://www.raycast.com/schemas/extension.json",
   "name": "screendrop",
   "title": "Screendrop",
-  "description": "Capture and record your screen with Screendrop.",
+  "description": "Capture screenshots, copy text from the screen, and record your screen with Screendrop.",
   "icon": "command-icon.png",
-  "author": "kikobeats",
+  "author": "fayaz",
+  "contributors": ["kikobeats"],
   "license": "MIT",
   "platforms": ["macOS"],
-  "categories": ["Applications"],
+  "categories": ["Applications", "Productivity"],
   "commands": [
     {
       "name": "capture-area",
