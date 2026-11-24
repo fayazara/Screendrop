@@ -411,6 +411,7 @@ final class RecordingAreaSelectionPresenter {
             let sheet = RecordingAreaSelectionSheet(
                 displayID: displayID,
                 screenFrame: screen.frame,
+                visibleFrame: screen.visibleFrame,
                 scale: screen.backingScaleFactor
             )
             panels.append(makePanel(for: screen, sheet: sheet))

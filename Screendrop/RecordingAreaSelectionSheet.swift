@@ -34,14 +34,18 @@ final class RecordingAreaSelectionSheet: NSView {
     /// so the pill's reported frame can be hit-tested without converting.
     override var isFlipped: Bool { true }
 
-    init(displayID: CGDirectDisplayID, screenFrame: CGRect, scale: CGFloat) {
+    init(displayID: CGDirectDisplayID, screenFrame: CGRect, visibleFrame: CGRect, scale: CGFloat) {
         self.displayID = displayID
         self.screenFrame = screenFrame
         self.scale = scale
         super.init(frame: CGRect(origin: .zero, size: screenFrame.size))
         wantsLayer = true
 
-        let overlay = NSHostingView(rootView: RecordingAreaSheetOverlay(displayID: displayID, screenFrame: screenFrame))
+        let overlay = NSHostingView(rootView: RecordingAreaSheetOverlay(
+            displayID: displayID,
+            screenFrame: screenFrame,
+            visibleFrame: visibleFrame
+        ))
         overlay.frame = bounds
         // Sized by the panel, never the other way round - see
         // RecordingBarPresenter.makePanel.
@@ -427,6 +431,9 @@ private extension RecordingAreaHandle {
 private struct RecordingAreaSheetOverlay: View {
     let displayID: CGDirectDisplayID
     let screenFrame: CGRect
+    /// The screen less the menu bar and Dock. The Dock floats over this
+    /// sheet, so a pill under it can't be seen or clicked.
+    let visibleFrame: CGRect
 
     @State private var presenter = RecordingAreaSelectionPresenter.shared
     @State private var pillSize = CGSize(width: 170, height: 32)
@@ -508,19 +515,22 @@ private struct RecordingAreaSheetOverlay: View {
 
     /// Below the selection, where it doesn't cover what's being framed;
     /// above when there's no room below (or the bar or its area pill is there); inside along
-    /// the bottom edge when the selection fills the screen.
+    /// the bottom edge when the selection fills the screen. Always clear of
+    /// the menu bar and the Dock.
     private func pillCenter(for rect: CGRect, in size: CGSize) -> CGPoint {
         let gap = Self.pillGap
         let margin = Self.margin
         let height = pillSize.height
-        let x = min(max(rect.midX, pillSize.width / 2 + margin), size.width - pillSize.width / 2 - margin)
+        let usable = local(visibleFrame).intersection(CGRect(origin: .zero, size: size))
+        let bounds = usable.isNull ? CGRect(origin: .zero, size: size) : usable
+        let x = min(max(rect.midX, bounds.minX + pillSize.width / 2 + margin), bounds.maxX - pillSize.width / 2 - margin)
         let chrome = [RecordingBarPresenter.shared.barFrame, RecordingBarPresenter.shared.areaPillFrame]
             .compactMap { $0.map(local) }
 
         func isClear(_ y: CGFloat) -> Bool {
             let pill = CGRect(x: x - pillSize.width / 2, y: y - height / 2, width: pillSize.width, height: height)
-            return pill.minY >= margin
-                && pill.maxY <= size.height - margin
+            return pill.minY >= bounds.minY + margin
+                && pill.maxY <= bounds.maxY - margin
                 && !chrome.contains { $0.insetBy(dx: -8, dy: -8).intersects(pill) }
         }
 
@@ -528,7 +538,10 @@ private struct RecordingAreaSheetOverlay: View {
         if isClear(below) { return CGPoint(x: x, y: below) }
         let above = rect.minY - gap - height / 2
         if isClear(above) { return CGPoint(x: x, y: above) }
-        return CGPoint(x: x, y: max(rect.maxY - gap - height / 2, rect.minY + height / 2))
+        // Inside the selection's bottom edge, kept above the Dock.
+        let inside = max(rect.maxY - gap - height / 2, rect.minY + height / 2)
+        let lowest = bounds.maxY - margin - height / 2
+        return CGPoint(x: x, y: min(inside, max(lowest, bounds.minY + margin + height / 2)))
     }
 
     private func local(_ rect: CGRect) -> CGRect {
