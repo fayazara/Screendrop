@@ -216,6 +216,10 @@ struct StudioTextEditingLayer: View {
 /// Editing chrome for the showing pixelated regions. `pictureRect` is where
 /// the whole recorded picture draws on the canvas right now, zoom included,
 /// which is what a region's normalized rect is measured against.
+///
+/// Regions are effects, not pictures, so a smaller one answers a click over
+/// a larger one: a region inside another can always be picked. The
+/// selected region's handles sit over every region.
 struct StudioRedactionEditingLayer: View {
     @Bindable var model: RecordingStudioModel
     let redactions: [RecordingRedaction]
@@ -227,7 +231,7 @@ struct StudioRedactionEditingLayer: View {
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            ForEach(redactions) { redaction in
+            ForEach(hitOrder) { redaction in
                 let rect = canvasRect(for: redaction.rect)
                 let isSelected = model.selectedRedactionID == redaction.id
                 Rectangle()
@@ -253,20 +257,32 @@ struct StudioRedactionEditingLayer: View {
                     }
                     .onTapGesture { model.selectRedaction(id: redaction.id) }
                     .gesture(dragGesture(for: redaction, handle: nil))
+            }
 
-                if isSelected {
-                    ForEach(CropHandle.allCases, id: \.self) { handle in
-                        StudioRegionHandle(isCorner: handle.isCorner, isHorizontal: handle == .top || handle == .bottom)
-                            .position(
-                                x: rect.minX + rect.width * handle.unitPoint.x,
-                                y: rect.minY + rect.height * handle.unitPoint.y
-                            )
-                            .gesture(dragGesture(for: redaction, handle: handle))
-                    }
+            if let selected = redactions.first(where: { $0.id == model.selectedRedactionID }) {
+                let rect = canvasRect(for: selected.rect)
+                ForEach(CropHandle.allCases, id: \.self) { handle in
+                    StudioRegionHandle(isCorner: handle.isCorner, isHorizontal: handle == .top || handle == .bottom)
+                        .position(
+                            x: rect.minX + rect.width * handle.unitPoint.x,
+                            y: rect.minY + rect.height * handle.unitPoint.y
+                        )
+                        .gesture(dragGesture(for: selected, handle: handle))
                 }
             }
         }
         .frame(width: canvasSize.width, height: canvasSize.height, alignment: .topLeading)
+    }
+
+    /// Largest first, so the smallest region under the pointer is on top.
+    private var hitOrder: [RecordingRedaction] {
+        redactions.enumerated()
+            .sorted { lhs, rhs in
+                let left = lhs.element.rect.width * lhs.element.rect.height
+                let right = rhs.element.rect.width * rhs.element.rect.height
+                return left != right ? left > right : lhs.offset < rhs.offset
+            }
+            .map(\.element)
     }
 
     private func canvasRect(for rect: CGRect) -> CGRect {
