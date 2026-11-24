@@ -82,10 +82,14 @@
           "required": false,
           "data": [
             { "title": "General", "value": "general" },
+            { "title": "Shortcuts", "value": "shortcuts" },
             { "title": "Screenshots", "value": "screenshots" },
-            { "title": "Screen Recordings", "value": "video" },
-            { "title": "Overlay", "value": "overlay" },
+            { "title": "Screen Recording", "value": "video" },
+            { "title": "Annotate", "value": "annotate" },
+            { "title": "Capture Cards", "value": "overlay" },
+            { "title": "Library", "value": "library" },
             { "title": "Cloud", "value": "cloud" },
+            { "title": "MCP", "value": "mcp" },
             { "title": "About", "value": "about" }
           ]
         }
