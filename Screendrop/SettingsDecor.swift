@@ -53,15 +53,18 @@ struct SettingsVisualChoice<Picture: View>: View {
 }
 
 /// A Mac desktop in miniature, for picture choices about where things
-/// appear on screen: a solid pale blue wallpaper, a menu bar with the Apple menu,
-/// app menus and a clock, and a Dock.
+/// appear on screen: a solid blue wallpaper, a menu bar with the Apple menu,
+/// app menus and a clock, and a Dock. It follows the appearance, as the real
+/// desktop does: pale by day, a deep night blue in Dark Mode.
 struct SettingsMiniDesktop<Content: View>: View {
     @ViewBuilder var content: () -> Content
+    @Environment(\.colorScheme) private var colorScheme
 
-    private let ink = Color.black.opacity(0.55)
+    private var isDark: Bool { colorScheme == .dark }
+    private var ink: Color { isDark ? .white.opacity(0.7) : .black.opacity(0.55) }
 
     var body: some View {
-        Color(red: 0.80, green: 0.88, blue: 0.99)
+        (isDark ? Color(red: 0.13, green: 0.17, blue: 0.26) : Color(red: 0.80, green: 0.88, blue: 0.99))
             .overlay(alignment: .top) { menuBar }
             .overlay(alignment: .bottom) { dock }
             .overlay { content() }
@@ -82,7 +85,7 @@ struct SettingsMiniDesktop<Content: View>: View {
         }
         .padding(.horizontal, 5)
         .frame(height: 7)
-        .background(.white.opacity(0.6))
+        .background(isDark ? .black.opacity(0.35) : .white.opacity(0.6))
     }
 
     private func menuItem(width: CGFloat, bold: Bool = false) -> some View {
@@ -95,12 +98,12 @@ struct SettingsMiniDesktop<Content: View>: View {
         HStack(spacing: 2) {
             ForEach(0..<5, id: \.self) { _ in
                 RoundedRectangle(cornerRadius: 1.2, style: .continuous)
-                    .fill(.white.opacity(0.9))
+                    .fill(.white.opacity(isDark ? 0.35 : 0.9))
                     .frame(width: 5, height: 5)
             }
         }
         .padding(2)
-        .background(.white.opacity(0.45), in: RoundedRectangle(cornerRadius: 3, style: .continuous))
+        .background(.white.opacity(isDark ? 0.12 : 0.45), in: RoundedRectangle(cornerRadius: 3, style: .continuous))
         .padding(.bottom, 3)
     }
 }

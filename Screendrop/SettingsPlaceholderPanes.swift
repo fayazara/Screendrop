@@ -98,6 +98,7 @@ struct OverlaySettingsPane: View {
 /// Scaled up from `CaptureShelfMetrics` so the cards read at this size.
 private struct ScreenEdgePicture: View {
     let position: PreviewOverlayPosition
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         SettingsMiniDesktop {
@@ -115,19 +116,20 @@ private struct ScreenEdgePicture: View {
         }
     }
 
-    /// A capture card: white, with a hairline edge to sit on the pale
-    /// wallpaper and a gray block for its screenshot.
+    /// A capture card with a hairline edge and a block for its screenshot:
+    /// white on the pale wallpaper, dark gray on the night one.
     private func card(opacity: Double) -> some View {
+        let isDark = colorScheme == .dark
         let shape = RoundedRectangle(cornerRadius: 5, style: .continuous)
         return shape
-            .fill(.white)
+            .fill(isDark ? Color(white: 0.22) : .white)
             .overlay {
                 // Nested: the card's radius less the inset.
                 RoundedRectangle(cornerRadius: 3, style: .continuous)
-                    .fill(Color(red: 0.82, green: 0.86, blue: 0.93))
+                    .fill(isDark ? Color(red: 0.30, green: 0.34, blue: 0.42) : Color(red: 0.82, green: 0.86, blue: 0.93))
                     .padding(2)
             }
-            .overlay(shape.strokeBorder(.black.opacity(0.08), lineWidth: 0.5))
+            .overlay(shape.strokeBorder(isDark ? .white.opacity(0.14) : .black.opacity(0.08), lineWidth: 0.5))
             .opacity(opacity)
             .frame(width: 30, height: 21)
     }
