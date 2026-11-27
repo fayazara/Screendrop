@@ -1305,6 +1305,8 @@ private struct StudioCameraBubble: View {
         let cutout = layout.cameraCutout
         let showsCutout = cutout > 0.001
         let framedOpacity = showsCutout && isCutoutReady ? 1 - cutout : 1
+        let frameStyle = layout.cameraFrameStyle(for: shownStyle)
+        let minDimension = min(canvas.width, canvas.height)
 
         ZStack(alignment: .topLeading) {
             if dragOffset != nil {
@@ -1327,7 +1329,7 @@ private struct StudioCameraBubble: View {
                     .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
                     .overlay {
                         RoundedRectangle(cornerRadius: radius, style: .continuous)
-                            .strokeBorder(.white.opacity(0.25), lineWidth: 1)
+                            .strokeBorder(.white.opacity(frameStyle.borderAlpha), lineWidth: 1)
                     }
                     .overlay {
                         if isActive {
@@ -1342,9 +1344,9 @@ private struct StudioCameraBubble: View {
                         }
                     }
                     .shadow(
-                        color: .black.opacity(0.35),
-                        radius: min(canvas.width, canvas.height) * 0.022,
-                        y: min(canvas.width, canvas.height) * 0.009
+                        color: .black.opacity(frameStyle.shadowAlpha),
+                        radius: minDimension * frameStyle.shadowBlur,
+                        y: minDimension * frameStyle.shadowOffset
                     )
                     .opacity(framedOpacity)
                     .animation(.fade, value: isCutoutReady)
@@ -1380,6 +1382,13 @@ private struct StudioCameraBubble: View {
         .onChange(of: showsCutout) { _, shows in
             if !shows { isCutoutReady = false }
         }
+    }
+
+    /// The style as the canvas shows it, with a background being previewed.
+    private var shownStyle: RecordingStudioStyle {
+        var style = model.style
+        if let background = model.previewBackground { style.background = background }
+        return style
     }
 
     /// The export's feather and shadow for where the picture sits now.

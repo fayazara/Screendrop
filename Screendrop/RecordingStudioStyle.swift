@@ -585,6 +585,33 @@ nonisolated struct RecordingStudioLayout: Sendable, Equatable {
     /// How far the camera is cut out of its background; see
     /// RecordingCameraLayoutFrame.cameraCutout.
     var cameraCutout: CGFloat = 0
+    /// See RecordingCameraLayoutFrame.cameraFloats.
+    var cameraFloats: CGFloat = 1
+
+    /// How the framed camera is lifted off what's under it, as fractions of
+    /// the canvas's short side (alphas before the camera's own opacity).
+    /// A floating bubble keeps a fixed shadow and hairline so it reads over
+    /// the screen; a pane matches the screen card: the style's shadow and
+    /// no border.
+    struct CameraFrameStyle: Sendable, Equatable {
+        var shadowOffset: CGFloat
+        var shadowBlur: CGFloat
+        var shadowAlpha: CGFloat
+        var borderAlpha: CGFloat
+    }
+
+    nonisolated func cameraFrameStyle(for style: RecordingStudioStyle) -> CameraFrameStyle {
+        let floats = min(max(cameraFloats, 0), 1)
+        let paneStrength = style.background == .none || style.shadow <= 0.01 ? 0 : style.shadow
+        let paneBlur = 0.045 * paneStrength
+        func mix(_ pane: CGFloat, _ floating: CGFloat) -> CGFloat { pane + (floating - pane) * floats }
+        return CameraFrameStyle(
+            shadowOffset: mix(paneBlur * 0.35, 0.009),
+            shadowBlur: mix(paneBlur, 0.022),
+            shadowAlpha: mix(0.55 * paneStrength, 0.35),
+            borderAlpha: 0.25 * floats
+        )
+    }
 
     /// How content occupies a card whose aspect differs from the video's.
     enum ContentMode: Sendable {

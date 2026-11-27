@@ -327,6 +327,10 @@ nonisolated struct RecordingCameraLayoutFrame: Equatable, Sendable {
     /// person, cut out of the background. A morph blends the two, so the
     /// background melts away as the camera settles into a cutout.
     var cameraCutout: CGFloat = 0
+    /// 1 when the camera floats over the screen (a corner bubble), with its
+    /// own lift shadow and hairline; 0 when it is a pane beside or instead
+    /// of the screen (split, camera only), styled like the card.
+    var cameraFloats: CGFloat = 1
 
     /// Blends two frames. Something hidden at one end appears from (or
     /// leaves into) a slightly smaller copy of where it sits at the other,
@@ -345,11 +349,13 @@ nonisolated struct RecordingCameraLayoutFrame: Equatable, Sendable {
             from.cameraRect = to.cameraRect.scaledAboutCenter(0.82)
             from.cameraCornerRadius = to.cameraCornerRadius * 0.82
             from.cameraCutout = to.cameraCutout
+            from.cameraFloats = to.cameraFloats
         }
         if to.cameraOpacity <= 0.001 {
             to.cameraRect = from.cameraRect.scaledAboutCenter(0.82)
             to.cameraCornerRadius = from.cameraCornerRadius * 0.82
             to.cameraCutout = from.cameraCutout
+            to.cameraFloats = from.cameraFloats
         }
         // Fades run in the first part of the move, so a layer arriving is
         // solid well before it lands and one leaving is gone before it stops.
@@ -360,7 +366,8 @@ nonisolated struct RecordingCameraLayoutFrame: Equatable, Sendable {
             cameraRect: from.cameraRect.lerp(to: to.cameraRect, t),
             cameraCornerRadius: from.cameraCornerRadius.lerp(to: to.cameraCornerRadius, t),
             cameraOpacity: from.cameraOpacity.lerp(to: to.cameraOpacity, fade),
-            cameraCutout: from.cameraCutout.lerp(to: to.cameraCutout, t)
+            cameraCutout: from.cameraCutout.lerp(to: to.cameraCutout, t),
+            cameraFloats: from.cameraFloats.lerp(to: to.cameraFloats, t)
         )
     }
 }
@@ -437,7 +444,8 @@ nonisolated struct RecordingCameraLayoutResolver: Sendable {
                 screenOpacity: 0,
                 cameraRect: contentArea,
                 cameraCornerRadius: base.cardCornerRadius,
-                cameraOpacity: 1
+                cameraOpacity: 1,
+                cameraFloats: 0
             )
         case .pictureInPicture:
             let camera = pipCamera(for: layout, in: card, scale: cameraScale(forZoomProgress: zoomProgress))
@@ -455,7 +463,8 @@ nonisolated struct RecordingCameraLayoutResolver: Sendable {
                 screenOpacity: 1,
                 cameraRect: split.camera,
                 cameraCornerRadius: base.cardCornerRadius,
-                cameraOpacity: 1
+                cameraOpacity: 1,
+                cameraFloats: 0
             )
             guard zoomProgress > 0 else { return resting }
             let aspect = min(max(split.camera.width / max(split.camera.height, 1), 9 / 16), 16 / 9)
@@ -650,7 +659,8 @@ extension RecordingStudioLayout {
             contentCropRect: contentCropRect,
             screenOpacity: frame.screenOpacity,
             cameraOpacity: frame.cameraOpacity,
-            cameraCutout: Self.melt(frame.cameraCutout)
+            cameraCutout: Self.melt(frame.cameraCutout),
+            cameraFloats: min(max(frame.cameraFloats, 0), 1)
         )
     }
 

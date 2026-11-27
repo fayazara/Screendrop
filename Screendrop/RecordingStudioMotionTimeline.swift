@@ -190,7 +190,8 @@ nonisolated struct RecordingStudioMotionTimeline: Sendable {
                 cameraRect: a.frame.cameraRect.motionLerp(b.frame.cameraRect, t),
                 cameraCornerRadius: a.frame.cameraCornerRadius + (b.frame.cameraCornerRadius - a.frame.cameraCornerRadius) * t,
                 cameraOpacity: a.frame.cameraOpacity + (b.frame.cameraOpacity - a.frame.cameraOpacity) * t,
-                cameraCutout: a.frame.cameraCutout + (b.frame.cameraCutout - a.frame.cameraCutout) * t
+                cameraCutout: a.frame.cameraCutout + (b.frame.cameraCutout - a.frame.cameraCutout) * t,
+                cameraFloats: a.frame.cameraFloats + (b.frame.cameraFloats - a.frame.cameraFloats) * t
             ),
             drawRect: a.drawRect.motionLerp(b.drawRect, t),
             isLayoutSettled: a.isLayoutSettled && b.isLayoutSettled,
@@ -320,6 +321,7 @@ nonisolated private struct StudioLayoutSpring {
     private var screenOpacity: DampedSpring
     private var cameraOpacity: DampedSpring
     private var cameraCutout: DampedSpring
+    private var cameraFloats: DampedSpring
 
     init(_ frame: RecordingCameraLayoutFrame) {
         screen = StudioRectSpring(frame.screenRect)
@@ -328,13 +330,15 @@ nonisolated private struct StudioLayoutSpring {
         screenOpacity = DampedSpring(position: frame.screenOpacity)
         cameraOpacity = DampedSpring(position: frame.cameraOpacity)
         cameraCutout = DampedSpring(position: frame.cameraCutout)
+        cameraFloats = DampedSpring(position: frame.cameraFloats)
     }
 
     var frame: RecordingCameraLayoutFrame {
         RecordingCameraLayoutFrame(
             screenRect: screen.rect, screenOpacity: screenOpacity.position,
             cameraRect: camera.rect, cameraCornerRadius: radius.position, cameraOpacity: cameraOpacity.position,
-            cameraCutout: min(max(cameraCutout.position, 0), 1)
+            cameraCutout: min(max(cameraCutout.position, 0), 1),
+            cameraFloats: min(max(cameraFloats.position, 0), 1)
         )
     }
 
@@ -345,6 +349,7 @@ nonisolated private struct StudioLayoutSpring {
         screenOpacity.motionStep(toward: frame.screenOpacity, dt: dt)
         cameraOpacity.motionStep(toward: frame.cameraOpacity, dt: dt)
         cameraCutout.motionStep(toward: frame.cameraCutout, dt: dt)
+        cameraFloats.motionStep(toward: frame.cameraFloats, dt: dt)
     }
 
     func isSettled(on frame: RecordingCameraLayoutFrame) -> Bool {
@@ -352,6 +357,7 @@ nonisolated private struct StudioLayoutSpring {
             && radius.isSettled(on: frame.cameraCornerRadius)
             && screenOpacity.isSettled(on: frame.screenOpacity) && cameraOpacity.isSettled(on: frame.cameraOpacity)
             && cameraCutout.isSettled(on: frame.cameraCutout)
+            && cameraFloats.isSettled(on: frame.cameraFloats)
     }
 }
 

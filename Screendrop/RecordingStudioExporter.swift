@@ -1532,14 +1532,17 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
         let imageSize = CGSize(width: cameraImage.width, height: cameraImage.height)
         let minDimension = min(canvasSize.width, canvasSize.height)
         let path = roundedPath(for: bubble, radius: layout.bubbleCornerRadius)
+        let frameStyle = layout.cameraFrameStyle(for: style)
 
-        Self.castShadow(
-            of: path,
-            in: context,
-            offset: CGSize(width: 0, height: -minDimension * 0.009),
-            blur: minDimension * 0.022,
-            color: CGColor(gray: 0, alpha: 0.35 * opacity)
-        )
+        if frameStyle.shadowAlpha > 0.001 {
+            Self.castShadow(
+                of: path,
+                in: context,
+                offset: CGSize(width: 0, height: -minDimension * frameStyle.shadowOffset),
+                blur: minDimension * frameStyle.shadowBlur,
+                color: CGColor(gray: 0, alpha: frameStyle.shadowAlpha * opacity)
+            )
+        }
 
         context.saveGState()
         context.addPath(path)
@@ -1562,8 +1565,9 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
         }
         context.restoreGState()
 
+        guard frameStyle.borderAlpha > 0.001 else { return }
         context.addPath(roundedPath(for: bubble.insetBy(dx: 0.5, dy: 0.5), radius: layout.bubbleCornerRadius))
-        context.setStrokeColor(CGColor(gray: 1, alpha: 0.25 * opacity))
+        context.setStrokeColor(CGColor(gray: 1, alpha: frameStyle.borderAlpha * opacity))
         context.setLineWidth(max(1, minDimension * 0.0018))
         context.strokePath()
     }
@@ -1603,6 +1607,7 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
         guard !fillRects.isEmpty else { return true }
         let opacity = layout.cameraOpacity
         let minDimension = min(canvasSize.width, canvasSize.height)
+        let frameStyle = layout.cameraFrameStyle(for: style)
         let start = CFAbsoluteTimeGetCurrent()
         defer { metalSeconds += CFAbsoluteTimeGetCurrent() - start }
         return renderer.render(
@@ -1613,8 +1618,12 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
                 cornerRadius: layout.bubbleCornerRadius,
                 opacity: opacity,
                 borderWidth: max(1, minDimension * 0.0018),
-                borderAlpha: 0.25 * opacity,
-                shadow: StudioMorphShadow(offset: minDimension * 0.009, blur: minDimension * 0.022, alpha: 0.35 * opacity)
+                borderAlpha: frameStyle.borderAlpha * opacity,
+                shadow: StudioMorphShadow(
+                    offset: minDimension * frameStyle.shadowOffset,
+                    blur: minDimension * frameStyle.shadowBlur,
+                    alpha: frameStyle.shadowAlpha * opacity
+                )
             ),
             into: destination
         )
@@ -1659,6 +1668,7 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
         let framed = 1 - layout.cameraCutout
         let picture = cameraFillRect(cameraFrame, layout: layout)
         let minDimension = min(canvasSize.width, canvasSize.height)
+        let frameStyle = layout.cameraFrameStyle(for: style)
         let start = CFAbsoluteTimeGetCurrent()
         defer { metalSeconds += CFAbsoluteTimeGetCurrent() - start }
         return renderer.render(
@@ -1669,9 +1679,11 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
                 cornerRadius: layout.bubbleCornerRadius,
                 opacity: opacity,
                 borderWidth: max(1, minDimension * 0.0018),
-                borderAlpha: 0.25 * opacity * framed,
+                borderAlpha: frameStyle.borderAlpha * opacity * framed,
                 shadow: StudioMorphShadow(
-                    offset: minDimension * 0.009, blur: minDimension * 0.022, alpha: 0.35 * opacity * framed
+                    offset: minDimension * frameStyle.shadowOffset,
+                    blur: minDimension * frameStyle.shadowBlur,
+                    alpha: frameStyle.shadowAlpha * opacity * framed
                 )
             ),
             cutout: StudioMorphCameraRenderer.Cutout(
@@ -1759,8 +1771,13 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
         if let cached = resources.bubbleShadow { return cached }
         let layout = resources.layout
         let minDimension = min(canvasSize.width, canvasSize.height)
-        let blur = minDimension * 0.022
-        let offset = minDimension * 0.009
+        let frameStyle = layout.cameraFrameStyle(for: style)
+        guard frameStyle.shadowAlpha > 0.001 else {
+            resources.bubbleShadow = .some(nil)
+            return nil
+        }
+        let blur = minDimension * frameStyle.shadowBlur
+        let offset = minDimension * frameStyle.shadowOffset
         let rect = bubbleContentRect(for: layout)
             .insetBy(dx: -(blur * 2 + offset), dy: -(blur * 2 + offset))
             .intersection(CGRect(origin: .zero, size: canvasSize))
@@ -1771,7 +1788,7 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
                 in: context,
                 offset: CGSize(width: 0, height: -offset),
                 blur: blur,
-                color: CGColor(gray: 0, alpha: 0.35)
+                color: CGColor(gray: 0, alpha: frameStyle.shadowAlpha)
             )
         })
         let shadow = image.map { ($0, rect) }
@@ -1844,8 +1861,10 @@ nonisolated private final class StudioFrameCompositor: @unchecked Sendable {
             }
             context.restoreGState()
 
+            let borderAlpha = layout.cameraFrameStyle(for: style).borderAlpha
+            guard borderAlpha > 0.001 else { return }
             context.addPath(roundedPath(for: bubble.insetBy(dx: 0.5, dy: 0.5), radius: layout.bubbleCornerRadius))
-            context.setStrokeColor(CGColor(gray: 1, alpha: 0.25))
+            context.setStrokeColor(CGColor(gray: 1, alpha: borderAlpha))
             context.setLineWidth(max(1, minDimension * 0.0018))
             context.strokePath()
         }
