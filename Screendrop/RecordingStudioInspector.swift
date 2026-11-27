@@ -1399,6 +1399,7 @@ struct StudioInspector: View {
             case .finished(let url):
                 audioExportChrome(help: "Reveal \(url.lastPathComponent) in Finder") {
                     NSWorkspace.shared.activateFileViewerSelecting([url])
+                    model.audioExportState = .idle
                 } label: {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 11, weight: .medium))
@@ -1420,6 +1421,14 @@ struct StudioInspector: View {
         }
         .transition(AnyTransition(.blurReplace))
         .motion(.morphQuick, value: model.audioExportState.phase)
+        // The result is a moment's offer, like the video export's flash:
+        // Reveal stands a few seconds, then the button is Export Audio again.
+        .task(id: model.audioExportState) {
+            guard case .finished = model.audioExportState else { return }
+            try? await Task.sleep(for: .seconds(4))
+            guard !Task.isCancelled, case .finished = model.audioExportState else { return }
+            model.audioExportState = .idle
+        }
     }
 
     /// Matches `InspectorActionButton`'s chrome for the export button's
