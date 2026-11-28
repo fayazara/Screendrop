@@ -27,6 +27,27 @@
     -->
 
     <item>
+      <title>Version 0.40.2</title>
+      <sparkle:version>45</sparkle:version>
+      <sparkle:shortVersionString>0.40.2</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.4</sparkle:minimumSystemVersion>
+      <pubDate>Sat, 28 Nov 2026 11:49:58 +0000</pubDate>
+      <description><![CDATA[
+        <h2>What's New in 0.40.2</h2>
+        <ul>
+          <li>Studio: in split layouts the camera pane now matches the screen card, so Shadow applies to both and the camera loses its border</li>
+          <li>Studio: the Reveal button after exporting audio turns back into Export Audio after a few seconds</li>
+        </ul>
+      ]]></description>
+      <enclosure
+        url="https://github.com/fayazara/screendrop/releases/download/v0.40.2/Screendrop.dmg"
+        type="application/octet-stream"
+        sparkle:edSignature="jJo+2QA50MAaM0MflMJY6agcABOVRYnQz9ogT30GPE9E38DosdTZWB+1bUuGaG8lzrCCe83CBJ0vAk3sBxyxCw=="
+        length="10242409"
+      />
+    </item>
+
+    <item>
       <title>Version 0.40.1</title>
       <sparkle:version>44</sparkle:version>
       <sparkle:shortVersionString>0.40.1</sparkle:shortVersionString>
